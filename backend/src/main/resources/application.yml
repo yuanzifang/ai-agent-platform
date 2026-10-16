@@ -1,6 +1,11 @@
 spring:
   application:
     name: ai-agent-platform
+  ai:
+    openai:
+      # DeepSeek 走 OpenAI 兼容协议；Key 后补，占位值保证未配置时应用可启动
+      api-key: ${DEEPSEEK_API_KEY:sk-not-configured}
+      base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/ai_agent_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:root}

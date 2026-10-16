@@ -3,6 +3,7 @@ package com.platform.auth.controller;
 import com.platform.auth.service.AuthService;
 import com.platform.common.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -36,7 +37,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ApiResponse<LoginResponse> login(@RequestBody LoginRequest req, HttpServletRequest request) {
+    public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest req, HttpServletRequest request) {
         AuthService.LoginResult r = authService.login(req.username(), req.password(),
                 req.tenantKey(), request);
         return ApiResponse.ok(new LoginResponse(r.accessToken(), r.refreshToken(), r.expiresIn(),
@@ -45,12 +46,12 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public ApiResponse<RefreshResponse> refresh(@RequestBody RefreshRequest req) {
+    public ApiResponse<RefreshResponse> refresh(@Valid @RequestBody RefreshRequest req) {
         return ApiResponse.ok(new RefreshResponse(authService.refresh(req.refreshToken()), 7200));
     }
 
     @PostMapping("/logout")
-    public ApiResponse<Void> logout(@RequestBody RefreshRequest req) {
+    public ApiResponse<Void> logout(@Valid @RequestBody RefreshRequest req) {
         authService.logout(req.refreshToken());
         return ApiResponse.ok();
     }

@@ -34,6 +34,7 @@ public class SecurityConfig {
                         .anyRequest().authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint((req, res, ex) -> {
                     res.setStatus(401);
+                    res.setCharacterEncoding("UTF-8");
                     res.setContentType(MediaType.APPLICATION_JSON_VALUE);
                     res.getWriter().write("{\"code\":401,\"message\":\"未认证或登录已过期\",\"data\":null}");
                 }))

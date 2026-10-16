@@ -38,6 +38,7 @@ public class WebConfig implements WebMvcConfigurer {
                 if (headerTenant != null && principal.tenantId() != null
                         && !String.valueOf(principal.tenantId()).equals(headerTenant)) {
                     response.setStatus(403);
+                    response.setCharacterEncoding("UTF-8");
                     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
                     response.getWriter().write("{\"code\":403,\"message\":\"租户标识与登录信息不一致\",\"data\":null}");
                     return false;
