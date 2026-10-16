@@ -1,0 +1,21 @@
+# Java
+backend/target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+.idea/
+*.iml
+.vscode/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# 本地环境与密钥
+.env
+*.local
+application-local.yml
+
+# 日志
+logs/
+*.log

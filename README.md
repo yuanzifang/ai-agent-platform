@@ -1,0 +1,59 @@
+# AI Agent Platform
+
+企业级 AI Agent 平台（SaaS 多租户）：Spring Boot 3 + Spring AI（+ Spring AI Alibaba Graph）+ Vue3 + MySQL/Redis/PgVector/MinIO。
+设计文档：`~/Desktop/AI-Agent-平台需求文档-v1.0.md`、`~/Desktop/AI-Agent-平台架构设计-v1.0.md`（内容 v1.2）。
+
+## 技术决策（v1.2 定稿）
+
+- 框架：Spring AI 1.0.x 基础框架 + Spring AI Alibaba（Graph 多 Agent 编排，M2+ 引入）
+- Chat 模型：DeepSeek（OpenAI 兼容协议），API Key 经 `DEEPSEEK_API_KEY` 注入（占位，后补）
+- 嵌入模型：本地 Ollama `nomic-embed-text`（768 维，零成本），`ollama.endpoint` 默认 http://localhost:11434
+- 语音转文字：本地 ASR 服务（接口样例后补，当前 `asr.enabled=false`）
+- 开发模式：本机直跑（无需 Docker）；Docker Compose 仅服务器部署用
+
+## 目录
+
+- `backend/` Spring Boot 单体（模块化包：auth / system / agent / knowledge / ...）
+- `frontend/` Vue3 + TS + Vite + Element Plus
+
+## 本机开发准备（macOS，无 Docker）
+
+```bash
+brew install mysql redis postgresql@16 pgvector minio ollama
+brew services start mysql redis postgresql@16
+
+# MySQL 建库
+mysql -uroot -e "CREATE DATABASE ai_agent_platform DEFAULT CHARACTER SET utf8mb4;"
+
+# PgVector 建库（向量库）
+psql -d postgres -c "CREATE DATABASE vector;"
+# pgvector 扩展：psql -d vector -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+# 本地嵌入模型
+ollama pull nomic-embed-text
+```
+
+## 环境变量（后端）
+
+| 变量 | 说明 | 默认 |
+|---|---|---|
+| MYSQL_PASSWORD | MySQL 密码 | root |
+| JWT_SECRET | JWT 签名密钥（≥32 字节） | dev 占位（生产必换） |
+| PLATFORM_ADMIN_PASSWORD | 平台管理员初始密码（首次启动重置 seed 账号） | 无则保留占位 |
+| DEEPSEEK_API_KEY | DeepSeek Key（后补） | 空（相关功能提示未配置） |
+
+## 启动
+
+```bash
+# 后端（M1：认证/多租户/RBAC/审计）
+cd backend && mvn spring-boot:run
+# 平台管理员：admin / $PLATFORM_ADMIN_PASSWORD（未设置时启动日志会提示）
+
+# 前端
+cd frontend && npm install && npm run dev   # http://localhost:5173
+```
+
+## 里程碑
+
+M1 平台基座（当前）→ M2 模型与 Agent → M3 知识库 → M4 会话对话 → M5 可观测 → M6 安全合规验收。
+每个里程碑对应一批 Flyway 迁移脚本（V1 为 M1 表结构，后续里程碑递增）。
