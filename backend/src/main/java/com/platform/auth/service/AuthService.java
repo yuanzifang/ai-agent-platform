@@ -67,8 +67,8 @@ public class AuthService {
         UserSession session = new UserSession();
         session.setUserId(user.getId());
         session.setRefreshTokenHash(jwtService.hash(refreshToken));
-        session.setDevice(request.getHeader("User-Agent"));
-        session.setIp(clientIp(request));
+        session.setDevice(truncate(request.getHeader("User-Agent"), 128));
+        session.setIp(truncate(clientIp(request), 64));
         session.setExpiresAt(LocalDateTime.now().plusDays(7));
         session.setRevoked(0);
         session.setCreatedAt(LocalDateTime.now());
@@ -107,10 +107,16 @@ public class AuthService {
         audit.setTenantId(user == null ? null : user.getTenantId());
         audit.setUserId(user == null ? null : user.getId());
         audit.setResult(result);
-        audit.setIp(clientIp(request));
-        audit.setUserAgent(request.getHeader("User-Agent"));
+        audit.setIp(truncate(clientIp(request), 64));
+        audit.setUserAgent(truncate(request.getHeader("User-Agent"), 256));
         audit.setCreatedAt(LocalDateTime.now());
         auditLoginMapper.insert(audit);
+    }
+
+    /** 截断防溢出：浏览器 UA 可超 500 字符，超出列宽会导致插入失败。 */
+    private String truncate(String s, int max) {
+        if (s == null) return null;
+        return s.length() <= max ? s : s.substring(0, max);
     }
 
     private String clientIp(HttpServletRequest request) {
