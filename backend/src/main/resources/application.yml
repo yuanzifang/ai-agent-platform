@@ -51,10 +51,16 @@ embedding:
   dimensions: 768
 
 asr:
-  enabled: false                 # 接口样例后补，补齐后开启
+  enabled: true                    # 本地 Qwen3-ASR（OpenAI 兼容协议，start-asr.sh 启动）
   type: local
-  endpoint: ${ASR_ENDPOINT:http://localhost:9000}
-  timeout-ms: 30000
+  endpoint: ${ASR_ENDPOINT:http://127.0.0.1:8000}
+  api-key: ${ASR_API_KEY:local}
+  model: ${ASR_MODEL:/Users/wangpan/models/Qwen3-ASR-1.7B-8bit}
+  timeout-ms: 60000
+
+spring.servlet.multipart:
+  max-file-size: 12MB
+  max-request-size: 12MB
 
 storage:
   type: minio
