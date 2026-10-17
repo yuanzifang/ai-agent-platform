@@ -35,6 +35,7 @@ public class UserAdminController {
     }
 
     @PutMapping("/users/{id}/roles")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('user:manage')")
     public ApiResponse<Void> assignRoles(@PathVariable Long id, @RequestBody RolesRequest req,
                                          @AuthenticationPrincipal JwtPrincipal principal) {
         userAdminService.assignRoles(id, req.roles(), principal);
@@ -42,6 +43,7 @@ public class UserAdminController {
     }
 
     @PostMapping("/auth/invitations")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('user:manage')")
     public ApiResponse<Map<String, Object>> invite(@Valid @RequestBody InviteRequest req,
                                                    @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(userAdminService.invite(req.email(), req.role(), principal));

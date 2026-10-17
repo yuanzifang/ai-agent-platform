@@ -29,6 +29,7 @@ public class KnowledgeController {
     }
 
     @PostMapping
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('kb:create')")
     public ApiResponse<Map<String, Object>> create(@Valid @RequestBody CreateKbRequest req,
                                                    @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(knowledgeService.create(req.name(), req.description(), principal.userId()));

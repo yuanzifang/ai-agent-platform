@@ -28,20 +28,23 @@
           <el-menu-item index="/provider">
             <el-icon><Connection /></el-icon>模型接入
           </el-menu-item>
-          <el-menu-item index="/settings/usage">
+          <el-menu-item v-if="can('billing:read')" index="/settings/usage">
             <el-icon><DataLine /></el-icon>用量看板
           </el-menu-item>
-          <el-menu-item index="/admin/users">
+          <el-menu-item v-if="can('user:manage')" index="/admin/users">
             <el-icon><UserFilled /></el-icon>成员管理
           </el-menu-item>
-          <el-menu-item index="/admin/tenant">
+          <el-menu-item v-if="can('tenant:manage')" index="/admin/tenant">
             <el-icon><Setting /></el-icon>租户设置
           </el-menu-item>
-          <el-menu-item index="/audit">
+          <el-menu-item v-if="can('audit:read')" index="/audit">
             <el-icon><Document /></el-icon>审计日志
           </el-menu-item>
           <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/platform">
             <el-icon><OfficeBuilding /></el-icon>平台管理
+          </el-menu-item>
+          <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/settings">
+            <el-icon><Tools /></el-icon>系统设置
           </el-menu-item>
         </el-menu>
       </el-aside>
@@ -62,6 +65,11 @@ import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
 const router = useRouter()
 const userStore = useUserStore()
 const userName = computed(() => userStore.userInfo?.displayName || '用户')
+
+function can(perm: string) {
+  const perms = userStore.userInfo?.permissions || []
+  return userStore.userInfo?.isPlatformAdmin || perms.includes(perm)
+}
 
 function onCommand(cmd: string) {
   if (cmd === 'logout') {

@@ -30,7 +30,8 @@ public class AuthController {
     public record LoginResponse(String accessToken, String refreshToken, long expiresIn, UserInfo user) {
     }
 
-    public record UserInfo(String id, String displayName, boolean isPlatformAdmin, String tenantId) {
+    public record UserInfo(String id, String displayName, boolean isPlatformAdmin, String tenantId,
+                           java.util.List<String> roles, java.util.List<String> permissions) {
     }
 
     public record RefreshResponse(String accessToken, long expiresIn) {
@@ -42,7 +43,8 @@ public class AuthController {
                 req.tenantKey(), request);
         return ApiResponse.ok(new LoginResponse(r.accessToken(), r.refreshToken(), r.expiresIn(),
                 new UserInfo(r.userId(), r.displayName(), r.platformAdmin(),
-                        r.tenantId() == null ? null : String.valueOf(r.tenantId()))));
+                        r.tenantId() == null ? null : String.valueOf(r.tenantId()),
+                        r.roles(), r.permissions())));
     }
 
     @PostMapping("/refresh")

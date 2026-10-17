@@ -35,7 +35,7 @@ public class JwtService {
                 .subject(String.valueOf(principal.userId()))
                 .claim("tenantId", principal.tenantId())
                 .claim("platformAdmin", principal.platformAdmin())
-                .claim("roles", principal.roles())
+                .claim("roles", principal.roles()).claim("permissions", principal.permissions())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(expirySeconds)))
                 .signWith(key)
@@ -49,11 +49,13 @@ public class JwtService {
         Long tenantId = claims.get("tenantId", Long.class);
         Boolean platformAdmin = claims.get("platformAdmin", Boolean.class);
         List<String> roles = claims.get("roles", List.class);
+        List<String> permissions = claims.get("permissions", List.class);
         return new JwtPrincipal(
                 Long.valueOf(claims.getSubject()),
                 tenantId,
                 Boolean.TRUE.equals(platformAdmin),
-                roles == null ? List.of() : roles);
+                roles == null ? List.of() : roles,
+                permissions == null ? List.of() : permissions);
     }
 
     public long getExpirySeconds() {

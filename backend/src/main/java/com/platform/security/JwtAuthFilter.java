@@ -33,8 +33,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             if (header != null && header.startsWith("Bearer ")) {
                 try {
                     JwtPrincipal principal = jwtService.parse(header.substring(7));
-                    var auth = new UsernamePasswordAuthenticationToken(principal, null,
-                            principal.roles().stream().map(r -> (org.springframework.security.core.GrantedAuthority) () -> "ROLE_" + r).toList());
+                    var authorities = new java.util.ArrayList<org.springframework.security.core.GrantedAuthority>();
+                    principal.roles().forEach(r -> authorities.add(() -> "ROLE_" + r));
+                    principal.permissions().forEach(p -> authorities.add(() -> p));
+                    var auth = new UsernamePasswordAuthenticationToken(principal, null, authorities);
                     auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                     SecurityContextHolder.getContext().setAuthentication(auth);
                 } catch (io.jsonwebtoken.JwtException ignored) {

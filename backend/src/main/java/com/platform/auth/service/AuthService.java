@@ -23,6 +23,13 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AuthService {
 
+    /** 平台管理员直接持有全部权限点（需求 3.5）。 */
+    private static final List<String> ALL_PERMISSIONS = List.of(
+            "agent:create", "agent:edit", "agent:delete", "agent:publish",
+            "kb:create", "kb:edit", "kb:delete", "model:manage", "eval:manage",
+            "billing:read", "audit:read", "tenant:manage", "user:manage",
+            "prompt:manage", "tool:manage", "skill:manage");
+
     private final SysUserMapper userMapper;
     private final SysTenantMapper tenantMapper;
     private final UserSessionMapper sessionMapper;
@@ -31,7 +38,8 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
 
     public record LoginResult(String accessToken, String refreshToken, long expiresIn,
-                              String userId, String displayName, boolean platformAdmin, Long tenantId) {
+                              String userId, String displayName, boolean platformAdmin, Long tenantId,
+                              java.util.List<String> roles, java.util.List<String> permissions) {
     }
 
     public LoginResult login(String username, String password, String tenantKey,
@@ -58,10 +66,13 @@ public class AuthService {
         List<String> roles = user.getIsPlatformAdmin() != null && user.getIsPlatformAdmin() == 1
                 ? List.of("PLATFORM_ADMIN")
                 : userMapper.findRoleKeys(user.getId());
+        List<String> permissions = user.getIsPlatformAdmin() != null && user.getIsPlatformAdmin() == 1
+                ? ALL_PERMISSIONS : userMapper.findPermKeys(user.getId());
 
         String accessToken = jwtService.createAccessToken(
                 new JwtPrincipal(user.getId(), user.getTenantId(),
-                        user.getIsPlatformAdmin() != null && user.getIsPlatformAdmin() == 1, roles));
+                        user.getIsPlatformAdmin() != null && user.getIsPlatformAdmin() == 1,
+                        roles, permissions));
         String refreshToken = jwtService.createRefreshToken();
 
         UserSession session = new UserSession();
@@ -79,7 +90,7 @@ public class AuthService {
 
         return new LoginResult(accessToken, refreshToken, jwtService.getExpirySeconds(),
                 String.valueOf(user.getId()), user.getDisplayName(),
-                user.getIsPlatformAdmin() != null && user.getIsPlatformAdmin() == 1, user.getTenantId());
+                user.getIsPlatformAdmin() != null && user.getIsPlatformAdmin() == 1, user.getTenantId(), roles, permissions);
     }
 
     public String refresh(String refreshToken) {
@@ -94,8 +105,10 @@ public class AuthService {
         List<String> roles = user.getIsPlatformAdmin() != null && user.getIsPlatformAdmin() == 1
                 ? List.of("PLATFORM_ADMIN")
                 : userMapper.findRoleKeys(user.getId());
+        List<String> permissions = user.getIsPlatformAdmin() != null && user.getIsPlatformAdmin() == 1
+                ? ALL_PERMISSIONS : userMapper.findPermKeys(user.getId());
         return jwtService.createAccessToken(new JwtPrincipal(user.getId(), user.getTenantId(),
-                user.getIsPlatformAdmin() != null && user.getIsPlatformAdmin() == 1, roles));
+                user.getIsPlatformAdmin() != null && user.getIsPlatformAdmin() == 1, roles, permissions));
     }
 
     public void logout(String refreshToken) {

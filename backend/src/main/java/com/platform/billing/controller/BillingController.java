@@ -29,6 +29,7 @@ public class BillingController {
     private final BillingUsageMapper usageMapper;
 
     @GetMapping("/usage")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('billing:read')")
     public ApiResponse<Map<String, Object>> usage(@RequestParam(defaultValue = "30") int days,
                                                   @RequestParam(required = false) Long agentId,
                                                   @RequestParam(defaultValue = "1") long page,

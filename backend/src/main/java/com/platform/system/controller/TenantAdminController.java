@@ -29,6 +29,7 @@ public class TenantAdminController {
     }
 
     @PutMapping
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('tenant:manage')")
     public ApiResponse<Void> update(@RequestBody Map<String, Object> req,
                                     @AuthenticationPrincipal JwtPrincipal principal) {
         tenantAdminService.update(principal, req);

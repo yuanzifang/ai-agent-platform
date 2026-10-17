@@ -2,8 +2,39 @@
   <div class="page">
     <div class="toolbar">
       <span class="page-title">模型接入</span>
-      <el-button type="primary" @click="createVisible = true">接入新 Provider</el-button>
+      <div>
+        <el-radio-group v-model="view" class="mr8">
+          <el-radio-button value="admin">接入管理</el-radio-button>
+          <el-radio-button value="market">模型广场</el-radio-button>
+        </el-radio-group>
+        <el-button v-if="view === 'admin'" type="primary" @click="createVisible = true">接入新 Provider</el-button>
+      </div>
     </div>
+
+    <template v-if="view === 'market'">
+      <div class="market-grid">
+        <el-card v-for="m in models" :key="m.modelId" class="m-card" shadow="hover">
+          <div class="m-head">
+            <el-avatar :size="38" class="m-avatar">{{ (m.displayName || m.modelName).slice(0, 1) }}</el-avatar>
+            <div>
+              <div class="m-name">{{ m.displayName || m.modelName }}</div>
+              <div class="m-provider">{{ m.providerName }} · {{ m.purpose }}</div>
+            </div>
+          </div>
+          <div class="m-row">模型 ID：{{ m.modelName }}</div>
+          <div class="m-row">输入价：{{ m.inputPrice ?? '未设置' }} 元/千Token</div>
+          <div class="m-row">输出价：{{ m.outputPrice ?? '未设置' }} 元/千Token</div>
+          <div class="m-foot">
+            <el-tag :type="m.status === 'ENABLED' ? 'success' : 'info'" size="small">
+              {{ m.status === 'ENABLED' ? '可使用' : '已停用' }}
+            </el-tag>
+          </div>
+        </el-card>
+        <el-empty v-if="models.length === 0" description="暂无模型" />
+      </div>
+    </template>
+
+    <template v-else>
 
     <el-card shadow="never" class="mb">
       <template #header>Provider（平台预置 + 租户自建）</template>
@@ -45,6 +76,8 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    </template>
 
     <el-dialog v-model="createVisible" title="接入新 Provider" width="520px">
       <el-form label-width="90px">
@@ -94,6 +127,7 @@ const creating = ref(false)
 const priceVisible = ref(false)
 const price = reactive({ id: 0, input: 0, output: 0 })
 const form = reactive({ name: '', providerType: 'OPENAI_COMPATIBLE', baseUrl: '' })
+const view = ref('admin')
 
 onMounted(load)
 
@@ -155,6 +189,15 @@ async function savePrice() {
 
 <style scoped>
 .page { max-width: 1100px; margin: 0 auto; }
+.mr8 { margin-right: 8px; }
+.market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.m-card { cursor: default; }
+.m-head { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+.m-avatar { background: #409eff; color: #fff; font-weight: 600; }
+.m-name { font-weight: 600; }
+.m-provider { font-size: 12px; color: #909399; }
+.m-row { font-size: 13px; color: #606266; margin: 4px 0; }
+.m-foot { margin-top: 8px; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .page-title { font-size: 16px; font-weight: 600; }
 .mb { margin-bottom: 14px; }

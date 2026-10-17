@@ -21,6 +21,7 @@ public class AuditController {
     private final AuditService auditService;
 
     @GetMapping("/operations")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('audit:read')")
     public ApiResponse<Map<String, Object>> operations(@RequestParam(defaultValue = "1") long page,
                                                        @RequestParam(defaultValue = "20") long pageSize,
                                                        @RequestParam(required = false) String opType) {
@@ -28,6 +29,7 @@ public class AuditController {
     }
 
     @GetMapping("/logins")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('audit:read')")
     public ApiResponse<Map<String, Object>> logins(@RequestParam(defaultValue = "1") long page,
                                                    @RequestParam(defaultValue = "20") long pageSize) {
         return ApiResponse.ok(auditService.logins(page, pageSize));

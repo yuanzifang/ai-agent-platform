@@ -6,7 +6,8 @@ export const useUserStore = defineStore('user', {
     accessToken: localStorage.getItem('accessToken') || '',
     refreshToken: localStorage.getItem('refreshToken') || '',
     userInfo: JSON.parse(localStorage.getItem('userInfo') || 'null') as
-      { id: string; displayName: string; isPlatformAdmin: boolean; tenantId: string | null } | null
+      { id: string; displayName: string; isPlatformAdmin: boolean; tenantId: string | null;
+      roles?: string[]; permissions?: string[] } | null
   }),
   actions: {
     async login(username: string, password: string, tenantKey?: string) {

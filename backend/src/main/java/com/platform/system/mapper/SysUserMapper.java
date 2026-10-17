@@ -43,6 +43,16 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
             + "WHERE password_hash = '__RESET__' AND username = 'dev'")
     int resetDevPassword(String hash);
 
+    /** 用户权限点（角色→权限，需求 3.5）；平台管理员在 Service 层直接放行为全量。 */
+    @InterceptorIgnore(tenantLine = "true")
+    @Select("""
+            SELECT DISTINCT p.perm_key FROM sys_permission p
+            JOIN sys_role_permission rp ON rp.permission_id = p.id
+            JOIN sys_user_role ur ON ur.role_id = rp.role_id
+            WHERE ur.user_id = #{userId}
+            """)
+    java.util.List<String> findPermKeys(Long userId);
+
     /** 用户名全局唯一校验（平台开通租户时无租户上下文）。 */
     @InterceptorIgnore(tenantLine = "true")
     @Select("SELECT COUNT(*) FROM sys_user WHERE username = #{username}")

@@ -13,6 +13,7 @@
       </div>
       <div class="actions">
         <el-button @click="openVersions">版本</el-button>
+        <el-button @click="evalEntry">评测</el-button>
         <el-button type="success" plain @click="publish">发布</el-button>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </div>
@@ -126,6 +127,27 @@
             </el-table>
           </el-collapse-item>
 
+          <el-collapse-item name="access">
+            <template #title><span class="p-title">可见性与授权</span>
+              <el-tag size="small" class="ml8">{{ form.visibility === 'PRIVATE' ? '私有' : '租户可见' }}</el-tag>
+            </template>
+            <el-form label-width="90px">
+              <el-form-item label="可见性">
+                <el-radio-group v-model="form.visibility">
+                  <el-radio value="TENANT">租户内全员可见</el-radio>
+                  <el-radio value="PRIVATE">私有（仅授权用户）</el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item v-if="form.visibility === 'PRIVATE'" label="授权用户">
+                <el-select v-model="grantedIds" multiple placeholder="选择可使用的成员" style="width: 100%">
+                  <el-option v-for="m in members.filter(m => m.id !== ownerId)"
+                             :key="m.id" :value="m.id"
+                             :label="`${m.displayName}(${m.username})`" />
+                </el-select>
+              </el-form-item>
+            </el-form>
+          </el-collapse-item>
+
           <el-collapse-item name="p1" disabled>
             <template #title><span class="p-title">技能 / 工具 / 子 Agent</span>
               <el-tag size="small" type="info" class="ml8">P1 交付</el-tag>
@@ -192,12 +214,15 @@ const activePanels = ref(['base', 'model', 'prompt', 'knowledge', 'variable'])
 const models = ref<any[]>([])
 const kbRows = ref<KbRow[]>([])
 const versions = ref<any[]>([])
+const members = ref<any[]>([])
+const grantedIds = ref<number[]>([])
+const ownerId = ref<number>(0)
 const versionsVisible = ref(false)
 const saving = ref(false)
 
 const form = reactive({
   status: 'DRAFT', updatedAt: '',
-  name: '', description: '', category: '',
+  name: '', description: '', category: '', visibility: 'TENANT',
   modelName: '', temperature: 0.7,
   systemPrompt: '', openingStatement: '',
   capabilities: { streamOutput: true, functionCall: false, multimodal: false },
@@ -221,6 +246,10 @@ onMounted(async () => {
     http.get('/provider/models') as any,
     http.get('/knowledge-base', { params: { pageSize: 100 } }) as any
   ])
+  form.visibility = detail.visibility || 'TENANT'
+  http.get(`/agent/${agentId}/grants`).then((g: any) => { grantedIds.value = g || [] }).catch(() => {})
+  http.get('/users').then((ms: any) => { members.value = ms || [] }).catch(() => {})
+  http.get(`/agent/${agentId}`).then(() => {}).catch(() => {})
   models.value = (modelList || []).filter((m: any) => !m.purpose || String(m.purpose).toUpperCase() === 'CHAT')
 
   form.status = detail.status
@@ -269,6 +298,7 @@ function buildPayload() {
     memoryConfig: { ...form.memory },
     modelConfig: { modelName: form.modelName, temperature: form.temperature },
     variables: form.variables.filter(v => v.key),
+    visibility: form.visibility,
     knowledgeBases: kbRows.value.filter(k => k.enabled).map(k => ({
       knowledgeBaseId: k.knowledgeBaseId, enabled: true,
       retrievalConfig: { topK: k.topK, scoreThreshold: k.scoreThreshold }
@@ -287,6 +317,9 @@ async function save() {
       headers: form.updatedAt ? { 'If-Match': form.updatedAt } : {}
     }) as any
     form.updatedAt = res.updatedAt
+    if (form.visibility === 'PRIVATE') {
+      await http.put(`/agent/${agentId}/grants`, { userIds: grantedIds.value }).catch(() => {})
+    }
     ElMessage.success('已保存')
   } finally {
     saving.value = false
@@ -341,6 +374,10 @@ async function debugSend() {
 
 function scrollDbg() {
   nextTick(() => { if (dbgBox.value) dbgBox.value.scrollTop = dbgBox.value.scrollHeight })
+}
+
+function evalEntry() {
+  ElMessage.info('评测中心随 P1 交付（一次性测评/在线监控/预发布测评），入口已预留')
 }
 
 function clip(text: string, n: number) {

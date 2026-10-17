@@ -44,6 +44,7 @@ public class ConversationService {
     private final AgentRegistryMapper agentMapper;
     private final StorageService storageService;
     private final com.platform.system.service.AuditService auditService;
+    private final com.platform.system.mapper.AgentUserGrantMapper grantMapper;
     private final ObjectMapper objectMapper;
 
     public Map<String, Object> list(String keyword, long page, long size, JwtPrincipal principal) {
@@ -76,6 +77,18 @@ public class ConversationService {
         }
         if (!"PUBLISHED".equals(agent.getStatus())) {
             throw new BusinessException(400, "Agent 未发布，无法发起对话（请先在列表页发布）");
+        }
+        // 私有 Agent 使用授权（需求 3.3）
+        if ("PRIVATE".equals(agent.getVisibility())
+                && !agent.getOwnerId().equals(principal.userId())
+                && !principal.roles().contains("ADMIN") && !principal.roles().contains("OWNER")) {
+            Long granted = grantMapper.selectCount(
+                    new LambdaQueryWrapper<com.platform.system.entity.AgentUserGrant>()
+                            .eq(com.platform.system.entity.AgentUserGrant::getAgentId, agentId)
+                            .eq(com.platform.system.entity.AgentUserGrant::getUserId, principal.userId()));
+            if (granted == null || granted == 0) {
+                throw new BusinessException(403, "无权使用该 Agent（私有，未获授权）");
+            }
         }
         Conversation c = new Conversation();
         c.setSessionId(UUID.randomUUID().toString().replace("-", ""));

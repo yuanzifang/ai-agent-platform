@@ -6,7 +6,9 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.platform.agent.entity.AgentRegistry;
 import com.platform.agent.entity.AgentVersion;
 import com.platform.agent.entity.AgentKnowledgeBase;
+import com.platform.system.entity.AgentUserGrant;
 import com.platform.agent.mapper.AgentKnowledgeBaseMapper;
+import com.platform.system.mapper.AgentUserGrantMapper;
 import com.platform.agent.mapper.AgentRegistryMapper;
 import com.platform.agent.mapper.AgentVersionMapper;
 import com.platform.common.exception.BusinessException;
@@ -19,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -31,17 +34,69 @@ public class AgentService {
 
     private final AgentRegistryMapper agentMapper;
     private final AgentKnowledgeBaseMapper agentKbMapper;
+    private final AgentUserGrantMapper grantMapper;
     private final com.platform.system.service.AuditService auditService;
     private final AgentVersionMapper versionMapper;
     private final ObjectMapper objectMapper;
 
-    public Page<AgentRegistry> list(String keyword, String status, long page, long size) {
+    /** 列表：PRIVATE Agent 仅所有者/被授权用户/管理员可见（需求 3.3）。 */
+    public Page<AgentRegistry> list(String keyword, String status, long page, long size,
+                                    JwtPrincipal principal) {
         LambdaQueryWrapper<AgentRegistry> qw = new LambdaQueryWrapper<AgentRegistry>()
                 .ne(AgentRegistry::getStatus, "DELETED")
                 .eq(status != null && !status.isBlank(), AgentRegistry::getStatus, status)
                 .like(keyword != null && !keyword.isBlank(), AgentRegistry::getName, keyword)
                 .orderByDesc(AgentRegistry::getUpdatedAt);
-        return agentMapper.selectPage(new Page<>(page, size), qw);
+        Page<AgentRegistry> result = agentMapper.selectPage(new Page<>(page, size), qw);
+        boolean admin = principal.roles().stream().anyMatch(r -> r.equals("ADMIN") || r.equals("OWNER"));
+        if (!admin) {
+            List<Long> granted = grantMapper.selectList(new LambdaQueryWrapper<AgentUserGrant>()
+                            .eq(AgentUserGrant::getUserId, principal.userId()))
+                    .stream().map(AgentUserGrant::getAgentId).toList();
+            result.setRecords(result.getRecords().stream().filter(a ->
+                    !"PRIVATE".equals(a.getVisibility())
+                            || a.getOwnerId().equals(principal.userId())
+                            || granted.contains(a.getId())).toList());
+        }
+        return result;
+    }
+
+    /** 使用/对话权限校验（需求 3.3）：TENANT 全员；PRIVATE 需 owner/授权/管理员。 */
+    public void requireUsable(AgentRegistry agent, JwtPrincipal principal) {
+        if (!"PRIVATE".equals(agent.getVisibility())) return;
+        if (agent.getOwnerId().equals(principal.userId())) return;
+        if (principal.roles().stream().anyMatch(r -> r.equals("ADMIN") || r.equals("OWNER"))) return;
+        Long granted = grantMapper.selectCount(new LambdaQueryWrapper<AgentUserGrant>()
+                .eq(AgentUserGrant::getAgentId, agent.getId())
+                .eq(AgentUserGrant::getUserId, principal.userId()));
+        if (granted == null || granted == 0) {
+            throw new BusinessException(403, "无权使用该 Agent（私有，未获授权）");
+        }
+    }
+
+    /** 已授权用户列表（编辑页权限面板）。 */
+    public java.util.List<Long> grants(Long agentId) {
+        get(agentId);
+        return grantMapper.selectList(new LambdaQueryWrapper<AgentUserGrant>()
+                        .eq(AgentUserGrant::getAgentId, agentId))
+                .stream().map(AgentUserGrant::getUserId).toList();
+    }
+
+    /** 授权全量覆盖（PUT 语义）。 */
+    public void replaceGrants(Long agentId, java.util.List<Long> userIds) {
+        AgentRegistry agent = get(agentId);
+        grantMapper.delete(new LambdaQueryWrapper<AgentUserGrant>()
+                .eq(AgentUserGrant::getAgentId, agentId));
+        if (userIds == null) return;
+        for (Long uid : userIds.stream().distinct().toList()) {
+            if (uid.equals(agent.getOwnerId())) continue;
+            AgentUserGrant g = new AgentUserGrant();
+            g.setAgentId(agentId);
+            g.setUserId(uid);
+            g.setTenantId(agent.getTenantId());
+            g.setCreatedAt(LocalDateTime.now());
+            grantMapper.insert(g);
+        }
     }
 
     public AgentRegistry get(Long id) {
@@ -71,7 +126,7 @@ public class AgentService {
         setJsonField(req.get("retrievalConfig"), agent::setRetrievalConfig);
         setJsonField(req.get("variables"), agent::setVariables);
         agent.setOwnerId(principal.userId());
-        agent.setVisibility("TENANT");
+        agent.setVisibility("PRIVATE".equals(str(req.get("visibility"))) ? "PRIVATE" : "TENANT");
         agent.setStatus("DRAFT");
         agent.setTenantId(principal.tenantId());
         agent.setCreatedAt(LocalDateTime.now());
@@ -89,6 +144,9 @@ public class AgentService {
         AgentRegistry patch = new AgentRegistry();
         patch.setId(id);
         if (req.containsKey("name")) patch.setName(str(req.get("name")));
+        if (req.containsKey("visibility") && List.of("TENANT", "PRIVATE").contains(req.get("visibility"))) {
+            patch.setVisibility(str(req.get("visibility")));
+        }
         if (req.containsKey("description")) patch.setDescription(str(req.get("description")));
         if (req.containsKey("category")) patch.setCategory(str(req.get("category")));
         if (req.containsKey("tags")) setJsonField(req.get("tags"), patch::setTags);

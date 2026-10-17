@@ -75,6 +75,7 @@ public class ProviderController {
     }
 
     @PostMapping("/provider")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('model:manage')")
     public ApiResponse<Map<String, Object>> createProvider(@RequestBody CreateProviderRequest req,
                                                            @AuthenticationPrincipal JwtPrincipal principal) {
         Provider p = new Provider();
@@ -97,6 +98,7 @@ public class ProviderController {
 
     /** 模型默认定价/启停（计价权威为 billing_rule，此处仅默认预填，需求 3.7）。 */
     @PutMapping("/models/{id}")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('model:manage')")
     public ApiResponse<Map<String, Object>> updateModel(@PathVariable Long id,
                                                         @RequestBody UpdateModelRequest req) {
         ModelEntity m = modelMapper.selectById(id);

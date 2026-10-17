@@ -37,6 +37,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(404).body(ApiResponse.error(404, "接口不存在"));
     }
 
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAccessDenied(
+            org.springframework.security.access.AccessDeniedException e) {
+        return ResponseEntity.status(403).body(ApiResponse.error(403, "无操作权限（权限点校验未通过）"));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnknown(Exception e) {
         // MyBatis/代理层可能把 BusinessException 包装在 cause 链中，先解包还原语义
