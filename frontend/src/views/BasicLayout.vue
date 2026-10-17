@@ -31,6 +31,15 @@
           <el-menu-item index="/settings/usage">
             <el-icon><DataLine /></el-icon>用量看板
           </el-menu-item>
+          <el-menu-item index="/admin/users">
+            <el-icon><UserFilled /></el-icon>成员管理
+          </el-menu-item>
+          <el-menu-item index="/admin/tenant">
+            <el-icon><Setting /></el-icon>租户设置
+          </el-menu-item>
+          <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/platform">
+            <el-icon><OfficeBuilding /></el-icon>平台管理
+          </el-menu-item>
         </el-menu>
       </el-aside>
       <el-main class="main">
@@ -44,7 +53,8 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine } from '@element-plus/icons-vue'
+import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
+  UserFilled, Setting, OfficeBuilding } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()

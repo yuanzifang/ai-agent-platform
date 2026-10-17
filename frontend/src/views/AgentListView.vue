@@ -24,6 +24,7 @@
         <div class="desc">{{ a.description || '暂无描述' }}</div>
         <div class="card-foot" @click.stop>
           <el-button size="small" @click="edit(a)">编辑</el-button>
+          <el-button size="small" @click="observe(a)">观测</el-button>
           <el-button size="small" :disabled="a.status !== 'PUBLISHED'" @click="enter(a)">对话</el-button>
           <el-button v-if="a.status !== 'PUBLISHED'" size="small" type="success" plain @click="publish(a)">发布</el-button>
           <el-button size="small" type="danger" plain @click="remove(a)">删除</el-button>
@@ -132,6 +133,10 @@ async function remove(a: AgentItem) {
   await http.delete(`/agent/${a.id}`)
   ElMessage.success('已删除')
   await load()
+}
+
+function observe(a: AgentItem) {
+  router.push(`/observability/${a.id}`)
 }
 
 function edit(a: AgentItem) {

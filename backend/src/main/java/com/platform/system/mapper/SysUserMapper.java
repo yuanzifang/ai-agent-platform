@@ -42,4 +42,9 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
     @Update("UPDATE sys_user SET password_hash = #{hash}, password_updated_at = NOW() "
             + "WHERE password_hash = '__RESET__' AND username = 'dev'")
     int resetDevPassword(String hash);
+
+    /** 用户名全局唯一校验（平台开通租户时无租户上下文）。 */
+    @InterceptorIgnore(tenantLine = "true")
+    @Select("SELECT COUNT(*) FROM sys_user WHERE username = #{username}")
+    Long countByUsernameGlobal(String username);
 }

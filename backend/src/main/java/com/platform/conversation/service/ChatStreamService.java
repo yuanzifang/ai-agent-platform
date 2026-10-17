@@ -11,6 +11,7 @@ import com.platform.agent.mapper.AgentVersionMapper;
 import com.platform.agent.service.ChatService;
 import com.platform.billing.entity.BillingUsage;
 import com.platform.billing.mapper.BillingUsageMapper;
+import com.platform.observability.service.TraceService;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
 import com.platform.conversation.entity.ChatAttachment;
@@ -61,6 +62,7 @@ public class ChatStreamService {
     private final ChatService chatService;                 // 复用 RAG augmentWithKnowledge
     private final ConversationService conversationService;
     private final ModerationService moderationService;
+    private final TraceService traceService;
     private final ObjectMapper objectMapper;
 
     private static final int MEMORY_WINDOW = 10;
@@ -146,6 +148,7 @@ public class ChatStreamService {
                               List<ModerationService.Hit> inHits, Map<String, Object> variables) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
+        long startedAt = System.currentTimeMillis();
         SseEmitter emitter = new SseEmitter(300_000L);
 
         // RAG 检索在请求线程完成（租户上下文可用）
@@ -181,6 +184,10 @@ public class ChatStreamService {
             messageMapper.insert(ai);
             conversationService.touch(conv.getId());
             recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1]);
+            traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
+                    conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
+                    modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
+                    citations.size());
             emitSafe(emitter, "done", Map.of("traceId", traceId, "messageId", ai.getId(),
                     "status", ai.getStatus(),
                     "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1])));
@@ -208,6 +215,10 @@ public class ChatStreamService {
                         ai.setContent(acc.toString());
                         ai.setStatus("ERROR");
                         messageMapper.insert(ai);
+                        traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
+                                conv.getAgentId(), conv.getUserId(), agent.getName(), "ERROR",
+                                modelName, 0, tokens[1], System.currentTimeMillis() - startedAt,
+                                citations.size());
                     });
                     emitSafe(emitter, "error", Map.of("code", 500201, "message", "生成失败：" + err.getMessage()));
                     emitter.complete();
@@ -237,6 +248,10 @@ public class ChatStreamService {
                     messageMapper.insert(ai);
                     conversationService.touch(conv.getId());
                     recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1]);
+                    traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
+                            conv.getAgentId(), conv.getUserId(), agent.getName(), "STOPPED",
+                            modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
+                            citations.size());
                 });
                 emitSafe(emitter, "done", Map.of("traceId", traceId, "status", "STOPPED",
                         "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1])));
@@ -266,6 +281,7 @@ public class ChatStreamService {
                                              Map<String, Object> variables) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
+        long startedAt = System.currentTimeMillis();
         String systemPrompt = applyVariables(str(config.get("systemPrompt")), config.get("variables"), variables);
         List<Map<String, Object>> citations = new ArrayList<>();
         List<Map<String, Object>> kbBindings = knowledgeBindings(conv.getAgentId());
@@ -293,6 +309,9 @@ public class ChatStreamService {
         messageMapper.insert(ai);
         conversationService.touch(conv.getId());
         recordUsage(tenantId, conv.getAgentId(), modelName, in, out);
+        traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
+                conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
+                modelName, in, out, System.currentTimeMillis() - startedAt, citations.size());
 
         // 输出审核（P0 留痕）
         moderationService.moderate("OUT", answer, conv.getId(), ai.getId());

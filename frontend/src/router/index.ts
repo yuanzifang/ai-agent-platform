@@ -17,6 +17,10 @@ const router = createRouter({
         { path: 'knowledge/:id', component: () => import('../views/KnowledgeDetailView.vue') },
         { path: 'settings/usage', component: () => import('../views/UsageView.vue') },
         { path: 'provider', component: () => import('../views/ProviderAdminView.vue') },
+        { path: 'admin/users', component: () => import('../views/UserAdminView.vue') },
+        { path: 'admin/tenant', component: () => import('../views/TenantAdminView.vue') },
+        { path: 'admin/platform', component: () => import('../views/PlatformAdminView.vue') },
+        { path: 'observability/:agentId?', component: () => import('../views/ObservabilityView.vue') },
         { path: 'chat/:agentId', component: () => import('../views/ChatView.vue') }
       ]
     },
