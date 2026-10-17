@@ -70,7 +70,7 @@ public class ConversationController {
                        @AuthenticationPrincipal JwtPrincipal principal) {
         Object result = chatStreamService.send(id, new ChatStreamService.SendRequest(
                 req.message(), req.stream(), req.variables(), req.attachmentIds()), principal);
-        return result;
+        return result instanceof SseEmitter ? result : ApiResponse.ok(result);
     }
 
     @PostMapping("/{id}/attachments")

@@ -224,6 +224,18 @@ public class ConversationService {
         if (!"UP".equals(type) && !"DOWN".equals(type)) {
             throw new BusinessException(400, "反馈类型仅支持 UP/DOWN");
         }
+        Feedback existing = feedbackMapper.selectOne(new LambdaQueryWrapper<Feedback>()
+                .eq(Feedback::getMessageId, messageId)
+                .eq(Feedback::getUserId, principal.userId())
+                .last("LIMIT 1"));
+        // upsert 语义：重复提交同类型 = 取消反馈；不同类型 = 切换
+        if (existing != null && existing.getType().equals(type)) {
+            feedbackMapper.deleteById(existing.getId());
+            return;
+        }
+        if (existing != null) {
+            feedbackMapper.deleteById(existing.getId());
+        }
         Feedback f = new Feedback();
         f.setMessageId(messageId);
         f.setConversationId(conversationId);

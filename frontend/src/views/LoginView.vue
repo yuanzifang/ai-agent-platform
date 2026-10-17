@@ -65,7 +65,7 @@ async function submit() {
   loading.value = true
   try {
     await userStore.login(form.username, form.password, form.tenantKey || undefined)
-    router.push('/agents')
+    router.push(userStore.userInfo?.isPlatformAdmin ? '/admin/platform' : '/agents')
   } finally {
     loading.value = false
   }

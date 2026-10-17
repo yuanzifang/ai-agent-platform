@@ -92,6 +92,7 @@ public class ChatStreamService {
         userMsg.setRole("USER");
         userMsg.setContent(req.message());
         userMsg.setAttachments(attachmentsJson(conversationId, req.attachmentIds(), userMsg));
+        String llmInput = llmInputWithAttachments(req.message(), userMsg.getAttachments());
         userMsg.setStatus(blocked ? "ERROR" : "SUCCESS");
         userMsg.setAuditedStatus(blocked ? "REVOKED" : "PASS");
         userMsg.setIsAiGenerated(0);
@@ -103,9 +104,9 @@ public class ChatStreamService {
             return blockedEmitter(conversationId, userMsg, hits);
         }
         if (Boolean.FALSE.equals(req.stream())) {
-            return blockingChat(conv, agent, config, userMsg, variables);
+            return blockingChat(conv, agent, config, userMsg, variables, llmInput);
         }
-        return streamChat(conv, agent, config, userMsg, null, false, hits, variables);
+        return streamChat(conv, agent, config, userMsg, null, false, hits, variables, llmInput);
     }
 
     /** 重新生成：以被替换消息之前的最近 USER 消息重跑，新消息带 parentMessageId。 */
@@ -128,7 +129,8 @@ public class ChatStreamService {
         }
         AgentRegistry agent = agentMapper.selectById(conv.getAgentId());
         Map<String, Object> config = publishedConfig(agent);
-        return streamChat(conv, agent, config, lastUser, target.getId(), true, List.of(), Map.of());
+        String regenInput = llmInputWithAttachments(lastUser.getContent(), lastUser.getAttachments());
+        return streamChat(conv, agent, config, lastUser, target.getId(), true, List.of(), Map.of(), regenInput);
     }
 
     /** 停止生成（幂等）：断开进行中的流并落 STOPPED。 */
@@ -145,7 +147,8 @@ public class ChatStreamService {
     @SuppressWarnings("unchecked")
     private Object streamChat(Conversation conv, AgentRegistry agent, Map<String, Object> config,
                               Message userMsg, Long parentMessageId, boolean regenerated,
-                              List<ModerationService.Hit> inHits, Map<String, Object> variables) {
+                              List<ModerationService.Hit> inHits, Map<String, Object> variables,
+                              String userMsgWithAttachments) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
@@ -158,7 +161,8 @@ public class ChatStreamService {
         if (!kbBindings.isEmpty()) {
             systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings, citations);
         }
-        List<org.springframework.ai.chat.messages.Message> history = history(conv.getId(), userMsg.getId());
+        List<org.springframework.ai.chat.messages.Message> history = history(conv.getId(), userMsg.getId(),
+                memoryWindow(config));
 
         Map<String, Object> modelConfig = config.get("modelConfig") instanceof Map<?, ?> m
                 ? (Map<String, Object>) m : Map.of();
@@ -173,7 +177,7 @@ public class ChatStreamService {
 
         ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModel).prompt().options(options.build());
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
-        spec = spec.messages(history).user(userMsg.getContent());
+        spec = spec.messages(history).user(userMsgWithAttachments);
         Flux<org.springframework.ai.chat.model.ChatResponse> flux = spec.stream().chatResponse();
 
         Runnable persist = () -> TenantContext.run(tenantId, () -> {
@@ -184,6 +188,7 @@ public class ChatStreamService {
             messageMapper.insert(ai);
             conversationService.touch(conv.getId());
             recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1]);
+            moderationService.moderate("OUT", acc.toString(), conv.getId(), ai.getId());
             traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                     conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
                     modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
@@ -278,7 +283,7 @@ public class ChatStreamService {
     /** 非流式：同步调用，返回 JSON（需求文档 7.3）。 */
     private Map<String, Object> blockingChat(Conversation conv, AgentRegistry agent,
                                              Map<String, Object> config, Message userMsg,
-                                             Map<String, Object> variables) {
+                                             Map<String, Object> variables, String userMsgWithAttachments) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
@@ -288,7 +293,8 @@ public class ChatStreamService {
         if (!kbBindings.isEmpty()) {
             systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings, citations);
         }
-        List<org.springframework.ai.chat.messages.Message> history = history(conv.getId(), userMsg.getId());
+        List<org.springframework.ai.chat.messages.Message> history = history(conv.getId(), userMsg.getId(),
+                memoryWindow(config));
         Map<String, Object> modelConfig = asMap(config.get("modelConfig"));
         String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-chat"));
         OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(modelName);
@@ -296,7 +302,7 @@ public class ChatStreamService {
 
         ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModel).prompt().options(options.build());
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
-        var resp = spec.messages(history).user(userMsg.getContent()).call().chatResponse();
+        var resp = spec.messages(history).user(userMsgWithAttachments).call().chatResponse();
         String answer = resp.getResult().getOutput().getText();
         var usage = resp.getMetadata().getUsage();
         long in = usage == null ? 0 : usage.getPromptTokens();
@@ -348,16 +354,28 @@ public class ChatStreamService {
         return ai;
     }
 
+    /** Agent 记忆配置（编排页记忆面板）：enabled=false 窗口置 0（无记忆），windowSize 缺省 10。 */
+    @SuppressWarnings("unchecked")
+    private int memoryWindow(Map<String, Object> config) {
+        if (!(config.get("memoryConfig") instanceof Map<?, ?> mem)) return MEMORY_WINDOW;
+        if (Boolean.FALSE.equals(mem.get("enabled"))) return 0;
+        Object ws = mem.get("windowSize");
+        if (ws instanceof Number n && n.intValue() >= 2 && n.intValue() <= 50) return n.intValue();
+        return MEMORY_WINDOW;
+    }
+
     /** 记忆滚动窗口：最近 N 条已成功消息（不含本次 userMsg）。 */
-    private List<org.springframework.ai.chat.messages.Message> history(Long conversationId, Long beforeMessageId) {
+    private List<org.springframework.ai.chat.messages.Message> history(Long conversationId, Long beforeMessageId,
+                                                                       int window) {
         List<Message> recent = messageMapper.selectList(new LambdaQueryWrapper<Message>()
                 .eq(Message::getConversationId, conversationId)
                 .in(Message::getStatus, "SUCCESS", "STOPPED")
                 .in(Message::getRole, "USER", "ASSISTANT")
                 .lt(beforeMessageId != null, Message::getId, beforeMessageId)
                 .orderByDesc(Message::getId)
-                .last("LIMIT " + MEMORY_WINDOW));
+                .last("LIMIT " + Math.max(window, 1)));  // window=0 仍取1条用于占位，随后清空
         List<org.springframework.ai.chat.messages.Message> history = new ArrayList<>();
+        if (window == 0) return history;
         for (int i = recent.size() - 1; i >= 0; i--) {
             Message m = recent.get(i);
             history.add("USER".equals(m.getRole()) ? new UserMessage(m.getContent())
@@ -454,6 +472,21 @@ public class ChatStreamService {
             return objectMapper.readValue(json, Map.class);
         } catch (Exception e) {
             return Map.of();
+        }
+    }
+
+    /** 附件文件名注入 LLM 输入（P0 告知存在；附件内容理解随 P1 多模态）。 */
+    @SuppressWarnings("unchecked")
+    private String llmInputWithAttachments(String message, String attachmentsJson) {
+        if (attachmentsJson == null || attachmentsJson.isBlank()) return message;
+        try {
+            List<Map<String, Object>> list = objectMapper.readValue(attachmentsJson, List.class);
+            if (list.isEmpty()) return message;
+            String names = list.stream().map(a -> String.valueOf(a.get("fileName")))
+                    .reduce((a, b) -> a + ", " + b).orElse("");
+            return message + "\n[用户随消息上传了附件：" + names + "]";
+        } catch (Exception e) {
+            return message;
         }
     }
 

@@ -27,6 +27,9 @@
         <div v-for="m in messages" :key="m.id ?? 'pending'" class="msg" :class="m.role.toLowerCase()">
           <div class="bubble">
             <div class="content">{{ m.content }}<span v-if="m.streaming" class="cursor">▍</span></div>
+            <div v-if="(m.attachments || []).length" class="msg-attachments">
+              <span v-for="(a, i) in m.attachments" :key="i" class="attach-chip">📎 {{ a.fileName }}</span>
+            </div>
             <div v-if="m.status === 'STOPPED'" class="stopped-tag">已停止</div>
             <div v-if="(m.citations || []).length" class="citations">
               <el-collapse>
@@ -93,7 +96,7 @@ import { useUserStore } from '../stores/user'
 interface SessionItem { id: number; agentId: number; agentName: string; title: string; lastActiveAt: string }
 interface ChatMessage {
   id?: number; role: string; content: string; status?: string; feedback?: string | null
-  citations?: any[]; streaming?: boolean
+  citations?: any[]; streaming?: boolean; attachments?: any[]
 }
 interface Attachment { attachmentId: number; fileName: string }
 
@@ -101,6 +104,7 @@ const route = useRoute()
 const userStore = useUserStore()
 const agentId = Number(route.params.agentId)
 const agentName = ref('')
+const agentStreamEnabled = ref(true)
 const openingStatement = ref('')
 const sessions = ref<SessionItem[]>([])
 const conversationId = ref<number | null>(null)
@@ -120,6 +124,9 @@ onMounted(async () => {
   const agents = await http.get('/agent', { params: { pageSize: 100 } }) as any
   const agent = (agents.list || []).find((a: any) => a.id === agentId)
   agentName.value = agent?.name || '对话'
+  // 能力配置：关闭流式输出时走非流式 JSON
+  const detail = await http.get(`/agent/${agentId}`) as any
+  agentStreamEnabled.value = detail?.agentCapabilities?.streamOutput !== false
   await loadSessions()
   if (sessions.value.length > 0) {
     await openConversation(sessions.value.find(s => s.agentId === agentId)?.id ?? sessions.value[0].id)
@@ -144,7 +151,7 @@ async function openConversation(id: number) {
   openingStatement.value = detail.openingStatement || ''
   messages.value = (detail.messages || []).map((m: any) => ({
     id: m.id, role: m.role, content: m.content, status: m.status,
-    feedback: m.feedback, citations: []
+    feedback: m.feedback, citations: [], attachments: m.attachments || []
   }))
   scrollToBottom()
 }
@@ -159,7 +166,7 @@ async function send() {
   const pending: ChatMessage = { role: 'ASSISTANT', content: '', streaming: true, citations: [] }
   messages.value.push(pending)
   await streamCall(`/conversations/${conversationId.value}/messages`, {
-    message: text, stream: true, attachmentIds
+    message: text, stream: agentStreamEnabled.value, attachmentIds
   }, pending)
 }
 
@@ -184,6 +191,17 @@ async function streamCall(url: string, body: any, pending: ChatMessage) {
     if (!resp.ok || !resp.body) {
       const errText = await resp.text().catch(() => '')
       throw new Error(`请求失败 ${resp.status} ${errText.slice(0, 200)}`)
+    }
+    // 非流式分支（Agent 关闭流式输出 / stream=false）：直接消费 JSON
+    const contentType = resp.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      const json = await resp.json()
+      if (json.code !== 0) throw new Error(json.message || '发送失败')
+      const data = json.data || {}
+      pending.content = data.answer || ''
+      ;(pending.citations ||= []).push(...(data.citations || []))
+      if (data.messageId) pending.id = data.messageId
+      return
     }
     const reader = resp.body.getReader()
     const decoder = new TextDecoder()
@@ -246,12 +264,10 @@ async function stopGen() {
 async function feedback(m: ChatMessage, type: string) {
   if (!conversationId.value || !m.id) return
   await http.post(`/conversations/${conversationId.value}/messages/${m.id}/feedback`, { type })
+  // 后端 upsert：重复提交同类型 = 取消，不同类型 = 切换
   m.feedback = m.feedback === type ? null : type
   if (m.feedback) ElMessage.success(m.feedback === 'UP' ? '已点赞' : '已点踩')
-  else {
-    // 取消反馈再提交一次空值不支持，直接恢复展示
-    m.feedback = type
-  }
+  else ElMessage.info('已取消反馈')
 }
 
 async function share() {
@@ -444,6 +460,18 @@ function clip(text: string, n: number) {
 }
 @keyframes blink {
   50% { opacity: 0; }
+}
+.msg-attachments {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.attach-chip {
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  padding: 2px 6px;
 }
 .stopped-tag {
   margin-top: 6px;
