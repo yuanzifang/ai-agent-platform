@@ -77,9 +77,9 @@ public class ChatService {
         return result;
     }
 
-    /** 知识库检索并拼接参考资料（topK 默认 5、阈值默认 0.5，需求文档 3.1.3(7)）。 */
+    /** 知识库检索并拼接参考资料（topK 默认 5、阈值默认 0.5，需求文档 3.1.3(7)）；调试与正式对话共用。 */
     @SuppressWarnings("unchecked")
-    private String augmentWithKnowledge(String systemPrompt, String message, List<?> kbs,
+    public String augmentWithKnowledge(String systemPrompt, String message, List<?> kbs,
                                         List<Map<String, Object>> citations) {
         Long tenantId = TenantContext.getTenantId();
         if (tenantId == null) return systemPrompt;

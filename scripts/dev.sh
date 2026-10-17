@@ -17,6 +17,8 @@ mysql -uroot -p${MYSQL_PASSWORD:-root} -e "CREATE DATABASE IF NOT EXISTS ai_agen
 lsof -nP -tiTCP:8080 -sTCP:LISTEN | xargs kill 2>/dev/null || true
 sleep 1
 cd "$ROOT/backend"
+# 加载 .env（DEEPSEEK_API_KEY 等敏感配置，gitignore，勿提交）
+if [ -f "$ROOT/.env" ]; then set -a; . "$ROOT/.env"; set +a; fi
 PLATFORM_ADMIN_PASSWORD="${PLATFORM_ADMIN_PASSWORD:-Admin@123456}" nohup "$MVN" -q spring-boot:run > /tmp/backend.log 2>&1 &
 echo "backend starting -> /tmp/backend.log"
 

@@ -79,4 +79,26 @@ public class StorageService {
             throw new BusinessException(502, "读取文件失败：" + e.getMessage());
         }
     }
+
+    /** 服务端直传（会话附件：multipart 经后端写入 MinIO）。 */
+    public void put(String objectName, byte[] bytes, String contentType) {
+        try (var in = new java.io.ByteArrayInputStream(bytes)) {
+            client.putObject(io.minio.PutObjectArgs.builder()
+                    .bucket(bucket).object(objectName)
+                    .stream(in, bytes.length, -1)
+                    .contentType(contentType == null ? "application/octet-stream" : contentType)
+                    .build());
+        } catch (Exception e) {
+            throw new BusinessException(502, "上传附件失败：" + e.getMessage());
+        }
+    }
+
+    /** 删除对象（会话删除级联清理附件）。 */
+    public void remove(String objectName) {
+        try {
+            client.removeObject(io.minio.RemoveObjectArgs.builder().bucket(bucket).object(objectName).build());
+        } catch (Exception e) {
+            log.warn("删除对象失败 objectName={}：{}", objectName, e.getMessage());
+        }
+    }
 }

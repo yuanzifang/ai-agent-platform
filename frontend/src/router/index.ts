@@ -5,8 +5,15 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', component: () => import('../views/LoginView.vue') },
-    { path: '/agents', component: () => import('../views/AgentListView.vue') },
-    { path: '/', redirect: '/agents' }
+    {
+      path: '/',
+      component: () => import('../views/BasicLayout.vue'),
+      children: [
+        { path: '', redirect: '/agents' },
+        { path: 'agents', component: () => import('../views/AgentListView.vue') },
+        { path: 'chat/:agentId', component: () => import('../views/ChatView.vue') }
+      ]
+    }
   ]
 })
 

@@ -23,4 +23,28 @@ public final class TenantContext {
     public static void clear() {
         TENANT.remove();
     }
+
+    /** 在异步线程（SSE 回调/Reactor 调度）中以指定租户执行，结束恢复原值。 */
+    public static void run(Long tenantId, Runnable action) {
+        Long previous = TENANT.get();
+        TENANT.set(tenantId);
+        try {
+            action.run();
+        } finally {
+            if (previous != null) TENANT.set(previous);
+            else TENANT.remove();
+        }
+    }
+
+    /** 同 {@link #run}，但携带返回值（分享链接免登录场景）。 */
+    public static <T> T runWith(Long tenantId, java.util.function.Supplier<T> action) {
+        Long previous = TENANT.get();
+        TENANT.set(tenantId);
+        try {
+            return action.get();
+        } finally {
+            if (previous != null) TENANT.set(previous);
+            else TENANT.remove();
+        }
+    }
 }
