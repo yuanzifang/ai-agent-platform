@@ -37,4 +37,9 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
     @Update("UPDATE sys_user SET password_hash = #{hash}, password_updated_at = NOW() "
             + "WHERE password_hash = '__RESET__' AND is_platform_admin = 1")
     int resetPlatformAdminPassword(String hash);
+
+    @InterceptorIgnore(tenantLine = "true")
+    @Update("UPDATE sys_user SET password_hash = #{hash}, password_updated_at = NOW() "
+            + "WHERE password_hash = '__RESET__' AND username = 'dev'")
+    int resetDevPassword(String hash);
 }

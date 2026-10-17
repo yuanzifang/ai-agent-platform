@@ -10,8 +10,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 /**
- * 平台管理员初始密码重置（架构 10.8）：seed 账号 password_hash='__RESET__'，
- * 启动时若配置了 PLATFORM_ADMIN_PASSWORD 则重置；未配置则提示。
+ * 平台管理员 + 开发账号密码初始化（架构 10.8）：仅当 seed 占位 __RESET__ 存在时生效。
  */
 @Slf4j
 @Component
@@ -26,13 +25,14 @@ public class AdminPasswordInitializer implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         String password = env.getProperty("PLATFORM_ADMIN_PASSWORD");
         if (password == null || password.isBlank()) {
-            log.warn("未配置 PLATFORM_ADMIN_PASSWORD：平台管理员 admin 未激活，"
-                    + "请设置该环境变量后重启，或手动执行重置");
-            return;
+            log.warn("未配置 PLATFORM_ADMIN_PASSWORD：平台管理员 admin 未激活");
+        } else if (userMapper.resetPlatformAdminPassword(passwordEncoder.encode(password)) > 0) {
+            log.info("平台管理员 admin 初始密码已设置");
         }
-        int updated = userMapper.resetPlatformAdminPassword(passwordEncoder.encode(password));
-        if (updated > 0) {
-            log.info("平台管理员 admin 初始密码已设置（来源：PLATFORM_ADMIN_PASSWORD）");
+
+        String devPassword = env.getProperty("DEV_PASSWORD", "Dev@123456");
+        if (userMapper.resetDevPassword(passwordEncoder.encode(devPassword)) > 0) {
+            log.info("开发账号 dev 初始密码已设置（dev / {}）", devPassword);
         }
     }
 }

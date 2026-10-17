@@ -39,8 +39,22 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnknown(Exception e) {
+        // MyBatis/代理层可能把 BusinessException 包装在 cause 链中，先解包还原语义
+        BusinessException business = findBusiness(e);
+        if (business != null) {
+            int http = (business.getCode() >= 400 && business.getCode() < 600) ? business.getCode() : 400;
+            return ResponseEntity.status(http).body(ApiResponse.error(business.getCode(), business.getMessage()));
+        }
         log.error("unhandled exception", e);
         return ResponseEntity.internalServerError()
                 .body(ApiResponse.error(500, "系统异常，请稍后重试"));
+    }
+
+    private BusinessException findBusiness(Throwable t) {
+        while (t != null) {
+            if (t instanceof BusinessException be) return be;
+            t = t.getCause();
+        }
+        return null;
     }
 }

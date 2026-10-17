@@ -34,8 +34,9 @@ public class MybatisPlusConfig {
             public LongValue getTenantId() {
                 Long tenantId = TenantContext.getTenantId();
                 if (tenantId == null) {
-                    // 系统链路（登录、定时任务）必须用 @InterceptorIgnore 的方法，防止误查全租户
-                    throw new IllegalStateException("缺少租户上下文：该查询未豁免多租户过滤");
+                    // 平台管理员未选择租户等场景：返回明确 403 而非误查全租户
+                    throw new com.platform.common.exception.BusinessException(
+                            403, "缺少租户上下文：平台管理员请携带 X-Tenant-Id 选择租户");
                 }
                 return new LongValue(tenantId);
             }

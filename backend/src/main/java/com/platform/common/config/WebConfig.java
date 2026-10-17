@@ -35,15 +35,25 @@ public class WebConfig implements WebMvcConfigurer {
                     && SecurityContextHolder.getContext().getAuthentication().getPrincipal()
                         instanceof JwtPrincipal principal) {
                 String headerTenant = request.getHeader("X-Tenant-Id");
-                if (headerTenant != null && principal.tenantId() != null
-                        && !String.valueOf(principal.tenantId()).equals(headerTenant)) {
+                Long tenantId = principal.tenantId();
+                // 平台管理员跨租户：未携带自身租户时，以 X-Tenant-Id 作为当前操作租户（需求文档 4.3 租户切换）
+                if (principal.platformAdmin() && tenantId == null
+                        && headerTenant != null && !headerTenant.isBlank()) {
+                    try {
+                        tenantId = Long.valueOf(headerTenant);
+                    } catch (NumberFormatException e) {
+                        tenantId = null;
+                    }
+                }
+                if (headerTenant != null && !headerTenant.isBlank() && tenantId != null
+                        && !String.valueOf(tenantId).equals(headerTenant)) {
                     response.setStatus(403);
                     response.setCharacterEncoding("UTF-8");
                     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
                     response.getWriter().write("{\"code\":403,\"message\":\"租户标识与登录信息不一致\",\"data\":null}");
                     return false;
                 }
-                com.platform.common.context.TenantContext.setTenantId(principal.tenantId());
+                com.platform.common.context.TenantContext.setTenantId(tenantId);
             }
             return true;
         }
