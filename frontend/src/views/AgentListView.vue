@@ -30,5 +30,6 @@ async function logout() {
   display: flex;
   align-items: center;
   border-bottom: 1px solid #e4e7ed;
+  background: #fff;
 }
 </style>
