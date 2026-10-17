@@ -22,6 +22,15 @@
           <el-menu-item index="/agents">
             <el-icon><ChatDotRound /></el-icon>Agent 列表
           </el-menu-item>
+          <el-menu-item index="/knowledge">
+            <el-icon><Collection /></el-icon>知识库
+          </el-menu-item>
+          <el-menu-item index="/provider">
+            <el-icon><Connection /></el-icon>模型接入
+          </el-menu-item>
+          <el-menu-item index="/settings/usage">
+            <el-icon><DataLine /></el-icon>用量看板
+          </el-menu-item>
         </el-menu>
       </el-aside>
       <el-main class="main">
@@ -35,7 +44,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { User, ArrowDown, ChatDotRound } from '@element-plus/icons-vue'
+import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()

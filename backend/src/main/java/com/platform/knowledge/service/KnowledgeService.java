@@ -1,6 +1,7 @@
 package com.platform.knowledge.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.platform.billing.entity.BillingUsage;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.common.context.TenantContext;
@@ -159,6 +160,23 @@ public class KnowledgeService {
             result.add(item);
         }
         return result;
+    }
+
+    /** 文档分段浏览（架构 4.8 KnowledgeDetail/ChunkPanel 数据源）。 */
+    public Map<String, Object> chunks(Long kbId, Long documentId, long page, long pageSize) {
+        Page<KnowledgeChunk> result = chunkMapper.selectPage(new Page<>(page, pageSize),
+                new LambdaQueryWrapper<KnowledgeChunk>()
+                        .eq(KnowledgeChunk::getKnowledgeBaseId, kbId)
+                        .eq(KnowledgeChunk::getDocumentId, documentId)
+                        .orderByAsc(KnowledgeChunk::getChunkIndex));
+        List<Map<String, Object>> list = result.getRecords().stream().map(c -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", c.getId());
+            m.put("chunkIndex", c.getChunkIndex());
+            m.put("content", c.getContent());
+            return m;
+        }).toList();
+        return Map.of("list", list, "total", result.getTotal(), "page", page, "pageSize", pageSize);
     }
 
     public List<KnowledgeDocument> documents(Long kbId) {

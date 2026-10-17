@@ -62,6 +62,13 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.documents(id));
     }
 
+    @GetMapping("/{id}/documents/{docId}/chunks")
+    public ApiResponse<Map<String, Object>> chunks(@PathVariable Long id, @PathVariable Long docId,
+                                                   @RequestParam(defaultValue = "1") long page,
+                                                   @RequestParam(defaultValue = "10") long pageSize) {
+        return ApiResponse.ok(knowledgeService.chunks(id, docId, page, pageSize));
+    }
+
     public record SearchRequest(@NotBlank String query, Integer topK, Double scoreThreshold) {
     }
 

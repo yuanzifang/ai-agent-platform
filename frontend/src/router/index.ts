@@ -5,6 +5,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', component: () => import('../views/LoginView.vue') },
+    { path: '/share/:token', component: () => import('../views/ShareView.vue') },
     {
       path: '/',
       component: () => import('../views/BasicLayout.vue'),
@@ -12,9 +13,14 @@ const router = createRouter({
         { path: '', redirect: '/agents' },
         { path: 'agents', component: () => import('../views/AgentListView.vue') },
         { path: 'agent/edit/:id', component: () => import('../views/AgentEditView.vue') },
+        { path: 'knowledge', component: () => import('../views/KnowledgeListView.vue') },
+        { path: 'knowledge/:id', component: () => import('../views/KnowledgeDetailView.vue') },
+        { path: 'settings/usage', component: () => import('../views/UsageView.vue') },
+        { path: 'provider', component: () => import('../views/ProviderAdminView.vue') },
         { path: 'chat/:agentId', component: () => import('../views/ChatView.vue') }
       ]
-    }
+    },
+    { path: '/:pathMatch(.*)*', component: () => import('../views/NotFoundView.vue') }
   ]
 })
 
