@@ -50,6 +50,11 @@ embedding:
   model: nomic-embed-text
   dimensions: 768
 
+pgvector:
+  url: ${PG_URL:jdbc:postgresql://localhost:5432/vector}
+  username: ${PG_USERNAME:wangpan}
+  password: ${PG_PASSWORD:}
+
 asr:
   enabled: true                    # 本地 Qwen3-ASR（OpenAI 兼容协议，start-asr.sh 启动）
   type: local
