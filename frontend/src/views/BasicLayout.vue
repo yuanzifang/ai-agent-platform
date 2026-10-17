@@ -37,6 +37,9 @@
           <el-menu-item index="/admin/tenant">
             <el-icon><Setting /></el-icon>租户设置
           </el-menu-item>
+          <el-menu-item index="/audit">
+            <el-icon><Document /></el-icon>审计日志
+          </el-menu-item>
           <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/platform">
             <el-icon><OfficeBuilding /></el-icon>平台管理
           </el-menu-item>
@@ -54,7 +57,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
-  UserFilled, Setting, OfficeBuilding } from '@element-plus/icons-vue'
+  UserFilled, Setting, OfficeBuilding, Document } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()

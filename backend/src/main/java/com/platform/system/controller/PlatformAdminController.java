@@ -45,7 +45,7 @@ public class PlatformAdminController {
     public ApiResponse<Void> updateStatus(@PathVariable Long id, @RequestBody StatusRequest req,
                                           @AuthenticationPrincipal JwtPrincipal principal) {
         platformAdminService.requirePlatformAdmin(principal);
-        platformAdminService.updateStatus(id, req.status());
+        platformAdminService.updateStatus(id, req.status(), principal.userId());
         return ApiResponse.ok();
     }
 

@@ -39,6 +39,7 @@ public class UserAdminService {
     private final SysUserRoleMapper userRoleMapper;
     private final UserInvitationMapper invitationMapper;
     private final PasswordEncoder passwordEncoder;
+    private final AuditService auditService;
 
     public List<Map<String, Object>> members(JwtPrincipal principal) {
         List<SysUser> users = userMapper.selectList(new LambdaQueryWrapper<SysUser>()
@@ -77,6 +78,8 @@ public class UserAdminService {
             if (!BUILTIN_ROLES.contains(r)) throw new BusinessException(400, "未知角色：" + r);
         }
         if (roles.contains("OWNER")) throw new BusinessException(400, "所有者角色通过租户转让流程变更");
+        auditService.record(principal.userId(), "member.roles", "user",
+                String.valueOf(userId), "SUCCESS", Map.of("roles", String.join(",", roles)));
         userRoleMapper.delete(new LambdaQueryWrapper<SysUserRole>().eq(SysUserRole::getUserId, userId));
         for (String key : roles) {
             SysRole role = roleMapper.selectOne(new LambdaQueryWrapper<SysRole>()
@@ -103,6 +106,8 @@ public class UserAdminService {
         inv.setExpiresAt(LocalDateTime.now().plusDays(7));
         inv.setCreatedAt(LocalDateTime.now());
         invitationMapper.insert(inv);
+        auditService.record(principal.userId(), "member.invite", "invitation",
+                String.valueOf(inv.getId()), "SUCCESS", Map.of("role", role));
         return Map.of("invitationId", inv.getId(), "token", inv.getToken(), "expiresAt", inv.getExpiresAt());
     }
 
@@ -163,6 +168,8 @@ public class UserAdminService {
         patch.setId(inv.getId());
         patch.setStatus("ACCEPTED");
         invitationMapper.updateById(patch);
+        auditService.record(user.getId(), "member.accept", "invitation",
+                String.valueOf(inv.getId()), "SUCCESS", Map.of("username", username));
         return Map.of("userId", user.getId());
         });
     }

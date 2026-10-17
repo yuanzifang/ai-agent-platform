@@ -43,6 +43,7 @@ public class ConversationService {
     private final ConversationShareMapper shareMapper;
     private final AgentRegistryMapper agentMapper;
     private final StorageService storageService;
+    private final com.platform.system.service.AuditService auditService;
     private final ObjectMapper objectMapper;
 
     public Map<String, Object> list(String keyword, long page, long size, JwtPrincipal principal) {
@@ -180,6 +181,8 @@ public class ConversationService {
         patch.setId(id);
         patch.setStatus("DELETED");
         conversationMapper.updateById(patch);
+        auditService.record(principal.userId(), "conversation.delete", "conversation",
+                String.valueOf(id), "SUCCESS", Map.of());
     }
 
     public void touch(Long id) {
@@ -243,6 +246,8 @@ public class ConversationService {
         s.setTenantId(principal.tenantId());
         s.setCreatedAt(LocalDateTime.now());
         shareMapper.insert(s);
+        auditService.record(principal.userId(), "conversation.share", "conversation",
+                String.valueOf(conversationId), "SUCCESS", Map.of("expiresAt", String.valueOf(s.getExpiresAt())));
         return Map.of("shareToken", s.getToken(), "expiresAt", s.getExpiresAt());
     }
 

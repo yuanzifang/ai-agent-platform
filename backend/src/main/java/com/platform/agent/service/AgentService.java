@@ -31,6 +31,7 @@ public class AgentService {
 
     private final AgentRegistryMapper agentMapper;
     private final AgentKnowledgeBaseMapper agentKbMapper;
+    private final com.platform.system.service.AuditService auditService;
     private final AgentVersionMapper versionMapper;
     private final ObjectMapper objectMapper;
 
@@ -116,12 +117,13 @@ public class AgentService {
                 .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
     }
 
-    public void delete(Long id) {
+    public void delete(Long id, JwtPrincipal principal) {
         get(id);
         AgentRegistry patch = new AgentRegistry();
         patch.setId(id);
         patch.setStatus("DELETED");
         agentMapper.updateById(patch);
+        auditService.record(principal.userId(), "agent.delete", "agent", String.valueOf(id), "SUCCESS", Map.of());
     }
 
     /** 发布：校验提示词与模型，创建版本快照，状态置 PUBLISHED（需求文档 3.2.3）。 */
@@ -150,6 +152,8 @@ public class AgentService {
         patch.setId(id);
         patch.setStatus("PUBLISHED");
         agentMapper.updateById(patch);
+        auditService.record(principal.userId(), "agent.publish", "agent", String.valueOf(id),
+                "SUCCESS", Map.of("version", version));
         return Map.of("version", version);
     }
 

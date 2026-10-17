@@ -21,6 +21,7 @@ const router = createRouter({
         { path: 'admin/tenant', component: () => import('../views/TenantAdminView.vue') },
         { path: 'admin/platform', component: () => import('../views/PlatformAdminView.vue') },
         { path: 'observability/:agentId?', component: () => import('../views/ObservabilityView.vue') },
+        { path: 'audit', component: () => import('../views/AuditView.vue') },
         { path: 'chat/:agentId', component: () => import('../views/ChatView.vue') }
       ]
     },

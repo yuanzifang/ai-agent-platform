@@ -57,8 +57,9 @@ public class AgentController {
     }
 
     @DeleteMapping("/{id}")
-    public ApiResponse<Void> delete(@PathVariable Long id) {
-        agentService.delete(id);
+    public ApiResponse<Void> delete(@PathVariable Long id,
+                                    @AuthenticationPrincipal JwtPrincipal principal) {
+        agentService.delete(id, principal);
         return ApiResponse.ok();
     }
 

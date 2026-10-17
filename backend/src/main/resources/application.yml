@@ -34,6 +34,8 @@ management:
 
 # ---- 平台配置（架构 10.7）----
 security:
+  # 租户级接口限流（次/分钟，0=关闭；需求 3.22）
+  rate-limit-per-minute: ${RATE_LIMIT_PER_MINUTE:60}
   jwt:
     secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
     expiry-seconds: 7200

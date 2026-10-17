@@ -37,6 +37,7 @@ public class PlatformAdminService {
     private final SysRoleMapper roleMapper;
     private final SysUserRoleMapper userRoleMapper;
     private final PasswordEncoder passwordEncoder;
+    private final AuditService auditService;
 
     public List<Map<String, Object>> tenants() {
         List<SysTenant> tenants = tenantMapper.selectList(null);
@@ -105,14 +106,19 @@ public class PlatformAdminService {
             ur.setRoleId(ownerRole.getId());
             userRoleMapper.insert(ur);
         }
+        auditService.record(owner.getId(), "platform.createTenant", "tenant",
+                String.valueOf(t.getId()), "SUCCESS", Map.of("tenantKey", tenantKey));
         return Map.of("tenantId", t.getId(), "ownerUserId", owner.getId());
         });
     }
 
-    public void updateStatus(Long tenantId, String status) {
+    public void updateStatus(Long tenantId, String status, Long operatorId) {
         if (!List.of("TRIAL", "ACTIVE", "SUSPENDED", "CLOSED").contains(status)) {
             throw new BusinessException(400, "非法状态");
         }
+        com.platform.common.context.TenantContext.run(tenantId, () ->
+                auditService.record(operatorId, "platform.tenantStatus", "tenant",
+                        String.valueOf(tenantId), "SUCCESS", Map.of("status", status)));
         SysTenant patch = new SysTenant();
         patch.setId(tenantId);
         patch.setStatus(status);
