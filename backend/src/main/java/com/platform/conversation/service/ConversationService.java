@@ -120,10 +120,27 @@ public class ConversationService {
         result.put("agentName", agent == null ? "" : agent.getName());
         result.put("title", c.getTitle());
         result.put("status", c.getStatus());
-        result.put("openingStatement", agent != null && agent.getOpeningStatement() != null
-                ? agent.getOpeningStatement() : "");
+        result.put("openingStatement", agent == null ? "" : replaceVars(agent));
         result.put("messages", messages.stream().map(msg -> toView(msg, myFeedback)).toList());
         return result;
+    }
+
+    /** 欢迎语占位符运行时替换（需求 3.1.3(2)）：web 入口无变量输入，用默认值。 */
+    private String replaceVars(AgentRegistry agent) {
+        String text = agent.getOpeningStatement() == null ? "" : agent.getOpeningStatement();
+        if (agent.getVariables() == null || text.isEmpty()) return text;
+        try {
+            List<Map<String, Object>> defs = objectMapper.readValue(agent.getVariables(), List.class);
+            for (Map<String, Object> d : defs) {
+                Object key = d.get("key");
+                Object dv = d.get("defaultValue");
+                if (key != null && dv != null) {
+                    text = text.replace("{{" + key + "}}", String.valueOf(dv));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return text;
     }
 
     private Map<String, Object> toView(Message m, Map<Long, String> myFeedback) {

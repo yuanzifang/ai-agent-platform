@@ -78,6 +78,8 @@ public class ChatStreamService {
         }
         AgentRegistry agent = agentMapper.selectById(conv.getAgentId());
         Map<String, Object> config = publishedConfig(agent);
+        Map<String, Object> variables = req.variables() == null ? Map.of() : req.variables();
+        validateVariables(config.get("variables"), variables);
 
         // 输入审核（P0：敏感词/注入，BLOCK 拦截并留痕）
         List<ModerationService.Hit> hits = moderationService.moderate("IN", req.message(), conversationId, null);
@@ -99,9 +101,9 @@ public class ChatStreamService {
             return blockedEmitter(conversationId, userMsg, hits);
         }
         if (Boolean.FALSE.equals(req.stream())) {
-            return blockingChat(conv, agent, config, userMsg);
+            return blockingChat(conv, agent, config, userMsg, variables);
         }
-        return streamChat(conv, agent, config, userMsg, null, false, hits);
+        return streamChat(conv, agent, config, userMsg, null, false, hits, variables);
     }
 
     /** 重新生成：以被替换消息之前的最近 USER 消息重跑，新消息带 parentMessageId。 */
@@ -124,7 +126,7 @@ public class ChatStreamService {
         }
         AgentRegistry agent = agentMapper.selectById(conv.getAgentId());
         Map<String, Object> config = publishedConfig(agent);
-        return streamChat(conv, agent, config, lastUser, target.getId(), true, List.of());
+        return streamChat(conv, agent, config, lastUser, target.getId(), true, List.of(), Map.of());
     }
 
     /** 停止生成（幂等）：断开进行中的流并落 STOPPED。 */
@@ -141,13 +143,13 @@ public class ChatStreamService {
     @SuppressWarnings("unchecked")
     private Object streamChat(Conversation conv, AgentRegistry agent, Map<String, Object> config,
                               Message userMsg, Long parentMessageId, boolean regenerated,
-                              List<ModerationService.Hit> inHits) {
+                              List<ModerationService.Hit> inHits, Map<String, Object> variables) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         SseEmitter emitter = new SseEmitter(300_000L);
 
         // RAG 检索在请求线程完成（租户上下文可用）
-        String systemPrompt = str(config.get("systemPrompt"));
+        String systemPrompt = applyVariables(str(config.get("systemPrompt")), config.get("variables"), variables);
         List<Map<String, Object>> citations = new ArrayList<>();
         List<Map<String, Object>> kbBindings = knowledgeBindings(conv.getAgentId());
         if (!kbBindings.isEmpty()) {
@@ -260,10 +262,11 @@ public class ChatStreamService {
 
     /** 非流式：同步调用，返回 JSON（需求文档 7.3）。 */
     private Map<String, Object> blockingChat(Conversation conv, AgentRegistry agent,
-                                             Map<String, Object> config, Message userMsg) {
+                                             Map<String, Object> config, Message userMsg,
+                                             Map<String, Object> variables) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
-        String systemPrompt = str(config.get("systemPrompt"));
+        String systemPrompt = applyVariables(str(config.get("systemPrompt")), config.get("variables"), variables);
         List<Map<String, Object>> citations = new ArrayList<>();
         List<Map<String, Object>> kbBindings = knowledgeBindings(conv.getAgentId());
         if (!kbBindings.isEmpty()) {
@@ -433,6 +436,38 @@ public class ChatStreamService {
         } catch (Exception e) {
             return Map.of();
         }
+    }
+
+    /** 必填变量校验（需求 3.1.3(9)）：required 且无默认值且未传入 → 400。 */
+    @SuppressWarnings("unchecked")
+    private void validateVariables(Object varDefs, Map<String, Object> values) {
+        if (!(varDefs instanceof List<?> defs)) return;
+        for (Object o : defs) {
+            Map<String, Object> d = o instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
+            String key = str(d.get("key"));
+            if (key == null || key.isBlank()) continue;
+            Object val = values.get(key);
+            boolean required = Boolean.TRUE.equals(d.get("required")) || "true".equals(str(d.get("required")));
+            boolean hasDefault = d.get("defaultValue") != null && !String.valueOf(d.get("defaultValue")).isBlank();
+            if (required && (val == null || String.valueOf(val).isBlank()) && !hasDefault) {
+                throw new BusinessException(400, "缺少必填变量：" + key);
+            }
+        }
+    }
+
+    /** {{key}} 占位符替换：传入值优先，缺省回落 defaultValue（提示词运行时替换，需求 3.1.3(9)）。 */
+    @SuppressWarnings("unchecked")
+    private String applyVariables(String text, Object varDefs, Map<String, Object> values) {
+        if (text == null || !(varDefs instanceof List<?> defs)) return text;
+        for (Object o : defs) {
+            Map<String, Object> d = o instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
+            String key = str(d.get("key"));
+            if (key == null || key.isBlank()) continue;
+            Object v = values != null && values.containsKey(key) && values.get(key) != null
+                    ? values.get(key) : d.get("defaultValue");
+            if (v != null) text = text.replace("{{" + key + "}}", String.valueOf(v));
+        }
+        return text;
     }
 
     private String str(Object o) {

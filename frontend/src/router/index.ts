@@ -11,6 +11,7 @@ const router = createRouter({
       children: [
         { path: '', redirect: '/agents' },
         { path: 'agents', component: () => import('../views/AgentListView.vue') },
+        { path: 'agent/edit/:id', component: () => import('../views/AgentEditView.vue') },
         { path: 'chat/:agentId', component: () => import('../views/ChatView.vue') }
       ]
     }

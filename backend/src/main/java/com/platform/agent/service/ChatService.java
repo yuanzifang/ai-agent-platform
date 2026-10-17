@@ -39,6 +39,14 @@ public class ChatService {
     public Map<String, Object> debugChat(Map<String, Object> config, String message) {
         String systemPrompt = config == null || config.get("systemPrompt") == null
                 ? null : String.valueOf(config.get("systemPrompt"));
+        // 调试链路同样应用变量默认值替换（需求 3.1.3(9)）
+        if (systemPrompt != null && config.get("variables") instanceof List<?> defs) {
+            for (Object o : defs) {
+                if (o instanceof Map<?, ?> d && d.get("key") != null && d.get("defaultValue") != null) {
+                    systemPrompt = systemPrompt.replace("{{" + d.get("key") + "}}", String.valueOf(d.get("defaultValue")));
+                }
+            }
+        }
         Map<String, Object> modelConfig = config == null || config.get("modelConfig") == null
                 ? Map.of() : asMap(config.get("modelConfig"));
 

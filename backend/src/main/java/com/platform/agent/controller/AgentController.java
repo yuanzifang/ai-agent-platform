@@ -45,8 +45,8 @@ public class AgentController {
     }
 
     @GetMapping("/{id}")
-    public ApiResponse<AgentRegistry> get(@PathVariable Long id) {
-        return ApiResponse.ok(agentService.get(id));
+    public ApiResponse<Map<String, Object>> get(@PathVariable Long id) {
+        return ApiResponse.ok(agentService.detail(id));
     }
 
     @PutMapping("/{id}")

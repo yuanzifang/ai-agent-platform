@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.platform.agent.entity.AgentRegistry;
 import com.platform.agent.entity.AgentVersion;
+import com.platform.agent.entity.AgentKnowledgeBase;
+import com.platform.agent.mapper.AgentKnowledgeBaseMapper;
 import com.platform.agent.mapper.AgentRegistryMapper;
 import com.platform.agent.mapper.AgentVersionMapper;
 import com.platform.common.exception.BusinessException;
@@ -28,6 +30,7 @@ import java.util.UUID;
 public class AgentService {
 
     private final AgentRegistryMapper agentMapper;
+    private final AgentKnowledgeBaseMapper agentKbMapper;
     private final AgentVersionMapper versionMapper;
     private final ObjectMapper objectMapper;
 
@@ -73,6 +76,7 @@ public class AgentService {
         agent.setCreatedAt(LocalDateTime.now());
         agent.setUpdatedAt(LocalDateTime.now());
         agentMapper.insert(agent);
+        replaceKnowledgeBases(agent.getId(), agent.getTenantId(), req.get("knowledgeBases"));
         return Map.of("id", agent.getId(), "agentKey", agent.getAgentKey());
     }
 
@@ -94,6 +98,7 @@ public class AgentService {
         if (req.containsKey("modelConfig")) patch.setModelConfig(toJson(asMap(req.get("modelConfig"))));
         if (req.containsKey("retrievalConfig")) setJsonField(req.get("retrievalConfig"), patch::setRetrievalConfig);
         if (req.containsKey("variables")) setJsonField(req.get("variables"), patch::setVariables);
+        boolean kbTouched = req.containsKey("knowledgeBases");
 
         LambdaUpdateWrapper<AgentRegistry> uw = new LambdaUpdateWrapper<AgentRegistry>()
                 .eq(AgentRegistry::getId, id)
@@ -103,6 +108,9 @@ public class AgentService {
         int rows = agentMapper.update(patch, uw);
         if (rows == 0) {
             throw new BusinessException(409, "内容已被他人修改，请刷新后重试");
+        }
+        if (kbTouched) {
+            replaceKnowledgeBases(id, get(id).getTenantId(), req.get("knowledgeBases"));
         }
         return Map.of("updatedAt", agentMapper.selectById(id).getUpdatedAt()
                 .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
@@ -182,6 +190,78 @@ public class AgentService {
 
     // ---- helpers ----
 
+    /** 编辑页详情视图：JSON 字段解析 + 知识库绑定（架构 4.5 AgentEdit 面板数据源）。 */
+    public Map<String, Object> detail(Long id) {
+        AgentRegistry a = get(id);
+        Map<String, Object> v = new LinkedHashMap<>();
+        v.put("id", a.getId());
+        v.put("agentKey", a.getAgentKey());
+        v.put("name", nvl(a.getName()));
+        v.put("description", nvl(a.getDescription()));
+        v.put("category", nvl(a.getCategory()));
+        v.put("tags", fromJsonList(a.getTags()));
+        v.put("status", a.getStatus());
+        v.put("systemPrompt", nvl(a.getSystemPrompt()));
+        v.put("openingStatement", nvl(a.getOpeningStatement()));
+        v.put("agentCapabilities", fromJsonMap(a.getAgentCapabilities()));
+        v.put("memoryConfig", fromJsonMap(a.getMemoryConfig()));
+        v.put("modelConfig", fromJsonMap(a.getModelConfig()));
+        v.put("retrievalConfig", fromJsonMap(a.getRetrievalConfig()));
+        v.put("variables", fromJsonList(a.getVariables()));
+        v.put("updatedAt", a.getUpdatedAt() == null ? null
+                : a.getUpdatedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        v.put("knowledgeBases", knowledgeBases(id));
+        return v;
+    }
+
+    /** Agent 绑定的知识库（enabled=1），供对话 RAG 与编辑面板回显。 */
+    public java.util.List<Map<String, Object>> knowledgeBases(Long agentId) {
+        java.util.List<AgentKnowledgeBase> rows = agentKbMapper.selectList(
+                new LambdaQueryWrapper<AgentKnowledgeBase>()
+                        .eq(AgentKnowledgeBase::getAgentId, agentId));
+        java.util.List<Map<String, Object>> result = new java.util.ArrayList<>();
+        for (AgentKnowledgeBase row : rows) {
+            Map<String, Object> b = new LinkedHashMap<>();
+            b.put("knowledgeBaseId", row.getKnowledgeBaseId());
+            b.put("enabled", row.getEnabled() != null && row.getEnabled() == 1);
+            b.put("retrievalConfig", fromJsonMap(row.getRetrievalConfig()));
+            result.add(b);
+        }
+        return result;
+    }
+
+    /** 整体覆盖知识库绑定（PUT 语义，需求文档 7.3）。 */
+    private void replaceKnowledgeBases(Long agentId, Long tenantId, Object value) {
+        agentKbMapper.delete(new LambdaQueryWrapper<AgentKnowledgeBase>()
+                .eq(AgentKnowledgeBase::getAgentId, agentId));
+        if (!(value instanceof java.util.List<?> list)) return;
+        for (Object o : list) {
+            Map<String, Object> b = asMap(o);
+            Long kbId = toLong(b.get("knowledgeBaseId"));
+            if (kbId == null) continue;
+            AgentKnowledgeBase row = new AgentKnowledgeBase();
+            row.setAgentId(agentId);
+            row.setKnowledgeBaseId(kbId);
+            row.setEnabled(Boolean.FALSE.equals(b.get("enabled")) ? 0 : 1);
+            if (b.get("retrievalConfig") != null) row.setRetrievalConfig(toJson(asMap(b.get("retrievalConfig"))));
+            row.setTenantId(tenantId);
+            row.setCreatedAt(LocalDateTime.now());
+            agentKbMapper.insert(row);
+        }
+    }
+
+    private String nvl(String s) { return s == null ? "" : s; }
+
+    private Map<String, Object> fromJsonMap(String json) {
+        if (json == null || json.isBlank()) return Map.of();
+        try { return asMap(objectMapper.readValue(json, Map.class)); } catch (Exception e) { return Map.of(); }
+    }
+
+    private java.util.List<Object> fromJsonList(String json) {
+        if (json == null || json.isBlank()) return java.util.List.of();
+        try { return objectMapper.readValue(json, java.util.List.class); } catch (Exception e) { return java.util.List.of(); }
+    }
+
     private String snapshot(AgentRegistry a) {
         Map<String, Object> snap = new LinkedHashMap<>();
         snap.put("name", a.getName());
@@ -233,6 +313,14 @@ public class AgentService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private Long toLong(Object o) {
+        if (o instanceof Number n) return n.longValue();
+        if (o instanceof String s1 && !s1.isBlank()) {
+            try { return Long.parseLong(s1); } catch (NumberFormatException ignored) { }
+        }
+        return null;
     }
 
     private String toJson(Object o) {
