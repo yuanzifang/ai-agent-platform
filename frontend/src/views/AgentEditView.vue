@@ -377,7 +377,7 @@ function scrollDbg() {
 }
 
 function evalEntry() {
-  ElMessage.info('评测中心随 P1 交付（一次性测评/在线监控/预发布测评），入口已预留')
+  router.push(`/eval/${agentId}`)
 }
 
 function clip(text: string, n: number) {
