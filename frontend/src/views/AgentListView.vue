@@ -223,7 +223,12 @@ onMounted(() => { load(); loadModels() })
 }
 .card-foot {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 4px;
+  gap: 6px;
+  min-width: 0;
+}
+.card-foot .el-button {
+  margin-left: 0;
 }
 </style>

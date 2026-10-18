@@ -2,7 +2,12 @@ package com.platform.system.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.platform.common.exception.BusinessException;
+import com.platform.agent.entity.AgentRegistry;
+import com.platform.agent.mapper.AgentRegistryMapper;
+import com.platform.auth.mapper.UserSessionMapper;
 import com.platform.common.mail.MailService;
+import com.platform.knowledge.entity.KnowledgeBase;
+import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.entity.SysRole;
 import com.platform.system.entity.SysUser;
@@ -44,6 +49,9 @@ public class UserAdminService {
     private String frontendBase;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final AgentRegistryMapper agentMapper;
+    private final KnowledgeBaseMapper kbMapper;
+    private final UserSessionMapper sessionMapper;
 
     public List<Map<String, Object>> members(JwtPrincipal principal) {
         List<SysUser> users = userMapper.selectList(new LambdaQueryWrapper<SysUser>()
@@ -94,6 +102,41 @@ public class UserAdminService {
             ur.setRoleId(role.getId());
             userRoleMapper.insert(ur);
         }
+    }
+
+    /** 移除成员（需求 3.25(6)）：不可移除自己/OWNER/平台管理员；名下有资源需先转移；禁用并踢出会话。 */
+    @Transactional
+    public void remove(Long userId, JwtPrincipal principal) {
+        SysUser target = userMapper.selectById(userId);
+        if (target == null || !principal.tenantId().equals(target.getTenantId())) {
+            throw new BusinessException(404, "成员不存在");
+        }
+        if (target.getId().equals(principal.userId())) {
+            throw new BusinessException(400, "不能移除自己");
+        }
+        if (target.getIsPlatformAdmin() != null && target.getIsPlatformAdmin() == 1) {
+            throw new BusinessException(400, "平台管理员不可移除");
+        }
+        if (userMapper.findRoleKeys(userId).contains("OWNER")) {
+            throw new BusinessException(400, "所有者需先转让后才能移除");
+        }
+        long agents = agentMapper.selectCount(new LambdaQueryWrapper<AgentRegistry>()
+                .eq(AgentRegistry::getOwnerId, userId)
+                .ne(AgentRegistry::getStatus, "DELETED"));
+        long kbs = kbMapper.selectCount(new LambdaQueryWrapper<KnowledgeBase>()
+                .eq(KnowledgeBase::getCreatedBy, userId));
+        if (agents + kbs > 0) {
+            throw new BusinessException(400, "该成员名下仍有 " + agents + " 个 Agent / " + kbs
+                    + " 个知识库，请先转移或删除");
+        }
+        userRoleMapper.delete(new LambdaQueryWrapper<SysUserRole>().eq(SysUserRole::getUserId, userId));
+        sessionMapper.revokeAllByUser(userId);
+        SysUser patch = new SysUser();
+        patch.setId(userId);
+        patch.setStatus("DISABLED");
+        userMapper.updateById(patch);
+        auditService.record(principal.userId(), "member.remove", "user",
+                String.valueOf(userId), "SUCCESS", Map.of("username", target.getUsername()));
     }
 
     public Map<String, Object> invite(String email, String role, JwtPrincipal principal) {

@@ -1,5 +1,6 @@
 package com.platform.common.config;
 
+import jakarta.servlet.DispatcherType;
 import com.platform.security.JwtAuthFilter;
 import com.platform.common.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,8 @@ public class SecurityConfig {
         http.csrf(c -> c.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // SSE 完成时的 ASYNC dispatch 不携带安全上下文，需放行（否则 done 事件丢失）
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         // 匿名接口（需求文档 7.2）
                         .requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh",
                                 "/api/v1/auth/invitations/accept", "/api/v1/auth/mfa/verify",

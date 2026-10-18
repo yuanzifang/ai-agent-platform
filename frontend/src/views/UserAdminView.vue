@@ -24,13 +24,16 @@
         <el-table-column label="最近登录" width="150">
           <template #default="{ row }">{{ fmt(row.lastLoginAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="130">
+        <el-table-column label="操作" width="210">
           <template #default="{ row }">
             <template v-if="row.id === editingId">
               <el-button size="small" type="primary" @click="saveRoles(row)">保存</el-button>
               <el-button size="small" @click="editingId = null">取消</el-button>
             </template>
-            <el-button v-else size="small" @click="startEdit(row)">调整角色</el-button>
+            <template v-else>
+              <el-button size="small" @click="startEdit(row)">调整角色</el-button>
+              <el-button size="small" text type="danger" @click="removeMember(row)">移除</el-button>
+            </template>
           </template>
         </el-table-column>
       </el-table>
@@ -80,7 +83,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 
 const members = ref<any[]>([])
@@ -107,6 +110,15 @@ async function saveRoles(row: any) {
   await http.put(`/users/${row.id}/roles`, { roles: editingRoles.value })
   ElMessage.success('角色已更新')
   editingId.value = null
+  await load()
+}
+
+async function removeMember(row: any) {
+  await ElMessageBox.confirm(
+    `确认移除成员「${row.displayName || row.username}」？移除后该账号将被禁用并退出登录。`,
+    '移除成员', { type: 'warning', confirmButtonText: '移除', cancelButtonText: '取消' })
+  await http.delete(`/users/${row.id}`)
+  ElMessage.success('已移除')
   await load()
 }
 

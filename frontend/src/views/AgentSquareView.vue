@@ -322,7 +322,8 @@ function fmt(v?: string) {
 .desc { color: #606266; font-size: 13px; line-height: 1.6; margin: 10px 0; min-height: 40px; }
 .metrics { display: flex; flex-wrap: wrap; gap: 12px; color: #909399; font-size: 12px; }
 .meta { color: #c0c4cc; font-size: 12px; margin-top: 6px; }
-.card-foot { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
+.card-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 12px; }
+.card-foot .el-button { margin-left: 0; }
 .d-head { display: flex; align-items: center; gap: 12px; }
 .d-title { flex: 1; }
 .d-name { font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 8px; }

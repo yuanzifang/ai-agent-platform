@@ -17,7 +17,7 @@
         <el-button @click="openSchedules">定时</el-button>
         <el-button @click="openCredentials">凭证</el-button>
         <el-button @click="evalEntry">评测</el-button>
-        <el-button type="success" plain @click="publish">发布</el-button>
+        <el-button type="success" plain @click="publish()">发布</el-button>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </div>
     </div>

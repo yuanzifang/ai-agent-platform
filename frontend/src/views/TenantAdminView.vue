@@ -28,6 +28,19 @@
     </el-card>
 
     <el-card shadow="never" class="mb">
+      <template #header>所有者转让</template>
+      <div class="owner-row">
+        <el-select v-model="newOwnerId" placeholder="选择新所有者" style="width: 280px">
+          <el-option v-for="m in members" :key="m.id" :value="m.id"
+                     :label="(m.displayName || m.username) + '（' + m.username + '）'"
+                     :disabled="(m.roles || []).includes('OWNER')" />
+        </el-select>
+        <el-button type="warning" :loading="transferring" @click="transferOwner">转让所有者</el-button>
+      </div>
+      <div class="hint">转让后当前所有者转为管理员；需二次确认。</div>
+    </el-card>
+
+    <el-card shadow="never" class="mb">
       <template #header>单点登录（SSO / OIDC）</template>
       <el-form label-width="140px" style="max-width: 680px">
         <el-form-item label="启用 SSO"><el-switch v-model="sso.enabled" /></el-form-item>
@@ -80,7 +93,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 
 const info = reactive<any>({ tenantKey: '', name: '', status: '', createdAt: '', quota: {}, config: {} })
@@ -89,6 +102,9 @@ const newKey = ref('')
 const newValue = ref('')
 const saving = ref(false)
 const ssoSaving = ref(false)
+const members = ref<any[]>([])
+const newOwnerId = ref<number | null>(null)
+const transferring = ref(false)
 const sso = reactive<any>({
   enabled: false, buttonName: '企业 SSO 登录', issuer: '', clientId: '', clientSecret: '',
   clientSecretSet: false, scopes: 'openid profile email', redirectUri: '',
@@ -104,7 +120,25 @@ onMounted(async () => {
   }
   const s = await http.get('/auth/sso/settings') as any
   Object.assign(sso, s || {}, { clientSecret: '' })
+  members.value = await http.get('/users') as any
 })
+
+async function transferOwner() {
+  if (!newOwnerId.value) { ElMessage.warning('请选择新所有者'); return }
+  const target = members.value.find(m => m.id === newOwnerId.value)
+  await ElMessageBox.confirm(
+    `确认将所有者转让给「${target?.displayName || target?.username || newOwnerId.value}」？你将变为管理员。`,
+    '转让所有者', { type: 'warning', confirmButtonText: '确认转让', cancelButtonText: '取消' })
+  transferring.value = true
+  try {
+    await http.put('/tenant/owner', { userId: newOwnerId.value })
+    ElMessage.success('已转让所有者')
+    newOwnerId.value = null
+    members.value = await http.get('/users') as any
+  } finally {
+    transferring.value = false
+  }
+}
 
 async function saveSso() {
   ssoSaving.value = true
@@ -154,4 +188,5 @@ function fmtBytes(v?: number) {
 .mb { margin-bottom: 14px; }
 .hint { color: #909399; font-size: 12px; margin-top: 10px; }
 .add-row { display: flex; gap: 8px; margin-top: 10px; }
+.owner-row { display: flex; gap: 10px; align-items: center; }
 </style>

@@ -136,6 +136,9 @@ onMounted(async () => {
   await loadSessions()
   if (sessions.value.length > 0) {
     await openConversation(sessions.value.find(s => s.agentId === agentId)?.id ?? sessions.value[0].id)
+  } else {
+    // 新 Agent 首次进入：自动创建会话，避免输入框/发送按钮不可用
+    await newConversation()
   }
 })
 

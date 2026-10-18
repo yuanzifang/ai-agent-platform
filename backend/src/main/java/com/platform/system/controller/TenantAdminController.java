@@ -28,6 +28,18 @@ public class TenantAdminController {
         return ApiResponse.ok(tenantAdminService.detail(principal));
     }
 
+    public record TransferOwnerRequest(Long userId) {
+    }
+
+    /** 所有者转让（仅当前 OWNER/平台管理员）。 */
+    @PutMapping("/owner")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('tenant:manage')")
+    public ApiResponse<Void> transferOwner(@RequestBody TransferOwnerRequest req,
+                                           @AuthenticationPrincipal JwtPrincipal principal) {
+        tenantAdminService.transferOwner(req.userId(), principal);
+        return ApiResponse.ok();
+    }
+
     @PutMapping
     @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('tenant:manage')")
     public ApiResponse<Void> update(@RequestBody Map<String, Object> req,

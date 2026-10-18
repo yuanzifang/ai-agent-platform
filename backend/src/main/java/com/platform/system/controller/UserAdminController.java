@@ -11,6 +11,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,6 +33,14 @@ public class UserAdminController {
     @GetMapping("/users")
     public ApiResponse<List<Map<String, Object>>> members(@AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(userAdminService.members(principal));
+    }
+
+    @DeleteMapping("/users/{id}")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('user:manage')")
+    public ApiResponse<Void> remove(@PathVariable Long id,
+                                    @AuthenticationPrincipal JwtPrincipal principal) {
+        userAdminService.remove(id, principal);
+        return ApiResponse.ok();
     }
 
     @PutMapping("/users/{id}/roles")
