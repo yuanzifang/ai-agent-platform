@@ -187,7 +187,7 @@ public class ToolRuntimeService {
             }
         }
 
-        log.info("Agent 运行时工具装配 agent={} functionCall={} callbacks={} names={} skillPrompt={} kbDeps={}",
+        log.debug("Agent 运行时工具装配 agent={} functionCall={} callbacks={} names={} skillPrompt={} kbDeps={}",
                 agentId, functionCall, callbacks.size(), names,
                 skillPrompt.isEmpty() ? "none" : "yes", kbIds);
         return new RuntimeTools(callbacks, skillPrompt.isEmpty() ? null : skillPrompt.toString(), kbIds);
