@@ -9,6 +9,8 @@ import com.platform.system.entity.SysTenantQuota;
 import com.platform.system.mapper.SysTenantConfigMapper;
 import com.platform.system.mapper.SysTenantMapper;
 import com.platform.system.mapper.SysTenantQuotaMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +26,7 @@ public class TenantAdminService {
 
     private final SysTenantMapper tenantMapper;
     private final SysTenantQuotaMapper quotaMapper;
+    private final ObjectMapper objectMapper;
     private final SysTenantConfigMapper configMapper;
 
     public Map<String, Object> detail(JwtPrincipal principal) {
@@ -66,7 +69,7 @@ public class TenantAdminService {
                 SysTenantConfig existing = configMapper.selectOne(new LambdaQueryWrapper<SysTenantConfig>()
                         .eq(SysTenantConfig::getTenantId, tenant.getId())
                         .eq(SysTenantConfig::getConfigKey, key));
-                String value = String.valueOf(e.getValue());
+                String value = toJsonValue(e.getValue());
                 if (existing == null) {
                     SysTenantConfig c = new SysTenantConfig();
                     c.setTenantId(tenant.getId());
@@ -80,6 +83,39 @@ public class TenantAdminService {
                     configMapper.updateById(c);
                 }
             }
+        }
+    }
+
+    private String toJsonValue(Object value) {
+        if (value instanceof String s) {
+            try {
+                objectMapper.readTree(s);
+                return s;
+            } catch (Exception e) {
+                try {
+                    return objectMapper.writeValueAsString(s);
+                } catch (Exception ex) {
+                    throw new BusinessException(400, "配置值序列化失败");
+                }
+            }
+        }
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            throw new BusinessException(400, "配置值序列化失败");
+        }
+    }
+
+    private Object fromJsonValue(String raw) {
+        if (raw == null) return null;
+        try {
+            JsonNode node = objectMapper.readTree(raw);
+            if (node.isTextual()) return node.asText();
+            if (node.isBoolean()) return node.asBoolean();
+            if (node.isNumber()) return node.numberValue();
+            return node.toString();
+        } catch (Exception e) {
+            return raw;
         }
     }
 }

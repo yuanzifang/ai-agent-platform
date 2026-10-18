@@ -12,6 +12,10 @@ export const useUserStore = defineStore('user', {
   actions: {
     async login(username: string, password: string, tenantKey?: string) {
       const data = await http.post('/auth/login', { username, password, tenantKey }) as any
+      if (data.accessToken) this.applyLogin(data)
+      return data
+    },
+    applyLogin(data: any) {
       this.accessToken = data.accessToken
       this.refreshToken = data.refreshToken
       this.userInfo = data.user

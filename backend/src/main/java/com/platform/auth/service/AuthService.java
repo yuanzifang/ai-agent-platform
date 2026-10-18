@@ -17,7 +17,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -36,10 +38,12 @@ public class AuthService {
     private final AuditLoginMapper auditLoginMapper;
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
+    private final MfaService mfaService;
 
     public record LoginResult(String accessToken, String refreshToken, long expiresIn,
                               String userId, String displayName, boolean platformAdmin, Long tenantId,
-                              java.util.List<String> roles, java.util.List<String> permissions) {
+                              java.util.List<String> roles, java.util.List<String> permissions,
+                              boolean mfaRequired, String mfaToken) {
     }
 
     public LoginResult login(String username, String password, String tenantKey,
@@ -63,6 +67,52 @@ public class AuthService {
             }
         }
 
+        // MFA：第一步校验密码成功，签发 5 分钟短期凭证，待动态码校验后再发正式 Token
+        if (user.getMfaEnabled() != null && user.getMfaEnabled() == 1) {
+            return new LoginResult(null, null, 0, null, null,
+                    user.getIsPlatformAdmin() != null && user.getIsPlatformAdmin() == 1,
+                    user.getTenantId(), null, null, true, jwtService.createMfaToken(user.getId()));
+        }
+        return issueTokens(user, request);
+    }
+
+    /** MFA 第二步：校验短期凭证 + 动态码/恢复码，签发正式 Token。 */
+    public LoginResult verifyMfa(String mfaToken, String code, HttpServletRequest request) {
+        Long userId = jwtService.parseMfaToken(mfaToken);
+        if (userId == null) throw new BusinessException(401, "MFA 凭证无效或已过期，请重新登录");
+        SysUser user = userMapper.findByIdIgnore(userId);
+        if (user == null || !"ENABLED".equals(user.getStatus())) throw new BusinessException(401, "账号不可用");
+        mfaService.verifyLoginCode(userId, code);
+        return issueTokens(user, request);
+    }
+
+    public Map<String, Object> mfaStatus(Long userId) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("enabled", mfaService.enabled(userId));
+        m.put("recoveryCodesLeft", mfaService.recoveryCodesLeft(userId));
+        return m;
+    }
+
+    public Map<String, Object> mfaSetup(Long userId) {
+        SysUser user = userMapper.findByIdIgnore(userId);
+        if (user == null) throw new BusinessException(404, "用户不存在");
+        mfaService.setup(userId);
+        String secret = mfaService.secret(userId);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("secret", secret);
+        m.put("otpauthUri", mfaService.otpauthUri(user.getUsername(), secret));
+        return m;
+    }
+
+    public List<String> mfaEnable(Long userId, String code) {
+        return mfaService.enable(userId, code);
+    }
+
+    public void mfaDisable(Long userId, String code) {
+        mfaService.disable(userId, code);
+    }
+
+    private LoginResult issueTokens(SysUser user, HttpServletRequest request) {
         List<String> roles = user.getIsPlatformAdmin() != null && user.getIsPlatformAdmin() == 1
                 ? List.of("PLATFORM_ADMIN")
                 : userMapper.findRoleKeys(user.getId());
@@ -90,7 +140,17 @@ public class AuthService {
 
         return new LoginResult(accessToken, refreshToken, jwtService.getExpirySeconds(),
                 String.valueOf(user.getId()), user.getDisplayName(),
-                user.getIsPlatformAdmin() != null && user.getIsPlatformAdmin() == 1, user.getTenantId(), roles, permissions);
+                user.getIsPlatformAdmin() != null && user.getIsPlatformAdmin() == 1,
+                user.getTenantId(), roles, permissions, false, null);
+    }
+
+    /** SSO 登录：外部身份已校验，直接签发平台 Token（不校验密码/MFA）。 */
+    public LoginResult loginAs(Long userId, HttpServletRequest request) {
+        SysUser user = userMapper.findByIdIgnore(userId);
+        if (user == null || !"ENABLED".equals(user.getStatus())) {
+            throw new BusinessException(403, "账号不可用");
+        }
+        return issueTokens(user, request);
     }
 
     public String refresh(String refreshToken) {

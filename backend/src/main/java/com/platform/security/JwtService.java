@@ -58,6 +58,30 @@ public class JwtService {
                 permissions == null ? List.of() : permissions);
     }
 
+    /** 登录第一步通过后签发的短期 MFA 凭证（5 分钟，purpose=mfa）。 */
+    public String createMfaToken(Long userId) {
+        Instant now = Instant.now();
+        return Jwts.builder()
+                .subject(String.valueOf(userId))
+                .claim("purpose", "mfa")
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plusSeconds(300)))
+                .signWith(key)
+                .compact();
+    }
+
+    /** 校验 MFA 凭证，返回 userId；无效/过期返回 null。 */
+    public Long parseMfaToken(String token) {
+        try {
+            Claims claims = Jwts.parser().verifyWith(key).build()
+                    .parseSignedClaims(token).getPayload();
+            if (!"mfa".equals(claims.get("purpose", String.class))) return null;
+            return Long.valueOf(claims.getSubject());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     public long getExpirySeconds() {
         return expirySeconds;
     }

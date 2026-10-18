@@ -21,5 +21,7 @@ public class SysUser {
     private String status;
     private LocalDateTime lastLoginAt;
     private LocalDateTime lockedUntil;
+    private Integer mfaEnabled;
+    private String mfaSecret;
     private LocalDateTime createdAt;
 }

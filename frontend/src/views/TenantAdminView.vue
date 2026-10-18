@@ -27,6 +27,33 @@
       <div class="hint">配额由平台管理员调整（配额变更流程见需求 3.8）</div>
     </el-card>
 
+    <el-card shadow="never" class="mb">
+      <template #header>单点登录（SSO / OIDC）</template>
+      <el-form label-width="140px" style="max-width: 680px">
+        <el-form-item label="启用 SSO"><el-switch v-model="sso.enabled" /></el-form-item>
+        <el-form-item label="按钮名称"><el-input v-model="sso.buttonName" /></el-form-item>
+        <el-form-item label="Issuer">
+          <el-input v-model="sso.issuer" placeholder="https://idp.example.com（OIDC 发现根地址）" />
+        </el-form-item>
+        <el-form-item label="Client ID"><el-input v-model="sso.clientId" /></el-form-item>
+        <el-form-item label="Client Secret">
+          <el-input v-model="sso.clientSecret" type="password" show-password
+                    :placeholder="sso.clientSecretSet ? '已配置（留空或 ****** 不修改）' : '请输入 Client Secret'" />
+        </el-form-item>
+        <el-form-item label="Scopes"><el-input v-model="sso.scopes" /></el-form-item>
+        <el-form-item label="回调地址"><el-input v-model="sso.redirectUri" /></el-form-item>
+        <el-form-item label="自动开通用户"><el-switch v-model="sso.autoProvision" /></el-form-item>
+        <el-form-item label="默认角色">
+          <el-select v-model="sso.defaultRole" style="width: 160px">
+            <el-option label="普通成员" value="MEMBER" />
+            <el-option label="编辑者" value="EDITOR" />
+          </el-select>
+        </el-form-item>
+        <el-button type="primary" :loading="ssoSaving" @click="saveSso">保存 SSO 配置</el-button>
+      </el-form>
+      <div class="hint">Client Secret 加密存储；留空或填 ****** 表示不修改。启用后登录页可使用「企业 SSO 登录」。</div>
+    </el-card>
+
     <el-card shadow="never">
       <template #header>租户配置（config_key → 值）</template>
       <el-table :data="configRows" size="small">
@@ -61,6 +88,12 @@ const configRows = ref<{ key: string; value: string }[]>([])
 const newKey = ref('')
 const newValue = ref('')
 const saving = ref(false)
+const ssoSaving = ref(false)
+const sso = reactive<any>({
+  enabled: false, buttonName: '企业 SSO 登录', issuer: '', clientId: '', clientSecret: '',
+  clientSecretSet: false, scopes: 'openid profile email', redirectUri: '',
+  autoProvision: false, defaultRole: 'MEMBER'
+})
 
 onMounted(async () => {
   const data = await http.get('/tenant') as any
@@ -69,7 +102,24 @@ onMounted(async () => {
   if (!configRows.value.some(r => r.key === 'defaultModel')) {
     newKey.value = 'defaultModel'
   }
+  const s = await http.get('/auth/sso/settings') as any
+  Object.assign(sso, s || {}, { clientSecret: '' })
 })
+
+async function saveSso() {
+  ssoSaving.value = true
+  try {
+    await http.put('/auth/sso/settings', {
+      enabled: sso.enabled, buttonName: sso.buttonName, issuer: sso.issuer,
+      clientId: sso.clientId, clientSecret: sso.clientSecret, scopes: sso.scopes,
+      redirectUri: sso.redirectUri, autoProvision: sso.autoProvision,
+      defaultRole: sso.defaultRole
+    })
+    ElMessage.success('SSO 配置已保存')
+  } finally {
+    ssoSaving.value = false
+  }
+}
 
 function addConfig() {
   if (!newKey.value.trim()) return

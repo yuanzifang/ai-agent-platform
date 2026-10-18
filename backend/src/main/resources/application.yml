@@ -90,3 +90,7 @@ moderation:
 billing:
   # 余额低于该值时前端提示充值（需求 3.11）
   low-balance-threshold: ${BILLING_LOW_BALANCE_THRESHOLD:10}
+
+app:
+  # SSO 回调地址默认前端地址（/sso/callback）
+  frontend-base: ${APP_FRONTEND_BASE:http://localhost:5173}

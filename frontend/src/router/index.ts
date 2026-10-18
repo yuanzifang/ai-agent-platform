@@ -6,6 +6,7 @@ const router = createRouter({
   routes: [
     { path: '/login', component: () => import('../views/LoginView.vue') },
     { path: '/share/:token', component: () => import('../views/ShareView.vue') },
+    { path: '/sso/callback', component: () => import('../views/SsoCallbackView.vue') },
     {
       path: '/',
       component: () => import('../views/BasicLayout.vue'),
@@ -42,7 +43,9 @@ const router = createRouter({
 // 路由守卫：先查登录态（需求文档 4.4；租户配置加载随 M2 租户模块接入）
 router.beforeEach((to) => {
   const user = useUserStore()
-  if (to.path !== '/login' && !user.accessToken) {
+  // 公开路由：登录、SSO 回调、会话分享
+  if (to.path === '/login' || to.path === '/sso/callback' || to.path.startsWith('/share/')) return
+  if (!user.accessToken) {
     return '/login'
   }
 })
