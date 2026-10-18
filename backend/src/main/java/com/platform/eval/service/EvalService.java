@@ -712,7 +712,9 @@ public class EvalService {
         List<Map<String, Object>> citations = new ArrayList<>();
         List<Map<String, Object>> kbBindings = knowledgeBindings(task.getAgentId());
         if (!kbBindings.isEmpty()) {
-            systemPrompt = chatService.augmentWithKnowledge(systemPrompt, item.getQuestion(), kbBindings, citations);
+            // 评测以 Agent 所有者身份执行 RAG：仍按知识库可见性过滤（需求 3.9(2)）
+            systemPrompt = chatService.augmentWithKnowledge(systemPrompt, item.getQuestion(), kbBindings, citations,
+                    com.platform.knowledge.service.KnowledgePermissionService.Viewer.of(agent.getOwnerId(), null));
         }
         Map<String, Object> modelConfig = config.get("modelConfig") instanceof Map<?, ?> mc
                 ? (Map<String, Object>) mc : Map.of();

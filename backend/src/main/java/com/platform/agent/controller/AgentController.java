@@ -112,8 +112,11 @@ public class AgentController {
 
     /** 调试对话：用未保存配置执行，不写会话/正式 Trace（需求文档 3.1.3(10)）。 */
     @PostMapping("/debug/chat")
-    public ApiResponse<Map<String, Object>> debugChat(@RequestBody DebugChatRequest req) {
-        return ApiResponse.ok(chatService.debugChat(req.config(), req.message()));
+    public ApiResponse<Map<String, Object>> debugChat(@RequestBody DebugChatRequest req,
+                                                      @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(chatService.debugChat(req.config(), req.message(),
+                com.platform.knowledge.service.KnowledgePermissionService.Viewer.of(
+                        principal.userId(), principal.roles())));
     }
 
     public record DebugChatRequest(Map<String, Object> config, @NotBlank String message) {

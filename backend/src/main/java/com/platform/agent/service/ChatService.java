@@ -4,6 +4,7 @@ import com.platform.billing.entity.BillingUsage;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.knowledge.service.EmbeddingService;
+import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.knowledge.service.VectorRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,9 +35,11 @@ public class ChatService {
     private final BillingUsageMapper billingMapper;
     private final EmbeddingService embeddingService;
     private final VectorRepository vectorRepository;
+    private final KnowledgePermissionService permissionService;
 
     @SuppressWarnings("unchecked")
-    public Map<String, Object> debugChat(Map<String, Object> config, String message) {
+    public Map<String, Object> debugChat(Map<String, Object> config, String message,
+                                         KnowledgePermissionService.Viewer viewer) {
         String systemPrompt = config == null || config.get("systemPrompt") == null
                 ? null : String.valueOf(config.get("systemPrompt"));
         // 调试链路同样应用变量默认值替换（需求 3.1.3(9)）
@@ -53,7 +56,7 @@ public class ChatService {
         // RAG：检索绑定的知识库，命中分段注入（需求文档 3.1.3(7)）
         List<Map<String, Object>> citations = new ArrayList<>();
         if (config != null && config.get("knowledgeBases") instanceof List<?> kbs) {
-            systemPrompt = augmentWithKnowledge(systemPrompt, message, kbs, citations);
+            systemPrompt = augmentWithKnowledge(systemPrompt, message, kbs, citations, viewer);
         }
 
         String modelName = String.valueOf(modelConfig.getOrDefault("modelName", "deepseek-flash"));
@@ -88,7 +91,8 @@ public class ChatService {
     /** 知识库检索并拼接参考资料（topK 默认 5、阈值默认 0.5，需求文档 3.1.3(7)）；调试与正式对话共用。 */
     @SuppressWarnings("unchecked")
     public String augmentWithKnowledge(String systemPrompt, String message, List<?> kbs,
-                                        List<Map<String, Object>> citations) {
+                                        List<Map<String, Object>> citations,
+                                        KnowledgePermissionService.Viewer viewer) {
         Long tenantId = TenantContext.getTenantId();
         if (tenantId == null) return systemPrompt;
         StringBuilder context = new StringBuilder();
@@ -96,6 +100,8 @@ public class ChatService {
             Map<String, Object> binding = asMap(o);
             Long kbId = toLong(binding.get("knowledgeBaseId"));
             if (kbId == null || Boolean.FALSE.equals(binding.get("enabled"))) continue;
+            // 运行时按当前用户实时校验知识库可见权限；不可见/已删除则跳过（需求 3.6.3(5)、3.3）
+            if (permissionService.findVisible(kbId, viewer) == null) continue;
             Map<String, Object> rc = binding.get("retrievalConfig") == null
                     ? Map.of() : asMap(binding.get("retrievalConfig"));
             int topK = toInt(rc.get("topK"), 5);

@@ -4,8 +4,11 @@
       <el-button text @click="$router.push('/knowledge')">
         <el-icon><ArrowLeft /></el-icon> 返回
       </el-button>
-      <span class="kb-title">{{ kb.name }}</span>
-      <el-upload :show-file-list="false" :before-upload="upload" :disabled="uploading"
+      <span class="kb-title">{{ detail.name }}</span>
+      <el-tag size="small" :type="visTag(detail.visibility)">{{ visText(detail.visibility) }}</el-tag>
+      <span class="kb-meta">文档 {{ detail.documentCount }} · 分段 {{ detail.chunkCount }} · 创建人 {{ detail.creatorName || '-' }}</span>
+      <el-button v-if="detail.canEdit" @click="openPermission">权限设置</el-button>
+      <el-upload v-if="detail.canEdit" :show-file-list="false" :before-upload="upload" :disabled="uploading"
                  accept=".md,.txt,.docx,.pdf">
         <el-button type="primary" :loading="uploading">
           {{ uploading ? '上传中…' : '上传文档' }}
@@ -64,11 +67,54 @@
         </div>
       </div>
     </div>
+
+    <!-- 权限设置（需求 3.6.3(5)：只有我 / 所有团队成员 / 部分团队成员） -->
+    <el-dialog v-model="permVisible" title="权限设置" width="620px">
+      <el-form label-width="90px">
+        <el-form-item label="可见范围">
+          <el-radio-group v-model="perm.visibility">
+            <el-radio value="PRIVATE">只有我</el-radio>
+            <el-radio value="TENANT">所有团队成员</el-radio>
+            <el-radio value="PARTIAL">部分团队成员</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="perm.visibility === 'PARTIAL'" label="授权成员">
+          <el-table :data="grantableMembers" size="small" max-height="300" class="member-table">
+            <el-table-column width="46">
+              <template #default="{ row }">
+                <el-checkbox :model-value="isGranted(row.id)" @change="toggleGrant(row.id)" />
+              </template>
+            </el-table-column>
+            <el-table-column label="成员">
+              <template #default="{ row }">{{ memberLabel(row) }}</template>
+            </el-table-column>
+            <el-table-column label="权限" width="130">
+              <template #default="{ row }">
+                <el-select :model-value="permOf(row.id)" :disabled="!isGranted(row.id)"
+                           size="small" @change="(v: string) => setPerm(row.id, v)">
+                  <el-option label="可查看" value="VIEW" />
+                  <el-option label="可编辑" value="EDIT" />
+                </el-select>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="grantableMembers.length === 0" description="暂无可授权成员" :image-size="50" />
+        </el-form-item>
+        <div class="perm-tip">
+          <div>· 管理员/编辑者需先被授予可见权限，方可编辑；「只有我」仅创建者可访问。</div>
+          <div>· 「所有团队成员」不含受限成员；权限变更在检索入口实时生效。</div>
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="permVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingPerm" @click="savePermission">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
@@ -76,7 +122,9 @@ import http from '../api/http'
 
 const route = useRoute()
 const kbId = Number(route.params.id)
-const kb = reactive({ name: '' })
+const detail = reactive<Record<string, any>>({
+  name: '', visibility: 'TENANT', creatorId: null, creatorName: '', documentCount: 0, chunkCount: 0, canEdit: false
+})
 const documents = ref<any[]>([])
 const uploading = ref(false)
 const searching = ref(false)
@@ -87,13 +135,25 @@ const chunks = reactive<{ docId: number | null; docName: string; list: any[]; to
   docId: null, docName: '', list: [], total: 0
 })
 
+// ---- 权限设置 ----
+const permVisible = ref(false)
+const savingPerm = ref(false)
+const members = ref<any[]>([])
+const perm = reactive<{ visibility: string; members: Record<number, string> }>({
+  visibility: 'TENANT', members: {}
+})
+const grantableMembers = computed(() =>
+  members.value.filter(m => m.id !== detail.creatorId && !(m.roles || []).includes('RESTRICTED')))
+
 onMounted(async () => {
-  const list = await http.get('/knowledge-base') as any
-  const arr = Array.isArray(list) ? list : (list.list || [])
-  const found = arr.find((k: any) => k.id === kbId)
-  kb.name = found?.name || '知识库'
+  await loadDetail()
   await loadDocs()
 })
+
+async function loadDetail() {
+  const data = await http.get(`/knowledge-base/${kbId}`) as any
+  Object.assign(detail, data)
+}
 
 async function loadDocs() {
   documents.value = await http.get(`/knowledge-base/${kbId}/documents`) as any
@@ -114,7 +174,7 @@ async function upload(file: File) {
     if (!putResp.ok) throw new Error('对象存储上传失败 ' + putResp.status)
     await http.post(`/knowledge-base/${kbId}/documents/callback`, { objectName: presign.objectName })
     ElMessage.success('已上传，后台解析分段中…')
-    setTimeout(loadDocs, 1500)
+    setTimeout(() => { loadDocs(); loadDetail() }, 1500)
   } catch (e: any) {
     ElMessage.error('上传失败：' + (e.message || e))
   } finally {
@@ -146,6 +206,61 @@ async function doSearch() {
   }
 }
 
+async function openPermission() {
+  try {
+    const [data, ms] = await Promise.all([
+      http.get(`/knowledge-base/${kbId}/permissions`) as any,
+      http.get('/users') as any
+    ])
+    perm.visibility = data.visibility || 'TENANT'
+    perm.members = {}
+    for (const m of (data.members || [])) perm.members[m.userId] = m.permission || 'VIEW'
+    members.value = ms || []
+    permVisible.value = true
+  } catch (e: any) {
+    ElMessage.error('加载权限失败：' + (e.message || e))
+  }
+}
+
+function isGranted(id: number) {
+  return id in perm.members
+}
+function permOf(id: number) {
+  return perm.members[id] || 'VIEW'
+}
+function toggleGrant(id: number) {
+  if (id in perm.members) delete perm.members[id]
+  else perm.members[id] = 'VIEW'
+}
+function setPerm(id: number, value: string) {
+  perm.members[id] = value
+}
+function memberLabel(m: any) {
+  return m.displayName ? `${m.displayName}（${m.username}）` : m.username
+}
+
+async function savePermission() {
+  savingPerm.value = true
+  try {
+    const membersPayload = Object.entries(perm.members)
+      .map(([userId, permission]) => ({ userId: Number(userId), permission }))
+    await http.put(`/knowledge-base/${kbId}/permissions`, {
+      visibility: perm.visibility, members: membersPayload
+    })
+    ElMessage.success('权限已保存，立即生效')
+    permVisible.value = false
+    await loadDetail()
+  } finally {
+    savingPerm.value = false
+  }
+}
+
+function visText(v: string) {
+  return v === 'PRIVATE' ? '只有我' : v === 'PARTIAL' ? '部分成员' : '所有团队成员'
+}
+function visTag(v: string) {
+  return v === 'PRIVATE' ? 'info' : v === 'PARTIAL' ? 'warning' : 'success'
+}
 function statusType(s: string) {
   return s === 'DONE' ? 'success' : s === 'PARSING' ? 'warning' : s === 'FAILED' ? 'danger' : 'info'
 }
@@ -157,7 +272,8 @@ function statusText(s: string) {
 <style scoped>
 .page { height: 100%; display: flex; flex-direction: column; }
 .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-.kb-title { font-weight: 600; font-size: 16px; flex: 1; }
+.kb-title { font-weight: 600; font-size: 16px; }
+.kb-meta { color: #909399; font-size: 12px; flex: 1; }
 .body { flex: 1; display: flex; gap: 16px; min-height: 0; }
 .docs { flex: 1.3; background: #fff; border: 1px solid #e4e7ed; border-radius: 6px; padding: 14px; overflow-y: auto; }
 .retrieval { flex: 1; background: #fff; border: 1px solid #e4e7ed; border-radius: 6px; padding: 14px; overflow-y: auto; }
@@ -173,4 +289,6 @@ function statusText(s: string) {
 .score { flex: 1; }
 .pct { font-size: 12px; color: #909399; width: 48px; text-align: right; }
 .hit-text { font-size: 13px; color: #303133; margin-top: 6px; white-space: pre-wrap; }
+.member-table { width: 100%; }
+.perm-tip { color: #909399; font-size: 12px; line-height: 20px; padding-left: 90px; }
 </style>

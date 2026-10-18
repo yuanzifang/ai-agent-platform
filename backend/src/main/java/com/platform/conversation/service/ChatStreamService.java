@@ -3,6 +3,7 @@ package com.platform.conversation.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.agent.entity.AgentKnowledgeBase;
+import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.agent.entity.AgentRegistry;
 import com.platform.agent.entity.AgentVersion;
 import com.platform.agent.mapper.AgentKnowledgeBaseMapper;
@@ -104,10 +105,12 @@ public class ChatStreamService {
         if (blocked) {
             return blockedEmitter(conversationId, userMsg, hits);
         }
+        KnowledgePermissionService.Viewer viewer = viewer(principal);
         if (Boolean.FALSE.equals(req.stream())) {
-            return blockingChat(conv, agent, config, userMsg, variables, llmInput, published.version());
+            return blockingChat(conv, agent, config, userMsg, variables, llmInput, published.version(), viewer);
         }
-        return streamChat(conv, agent, config, userMsg, null, false, hits, variables, llmInput, published.version());
+        return streamChat(conv, agent, config, userMsg, null, false, hits, variables, llmInput,
+                published.version(), viewer);
     }
 
     /** 重新生成：以被替换消息之前的最近 USER 消息重跑，新消息带 parentMessageId。 */
@@ -133,7 +136,7 @@ public class ChatStreamService {
         Map<String, Object> config = published.config();
         String regenInput = llmInputWithAttachments(lastUser.getContent(), lastUser.getAttachments());
         return streamChat(conv, agent, config, lastUser, target.getId(), true, List.of(), Map.of(), regenInput,
-                published.version());
+                published.version(), viewer(principal));
     }
 
     /** 停止生成（幂等）：断开进行中的流并落 STOPPED。 */
@@ -151,7 +154,8 @@ public class ChatStreamService {
     private Object streamChat(Conversation conv, AgentRegistry agent, Map<String, Object> config,
                               Message userMsg, Long parentMessageId, boolean regenerated,
                               List<ModerationService.Hit> inHits, Map<String, Object> variables,
-                              String userMsgWithAttachments, String version) {
+                              String userMsgWithAttachments, String version,
+                              KnowledgePermissionService.Viewer viewer) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
@@ -162,7 +166,8 @@ public class ChatStreamService {
         List<Map<String, Object>> citations = new ArrayList<>();
         List<Map<String, Object>> kbBindings = knowledgeBindings(conv.getAgentId());
         if (!kbBindings.isEmpty()) {
-            systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings, citations);
+            systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings,
+                    citations, viewer);
         }
         List<org.springframework.ai.chat.messages.Message> history = history(conv.getId(), userMsg.getId(),
                 memoryWindow(config));
@@ -291,7 +296,7 @@ public class ChatStreamService {
     private Map<String, Object> blockingChat(Conversation conv, AgentRegistry agent,
                                              Map<String, Object> config, Message userMsg,
                                              Map<String, Object> variables, String userMsgWithAttachments,
-                                             String version) {
+                                             String version, KnowledgePermissionService.Viewer viewer) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
@@ -299,7 +304,8 @@ public class ChatStreamService {
         List<Map<String, Object>> citations = new ArrayList<>();
         List<Map<String, Object>> kbBindings = knowledgeBindings(conv.getAgentId());
         if (!kbBindings.isEmpty()) {
-            systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings, citations);
+            systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings,
+                    citations, viewer);
         }
         List<org.springframework.ai.chat.messages.Message> history = history(conv.getId(), userMsg.getId(),
                 memoryWindow(config));
@@ -407,6 +413,10 @@ public class ChatStreamService {
             result.add(b);
         }
         return result;
+    }
+
+    private static KnowledgePermissionService.Viewer viewer(JwtPrincipal principal) {
+        return KnowledgePermissionService.Viewer.of(principal.userId(), principal.roles());
     }
 
     /** 已发布配置与版本号（对话必须基于已发布配置，需求 7.4）。 */

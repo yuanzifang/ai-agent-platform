@@ -16,6 +16,8 @@ public class KnowledgeBase {
     private String description;
     private Long tenantId;
     private Long createdBy;
+    /** PRIVATE=只有我 / TENANT=所有团队成员（不含受限成员）/ PARTIAL=部分团队成员 */
+    private String visibility;
     private String embeddingModel;
     private String indexVersion;
     private LocalDateTime createdAt;
