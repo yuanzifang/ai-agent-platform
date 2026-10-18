@@ -66,6 +66,11 @@ public class TraceService {
         public static TraceExtra eval(String version, String input, String output, List<String> tags) {
             return new TraceExtra(KIND_EVAL, version, input, output, null, tags);
         }
+
+        /** 定时调度：kind=internal，tags=scheduled（需求 3.2(5)）。 */
+        public static TraceExtra scheduled(String version, String input, String output) {
+            return new TraceExtra(KIND_INTERNAL, version, input, output, null, List.of("scheduled"));
+        }
     }
 
     /** 兼容既有调用：等价于 extra=null（kind=internal、版本自动取最新发布版本）。 */

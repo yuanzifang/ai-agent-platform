@@ -5,6 +5,7 @@ import com.platform.observability.entity.AgentSpan;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -76,4 +77,12 @@ public interface AgentSpanMapper extends BaseMapper<AgentSpan> {
     List<Map<String, Object>> toolCalls(@Param("agentId") Long agentId,
                                         @Param("startTime") LocalDateTime startTime,
                                         @Param("endTime") LocalDateTime endTime);
+
+    /** 定时调度根 Span 打标（需求 3.2(5)：根 Span attributes 写入 scheduled）。 */
+    @Update("""
+            UPDATE agent_span
+            SET attributes = JSON_SET(COALESCE(attributes, '{}'), '$.tags', JSON_ARRAY('scheduled'))
+            WHERE trace_id = #{traceId} AND span_type = 'agent'
+            """)
+    int markScheduledRoot(@Param("traceId") String traceId);
 }

@@ -14,6 +14,7 @@
       <div class="actions">
         <el-button @click="openVersions">版本</el-button>
         <el-button @click="openIntegration">集成</el-button>
+        <el-button @click="openSchedules">定时</el-button>
         <el-button @click="evalEntry">评测</el-button>
         <el-button type="success" plain @click="publish">发布</el-button>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
@@ -255,6 +256,99 @@
       </div>
     </div>
 
+    <!-- 定时调度 -->
+    <el-dialog v-model="scheduleVisible" :title="`定时调度：${form.name || ''}`" width="820px">
+      <div class="tab-actions">
+        <el-button type="primary" size="small" @click="openScheduleCreate">新建任务</el-button>
+        <span class="hint">Cron 6 段（秒 分 时 日 月 周），兼容 5 段；系统身份执行，Trace tags=scheduled</span>
+      </div>
+      <el-table :data="schedules" size="small">
+        <el-table-column prop="name" label="名称" width="150" />
+        <el-table-column prop="cronExpr" label="Cron" width="150" />
+        <el-table-column label="下次执行" width="160">
+          <template #default="{ row }">{{ fmtTime(row.nextRunAt) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">
+              {{ row.status === 'ENABLED' ? '启用' : '停用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="最近执行" width="150">
+          <template #default="{ row }">
+            <el-tag v-if="row.lastStatus" size="small" :type="row.lastStatus === 'SUCCESS' ? 'success' : 'danger'">
+              {{ row.lastStatus }}
+            </el-tag>
+            <span v-else class="hint">未执行</span>
+            <div class="hint">{{ fmtTime(row.lastRunAt) }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="290">
+          <template #default="{ row }">
+            <el-button size="small" text type="primary" @click="runSchedule(row)">立即执行</el-button>
+            <el-button size="small" text @click="openResults(row)">结果</el-button>
+            <el-button size="small" text @click="openScheduleEdit(row)">编辑</el-button>
+            <el-button size="small" text @click="toggleSchedule(row)">{{ row.status === 'ENABLED' ? '停用' : '启用' }}</el-button>
+            <el-button size="small" text type="danger" @click="removeSchedule(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="schedules.length === 0" description="暂无定时任务" :image-size="50" />
+    </el-dialog>
+
+    <el-dialog v-model="scheduleFormVisible" :title="scheduleForm.id ? '编辑定时任务' : '新建定时任务'" width="560px">
+      <el-form label-width="100px">
+        <el-form-item label="名称" required><el-input v-model="scheduleForm.name" maxlength="64" /></el-form-item>
+        <el-form-item label="Cron" required>
+          <el-input v-model="scheduleForm.cronExpr" placeholder="0 */5 * * * *（每 5 分钟）" />
+        </el-form-item>
+        <el-form-item label="输入参数">
+          <el-input v-model="scheduleForm.inputParamsText" type="textarea" :rows="4"
+                    placeholder='JSON 对象，如 {"brand":"智云","message":"请生成日报"}' />
+        </el-form-item>
+        <el-form-item label="超时(ms)">
+          <el-input-number v-model="scheduleForm.timeoutMs" :min="1000" :max="600000" :step="1000" />
+        </el-form-item>
+        <el-form-item label="结果去处">
+          <el-select v-model="scheduleForm.notifyType" style="width: 160px">
+            <el-option label="存储" value="STORE" />
+            <el-option label="Webhook" value="WEBHOOK" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="scheduleForm.notifyType === 'WEBHOOK'" label="回调地址">
+          <el-input v-model="scheduleForm.webhookUrl" placeholder="https://example.com/webhook" />
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="scheduleForm.enabled" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="scheduleFormVisible = false">取消</el-button>
+        <el-button type="primary" :loading="scheduleSaving" @click="saveSchedule">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-drawer v-model="resultsVisible" :title="resultsTitle" size="620px">
+      <el-table :data="scheduleResults" size="small">
+        <el-table-column label="时间" width="160">
+          <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.status === 'SUCCESS' ? 'success' : 'danger'">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="结果">
+          <template #default="{ row }">
+            <div class="result-text">{{ row.status === 'SUCCESS' ? row.answer : row.error }}</div>
+            <div class="hint" v-if="row.traceId">trace: {{ row.traceId }}</div>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="scheduleResults.length === 0" description="暂无执行结果" :image-size="50" />
+    </el-drawer>
+
     <!-- 集成 API Key -->
     <el-dialog v-model="integrationVisible" :title="`集成调用：${form.name || ''}`" width="780px">
       <div class="hint mb8">
@@ -422,6 +516,17 @@ const skillCatalog = ref<any[]>([])
 const toolCatalog = ref<any[]>([])
 const agentCatalog = ref<any[]>([])
 const picker = reactive({ visible: false, type: 'skill' as RefType, selected: [] as number[] })
+const scheduleVisible = ref(false)
+const schedules = ref<any[]>([])
+const scheduleFormVisible = ref(false)
+const scheduleSaving = ref(false)
+const scheduleForm = reactive({
+  id: 0, name: '', cronExpr: '0 */5 * * * *', inputParamsText: '{}',
+  timeoutMs: 60000, notifyType: 'STORE', webhookUrl: '', enabled: true
+})
+const resultsVisible = ref(false)
+const scheduleResults = ref<any[]>([])
+const resultsTitle = ref('')
 const integrationVisible = ref(false)
 const apiKeys = ref<any[]>([])
 const createdKey = ref('')
@@ -544,6 +649,97 @@ function buildRefRows(type: RefType, bindings: any[], catalog: any[], target: an
     }
   }
   target.value = rows
+}
+
+async function openSchedules() {
+  await loadSchedules()
+  scheduleVisible.value = true
+}
+
+async function loadSchedules() {
+  const res = await http.get(`/agent/${agentId}/schedules`) as any
+  schedules.value = res?.list || []
+}
+
+function openScheduleCreate() {
+  Object.assign(scheduleForm, {
+    id: 0, name: '', cronExpr: '0 */5 * * * *', inputParamsText: '{}',
+    timeoutMs: 60000, notifyType: 'STORE', webhookUrl: '', enabled: true
+  })
+  scheduleFormVisible.value = true
+}
+
+function openScheduleEdit(row: any) {
+  Object.assign(scheduleForm, {
+    id: row.id,
+    name: row.name || '',
+    cronExpr: row.cronExpr || '',
+    inputParamsText: JSON.stringify(row.inputParams || {}, null, 2),
+    timeoutMs: row.timeoutMs ?? 60000,
+    notifyType: row.notifyType || 'STORE',
+    webhookUrl: row.webhookUrl || '',
+    enabled: row.status !== 'DISABLED'
+  })
+  scheduleFormVisible.value = true
+}
+
+async function saveSchedule() {
+  if (!scheduleForm.name.trim() || !scheduleForm.cronExpr.trim()) {
+    ElMessage.warning('名称与 Cron 必填'); return
+  }
+  let params: any
+  try {
+    params = JSON.parse(scheduleForm.inputParamsText || '{}')
+  } catch {
+    ElMessage.error('输入参数不是合法 JSON'); return
+  }
+  scheduleSaving.value = true
+  try {
+    const payload = {
+      name: scheduleForm.name.trim(),
+      cronExpr: scheduleForm.cronExpr.trim(),
+      inputParams: params,
+      timeoutMs: scheduleForm.timeoutMs,
+      notifyType: scheduleForm.notifyType,
+      webhookUrl: scheduleForm.webhookUrl || null,
+      status: scheduleForm.enabled ? 'ENABLED' : 'DISABLED'
+    }
+    if (scheduleForm.id) await http.put(`/agent/${agentId}/schedules/${scheduleForm.id}`, payload)
+    else await http.post(`/agent/${agentId}/schedules`, payload)
+    ElMessage.success('已保存')
+    scheduleFormVisible.value = false
+    await loadSchedules()
+  } finally {
+    scheduleSaving.value = false
+  }
+}
+
+async function toggleSchedule(row: any) {
+  await http.put(`/agent/${agentId}/schedules/${row.id}`, {
+    status: row.status === 'ENABLED' ? 'DISABLED' : 'ENABLED'
+  })
+  await loadSchedules()
+}
+
+async function runSchedule(row: any) {
+  const res = await http.post(`/agent/${agentId}/schedules/${row.id}/run`) as any
+  ElMessage[res.status === 'SUCCESS' ? 'success' : 'error'](
+    res.status === 'SUCCESS' ? '执行成功' : ('执行失败：' + res.message))
+  await loadSchedules()
+}
+
+async function openResults(row: any) {
+  resultsTitle.value = `执行结果：${row.name}`
+  scheduleResults.value = await http.get(`/agent/${agentId}/schedules/${row.id}/results`) as any
+  resultsVisible.value = true
+}
+
+async function removeSchedule(row: any) {
+  await ElMessageBox.confirm(`删除定时任务「${row.name}」？执行结果将一并删除。`, '删除定时任务',
+    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  await http.delete(`/agent/${agentId}/schedules/${row.id}`)
+  ElMessage.success('已删除')
+  await loadSchedules()
 }
 
 async function openIntegration() {
@@ -788,6 +984,10 @@ function evalEntry() {
   router.push(`/eval/${agentId}`)
 }
 
+function fmtTime(v?: string) {
+  return v ? String(v).replace('T', ' ').slice(0, 19) : '—'
+}
+
 function clip(text: string, n: number) {
   text = text || ''
   return text.length > n ? text.slice(0, n) + '…' : text
@@ -858,6 +1058,7 @@ function clip(text: string, n: number) {
 .mt8 {
   margin-top: 8px;
 }
+.result-text { white-space: pre-wrap; font-size: 12px; line-height: 1.6; }
 .panel-links {
   display: flex;
   align-items: center;

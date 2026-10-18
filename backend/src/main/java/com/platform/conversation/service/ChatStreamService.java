@@ -83,6 +83,11 @@ public class ChatStreamService {
 
     /** 发送消息：入口（校验/审核/落用户消息），随后进入流式或非流式生成。 */
     public Object send(Long conversationId, SendRequest req, JwtPrincipal principal) {
+        return sendWithSource(conversationId, req, principal, "chat");
+    }
+
+    /** 带来源的发送（chat / scheduled 等，影响 billing_usage.source 与 Trace tags）。 */
+    public Object sendWithSource(Long conversationId, SendRequest req, JwtPrincipal principal, String source) {
         Conversation conv = conversationService.owned(conversationId, principal);
         if (req.message() == null || req.message().isBlank()) {
             throw new BusinessException(400, "消息不能为空");
@@ -117,10 +122,10 @@ public class ChatStreamService {
         KnowledgePermissionService.Viewer viewer = viewer(principal);
         if (Boolean.FALSE.equals(req.stream())) {
             return blockingChat(conv, agent, config, userMsg, variables, llmInput, published.version(),
-                    viewer, principal);
+                    viewer, principal, source);
         }
         return streamChat(conv, agent, config, userMsg, null, false, hits, variables, llmInput,
-                published.version(), viewer, principal);
+                published.version(), viewer, principal, source);
     }
 
     /** 重新生成：以被替换消息之前的最近 USER 消息重跑，新消息带 parentMessageId。 */
@@ -146,7 +151,7 @@ public class ChatStreamService {
         Map<String, Object> config = published.config();
         String regenInput = llmInputWithAttachments(lastUser.getContent(), lastUser.getAttachments());
         return streamChat(conv, agent, config, lastUser, target.getId(), true, List.of(), Map.of(), regenInput,
-                published.version(), viewer(principal), principal);
+                published.version(), viewer(principal), principal, "chat");
     }
 
     /** 停止生成（幂等）：断开进行中的流并落 STOPPED。 */
@@ -165,7 +170,8 @@ public class ChatStreamService {
                               Message userMsg, Long parentMessageId, boolean regenerated,
                               List<ModerationService.Hit> inHits, Map<String, Object> variables,
                               String userMsgWithAttachments, String version,
-                              KnowledgePermissionService.Viewer viewer, JwtPrincipal principal) {
+                              KnowledgePermissionService.Viewer viewer, JwtPrincipal principal,
+                              String source) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
@@ -217,13 +223,13 @@ public class ChatStreamService {
             ai.setTokens((int) (tokens[0] + tokens[1]));
             messageMapper.insert(ai);
             conversationService.touch(conv.getId());
-            recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1]);
+            recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1], source);
             moderationService.moderate("OUT", acc.toString(), conv.getId(), ai.getId());
             traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                     conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
                     modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
                     citations.size(),
-                    TraceService.TraceExtra.internal(version, userMsg.getContent(), acc.toString()),
+                    traceExtra(source, version, userMsg.getContent(), acc.toString(), null),
                     collector.events());
             emitSafe(emitter, "done", Map.of("traceId", traceId, "messageId", ai.getId(),
                     "status", ai.getStatus(),
@@ -256,8 +262,8 @@ public class ChatStreamService {
                                 conv.getAgentId(), conv.getUserId(), agent.getName(), "ERROR",
                                 modelName, 0, tokens[1], System.currentTimeMillis() - startedAt,
                                 citations.size(),
-                                TraceService.TraceExtra.internalError(version, userMsg.getContent(),
-                                        acc.toString(), err.getMessage()), collector.events());
+                                traceExtra(source, version, userMsg.getContent(), acc.toString(),
+                                        err.getMessage()), collector.events());
                     });
                     emitSafe(emitter, "error", Map.of("code", 500201, "message", "生成失败：" + err.getMessage()));
                     emitter.complete();
@@ -286,12 +292,12 @@ public class ChatStreamService {
                     ai.setTokens((int) (tokens[0] + tokens[1]));
                     messageMapper.insert(ai);
                     conversationService.touch(conv.getId());
-                    recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1]);
+                    recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1], source);
                     traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                             conv.getAgentId(), conv.getUserId(), agent.getName(), "STOPPED",
                             modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
                             citations.size(),
-                            TraceService.TraceExtra.internal(version, userMsg.getContent(), acc.toString()),
+                            traceExtra(source, version, userMsg.getContent(), acc.toString(), null),
                             collector.events());
                 });
                 emitSafe(emitter, "done", Map.of("traceId", traceId, "status", "STOPPED",
@@ -321,7 +327,7 @@ public class ChatStreamService {
                                              Map<String, Object> config, Message userMsg,
                                              Map<String, Object> variables, String userMsgWithAttachments,
                                              String version, KnowledgePermissionService.Viewer viewer,
-                                             JwtPrincipal principal) {
+                                             JwtPrincipal principal, String source) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
@@ -365,11 +371,11 @@ public class ChatStreamService {
         ai.setTokens((int) (in + out));
         messageMapper.insert(ai);
         conversationService.touch(conv.getId());
-        recordUsage(tenantId, conv.getAgentId(), modelName, in, out);
+        recordUsage(tenantId, conv.getAgentId(), modelName, in, out, source);
         traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                 conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
                 modelName, in, out, System.currentTimeMillis() - startedAt, citations.size(),
-                TraceService.TraceExtra.internal(version, userMsg.getContent(), answer), collector.events());
+                traceExtra(source, version, userMsg.getContent(), answer, null), collector.events());
 
         // 输出审核（P0 留痕）
         moderationService.moderate("OUT", answer, conv.getId(), ai.getId());
@@ -453,6 +459,18 @@ public class ChatStreamService {
         return result;
     }
 
+    /** 来源标记：scheduled 写入 tags=scheduled（需求 3.2(5)），其余沿用 internal。 */
+    private TraceService.TraceExtra traceExtra(String source, String version, String input,
+                                               String output, String error) {
+        if ("scheduled".equals(source)) {
+            TraceService.TraceExtra extra = TraceService.TraceExtra.scheduled(version, input, output);
+            return error == null ? extra : new TraceService.TraceExtra(extra.kind(), extra.version(),
+                    extra.inputText(), extra.outputText(), error, extra.tags());
+        }
+        return error == null ? TraceService.TraceExtra.internal(version, input, output)
+                : TraceService.TraceExtra.internalError(version, input, output, error);
+    }
+
     /** 工具事件（前端在对话气泡内展示调用状态）。 */
     private Map<String, Object> toolEvent(ToolCallEvent e) {
         Map<String, Object> m = new LinkedHashMap<>();
@@ -509,11 +527,11 @@ public class ChatStreamService {
         }
     }
 
-    private void recordUsage(Long tenantId, Long agentId, String modelName, long in, long out) {
+    private void recordUsage(Long tenantId, Long agentId, String modelName, long in, long out, String source) {
         BillingUsage u = new BillingUsage();
         u.setTenantId(tenantId);
         u.setAgentId(agentId);
-        u.setSource("chat");
+        u.setSource(source == null || source.isBlank() ? "chat" : source);
         u.setModelName(modelName);
         u.setInputTokens(in);
         u.setOutputTokens(out);
