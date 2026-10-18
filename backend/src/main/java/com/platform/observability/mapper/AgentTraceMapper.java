@@ -39,9 +39,10 @@ public interface AgentTraceMapper extends BaseMapper<AgentTrace> {
     @Select("""
             <script>
             SELECT COUNT(DISTINCT t.session_id) AS sessions,
-                   COUNT(DISTINCT t.user_id) AS users,
+                   COUNT(DISTINCT CASE WHEN u.is_service_account = 1 THEN NULL ELSE t.user_id END) AS users,
                    COUNT(*) AS calls
             FROM agent_trace t
+            LEFT JOIN sys_user u ON u.id = t.user_id
             WHERE t.created_at <![CDATA[>=]]> #{startTime} AND t.created_at <![CDATA[<]]> #{endTime}
               <if test="agentId != null">AND t.agent_id = #{agentId}</if>
             </script>
@@ -53,8 +54,10 @@ public interface AgentTraceMapper extends BaseMapper<AgentTrace> {
     /** 按天去重活跃用户（日均活跃用户 = 各天去重后取平均）。 */
     @Select("""
             <script>
-            SELECT DATE(t.created_at) AS statDate, COUNT(DISTINCT t.user_id) AS users
+            SELECT DATE(t.created_at) AS statDate,
+                   COUNT(DISTINCT CASE WHEN u.is_service_account = 1 THEN NULL ELSE t.user_id END) AS users
             FROM agent_trace t
+            LEFT JOIN sys_user u ON u.id = t.user_id
             WHERE t.created_at <![CDATA[>=]]> #{startTime} AND t.created_at <![CDATA[<]]> #{endTime}
               <if test="agentId != null">AND t.agent_id = #{agentId}</if>
             GROUP BY DATE(t.created_at)
@@ -82,9 +85,10 @@ public interface AgentTraceMapper extends BaseMapper<AgentTrace> {
             <script>
             SELECT DATE_FORMAT(t.created_at, #{fmt}) AS bucket,
                    COUNT(*) AS calls,
-                   COUNT(DISTINCT t.user_id) AS activeUsers,
+                   COUNT(DISTINCT CASE WHEN u.is_service_account = 1 THEN NULL ELSE t.user_id END) AS activeUsers,
                    SUM(CASE WHEN t.status = 'ERROR' THEN 1 ELSE 0 END) AS errorCount
             FROM agent_trace t
+            LEFT JOIN sys_user u ON u.id = t.user_id
             WHERE t.created_at <![CDATA[>=]]> #{startTime} AND t.created_at <![CDATA[<]]> #{endTime}
               <if test="agentId != null">AND t.agent_id = #{agentId}</if>
             GROUP BY bucket
@@ -143,7 +147,7 @@ public interface AgentTraceMapper extends BaseMapper<AgentTrace> {
                    MIN(t.created_at) AS firstTime, MAX(t.created_at) AS lastTime
             FROM agent_trace t
             LEFT JOIN sys_user u ON u.id = t.user_id
-            WHERE t.user_id IS NOT NULL
+            WHERE t.user_id IS NOT NULL AND (u.is_service_account = 0)
               <if test="agentId != null">AND t.agent_id = #{agentId}</if>
               <if test="startTime != null">AND t.created_at <![CDATA[>=]]> #{startTime}</if>
               <if test="endTime != null">AND t.created_at <![CDATA[<=]]> #{endTime}</if>
@@ -163,7 +167,7 @@ public interface AgentTraceMapper extends BaseMapper<AgentTrace> {
             <script>
             SELECT COUNT(DISTINCT t.user_id) FROM agent_trace t
             LEFT JOIN sys_user u ON u.id = t.user_id
-            WHERE t.user_id IS NOT NULL
+            WHERE t.user_id IS NOT NULL AND (u.is_service_account = 0)
               <if test="agentId != null">AND t.agent_id = #{agentId}</if>
               <if test="startTime != null">AND t.created_at <![CDATA[>=]]> #{startTime}</if>
               <if test="endTime != null">AND t.created_at <![CDATA[<=]]> #{endTime}</if>

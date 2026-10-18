@@ -8,7 +8,11 @@
       <el-button v-if="canManage" type="primary" @click="openCreate">接入 Server</el-button>
     </div>
 
-    <el-table :data="list" size="small" v-loading="loading">
+    <el-empty v-if="!loading && list.length === 0" description="尚未接入 MCP Server">
+      <el-button v-if="canManage" type="primary" @click="openCreate">接入第一个 MCP Server</el-button>
+      <span v-else class="hint">请联系租户管理员接入</span>
+    </el-empty>
+    <el-table v-else :data="list" size="small" v-loading="loading">
       <el-table-column prop="name" label="名称" width="180" />
       <el-table-column prop="endpoint" label="地址" min-width="240" show-overflow-tooltip />
       <el-table-column prop="authType" label="鉴权" width="100" />
@@ -25,7 +29,7 @@
       </el-table-column>
       <el-table-column label="操作" width="300">
         <template #default="{ row }">
-          <el-button size="small" text @click="test(row)">测试</el-button>
+          <el-button v-if="canManage" size="small" text @click="test(row)">测试</el-button>
           <el-button v-if="canManage" size="small" text type="primary" @click="openSync(row)">同步工具</el-button>
           <el-button size="small" text @click="openTools(row)">已同步</el-button>
           <el-button v-if="canManage" size="small" text @click="openEdit(row)">编辑</el-button>

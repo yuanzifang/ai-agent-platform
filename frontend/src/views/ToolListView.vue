@@ -14,7 +14,7 @@
       <el-button v-if="canManage" type="primary" @click="openCreate">新建工具</el-button>
     </div>
 
-    <el-table :data="list" size="small" v-loading="loading">
+    <el-table :data="list" size="small" v-loading="loading" empty-text="暂无工具（内置工具应已预置）">
       <el-table-column label="名称" width="200">
         <template #default="{ row }">
           {{ row.name }}

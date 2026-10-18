@@ -31,13 +31,13 @@
           <el-menu-item index="/knowledge">
             <el-icon><Collection /></el-icon>知识库
           </el-menu-item>
-          <el-menu-item v-if="can('skill:manage')" index="/skills">
+          <el-menu-item index="/skills">
             <el-icon><MagicStick /></el-icon>技能管理
           </el-menu-item>
-          <el-menu-item v-if="can('tool:manage')" index="/tools">
+          <el-menu-item index="/tools">
             <el-icon><SetUp /></el-icon>工具管理
           </el-menu-item>
-          <el-menu-item v-if="can('tool:manage')" index="/mcp-servers">
+          <el-menu-item index="/mcp-servers">
             <el-icon><Link /></el-icon>MCP Server
           </el-menu-item>
           <el-menu-item v-if="can('prompt:manage')" index="/prompt-templates">
@@ -132,6 +132,7 @@ function onCommand(cmd: string) {
 .aside {
   border-right: 1px solid #e4e7ed;
   background: #fff;
+  overflow-y: auto;
 }
 .main {
   padding: 16px;

@@ -54,11 +54,13 @@ public class McpServerController {
     }
 
     @PostMapping("/{id}/test")
+    @PreAuthorize("hasAuthority('tool:manage')")
     public ApiResponse<Map<String, Object>> test(@PathVariable Long id) {
         return ApiResponse.ok(service.test(id));
     }
 
     @GetMapping("/{id}/discover")
+    @PreAuthorize("hasAuthority('tool:manage')")
     public ApiResponse<Map<String, Object>> discover(@PathVariable Long id) {
         return ApiResponse.ok(service.discover(id));
     }

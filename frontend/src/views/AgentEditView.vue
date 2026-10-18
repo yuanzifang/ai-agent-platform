@@ -13,6 +13,7 @@
       </div>
       <div class="actions">
         <el-button @click="openVersions">版本</el-button>
+        <el-button @click="openIntegration">集成</el-button>
         <el-button @click="evalEntry">评测</el-button>
         <el-button type="success" plain @click="publish">发布</el-button>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
@@ -161,7 +162,10 @@
             <template #title><span class="p-title">技能</span>
               <el-tag size="small" class="ml8">{{ enabledSkillCount ? `已启用 ${enabledSkillCount} 个` : '未配置' }}</el-tag>
             </template>
-            <el-button size="small" @click="openPicker('skill')">＋ 添加技能</el-button>
+            <div class="panel-links">
+              <el-button size="small" @click="openPicker('skill')">＋ 添加技能</el-button>
+              <el-link type="primary" :underline="false" @click="$router.push('/skills')">技能管理</el-link>
+            </div>
             <div v-if="skillRows.length === 0" class="hint mt8">暂未添加技能；内置技能可直接选用（技能管理可创建自定义技能）</div>
             <div v-for="row in skillRows" :key="'s' + row.id" class="kb-row">
               <el-switch v-model="row.enabled" :disabled="row.missing" />
@@ -177,7 +181,11 @@
             <template #title><span class="p-title">工具</span>
               <el-tag size="small" class="ml8">{{ enabledToolCount ? `已启用 ${enabledToolCount} 个` : '未配置' }}</el-tag>
             </template>
-            <el-button size="small" @click="openPicker('tool')">＋ 添加工具</el-button>
+            <div class="panel-links">
+              <el-button size="small" @click="openPicker('tool')">＋ 添加工具</el-button>
+              <el-link type="primary" :underline="false" @click="$router.push('/tools')">工具管理</el-link>
+              <el-link type="primary" :underline="false" @click="$router.push('/mcp-servers')">MCP Server</el-link>
+            </div>
             <div v-if="toolRows.length === 0" class="hint mt8">暂未添加工具；需在「Agent 能力」中开启函数调用后才会在对话中生效</div>
             <div v-for="row in toolRows" :key="'t' + row.id" class="kb-row">
               <el-switch v-model="row.enabled" :disabled="row.missing" />
@@ -195,7 +203,10 @@
             <template #title><span class="p-title">子 Agent</span>
               <el-tag size="small" class="ml8">{{ enabledSubCount ? `已启用 ${enabledSubCount} 个` : '未配置' }}</el-tag>
             </template>
-            <el-button size="small" @click="openPicker('sub')">＋ 添加子 Agent</el-button>
+            <div class="panel-links">
+              <el-button size="small" @click="openPicker('sub')">＋ 添加子 Agent</el-button>
+              <el-link type="primary" :underline="false" @click="$router.push('/agents')">Agent 列表</el-link>
+            </div>
             <div v-if="subRows.length === 0" class="hint mt8">子 Agent 将作为工具被父 Agent 调用（保存时校验循环依赖，上限 10 个）</div>
             <div v-for="row in subRows" :key="'a' + row.id" class="kb-row">
               <el-switch v-model="row.enabled" :disabled="row.missing" />
@@ -243,6 +254,80 @@
         </div>
       </div>
     </div>
+
+    <!-- 集成 API Key -->
+    <el-dialog v-model="integrationVisible" :title="`集成调用：${form.name || ''}`" width="780px">
+      <div class="hint mb8">
+        外部调用：POST /api/v1/open/chat/completions，请求头 X-Api-Key: {key}（或 Authorization: ApiKey {key}）。
+        API Key 归属当前 Agent，调用计入审计与计费。
+      </div>
+      <div class="tab-actions">
+        <el-button type="primary" size="small" @click="openKeyCreate">创建 API Key</el-button>
+        <span class="hint">每个 Agent 最多 10 个；0 表示不限制</span>
+      </div>
+      <el-table :data="apiKeys" size="small">
+        <el-table-column prop="name" label="名称" width="150" />
+        <el-table-column prop="keyPrefix" label="Key" width="180" />
+        <el-table-column prop="channel" label="渠道" width="100" />
+        <el-table-column label="限额（日/分钟）" width="140">
+          <template #default="{ row }">{{ row.dailyLimit || '不限' }} / {{ row.minuteLimit || '不限' }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">
+              {{ row.status === 'ENABLED' ? '启用' : '禁用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="最后使用" width="160">
+          <template #default="{ row }">{{ row.lastUsedAt ? String(row.lastUsedAt).replace('T',' ').slice(0,19) : '未使用' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="150">
+          <template #default="{ row }">
+            <el-button size="small" text @click="toggleKey(row)">
+              {{ row.status === 'ENABLED' ? '禁用' : '启用' }}
+            </el-button>
+            <el-button size="small" text type="danger" @click="removeKey(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="apiKeys.length === 0" description="暂无 API Key" :image-size="50" />
+
+      <div v-if="createdKey" class="created-key">
+        <div class="ck-title">API Key 已创建（仅显示一次，请立即保存）</div>
+        <div class="ck-row">
+          <code class="ck-value">{{ createdKey }}</code>
+          <el-button size="small" type="primary" @click="copyKey">复制</el-button>
+        </div>
+        <div class="hint">保存后关闭弹窗将无法再次查看明文。</div>
+      </div>
+    </el-dialog>
+
+    <!-- 创建 API Key -->
+    <el-dialog v-model="keyCreateVisible" title="创建 API Key" width="520px">
+      <el-form label-width="110px">
+        <el-form-item label="名称" required><el-input v-model="keyForm.name" maxlength="64" /></el-form-item>
+        <el-form-item label="调用渠道">
+          <el-select v-model="keyForm.channel" style="width: 180px">
+            <el-option label="API" value="API" />
+            <el-option label="Web" value="WEB" />
+            <el-option label="第三方集成" value="THIRD_PARTY" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="日调用上限">
+          <el-input-number v-model="keyForm.dailyLimit" :min="0" />
+          <span class="hint ml8">0 = 不限制</span>
+        </el-form-item>
+        <el-form-item label="分钟上限">
+          <el-input-number v-model="keyForm.minuteLimit" :min="0" />
+          <span class="hint ml8">0 = 不限制</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="keyCreateVisible = false">取消</el-button>
+        <el-button type="primary" :loading="keySaving" @click="createKey">创建</el-button>
+      </template>
+    </el-dialog>
 
     <!-- Prompt 模板插入 -->
     <el-dialog v-model="templateVisible" title="从 Prompt 模板插入" width="640px">
@@ -337,6 +422,12 @@ const skillCatalog = ref<any[]>([])
 const toolCatalog = ref<any[]>([])
 const agentCatalog = ref<any[]>([])
 const picker = reactive({ visible: false, type: 'skill' as RefType, selected: [] as number[] })
+const integrationVisible = ref(false)
+const apiKeys = ref<any[]>([])
+const createdKey = ref('')
+const keyCreateVisible = ref(false)
+const keySaving = ref(false)
+const keyForm = reactive({ name: '', channel: 'API', dailyLimit: 0, minuteLimit: 0 })
 const promptTemplates = ref<any[]>([])
 const templateVisible = ref(false)
 const templateId = ref(0)
@@ -454,6 +545,65 @@ function buildRefRows(type: RefType, bindings: any[], catalog: any[], target: an
   }
   target.value = rows
 }
+
+async function openIntegration() {
+  integratedAgentId.value = agentId
+  createdKey.value = ''
+  await loadApiKeys()
+  integrationVisible.value = true
+}
+
+async function loadApiKeys() {
+  const res = await http.get(`/agent/${agentId}/api-keys`) as any
+  apiKeys.value = res?.list || []
+}
+
+function openKeyCreate() {
+  Object.assign(keyForm, { name: '', channel: 'API', dailyLimit: 0, minuteLimit: 0 })
+  keyCreateVisible.value = true
+}
+
+async function createKey() {
+  if (!keyForm.name.trim()) { ElMessage.warning('名称必填'); return }
+  keySaving.value = true
+  try {
+    const res = await http.post(`/agent/${agentId}/api-keys`, {
+      name: keyForm.name.trim(), channel: keyForm.channel,
+      dailyLimit: keyForm.dailyLimit, minuteLimit: keyForm.minuteLimit
+    }) as any
+    createdKey.value = res.apiKey
+    keyCreateVisible.value = false
+    await loadApiKeys()
+  } finally {
+    keySaving.value = false
+  }
+}
+
+async function copyKey() {
+  try {
+    await navigator.clipboard.writeText(createdKey.value)
+    ElMessage.success('已复制')
+  } catch {
+    ElMessage.warning('复制失败，请手动选择复制')
+  }
+}
+
+async function toggleKey(row: any) {
+  await http.put(`/agent/${agentId}/api-keys/${row.id}`, {
+    status: row.status === 'ENABLED' ? 'DISABLED' : 'ENABLED'
+  })
+  await loadApiKeys()
+}
+
+async function removeKey(row: any) {
+  await ElMessageBox.confirm(`删除 API Key「${row.name}」？删除后使用该 Key 的调用将立即失败。`, '删除 API Key',
+    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  await http.delete(`/agent/${agentId}/api-keys/${row.id}`)
+  ElMessage.success('已删除')
+  await loadApiKeys()
+}
+
+const integratedAgentId = ref(0)
 
 function openTemplatePicker() {
   templateId.value = 0
@@ -645,6 +795,19 @@ function clip(text: string, n: number) {
 </script>
 
 <style scoped>
+.tab-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.mb8 { margin-bottom: 8px; }
+.ml8 { margin-left: 8px; }
+.created-key {
+  margin-top: 12px;
+  border: 1px solid #e6a23c;
+  background: #fdf6ec;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.ck-title { font-weight: 600; color: #e6a23c; margin-bottom: 6px; }
+.ck-row { display: flex; align-items: center; gap: 10px; }
+.ck-value { font-family: monospace; font-size: 13px; word-break: break-all; }
 .edit-page {
   height: 100%;
   display: flex;
@@ -694,6 +857,11 @@ function clip(text: string, n: number) {
 }
 .mt8 {
   margin-top: 8px;
+}
+.panel-links {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .prompt-actions {
   display: flex;

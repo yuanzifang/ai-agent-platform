@@ -30,7 +30,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 匿名接口（需求文档 7.2）
                         .requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh",
-                                "/api/v1/auth/invitations/accept", "/api/v1/share/**",
+                                "/api/v1/auth/invitations/accept", "/api/v1/share/**", "/api/v1/open/**",
                                 "/actuator/health/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint((req, res, ex) -> {
