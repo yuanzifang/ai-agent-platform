@@ -248,6 +248,44 @@ public class AgentSquareService {
         reportMapper.insert(report);
     }
 
+    // ---------- 举报处理（租户管理员） ----------
+
+    public List<Map<String, Object>> reports(String status) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (AgentReport r : reportMapper.selectList(new LambdaQueryWrapper<AgentReport>()
+                .eq(status != null && !status.isBlank(), AgentReport::getStatus, status)
+                .orderByDesc(AgentReport::getId)
+                .last("LIMIT 200"))) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", r.getId());
+            m.put("agentId", r.getAgentId());
+            AgentRegistry agent = agentMapper.selectById(r.getAgentId());
+            m.put("agentName", agent == null ? ("Agent #" + r.getAgentId()) : agent.getName());
+            m.put("userId", r.getUserId());
+            m.put("reporter", publisherName(r.getUserId()));
+            m.put("reason", r.getReason());
+            m.put("status", r.getStatus());
+            m.put("createdAt", r.getCreatedAt());
+            rows.add(m);
+        }
+        return rows;
+    }
+
+    @Transactional
+    public void handleReport(Long reportId, String status, JwtPrincipal principal) {
+        AgentReport report = reportMapper.selectById(reportId);
+        if (report == null) throw new BusinessException(404, "举报记录不存在");
+        String target = status == null ? "" : status.toUpperCase();
+        if (!List.of("RESOLVED", "DISMISSED").contains(target)) {
+            throw new BusinessException(400, "处理结果仅支持 RESOLVED/DISMISSED");
+        }
+        report.setStatus(target);
+        reportMapper.updateById(report);
+        auditService.record(principal.userId(), "agent.report.handle", "agent_report",
+                String.valueOf(reportId), "SUCCESS",
+                Map.of("agentId", report.getAgentId(), "status", target));
+    }
+
     // ---------- Fork / 上下架 ----------
 
     /** Fork：复制已发布配置与绑定；知识库按当前用户可见性重新校验（需求 3.8(4)）。 */

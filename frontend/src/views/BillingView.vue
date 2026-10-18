@@ -82,8 +82,14 @@
       <!-- 账单 -->
       <el-tab-pane label="账单" name="bills">
         <div class="tab-actions">
-          <el-date-picker v-model="billPeriod" type="month" value-format="YYYY-MM"
-                          placeholder="账期" style="width: 150px" />
+          <el-select v-model="billPeriodType" style="width: 90px" @change="switchPeriodType">
+            <el-option label="月账单" value="month" />
+            <el-option label="周账单" value="week" />
+          </el-select>
+          <el-date-picker v-if="billPeriodType === 'month'" v-model="billPeriod" type="month"
+                          value-format="YYYY-MM" placeholder="账期" style="width: 150px" />
+          <el-date-picker v-else v-model="billPeriod" type="week" format="YYYY 第 ww 周"
+                          value-format="YYYY-[W]WW" placeholder="账期" style="width: 170px" />
           <el-button v-if="canManage" type="primary" size="small" :loading="generating" @click="generateBill">生成账单</el-button>
           <span class="hint">按月生成；同账期重复生成将覆盖汇总</span>
         </div>
@@ -270,7 +276,13 @@ const rules = ref<any[]>([])
 const bills = ref<any[]>([])
 const transactions = ref<any[]>([])
 const quota = reactive<any>({ quota: {}, usage: {}, warnings: [] })
+const billPeriodType = ref('month')
 const billPeriod = ref(new Date().toISOString().slice(0, 7))
+function switchPeriodType() {
+  billPeriod.value = billPeriodType.value === 'month'
+    ? new Date().toISOString().slice(0, 7)
+    : ''
+}
 
 const ruleVisible = ref(false)
 const saving = ref(false)

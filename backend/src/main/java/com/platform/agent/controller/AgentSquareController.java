@@ -80,6 +80,25 @@ public class AgentSquareController {
         return ApiResponse.ok();
     }
 
+    @GetMapping("/reports")
+    @PreAuthorize("hasAuthority('tenant:manage')")
+    public ApiResponse<java.util.List<Map<String, Object>>> reports(
+            @RequestParam(required = false) String status) {
+        return ApiResponse.ok(squareService.reports(status));
+    }
+
+    public record HandleReportRequest(String status) {
+    }
+
+    @PutMapping("/reports/{reportId}")
+    @PreAuthorize("hasAuthority('tenant:manage')")
+    public ApiResponse<Void> handleReport(@PathVariable Long reportId,
+                                          @RequestBody HandleReportRequest req,
+                                          @AuthenticationPrincipal JwtPrincipal principal) {
+        squareService.handleReport(reportId, req.status(), principal);
+        return ApiResponse.ok();
+    }
+
     @PostMapping("/agents/{id}/fork")
     @PreAuthorize("hasAuthority('agent:create')")
     public ApiResponse<Map<String, Object>> fork(@PathVariable Long id,

@@ -17,6 +17,7 @@ import com.platform.capability.mapper.ToolVersionMapper;
 import com.platform.capability.runtime.ToolRuntimeService;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
+import com.platform.common.security.CryptoService;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.service.AuditService;
 import lombok.RequiredArgsConstructor;
@@ -51,6 +52,7 @@ public class ToolService {
     private final SkillRegistryMapper skillMapper;
     private final ToolRuntimeService runtimeService;
     private final AuditService auditService;
+    private final CryptoService cryptoService;
     private final ObjectMapper objectMapper;
 
     public Map<String, Object> list(String keyword, String category, String type) {
@@ -342,6 +344,12 @@ public class ToolService {
             Object v = auth.get(key);
             if (v == null || String.valueOf(v).isBlank() || MASK.equals(String.valueOf(v))) {
                 if (existingAuth.get(key) != null) auth.put(key, existingAuth.get(key));
+            }
+        }
+        for (String key : List.of("value", "token", "password")) {
+            Object v = auth.get(key);
+            if (v != null && !String.valueOf(v).isBlank() && !String.valueOf(v).startsWith("v1:")) {
+                auth.put(key, cryptoService.encrypt(String.valueOf(v)));
             }
         }
         cfg.put("auth", auth);

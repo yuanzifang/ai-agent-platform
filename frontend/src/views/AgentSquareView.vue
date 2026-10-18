@@ -19,6 +19,7 @@
       </el-select>
       <el-checkbox v-model="favoritesOnly" @change="load">我的收藏</el-checkbox>
       <el-button @click="load">搜索</el-button>
+      <el-button v-if="canManage" @click="openReports">举报处理</el-button>
     </div>
 
     <el-empty v-if="!loading && list.length === 0" description="暂无已上架的 Agent" />
@@ -55,6 +56,32 @@
         </div>
       </el-card>
     </div>
+
+    <el-dialog v-model="reportsVisible" title="举报处理" width="780px">
+      <el-table :data="reports" size="small" empty-text="暂无举报">
+        <el-table-column prop="agentName" label="Agent" width="140" />
+        <el-table-column prop="reporter" label="举报人" width="120" />
+        <el-table-column prop="reason" label="理由" min-width="220" show-overflow-tooltip />
+        <el-table-column label="时间" width="150">
+          <template #default="{ row }">{{ fmt(row.createdAt) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.status === 'PENDING' ? 'warning'
+                      : (row.status === 'RESOLVED' ? 'success' : 'info')">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="150">
+          <template #default="{ row }">
+            <template v-if="row.status === 'PENDING'">
+              <el-button size="small" text type="primary" @click="handleReport(row, 'RESOLVED')">处理</el-button>
+              <el-button size="small" text @click="handleReport(row, 'DISMISSED')">驳回</el-button>
+            </template>
+            <span v-else class="hint">已处理</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
 
     <el-dialog v-model="detailVisible" :title="current?.name || ''" width="760px">
       <template v-if="current">
@@ -138,6 +165,13 @@ import { useUserStore } from '../stores/user'
 
 const router = useRouter()
 const userStore = useUserStore()
+const canManage = computed(() => {
+  const perms = userStore.userInfo?.permissions || []
+  return userStore.userInfo?.isPlatformAdmin || perms.includes('tenant:manage')
+})
+const reportsVisible = ref(false)
+const reports = ref<any[]>([])
+
 const canFork = computed(() => {
   const perms = userStore.userInfo?.permissions || []
   return userStore.userInfo?.isPlatformAdmin || perms.includes('agent:create')
@@ -188,6 +222,17 @@ async function openDetail(a: any) {
   myScore.value = mine?.score || 0
   myComment.value = mine?.comment || ''
   detailVisible.value = true
+}
+
+async function openReports() {
+  reports.value = await http.get('/square/reports') as any
+  reportsVisible.value = true
+}
+
+async function handleReport(row: any, status: string) {
+  await http.put(`/square/reports/${row.id}`, { status })
+  ElMessage.success(status === 'RESOLVED' ? '已处理' : '已驳回')
+  reports.value = await http.get('/square/reports') as any
 }
 
 async function toggleFavorite(a: any) {

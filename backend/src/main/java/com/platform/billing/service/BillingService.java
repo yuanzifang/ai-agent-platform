@@ -249,14 +249,20 @@ public class BillingService {
         Long tenantId = TenantContext.getTenantId();
         String p = period == null || period.isBlank()
                 ? YearMonth.now().toString() : period.trim();
-        YearMonth month;
+        LocalDate start;
+        LocalDate end;
         try {
-            month = YearMonth.parse(p);
+            if (p.matches("\\d{4}-W\\d{2}")) {
+                start = LocalDate.parse(p + "-1", java.time.format.DateTimeFormatter.ISO_WEEK_DATE);
+                end = start.plusDays(6);
+            } else {
+                YearMonth month = YearMonth.parse(p);
+                start = month.atDay(1);
+                end = month.atEndOfMonth();
+            }
         } catch (Exception e) {
-            throw new BusinessException(400, "账期格式应为 yyyy-MM");
+            throw new BusinessException(400, "账期格式应为 yyyy-MM 或 yyyy-Www");
         }
-        LocalDate start = month.atDay(1);
-        LocalDate end = month.atEndOfMonth();
         List<BillingUsage> rows = usageMapper.selectList(new LambdaQueryWrapper<BillingUsage>()
                 .eq(BillingUsage::getTenantId, tenantId)
                 .ge(BillingUsage::getStatDate, start)
@@ -296,14 +302,14 @@ public class BillingService {
     public Map<String, Object> billDetail(Long id, long page, long pageSize) {
         BillingBill bill = billMapper.selectById(id);
         if (bill == null) throw new BusinessException(404, "账单不存在");
-        YearMonth month = YearMonth.parse(bill.getPeriod());
+        LocalDate[] range = billRange(bill.getPeriod());
         long size = Math.min(Math.max(pageSize, 1), 100);
         long p = Math.max(page, 1);
         var detail = usageMapper.selectPage(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(
                         p, size), new LambdaQueryWrapper<BillingUsage>()
                         .eq(BillingUsage::getTenantId, bill.getTenantId())
-                        .ge(BillingUsage::getStatDate, month.atDay(1))
-                        .le(BillingUsage::getStatDate, month.atEndOfMonth())
+                        .ge(BillingUsage::getStatDate, range[0])
+                        .le(BillingUsage::getStatDate, range[1])
                         .orderByDesc(BillingUsage::getId));
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("bill", bill);
@@ -317,11 +323,11 @@ public class BillingService {
     public CsvFile exportCsv(Long id) {
         BillingBill bill = billMapper.selectById(id);
         if (bill == null) throw new BusinessException(404, "账单不存在");
-        YearMonth month = YearMonth.parse(bill.getPeriod());
+        LocalDate[] range = billRange(bill.getPeriod());
         List<BillingUsage> rows = usageMapper.selectList(new LambdaQueryWrapper<BillingUsage>()
                 .eq(BillingUsage::getTenantId, bill.getTenantId())
-                .ge(BillingUsage::getStatDate, month.atDay(1))
-                .le(BillingUsage::getStatDate, month.atEndOfMonth())
+                .ge(BillingUsage::getStatDate, range[0])
+                .le(BillingUsage::getStatDate, range[1])
                 .orderByAsc(BillingUsage::getId));
         StringBuilder sb = new StringBuilder("\uFEFF");
         sb.append("时间,来源,Agent,知识库,模型,输入Token,输出Token,成本(元)\n");
@@ -448,6 +454,15 @@ public class BillingService {
     }
 
     // ---------- helpers ----------
+
+    private LocalDate[] billRange(String period) {
+        if (period != null && period.matches("\\d{4}-W\\d{2}")) {
+            LocalDate start = LocalDate.parse(period + "-1", java.time.format.DateTimeFormatter.ISO_WEEK_DATE);
+            return new LocalDate[]{start, start.plusDays(6)};
+        }
+        YearMonth month = YearMonth.parse(period);
+        return new LocalDate[]{month.atDay(1), month.atEndOfMonth()};
+    }
 
     private BigDecimal totalCost(Long tenantId) {
         BigDecimal sum = BigDecimal.ZERO;

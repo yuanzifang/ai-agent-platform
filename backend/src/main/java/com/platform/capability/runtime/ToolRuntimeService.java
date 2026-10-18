@@ -25,6 +25,7 @@ import com.platform.capability.mapper.SkillDependencyMapper;
 import com.platform.capability.mapper.SkillRegistryMapper;
 import com.platform.capability.mapper.ToolRegistryMapper;
 import com.platform.common.context.TenantContext;
+import com.platform.common.security.CryptoService;
 import com.platform.knowledge.service.EmbeddingService;
 import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.knowledge.service.VectorRepository;
@@ -90,6 +91,7 @@ public class ToolRuntimeService {
     private final McpServerMapper mcpServerMapper;
     private final McpClientService mcpClient;
     private final AgentCredentialService credentialService;
+    private final CryptoService cryptoService;
     private final ChatModel chatModel;
     private final EmbeddingService embeddingService;
     private final VectorRepository vectorRepository;
@@ -431,7 +433,7 @@ public class ToolRuntimeService {
                 default -> builder.header("X-API-Key", credential);
             }
         } else {
-            applyAuth(builder, asMap(cfg.get("auth")));
+            applyAuth(builder, decryptAuth(asMap(cfg.get("auth"))));
         }
         if (body != null) {
             if (headers.keySet().stream().noneMatch(k -> "content-type".equalsIgnoreCase(k))) {
@@ -463,6 +465,18 @@ public class ToolRuntimeService {
             }
         }
         throw last == null ? new IllegalStateException("请求失败") : last;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> decryptAuth(Map<String, Object> auth) {
+        Map<String, Object> result = new LinkedHashMap<>(auth);
+        for (String key : List.of("value", "token", "password")) {
+            Object v = result.get(key);
+            if (v != null && String.valueOf(v).startsWith("v1:")) {
+                result.put(key, cryptoService.decrypt(String.valueOf(v)));
+            }
+        }
+        return result;
     }
 
     private void applyAuth(HttpRequest.Builder builder, Map<String, Object> auth) {
