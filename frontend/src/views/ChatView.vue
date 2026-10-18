@@ -27,6 +27,12 @@
         <div v-for="m in messages" :key="m.id ?? 'pending'" class="msg" :class="m.role.toLowerCase()">
           <div class="bubble">
             <div class="content">{{ m.content }}<span v-if="m.streaming" class="cursor">▍</span></div>
+            <div v-if="(m.tools || []).length" class="tool-chips">
+              <span v-for="(t, i) in m.tools" :key="i" class="tool-chip"
+                    :class="t.status === 'ERROR' ? 'err' : ''">
+                ⚙ {{ t.subAgentName || t.name }} · {{ t.status === 'ERROR' ? '失败' : '成功' }} · {{ t.durationMs }}ms
+              </span>
+            </div>
             <div v-if="(m.attachments || []).length" class="msg-attachments">
               <span v-for="(a, i) in m.attachments" :key="i" class="attach-chip">📎 {{ a.fileName }}</span>
             </div>
@@ -96,7 +102,7 @@ import { useUserStore } from '../stores/user'
 interface SessionItem { id: number; agentId: number; agentName: string; title: string; lastActiveAt: string }
 interface ChatMessage {
   id?: number; role: string; content: string; status?: string; feedback?: string | null
-  citations?: any[]; streaming?: boolean; attachments?: any[]
+  citations?: any[]; tools?: any[]; streaming?: boolean; attachments?: any[]
 }
 interface Attachment { attachmentId: number; fileName: string }
 
@@ -240,6 +246,9 @@ function handleEvent(event: string, data: any, pending: ChatMessage) {
     scrollToBottom()
   } else if (event === 'citation') {
     (pending.citations ||= []).push(data)
+  } else if (event === 'tool') {
+    (pending.tools ||= []).push(data)
+    scrollToBottom()
   } else if (event === 'moderation') {
     ElMessage.warning(data.tip || '内容审核提示')
   } else if (event === 'usage') {
@@ -361,6 +370,12 @@ function clip(text: string, n: number) {
 </script>
 
 <style scoped>
+.tool-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.tool-chip {
+  font-size: 12px; color: #606266; background: #f4f4f5;
+  border-radius: 4px; padding: 2px 6px;
+}
+.tool-chip.err { color: #f56c6c; background: #fef0f0; }
 .chat-page {
   display: flex;
   height: 100%;

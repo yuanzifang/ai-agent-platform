@@ -149,10 +149,53 @@
             </el-form>
           </el-collapse-item>
 
-          <el-collapse-item name="p1" disabled>
-            <template #title><span class="p-title">技能 / 工具 / 子 Agent</span>
-              <el-tag size="small" type="info" class="ml8">P1 交付</el-tag>
+          <el-collapse-item name="skill">
+            <template #title><span class="p-title">技能</span>
+              <el-tag size="small" class="ml8">{{ enabledSkillCount ? `已启用 ${enabledSkillCount} 个` : '未配置' }}</el-tag>
             </template>
+            <el-button size="small" @click="openPicker('skill')">＋ 添加技能</el-button>
+            <div v-if="skillRows.length === 0" class="hint mt8">暂未添加技能；内置技能可直接选用（技能管理可创建自定义技能）</div>
+            <div v-for="row in skillRows" :key="'s' + row.id" class="kb-row">
+              <el-switch v-model="row.enabled" :disabled="row.missing" />
+              <div class="kb-name">{{ row.name }}</div>
+              <el-tag v-if="row.isBuiltin" size="small" type="info">内置</el-tag>
+              <el-tag v-if="row.missing" size="small" type="danger">已失效</el-tag>
+              <div class="row-desc">{{ row.description }}</div>
+              <el-button size="small" text type="danger" @click="removeRow(skillRows, row)">移除</el-button>
+            </div>
+          </el-collapse-item>
+
+          <el-collapse-item name="tool">
+            <template #title><span class="p-title">工具</span>
+              <el-tag size="small" class="ml8">{{ enabledToolCount ? `已启用 ${enabledToolCount} 个` : '未配置' }}</el-tag>
+            </template>
+            <el-button size="small" @click="openPicker('tool')">＋ 添加工具</el-button>
+            <div v-if="toolRows.length === 0" class="hint mt8">暂未添加工具；需在「Agent 能力」中开启函数调用后才会在对话中生效</div>
+            <div v-for="row in toolRows" :key="'t' + row.id" class="kb-row">
+              <el-switch v-model="row.enabled" :disabled="row.missing" />
+              <div class="kb-name">{{ row.name }}</div>
+              <el-tag size="small" :type="row.type === 'BUILTIN' ? 'info' : 'success'">
+                {{ row.type === 'BUILTIN' ? '内置' : 'API' }}
+              </el-tag>
+              <el-tag v-if="row.missing" size="small" type="danger">已失效</el-tag>
+              <div class="row-desc">{{ row.description }}</div>
+              <el-button size="small" text type="danger" @click="removeRow(toolRows, row)">移除</el-button>
+            </div>
+          </el-collapse-item>
+
+          <el-collapse-item name="subagent">
+            <template #title><span class="p-title">子 Agent</span>
+              <el-tag size="small" class="ml8">{{ enabledSubCount ? `已启用 ${enabledSubCount} 个` : '未配置' }}</el-tag>
+            </template>
+            <el-button size="small" @click="openPicker('sub')">＋ 添加子 Agent</el-button>
+            <div v-if="subRows.length === 0" class="hint mt8">子 Agent 将作为工具被父 Agent 调用（保存时校验循环依赖，上限 10 个）</div>
+            <div v-for="row in subRows" :key="'a' + row.id" class="kb-row">
+              <el-switch v-model="row.enabled" :disabled="row.missing" />
+              <div class="kb-name">{{ row.name }}</div>
+              <el-tag v-if="row.missing" size="small" type="danger">已失效</el-tag>
+              <div class="row-desc">{{ row.description }}</div>
+              <el-button size="small" text type="danger" @click="removeRow(subRows, row)">移除</el-button>
+            </div>
           </el-collapse-item>
         </el-collapse>
       </div>
@@ -164,6 +207,14 @@
           <div v-for="(m, i) in debugMsgs" :key="i" class="d-msg" :class="m.role.toLowerCase()">
             <div class="d-bubble">
               <div class="d-content">{{ m.content }}</div>
+              <div v-if="m.toolCalls?.length" class="d-tools">
+                <div v-for="(tc, j) in m.toolCalls" :key="j" class="d-tool"
+                     :class="tc.status === 'ERROR' ? 'err' : ''">
+                  ⚙ {{ tc.displayName || tc.toolName }}
+                  <span v-if="tc.toolType === 'SUB_AGENT'">（子 Agent）</span>
+                  · {{ tc.status === 'ERROR' ? '失败' : '成功' }} · {{ tc.durationMs }}ms
+                </div>
+              </div>
               <div v-if="m.citations?.length" class="d-cites">
                 引用 {{ m.citations.length }} 条：
                 <span v-for="(c, j) in m.citations" :key="j" class="d-cite">
@@ -184,6 +235,20 @@
         </div>
       </div>
     </div>
+
+    <!-- 能力选择弹窗 -->
+    <el-dialog v-model="picker.visible" :title="pickerTitle" width="520px">
+      <el-select v-model="picker.selected" multiple filterable style="width: 100%"
+                 :placeholder="pickerPlaceholder">
+        <el-option v-for="o in pickerOptions" :key="o.id" :value="o.id"
+                   :label="o.name + (o.isBuiltin ? '（内置）' : '')" />
+      </el-select>
+      <div class="hint mt8">只展示未添加项；添加后可在面板内启用/禁用</div>
+      <template #footer>
+        <el-button @click="picker.visible = false">取消</el-button>
+        <el-button type="primary" @click="confirmPicker">添加</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 版本抽屉 -->
     <el-drawer v-model="versionsVisible" title="版本历史" size="420px">
@@ -211,7 +276,7 @@ const route = useRoute()
 const router = useRouter()
 const agentId = Number(route.params.id)
 
-const activePanels = ref(['base', 'model', 'prompt', 'knowledge', 'variable'])
+const activePanels = ref(['base', 'model', 'prompt', 'knowledge', 'skill', 'tool', 'subagent', 'variable'])
 const models = ref<any[]>([])
 const kbRows = ref<KbRow[]>([])
 const versions = ref<any[]>([])
@@ -234,6 +299,28 @@ const tagsStr = ref('')
 const enabledKbCount = computed(() => kbRows.value.filter(k => k.enabled).length)
 
 interface KbRow { knowledgeBaseId: number; name: string; enabled: boolean; topK: number; scoreThreshold: number; missing?: boolean }
+interface RefRow { id: number; name: string; description?: string; type?: string; isBuiltin?: boolean; enabled: boolean; missing?: boolean }
+type RefType = 'skill' | 'tool' | 'sub'
+
+const skillRows = ref<RefRow[]>([])
+const toolRows = ref<RefRow[]>([])
+const subRows = ref<RefRow[]>([])
+const skillCatalog = ref<any[]>([])
+const toolCatalog = ref<any[]>([])
+const agentCatalog = ref<any[]>([])
+const picker = reactive({ visible: false, type: 'skill' as RefType, selected: [] as number[] })
+
+const enabledSkillCount = computed(() => skillRows.value.filter(r => r.enabled && !r.missing).length)
+const enabledToolCount = computed(() => toolRows.value.filter(r => r.enabled && !r.missing).length)
+const enabledSubCount = computed(() => subRows.value.filter(r => r.enabled && !r.missing).length)
+const pickerTitle = computed(() => ({ skill: '添加技能', tool: '添加工具', sub: '添加子 Agent' }[picker.type]))
+const pickerPlaceholder = computed(() => ({ skill: '选择技能', tool: '选择工具', sub: '选择本租户 Agent' }[picker.type]))
+const pickerOptions = computed(() => {
+  const rows = picker.type === 'skill' ? skillRows.value : picker.type === 'tool' ? toolRows.value : subRows.value
+  const existing = new Set(rows.map(r => r.id))
+  const source = picker.type === 'skill' ? skillCatalog.value : picker.type === 'tool' ? toolCatalog.value : agentCatalog.value
+  return source.filter(o => !existing.has(o.id))
+})
 interface VariableRow { key: string; type: string; required: boolean; defaultValue: string; description: string }
 
 const debugMsgs = ref<any[]>([])
@@ -242,11 +329,17 @@ const debugRunning = ref(false)
 const dbgBox = ref<HTMLElement>()
 
 onMounted(async () => {
-  const [detail, modelList, kbList] = await Promise.all([
+  const [detail, modelList, kbList, skillsRes, toolsRes, agentRes] = await Promise.all([
     http.get(`/agent/${agentId}`) as any,
     http.get('/provider/models') as any,
-    http.get('/knowledge-base', { params: { pageSize: 100 } }) as any
+    http.get('/knowledge-base', { params: { pageSize: 100 } }) as any,
+    http.get('/skills') as any,
+    http.get('/tools') as any,
+    http.get('/agent', { params: { pageSize: 100 } }) as any
   ])
+  skillCatalog.value = skillsRes?.list || []
+  toolCatalog.value = toolsRes?.list || []
+  agentCatalog.value = (agentRes?.list || []).filter((a: any) => a.id !== agentId)
   form.visibility = detail.visibility || 'TENANT'
   http.get(`/agent/${agentId}/grants`).then((g: any) => { grantedIds.value = g || [] }).catch(() => {})
   http.get('/users').then((ms: any) => { members.value = ms || [] }).catch(() => {})
@@ -285,6 +378,10 @@ onMounted(async () => {
       topK: rc.topK ?? 5, scoreThreshold: rc.scoreThreshold ?? 0.5
     }
   })
+  buildRefRows('skill', detail.skills, skillCatalog.value, skillRows)
+  buildRefRows('tool', detail.tools, toolCatalog.value, toolRows)
+  buildRefRows('sub', detail.subAgents, agentCatalog.value, subRows)
+
   // 已删除/无权限的知识库显示为「已失效」，运行时跳过（需求 3.6.3(4)）
   const visibleIds = new Set(kbListArr.map(kb => kb.id))
   for (const b of detail.knowledgeBases || []) {
@@ -296,6 +393,59 @@ onMounted(async () => {
     }
   }
 })
+
+function buildRefRows(type: RefType, bindings: any[], catalog: any[], target: any) {
+  const bound = new Map<number, any>()
+  for (const b of bindings || []) {
+    bound.set(type === 'skill' ? b.skillId : type === 'tool' ? b.toolId : b.subAgentId, b)
+  }
+  const rows: RefRow[] = []
+  for (const item of catalog) {
+    const b = bound.get(item.id)
+    if (!b) continue
+    rows.push({
+      id: item.id, name: item.name, description: item.description,
+      type: item.toolType || item.skillType, isBuiltin: !!item.isBuiltin,
+      enabled: b.enabled !== false, missing: false
+    })
+  }
+  const visibleIds = new Set(catalog.map((o: any) => o.id))
+  for (const b of bindings || []) {
+    const id = type === 'skill' ? b.skillId : type === 'tool' ? b.toolId : b.subAgentId
+    if (!visibleIds.has(id)) {
+      const label = type === 'skill' ? '技能' : type === 'tool' ? '工具' : 'Agent'
+      rows.push({ id, name: `已失效（${label} #${id}）`, enabled: false, missing: true })
+    }
+  }
+  target.value = rows
+}
+
+function openPicker(type: RefType) {
+  picker.type = type
+  picker.selected = []
+  picker.visible = true
+}
+
+function confirmPicker() {
+  const options = pickerOptions.value
+  for (const id of picker.selected) {
+    const o = options.find((x: any) => x.id === id)
+    if (!o) continue
+    const row: RefRow = {
+      id, name: o.name, description: o.description,
+      type: o.toolType || o.skillType, isBuiltin: !!o.isBuiltin, enabled: true
+    }
+    if (picker.type === 'skill') skillRows.value.push(row)
+    else if (picker.type === 'tool') toolRows.value.push(row)
+    else subRows.value.push(row)
+  }
+  picker.visible = false
+}
+
+function removeRow(rows: any, row: RefRow) {
+  const i = rows.value.indexOf(row)
+  if (i >= 0) rows.value.splice(i, 1)
+}
 
 function buildPayload() {
   return {
@@ -313,7 +463,10 @@ function buildPayload() {
     knowledgeBases: kbRows.value.filter(k => k.enabled).map(k => ({
       knowledgeBaseId: k.knowledgeBaseId, enabled: true,
       retrievalConfig: { topK: k.topK, scoreThreshold: k.scoreThreshold }
-    }))
+    })),
+    skills: skillRows.value.filter(r => !r.missing).map(r => ({ skillId: r.id, enabled: r.enabled })),
+    tools: toolRows.value.filter(r => !r.missing).map(r => ({ toolId: r.id, enabled: r.enabled })),
+    subAgents: subRows.value.filter(r => !r.missing).map(r => ({ subAgentId: r.id, enabled: r.enabled }))
   }
 }
 
@@ -388,13 +541,15 @@ async function debugSend() {
   if (!text || debugRunning.value) return
   debugInput.value = ''
   debugMsgs.value.push({ role: 'USER', content: text })
-  const reply = { role: 'ASSISTANT', content: '', citations: [] as any[], usage: null as any, latencyMs: 0 }
+  const reply = { role: 'ASSISTANT', content: '', citations: [] as any[], toolCalls: [] as any[],
+    usage: null as any, latencyMs: 0 }
   debugMsgs.value.push(reply)
   debugRunning.value = true
   try {
     const res = await http.post('/agent/debug/chat', { config: buildPayload(), message: text }) as any
     reply.content = res.answer
     reply.citations = res.citations || []
+    reply.toolCalls = res.toolCalls || []
     reply.usage = res.usage
     reply.latencyMs = res.latencyMs
   } catch (e: any) {
@@ -469,6 +624,27 @@ function clip(text: string, n: number) {
 }
 .mt8 {
   margin-top: 8px;
+}
+.row-desc {
+  flex: 1;
+  min-width: 0;
+  color: #909399;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.d-tools {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #dcdfe6;
+}
+.d-tool {
+  font-size: 12px;
+  color: #606266;
+}
+.d-tool.err {
+  color: #f56c6c;
 }
 .hint {
   color: #909399;

@@ -42,4 +42,14 @@ public interface ModelMapper extends BaseMapper<ModelEntity> {
             LIMIT 1
             """)
     ModelEntity findForPricing(@Param("modelName") String modelName, @Param("tenantId") Long tenantId);
+
+    /** 默认对话模型：租户自建优先，回落平台预置（技能测试等内部调用）。 */
+    @InterceptorIgnore(tenantLine = "true")
+    @Select("""
+            SELECT * FROM model
+            WHERE purpose = 'CHAT' AND status = 'ENABLED' AND (tenant_id IS NULL OR tenant_id = #{tenantId})
+            ORDER BY (tenant_id IS NULL) ASC, id ASC
+            LIMIT 1
+            """)
+    ModelEntity findDefaultChat(@Param("tenantId") Long tenantId);
 }

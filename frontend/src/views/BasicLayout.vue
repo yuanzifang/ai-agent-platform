@@ -25,6 +25,12 @@
           <el-menu-item index="/knowledge">
             <el-icon><Collection /></el-icon>知识库
           </el-menu-item>
+          <el-menu-item v-if="can('skill:manage')" index="/skills">
+            <el-icon><MagicStick /></el-icon>技能管理
+          </el-menu-item>
+          <el-menu-item v-if="can('tool:manage')" index="/tools">
+            <el-icon><SetUp /></el-icon>工具管理
+          </el-menu-item>
           <el-menu-item index="/provider">
             <el-icon><Connection /></el-icon>模型接入
           </el-menu-item>
@@ -60,7 +66,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
-  UserFilled, Setting, OfficeBuilding, Document } from '@element-plus/icons-vue'
+  UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()

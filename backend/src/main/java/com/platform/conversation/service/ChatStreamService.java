@@ -11,6 +11,9 @@ import com.platform.agent.mapper.AgentRegistryMapper;
 import com.platform.agent.mapper.AgentVersionMapper;
 import com.platform.agent.service.ChatService;
 import com.platform.billing.entity.BillingUsage;
+import com.platform.capability.runtime.ToolCallCollector;
+import com.platform.capability.runtime.ToolCallEvent;
+import com.platform.capability.runtime.ToolRuntimeService;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.observability.service.TraceService;
 import com.platform.common.context.TenantContext;
@@ -61,6 +64,7 @@ public class ChatStreamService {
     private final AgentKnowledgeBaseMapper agentKbMapper;
     private final BillingUsageMapper billingMapper;
     private final ChatService chatService;                 // 复用 RAG augmentWithKnowledge
+    private final ToolRuntimeService toolRuntime;
     private final ConversationService conversationService;
     private final ModerationService moderationService;
     private final TraceService traceService;
@@ -107,10 +111,11 @@ public class ChatStreamService {
         }
         KnowledgePermissionService.Viewer viewer = viewer(principal);
         if (Boolean.FALSE.equals(req.stream())) {
-            return blockingChat(conv, agent, config, userMsg, variables, llmInput, published.version(), viewer);
+            return blockingChat(conv, agent, config, userMsg, variables, llmInput, published.version(),
+                    viewer, principal);
         }
         return streamChat(conv, agent, config, userMsg, null, false, hits, variables, llmInput,
-                published.version(), viewer);
+                published.version(), viewer, principal);
     }
 
     /** 重新生成：以被替换消息之前的最近 USER 消息重跑，新消息带 parentMessageId。 */
@@ -136,7 +141,7 @@ public class ChatStreamService {
         Map<String, Object> config = published.config();
         String regenInput = llmInputWithAttachments(lastUser.getContent(), lastUser.getAttachments());
         return streamChat(conv, agent, config, lastUser, target.getId(), true, List.of(), Map.of(), regenInput,
-                published.version(), viewer(principal));
+                published.version(), viewer(principal), principal);
     }
 
     /** 停止生成（幂等）：断开进行中的流并落 STOPPED。 */
@@ -155,16 +160,27 @@ public class ChatStreamService {
                               Message userMsg, Long parentMessageId, boolean regenerated,
                               List<ModerationService.Hit> inHits, Map<String, Object> variables,
                               String userMsgWithAttachments, String version,
-                              KnowledgePermissionService.Viewer viewer) {
+                              KnowledgePermissionService.Viewer viewer, JwtPrincipal principal) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
         SseEmitter emitter = new SseEmitter(300_000L);
 
+        // 技能/工具/子 Agent 装配（工具调用事件实时推送 SSE）
+        ToolCallCollector collector = new ToolCallCollector(event -> emitSafe(emitter, "tool", toolEvent(event)));
+        ToolRuntimeService.RuntimeTools runtime = toolRuntime.build(conv.getAgentId(), config, principal, viewer,
+                collector, variables);
         // RAG 检索在请求线程完成（租户上下文可用）
         String systemPrompt = applyVariables(str(config.get("systemPrompt")), config.get("variables"), variables);
+        if (runtime.skillPrompt() != null) {
+            systemPrompt = systemPrompt == null || systemPrompt.isBlank()
+                    ? runtime.skillPrompt() : systemPrompt + runtime.skillPrompt();
+        }
         List<Map<String, Object>> citations = new ArrayList<>();
         List<Map<String, Object>> kbBindings = knowledgeBindings(conv.getAgentId());
+        for (Long kbId : runtime.knowledgeBaseIds()) {
+            kbBindings.add(Map.of("knowledgeBaseId", kbId, "enabled", true));
+        }
         if (!kbBindings.isEmpty()) {
             systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings,
                     citations, viewer);
@@ -185,6 +201,7 @@ public class ChatStreamService {
 
         ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModel).prompt().options(options.build());
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
+        if (!runtime.callbacks().isEmpty()) spec = spec.toolCallbacks(runtime.callbacks());
         spec = spec.messages(history).user(userMsgWithAttachments);
         Flux<org.springframework.ai.chat.model.ChatResponse> flux = spec.stream().chatResponse();
 
@@ -201,7 +218,8 @@ public class ChatStreamService {
                     conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
                     modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
                     citations.size(),
-                    TraceService.TraceExtra.internal(version, userMsg.getContent(), acc.toString()));
+                    TraceService.TraceExtra.internal(version, userMsg.getContent(), acc.toString()),
+                    collector.events());
             emitSafe(emitter, "done", Map.of("traceId", traceId, "messageId", ai.getId(),
                     "status", ai.getStatus(),
                     "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1])));
@@ -234,7 +252,7 @@ public class ChatStreamService {
                                 modelName, 0, tokens[1], System.currentTimeMillis() - startedAt,
                                 citations.size(),
                                 TraceService.TraceExtra.internalError(version, userMsg.getContent(),
-                                        acc.toString(), err.getMessage()));
+                                        acc.toString(), err.getMessage()), collector.events());
                     });
                     emitSafe(emitter, "error", Map.of("code", 500201, "message", "生成失败：" + err.getMessage()));
                     emitter.complete();
@@ -268,7 +286,8 @@ public class ChatStreamService {
                             conv.getAgentId(), conv.getUserId(), agent.getName(), "STOPPED",
                             modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
                             citations.size(),
-                            TraceService.TraceExtra.internal(version, userMsg.getContent(), acc.toString()));
+                            TraceService.TraceExtra.internal(version, userMsg.getContent(), acc.toString()),
+                            collector.events());
                 });
                 emitSafe(emitter, "done", Map.of("traceId", traceId, "status", "STOPPED",
                         "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1])));
@@ -296,13 +315,25 @@ public class ChatStreamService {
     private Map<String, Object> blockingChat(Conversation conv, AgentRegistry agent,
                                              Map<String, Object> config, Message userMsg,
                                              Map<String, Object> variables, String userMsgWithAttachments,
-                                             String version, KnowledgePermissionService.Viewer viewer) {
+                                             String version, KnowledgePermissionService.Viewer viewer,
+                                             JwtPrincipal principal) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
-        String systemPrompt = applyVariables(str(config.get("systemPrompt")), config.get("variables"), variables);
+        ToolCallCollector collector = new ToolCallCollector();
+        ToolRuntimeService.RuntimeTools runtime = toolRuntime.build(conv.getAgentId(), config, principal, viewer,
+                collector, variables);
+        String systemPrompt = applyVariables(str(config.get("systemPrompt")),
+                config.get("variables"), variables);
+        if (runtime.skillPrompt() != null) {
+            systemPrompt = systemPrompt == null || systemPrompt.isBlank()
+                    ? runtime.skillPrompt() : systemPrompt + runtime.skillPrompt();
+        }
         List<Map<String, Object>> citations = new ArrayList<>();
         List<Map<String, Object>> kbBindings = knowledgeBindings(conv.getAgentId());
+        for (Long kbId : runtime.knowledgeBaseIds()) {
+            kbBindings.add(Map.of("knowledgeBaseId", kbId, "enabled", true));
+        }
         if (!kbBindings.isEmpty()) {
             systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings,
                     citations, viewer);
@@ -316,6 +347,7 @@ public class ChatStreamService {
 
         ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModel).prompt().options(options.build());
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
+        if (!runtime.callbacks().isEmpty()) spec = spec.toolCallbacks(runtime.callbacks());
         var resp = spec.messages(history).user(userMsgWithAttachments).call().chatResponse();
         String answer = resp.getResult().getOutput().getText();
         var usage = resp.getMetadata().getUsage();
@@ -332,13 +364,14 @@ public class ChatStreamService {
         traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                 conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
                 modelName, in, out, System.currentTimeMillis() - startedAt, citations.size(),
-                TraceService.TraceExtra.internal(version, userMsg.getContent(), answer));
+                TraceService.TraceExtra.internal(version, userMsg.getContent(), answer), collector.events());
 
         // 输出审核（P0 留痕）
         moderationService.moderate("OUT", answer, conv.getId(), ai.getId());
 
         return Map.of("answer", ai.getContent(), "traceId", traceId, "messageId", ai.getId(),
-                "usage", Map.of("inputTokens", in, "outputTokens", out), "citations", citations);
+                "usage", Map.of("inputTokens", in, "outputTokens", out), "citations", citations,
+                "toolCalls", collector.events());
     }
 
     /** 输入命中 BLOCK：不调用模型，返回仅含 moderation/error/done 的 SSE。 */
@@ -413,6 +446,20 @@ public class ChatStreamService {
             result.add(b);
         }
         return result;
+    }
+
+    /** 工具事件（前端在对话气泡内展示调用状态）。 */
+    private Map<String, Object> toolEvent(ToolCallEvent e) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("name", e.displayName() == null ? e.toolName() : e.displayName());
+        m.put("toolName", e.toolName());
+        m.put("toolType", e.toolType());
+        m.put("status", e.status());
+        m.put("durationMs", e.durationMs());
+        m.put("subAgentName", e.subAgentName() == null ? "" : e.subAgentName());
+        m.put("outputPreview", e.output() == null ? "" : (e.output().length() > 120
+                ? e.output().substring(0, 120) : e.output()));
+        return m;
     }
 
     private static KnowledgePermissionService.Viewer viewer(JwtPrincipal principal) {

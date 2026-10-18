@@ -2,10 +2,13 @@ package com.platform.agent.service;
 
 import com.platform.billing.entity.BillingUsage;
 import com.platform.billing.mapper.BillingUsageMapper;
+import com.platform.capability.runtime.ToolCallCollector;
+import com.platform.capability.runtime.ToolRuntimeService;
 import com.platform.common.context.TenantContext;
 import com.platform.knowledge.service.EmbeddingService;
 import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.knowledge.service.VectorRepository;
+import com.platform.security.JwtPrincipal;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -36,10 +39,12 @@ public class ChatService {
     private final EmbeddingService embeddingService;
     private final VectorRepository vectorRepository;
     private final KnowledgePermissionService permissionService;
+    private final ToolRuntimeService toolRuntime;
 
     @SuppressWarnings("unchecked")
     public Map<String, Object> debugChat(Map<String, Object> config, String message,
-                                         KnowledgePermissionService.Viewer viewer) {
+                                         KnowledgePermissionService.Viewer viewer,
+                                         JwtPrincipal principal) {
         String systemPrompt = config == null || config.get("systemPrompt") == null
                 ? null : String.valueOf(config.get("systemPrompt"));
         // 调试链路同样应用变量默认值替换（需求 3.1.3(9)）
@@ -53,9 +58,31 @@ public class ChatService {
         Map<String, Object> modelConfig = config == null || config.get("modelConfig") == null
                 ? Map.of() : asMap(config.get("modelConfig"));
 
-        // RAG：检索绑定的知识库，命中分段注入（需求文档 3.1.3(7)）
+        // 技能/工具/子 Agent 运行时装配（需求 3.13 / 3.14 / 3.1.3(8)）
+        Map<String, Object> variables = new LinkedHashMap<>();
+        if (config != null && config.get("variables") instanceof List<?> defs) {
+            for (Object o : defs) {
+                if (o instanceof Map<?, ?> d && d.get("key") != null && d.get("defaultValue") != null) {
+                    variables.put(String.valueOf(d.get("key")), d.get("defaultValue"));
+                }
+            }
+        }
+        ToolCallCollector collector = new ToolCallCollector();
+        ToolRuntimeService.RuntimeTools runtime = toolRuntime.build(null, config, principal, viewer,
+                collector, variables);
+        if (runtime.skillPrompt() != null) {
+            systemPrompt = systemPrompt == null || systemPrompt.isBlank()
+                    ? runtime.skillPrompt() : systemPrompt + runtime.skillPrompt();
+        }
+
+        // RAG：检索绑定的知识库 + 技能依赖知识库（需求文档 3.1.3(7)）
         List<Map<String, Object>> citations = new ArrayList<>();
-        if (config != null && config.get("knowledgeBases") instanceof List<?> kbs) {
+        List<Object> kbs = new ArrayList<>();
+        if (config != null && config.get("knowledgeBases") instanceof List<?> list) kbs.addAll(list);
+        for (Long kbId : runtime.knowledgeBaseIds()) {
+            kbs.add(Map.of("knowledgeBaseId", kbId, "enabled", true));
+        }
+        if (!kbs.isEmpty()) {
             systemPrompt = augmentWithKnowledge(systemPrompt, message, kbs, citations, viewer);
         }
 
@@ -67,6 +94,7 @@ public class ChatService {
 
         var spec = ChatClient.create(chatModel).prompt().options(options.build());
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
+        if (!runtime.callbacks().isEmpty()) spec = spec.toolCallbacks(runtime.callbacks());
 
         long start = System.currentTimeMillis();
         var chatResponse = spec.user(message).call().chatResponse();
@@ -85,6 +113,7 @@ public class ChatService {
         result.put("latencyMs", System.currentTimeMillis() - start);
         result.put("usage", Map.of("inputTokens", inputTokens, "outputTokens", outputTokens));
         result.put("citations", citations);
+        result.put("toolCalls", collector.events());
         return result;
     }
 

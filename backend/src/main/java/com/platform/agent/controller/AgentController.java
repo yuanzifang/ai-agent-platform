@@ -116,7 +116,7 @@ public class AgentController {
                                                       @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(chatService.debugChat(req.config(), req.message(),
                 com.platform.knowledge.service.KnowledgePermissionService.Viewer.of(
-                        principal.userId(), principal.roles())));
+                        principal.userId(), principal.roles()), principal));
     }
 
     public record DebugChatRequest(Map<String, Object> config, @NotBlank String message) {

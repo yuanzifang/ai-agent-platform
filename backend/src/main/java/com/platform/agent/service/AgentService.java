@@ -6,8 +6,16 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.platform.agent.entity.AgentRegistry;
 import com.platform.agent.entity.AgentVersion;
 import com.platform.agent.entity.AgentKnowledgeBase;
+import com.platform.agent.entity.AgentSkillBinding;
+import com.platform.agent.entity.AgentToolBinding;
+import com.platform.agent.entity.AgentSubAgent;
 import com.platform.system.entity.AgentUserGrant;
 import com.platform.agent.mapper.AgentKnowledgeBaseMapper;
+import com.platform.agent.mapper.AgentSkillBindingMapper;
+import com.platform.agent.mapper.AgentToolBindingMapper;
+import com.platform.agent.mapper.AgentSubAgentMapper;
+import com.platform.capability.mapper.SkillRegistryMapper;
+import com.platform.capability.mapper.ToolRegistryMapper;
 import com.platform.system.mapper.AgentUserGrantMapper;
 import com.platform.agent.mapper.AgentRegistryMapper;
 import com.platform.agent.mapper.AgentVersionMapper;
@@ -20,9 +28,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -34,6 +45,11 @@ public class AgentService {
 
     private final AgentRegistryMapper agentMapper;
     private final AgentKnowledgeBaseMapper agentKbMapper;
+    private final AgentSkillBindingMapper agentSkillMapper;
+    private final AgentToolBindingMapper agentToolMapper;
+    private final AgentSubAgentMapper agentSubAgentMapper;
+    private final SkillRegistryMapper skillRegistryMapper;
+    private final ToolRegistryMapper toolRegistryMapper;
     private final AgentUserGrantMapper grantMapper;
     private final com.platform.eval.service.EvalService evalService;
     private final com.platform.system.service.AuditService auditService;
@@ -108,6 +124,7 @@ public class AgentService {
         return agent;
     }
 
+    @Transactional
     public Map<String, Object> create(Map<String, Object> req, JwtPrincipal principal) {
         Map<String, Object> modelConfig = asMap(req.get("modelConfig"));
         if (modelConfig == null || !modelConfig.containsKey("modelName")) {
@@ -134,10 +151,14 @@ public class AgentService {
         agent.setUpdatedAt(LocalDateTime.now());
         agentMapper.insert(agent);
         replaceKnowledgeBases(agent.getId(), agent.getTenantId(), req.get("knowledgeBases"));
+        replaceSkills(agent.getId(), agent.getTenantId(), req.get("skills"));
+        replaceTools(agent.getId(), agent.getTenantId(), req.get("tools"));
+        replaceSubAgents(agent.getId(), agent.getTenantId(), req.get("subAgents"));
         return Map.of("id", agent.getId(), "agentKey", agent.getAgentKey());
     }
 
     /** 按面板整体覆盖（需求文档 7.3 PUT 语义）；If-Match 携带 updated_at，冲突返回 409。 */
+    @Transactional
     public Map<String, Object> update(Long id, Map<String, Object> req, String ifMatch) {
         get(id); // 存在性 + 租户过滤（插件自动注入 tenant_id）
         LocalDateTime expected = parseIfMatch(ifMatch);
@@ -159,6 +180,9 @@ public class AgentService {
         if (req.containsKey("retrievalConfig")) setJsonField(req.get("retrievalConfig"), patch::setRetrievalConfig);
         if (req.containsKey("variables")) setJsonField(req.get("variables"), patch::setVariables);
         boolean kbTouched = req.containsKey("knowledgeBases");
+        boolean skillsTouched = req.containsKey("skills");
+        boolean toolsTouched = req.containsKey("tools");
+        boolean subAgentsTouched = req.containsKey("subAgents");
 
         LambdaUpdateWrapper<AgentRegistry> uw = new LambdaUpdateWrapper<AgentRegistry>()
                 .eq(AgentRegistry::getId, id)
@@ -169,9 +193,11 @@ public class AgentService {
         if (rows == 0) {
             throw new BusinessException(409, "内容已被他人修改，请刷新后重试");
         }
-        if (kbTouched) {
-            replaceKnowledgeBases(id, get(id).getTenantId(), req.get("knowledgeBases"));
-        }
+        Long tenantId = get(id).getTenantId();
+        if (kbTouched) replaceKnowledgeBases(id, tenantId, req.get("knowledgeBases"));
+        if (skillsTouched) replaceSkills(id, tenantId, req.get("skills"));
+        if (toolsTouched) replaceTools(id, tenantId, req.get("tools"));
+        if (subAgentsTouched) replaceSubAgents(id, tenantId, req.get("subAgents"));
         return Map.of("updatedAt", agentMapper.selectById(id).getUpdatedAt()
                 .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
     }
@@ -289,6 +315,9 @@ public class AgentService {
         v.put("updatedAt", a.getUpdatedAt() == null ? null
                 : a.getUpdatedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
         v.put("knowledgeBases", knowledgeBases(id));
+        v.put("skills", skillBindings(id));
+        v.put("tools", toolBindings(id));
+        v.put("subAgents", subAgentBindings(id));
         return v;
     }
 
@@ -328,6 +357,156 @@ public class AgentService {
         }
     }
 
+    /** 技能绑定（含禁用行，用于编辑回显与已失效检测）。 */
+    public java.util.List<Map<String, Object>> skillBindings(Long agentId) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (AgentSkillBinding row : agentSkillMapper.selectList(new LambdaQueryWrapper<AgentSkillBinding>()
+                .eq(AgentSkillBinding::getAgentId, agentId).orderByAsc(AgentSkillBinding::getSortOrder))) {
+            Map<String, Object> b = new LinkedHashMap<>();
+            b.put("skillId", row.getSkillId());
+            b.put("enabled", row.getEnabled() != null && row.getEnabled() == 1);
+            b.put("sortOrder", row.getSortOrder());
+            result.add(b);
+        }
+        return result;
+    }
+
+    public java.util.List<Map<String, Object>> toolBindings(Long agentId) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (AgentToolBinding row : agentToolMapper.selectList(new LambdaQueryWrapper<AgentToolBinding>()
+                .eq(AgentToolBinding::getAgentId, agentId).orderByAsc(AgentToolBinding::getSortOrder))) {
+            Map<String, Object> b = new LinkedHashMap<>();
+            b.put("toolId", row.getToolId());
+            b.put("enabled", row.getEnabled() != null && row.getEnabled() == 1);
+            b.put("params", fromJsonMap(row.getParams()));
+            b.put("sortOrder", row.getSortOrder());
+            result.add(b);
+        }
+        return result;
+    }
+
+    public java.util.List<Map<String, Object>> subAgentBindings(Long agentId) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (AgentSubAgent row : agentSubAgentMapper.selectList(new LambdaQueryWrapper<AgentSubAgent>()
+                .eq(AgentSubAgent::getAgentId, agentId).orderByAsc(AgentSubAgent::getSortOrder))) {
+            Map<String, Object> b = new LinkedHashMap<>();
+            b.put("subAgentId", row.getSubAgentId());
+            b.put("enabled", row.getEnabled() != null && row.getEnabled() == 1);
+            b.put("sortOrder", row.getSortOrder());
+            result.add(b);
+        }
+        return result;
+    }
+
+    /** 整体覆盖技能绑定（先全量校验，再删除重写，避免失败时丢配置）。 */
+    private void replaceSkills(Long agentId, Long tenantId, Object value) {
+        List<AgentSkillBinding> rows = new ArrayList<>();
+        if (value instanceof java.util.List<?> list) {
+            Set<Long> seen = new HashSet<>();
+            int order = 0;
+            for (Object o : list) {
+                Map<String, Object> b = asMap(o);
+                Long skillId = toLong(b.get("skillId"));
+                if (skillId == null || !seen.add(skillId)) continue;
+                if (skillRegistryMapper.findVisible(skillId, tenantId) == null) {
+                    throw new BusinessException(400, "技能不存在或已删除：" + skillId);
+                }
+                AgentSkillBinding row = new AgentSkillBinding();
+                row.setAgentId(agentId);
+                row.setSkillId(skillId);
+                row.setEnabled(Boolean.FALSE.equals(b.get("enabled")) ? 0 : 1);
+                row.setSortOrder(order++);
+                row.setTenantId(tenantId);
+                row.setCreatedAt(LocalDateTime.now());
+                rows.add(row);
+            }
+        }
+        agentSkillMapper.delete(new LambdaQueryWrapper<AgentSkillBinding>()
+                .eq(AgentSkillBinding::getAgentId, agentId));
+        rows.forEach(agentSkillMapper::insert);
+    }
+
+    private void replaceTools(Long agentId, Long tenantId, Object value) {
+        List<AgentToolBinding> rows = new ArrayList<>();
+        if (value instanceof java.util.List<?> list) {
+            Set<Long> seen = new HashSet<>();
+            int order = 0;
+            for (Object o : list) {
+                Map<String, Object> b = asMap(o);
+                Long toolId = toLong(b.get("toolId"));
+                if (toolId == null || !seen.add(toolId)) continue;
+                if (toolRegistryMapper.findVisible(toolId, tenantId) == null) {
+                    throw new BusinessException(400, "工具不存在或已删除：" + toolId);
+                }
+                AgentToolBinding row = new AgentToolBinding();
+                row.setAgentId(agentId);
+                row.setToolId(toolId);
+                row.setEnabled(Boolean.FALSE.equals(b.get("enabled")) ? 0 : 1);
+                if (b.get("params") != null) row.setParams(toJson(asMap(b.get("params"))));
+                row.setSortOrder(order++);
+                row.setTenantId(tenantId);
+                row.setCreatedAt(LocalDateTime.now());
+                rows.add(row);
+            }
+        }
+        agentToolMapper.delete(new LambdaQueryWrapper<AgentToolBinding>()
+                .eq(AgentToolBinding::getAgentId, agentId));
+        rows.forEach(agentToolMapper::insert);
+    }
+
+    /** 子 Agent 绑定：上限 10、禁止自引用、保存期环检测（需求 3.1.3(8)）；先校验后落库。 */
+    private void replaceSubAgents(Long agentId, Long tenantId, Object value) {
+        List<AgentSubAgent> rows = new ArrayList<>();
+        if (value instanceof java.util.List<?> list) {
+            List<Long> ids = new ArrayList<>();
+            for (Object o : list) {
+                Long id = toLong(asMap(o).get("subAgentId"));
+                if (id != null && !ids.contains(id)) ids.add(id);
+            }
+            if (ids.size() > 10) throw new BusinessException(400, "子 Agent 数量上限为 10 个");
+            for (Long subId : ids) {
+                if (subId.equals(agentId)) throw new BusinessException(400, "不能把自身配置为子 Agent");
+                AgentRegistry sub = agentMapper.selectById(subId);
+                if (sub == null || "DELETED".equals(sub.getStatus())) {
+                    throw new BusinessException(400, "子 Agent 不存在或已删除：" + subId);
+                }
+            }
+            for (Long subId : ids) {
+                if (reaches(subId, agentId, new HashSet<>(), 0)) {
+                    throw new BusinessException(400, "子 Agent 存在循环依赖（" + subId + " 可回到当前 Agent），已阻止保存");
+                }
+            }
+            int order = 0;
+            for (Object o : list) {
+                Map<String, Object> b = asMap(o);
+                Long subId = toLong(b.get("subAgentId"));
+                if (subId == null) continue;
+                AgentSubAgent row = new AgentSubAgent();
+                row.setAgentId(agentId);
+                row.setSubAgentId(subId);
+                row.setEnabled(Boolean.FALSE.equals(b.get("enabled")) ? 0 : 1);
+                row.setSortOrder(order++);
+                row.setTenantId(tenantId);
+                row.setCreatedAt(LocalDateTime.now());
+                rows.add(row);
+            }
+        }
+        agentSubAgentMapper.delete(new LambdaQueryWrapper<AgentSubAgent>()
+                .eq(AgentSubAgent::getAgentId, agentId));
+        rows.forEach(agentSubAgentMapper::insert);
+    }
+
+    /** 判断 from 是否可通过子 Agent 链到达 target（含禁用边，避免启用后成环）。 */
+    private boolean reaches(Long from, Long target, Set<Long> visited, int depth) {
+        if (from.equals(target)) return true;
+        if (depth > 12 || !visited.add(from)) return false;
+        for (AgentSubAgent row : agentSubAgentMapper.selectList(new LambdaQueryWrapper<AgentSubAgent>()
+                .eq(AgentSubAgent::getAgentId, from))) {
+            if (reaches(row.getSubAgentId(), target, visited, depth + 1)) return true;
+        }
+        return false;
+    }
+
     private String nvl(String s) { return s == null ? "" : s; }
 
     private Map<String, Object> fromJsonMap(String json) {
@@ -351,6 +530,10 @@ public class AgentService {
         snap.put("modelConfig", fromJson(a.getModelConfig()));
         snap.put("retrievalConfig", fromJson(a.getRetrievalConfig()));
         snap.put("variables", fromJson(a.getVariables()));
+        snap.put("knowledgeBases", knowledgeBases(a.getId()));
+        snap.put("skills", skillBindings(a.getId()));
+        snap.put("tools", toolBindings(a.getId()));
+        snap.put("subAgents", subAgentBindings(a.getId()));
         return toJson(snap);
     }
 

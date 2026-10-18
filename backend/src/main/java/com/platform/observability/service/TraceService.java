@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.agent.entity.AgentVersion;
 import com.platform.agent.mapper.AgentVersionMapper;
+import com.platform.capability.runtime.ToolCallEvent;
 import com.platform.model.entity.ModelEntity;
 import com.platform.model.mapper.ModelMapper;
 import com.platform.observability.entity.AgentSpan;
@@ -78,6 +79,15 @@ public class TraceService {
                        Long agentId, Long userId, String agentName, String status,
                        String modelName, long inTokens, long outTokens, long latencyMs,
                        int citationCount, TraceExtra extra) {
+        record(tenantId, traceId, conversationId, sessionId, agentId, userId, agentName, status,
+                modelName, inTokens, outTokens, latencyMs, citationCount, extra, null);
+    }
+
+    /** 带工具调用事件：工具 Span 与子 Agent chain Span 挂在根 Span 下（需求 3.4 / 3.1.3(8)）。 */
+    public void record(Long tenantId, String traceId, Long conversationId, String sessionId,
+                       Long agentId, Long userId, String agentName, String status,
+                       String modelName, long inTokens, long outTokens, long latencyMs,
+                       int citationCount, TraceExtra extra, List<ToolCallEvent> toolCalls) {
         try {
             String kind = extra != null && extra.kind() != null ? extra.kind() : KIND_INTERNAL;
             String version = extra != null && extra.version() != null ? extra.version()
@@ -136,6 +146,38 @@ public class TraceService {
             llm.setOutputTokens(outTokens);
             llm.setAttributes(json(Map.of()));
             spanMapper.insert(llm);
+
+            if (toolCalls != null) {
+                for (ToolCallEvent tc : toolCalls) {
+                    LocalDateTime toolEnd = LocalDateTime.now();
+                    LocalDateTime toolStart = toolEnd.minusNanos(Math.max(tc.durationMs(), 0) * 1_000_000L);
+                    AgentSpan toolSpan = newSpan(tenantId, traceId, newSpanId(), rootSpanId, agentId,
+                            "tool", tc.displayName() == null ? tc.toolName() : tc.displayName(),
+                            tc.status(), toolStart, toolEnd, tc.durationMs());
+                    toolSpan.setToolName(tc.toolName());
+                    Map<String, Object> attrs = new LinkedHashMap<>();
+                    attrs.put("toolType", tc.toolType());
+                    attrs.put("input", truncate(tc.input(), TEXT_LIMIT));
+                    attrs.put("output", truncate(tc.output(), TEXT_LIMIT));
+                    if (tc.subAgentId() != null) {
+                        attrs.put("subAgentId", tc.subAgentId());
+                        attrs.put("subAgentName", tc.subAgentName());
+                        attrs.put("inputTokens", tc.inputTokens());
+                        attrs.put("outputTokens", tc.outputTokens());
+                    }
+                    toolSpan.setAttributes(json(attrs));
+                    spanMapper.insert(toolSpan);
+
+                    if (tc.subAgentId() != null) {
+                        AgentSpan chain = newSpan(tenantId, traceId, newSpanId(), toolSpan.getSpanId(), agentId,
+                                "chain", invokeName(tc.subAgentId(), tc.subAgentName()), tc.status(),
+                                toolStart, toolEnd, tc.durationMs());
+                        chain.setAttributes(json(Map.of("subAgentId", tc.subAgentId(),
+                                "inputTokens", tc.inputTokens(), "outputTokens", tc.outputTokens())));
+                        spanMapper.insert(chain);
+                    }
+                }
+            }
         } catch (Exception e) {
             log.warn("Trace 落库失败 traceId={}", traceId, e);
         }
