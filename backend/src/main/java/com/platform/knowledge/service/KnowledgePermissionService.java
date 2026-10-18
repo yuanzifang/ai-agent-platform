@@ -175,6 +175,12 @@ public class KnowledgePermissionService {
         }
     }
 
+    /** 删除知识库时清理授权行（内部使用，不做权限校验）。 */
+    public void deleteAll(Long kbId) {
+        permMapper.delete(new LambdaQueryWrapper<KnowledgePermission>()
+                .eq(KnowledgePermission::getKnowledgeBaseId, kbId));
+    }
+
     // ---------- 内部 ----------
 
     public static String visibilityOf(KnowledgeBase kb) {

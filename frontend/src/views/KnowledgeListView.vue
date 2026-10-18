@@ -34,6 +34,10 @@
           <span>文档 {{ kb.documentCount ?? 0 }} · 分段 {{ kb.chunkCount ?? 0 }}</span>
           <span>创建人 {{ kb.creatorName || '-' }}</span>
         </div>
+        <div v-if="kb.canEdit" class="actions" @click.stop>
+          <el-button size="small" text @click="openEdit(kb)">编辑</el-button>
+          <el-button size="small" text type="danger" @click="removeKb(kb)">删除</el-button>
+        </div>
       </el-card>
     </div>
 
@@ -41,6 +45,21 @@
       <el-pagination layout="prev, pager, next, total" :total="total"
                      :page-size="pageSize" :current-page="page" @current-change="onPage" />
     </div>
+
+    <el-dialog v-model="editVisible" title="编辑知识库" width="480px">
+      <el-form label-width="70px">
+        <el-form-item label="名称" required>
+          <el-input v-model="editForm.name" maxlength="128" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="editForm.description" type="textarea" :rows="2" maxlength="512" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible = false">取消</el-button>
+        <el-button type="primary" :loading="editSaving" @click="saveEdit">保存</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="createVisible" title="新建知识库" width="480px">
       <el-form label-width="70px">
@@ -67,13 +86,13 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import { useUserStore } from '../stores/user'
 
 interface Kb {
   id: number; name: string; description: string; embeddingModel: string; createdAt: string
-  visibility: string; documentCount: number; chunkCount: number; creatorName: string
+  visibility: string; documentCount: number; chunkCount: number; creatorName: string; canEdit: boolean
 }
 
 const userStore = useUserStore()
@@ -90,6 +109,9 @@ const loading = ref(false)
 const createVisible = ref(false)
 const creating = ref(false)
 const form = reactive({ name: '', description: '', visibility: 'TENANT' })
+const editVisible = ref(false)
+const editSaving = ref(false)
+const editForm = reactive({ id: 0, name: '', description: '' })
 
 async function load() {
   loading.value = true
@@ -112,6 +134,48 @@ function search() {
 function onPage(p: number) {
   page.value = p
   load()
+}
+
+function openEdit(kb: Kb) {
+  editForm.id = kb.id
+  editForm.name = kb.name
+  editForm.description = kb.description || ''
+  editVisible.value = true
+}
+
+async function saveEdit() {
+  if (!editForm.name.trim()) { ElMessage.warning('名称必填'); return }
+  editSaving.value = true
+  try {
+    await http.put(`/knowledge-base/${editForm.id}`, {
+      name: editForm.name.trim(), description: editForm.description
+    })
+    ElMessage.success('已保存')
+    editVisible.value = false
+    await load()
+  } finally {
+    editSaving.value = false
+  }
+}
+
+/** 删除：先查 Agent 引用，二次确认；被引用时携带 force（需求 3.6.3(6)）。 */
+async function removeKb(kb: Kb) {
+  try {
+    const refs = await http.get(`/knowledge-base/${kb.id}/references`) as any
+    const agents: string[] = refs?.agents || []
+    const msg = agents.length
+      ? `该知识库被 ${agents.length} 个 Agent 引用（${agents.join('、')}），删除后这些 Agent 将无法再检索它。确认删除？`
+      : `确认删除知识库「${kb.name}」？文档、分段与向量数据将一并删除，不可恢复。`
+    await ElMessageBox.confirm(msg, '删除知识库', {
+      type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消'
+    })
+    await http.delete(`/knowledge-base/${kb.id}`, { params: { force: agents.length > 0 } })
+    ElMessage.success('已删除')
+    if (kbs.value.length === 1 && page.value > 1) page.value--
+    await load()
+  } catch {
+    // 用户取消或请求失败（拦截器已提示）
+  }
 }
 
 async function create() {
@@ -163,5 +227,6 @@ onMounted(load)
 .desc { color: #909399; font-size: 13px; margin-top: 10px; min-height: 18px; }
 .foot { display: flex; justify-content: space-between; color: #909399; font-size: 12px; margin-top: 10px;
         border-top: 1px dashed #ebeef5; padding-top: 8px; }
+.actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 6px; }
 .pager { display: flex; justify-content: center; margin-top: 18px; }
 </style>

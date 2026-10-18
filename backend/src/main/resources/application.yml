@@ -52,6 +52,11 @@ embedding:
   model: nomic-embed-text
   dimensions: 768
 
+knowledge:
+  parse:
+    # 解析失败手动重试上限（需求 3.6.3(2)，默认 3 次，超限需人工介入）
+    max-retries: ${KNOWLEDGE_PARSE_MAX_RETRIES:3}
+
 pgvector:
   url: ${PG_URL:jdbc:postgresql://localhost:5432/vector}
   username: ${PG_USERNAME:wangpan}

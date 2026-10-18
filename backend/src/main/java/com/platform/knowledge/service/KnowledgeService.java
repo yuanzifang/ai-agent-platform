@@ -1,7 +1,12 @@
 package com.platform.knowledge.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.platform.agent.entity.AgentKnowledgeBase;
+import com.platform.agent.entity.AgentRegistry;
+import com.platform.agent.mapper.AgentKnowledgeBaseMapper;
+import com.platform.agent.mapper.AgentRegistryMapper;
 import com.platform.billing.entity.BillingUsage;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.common.context.TenantContext;
@@ -14,18 +19,22 @@ import com.platform.knowledge.mapper.KnowledgeChunkMapper;
 import com.platform.knowledge.mapper.KnowledgeDocumentMapper;
 import com.platform.system.entity.SysUser;
 import com.platform.system.mapper.SysUserMapper;
+import com.platform.system.service.AuditService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 /**
- * 知识库主流程（需求文档 3.6）：预签名直传 → 回调登记 → 异步解析分段 → 嵌入入向量库 → 检索。
+ * 知识库主流程（需求文档 3.6）：预签名直传 → 回调登记 → 异步解析分段 → 嵌入入向量库 → 检索；
+ * 含知识库/文档的编辑、删除（MinIO/PgVector 级联）与解析失败重试。
  */
 @Slf4j
 @Service
@@ -43,6 +52,13 @@ public class KnowledgeService {
     private final ObjectMapper objectMapper;
     private final KnowledgePermissionService permissionService;
     private final SysUserMapper userMapper;
+    private final AgentKnowledgeBaseMapper agentKbMapper;
+    private final AgentRegistryMapper agentRegistryMapper;
+    private final AuditService auditService;
+
+    /** 解析失败重试上限（需求 3.6.3(2)：默认 3 次，超限后需人工介入）。 */
+    @Value("${knowledge.parse.max-retries:3}")
+    private int maxParseRetries;
 
     public Map<String, Object> create(String name, String description, String visibility, Long userId) {
         KnowledgeBase kb = new KnowledgeBase();
@@ -57,6 +73,21 @@ public class KnowledgeService {
         kbMapper.insert(kb);
         vectorRepository.ensureTenantSchema(kb.getTenantId());
         return Map.of("id", kb.getId());
+    }
+
+    /** 编辑名称/描述（需求 3.6.3(6)）；需编辑权限。 */
+    public void update(Long id, String name, String description,
+                       KnowledgePermissionService.Viewer viewer) {
+        KnowledgeBase kb = permissionService.requireEdit(id, viewer);
+        if (name == null || name.isBlank()) throw new BusinessException(400, "知识库名称不能为空");
+        kbMapper.update(null, new LambdaUpdateWrapper<KnowledgeBase>()
+                .eq(KnowledgeBase::getId, id)
+                .set(KnowledgeBase::getName, name.trim())
+                .set(KnowledgeBase::getDescription,
+                        description == null || description.isBlank() ? null : description.trim()));
+        auditService.record(viewer.userId(), "kb.update", "knowledge", String.valueOf(id), "SUCCESS",
+                Map.of("name", name.trim()));
+        log.info("知识库已更新：id={} name={}", kb.getId(), name.trim());
     }
 
     /** 列表：按可见性过滤 + 名称/描述搜索 + 分页，附带文档数/分段数/创建人/可见范围（需求 3.6.3(6)）。 */
@@ -138,6 +169,120 @@ public class KnowledgeService {
         return names;
     }
 
+    /** 被哪些在用 Agent 引用（删除前提示，需求 3.6.3(6)）。 */
+    public Map<String, Object> references(Long id, KnowledgePermissionService.Viewer viewer) {
+        permissionService.requireEdit(id, viewer);
+        List<String> names = referencingAgents(id);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("agents", names);
+        result.put("count", names.size());
+        return result;
+    }
+
+    private List<String> referencingAgents(Long kbId) {
+        List<AgentKnowledgeBase> bindings = agentKbMapper.selectList(new LambdaQueryWrapper<AgentKnowledgeBase>()
+                .eq(AgentKnowledgeBase::getKnowledgeBaseId, kbId));
+        List<Long> agentIds = bindings.stream().map(AgentKnowledgeBase::getAgentId).distinct().toList();
+        if (agentIds.isEmpty()) return List.of();
+        return agentRegistryMapper.selectBatchIds(agentIds).stream()
+                .filter(a -> !"DELETED".equals(a.getStatus()))
+                .map(AgentRegistry::getName)
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
+    /**
+     * 删除知识库（需求 3.6.3(6)）：被 Agent 引用时需 force 确认；
+     * 级联删除文档/分段/授权 + MinIO 对象 + PgVector 向量（架构 6.5）。
+     */
+    @Transactional
+    public void delete(Long id, boolean force, KnowledgePermissionService.Viewer viewer) {
+        KnowledgeBase kb = permissionService.requireEdit(id, viewer);
+        List<String> refs = referencingAgents(id);
+        if (!refs.isEmpty() && !force) {
+            throw new BusinessException(409, "知识库被 " + refs.size() + " 个 Agent 引用（"
+                    + String.join("、", refs) + "），请确认后强制删除");
+        }
+        Long tenantId = kb.getTenantId();
+        List<KnowledgeDocument> docs = docMapper.selectList(new LambdaQueryWrapper<KnowledgeDocument>()
+                .eq(KnowledgeDocument::getKnowledgeBaseId, id));
+        for (KnowledgeDocument doc : docs) {
+            deleteVectorsQuietly(tenantId, doc.getId());
+            storage.remove(doc.getObjectName());
+        }
+        try {
+            vectorRepository.deleteByKnowledgeBase(tenantId, id);
+        } catch (Exception e) {
+            log.warn("删除知识库向量失败 kb={} err={}（数据库记录继续清理）", id, e.getMessage());
+        }
+        chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
+                .eq(KnowledgeChunk::getKnowledgeBaseId, id));
+        docMapper.delete(new LambdaQueryWrapper<KnowledgeDocument>()
+                .eq(KnowledgeDocument::getKnowledgeBaseId, id));
+        permissionService.deleteAll(id);
+        kbMapper.deleteById(id);
+        auditService.record(viewer.userId(), "kb.delete", "knowledge", String.valueOf(id), "SUCCESS",
+                Map.of("name", kb.getName(), "documents", docs.size(), "forced", force));
+        log.info("知识库已删除：id={} docs={} forced={}", id, docs.size(), force);
+    }
+
+    /** 删除单个文档：级联 MinIO 对象、PgVector 向量、分段；需编辑权限。 */
+    @Transactional
+    public void deleteDocument(Long kbId, Long docId, KnowledgePermissionService.Viewer viewer) {
+        KnowledgeBase kb = permissionService.requireEdit(kbId, viewer);
+        KnowledgeDocument doc = docMapper.selectById(docId);
+        if (doc == null || !Objects.equals(doc.getKnowledgeBaseId(), kbId)) {
+            throw new BusinessException(404, "文档不存在");
+        }
+        deleteVectorsQuietly(kb.getTenantId(), docId);
+        storage.remove(doc.getObjectName());
+        chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
+                .eq(KnowledgeChunk::getDocumentId, docId));
+        docMapper.deleteById(docId);
+        auditService.record(viewer.userId(), "kb.document.delete", "knowledge_document",
+                String.valueOf(docId), "SUCCESS", Map.of("kbId", kbId, "fileName", doc.getFileName()));
+        log.info("文档已删除：kb={} doc={} file={}", kbId, docId, doc.getFileName());
+    }
+
+    /**
+     * 解析失败重试（需求 3.6.3(2)）：仅 FAILED 可重试，默认上限 3 次；
+     * 重试前清理上次失败可能残留的分段/向量，原文件保留。
+     */
+    public Map<String, Object> retryDocument(Long kbId, Long docId,
+                                             KnowledgePermissionService.Viewer viewer) {
+        KnowledgeBase kb = permissionService.requireEdit(kbId, viewer);
+        KnowledgeDocument doc = docMapper.selectById(docId);
+        if (doc == null || !Objects.equals(doc.getKnowledgeBaseId(), kbId)) {
+            throw new BusinessException(404, "文档不存在");
+        }
+        if (!"FAILED".equals(doc.getStatus())) {
+            throw new BusinessException(400, "仅解析失败的文档可重试");
+        }
+        int used = doc.getRetryTimes() == null ? 0 : doc.getRetryTimes();
+        if (used >= maxParseRetries) {
+            throw new BusinessException(400, "重试次数已达上限（" + maxParseRetries + " 次），需人工介入");
+        }
+        int updated = docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
+                .eq(KnowledgeDocument::getId, docId)
+                .eq(KnowledgeDocument::getStatus, "FAILED")
+                .set(KnowledgeDocument::getStatus, "PENDING")
+                .set(KnowledgeDocument::getErrorMessage, null)
+                .setSql("retry_times = retry_times + 1"));
+        if (updated == 0) {
+            throw new BusinessException(409, "文档状态已变化，请刷新后重试");
+        }
+        chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
+                .eq(KnowledgeChunk::getDocumentId, docId));
+        deleteVectorsQuietly(kb.getTenantId(), docId);
+        triggerParse(kb.getTenantId(), docId);
+        auditService.record(viewer.userId(), "kb.document.retry", "knowledge_document",
+                String.valueOf(docId), "SUCCESS", Map.of("kbId", kbId, "retryTimes", used + 1));
+        log.info("文档重试解析：kb={} doc={} retry={}/{}", kbId, docId, used + 1, maxParseRetries);
+        return Map.of("documentId", docId, "status", "PENDING", "retryTimes", used + 1);
+    }
+
     /** 申请直传：返回预签名 PUT URL 与登记的 objectName（架构 3.8 路径规范）；需编辑权限。 */
     public Map<String, Object> requestUpload(Long kbId, String fileName, KnowledgePermissionService.Viewer viewer) {
         permissionService.requireEdit(kbId, viewer);
@@ -165,16 +310,27 @@ public class KnowledgeService {
         doc.setObjectName(objectName);
         doc.setStatus("PENDING");
         doc.setChunkCount(0);
+        doc.setRetryTimes(0);
         doc.setTenantId(tenantId);
         doc.setCreatedAt(LocalDateTime.now());
         docMapper.insert(doc);
 
-        parseAsync(doc.getId());
+        triggerParse(tenantId, doc.getId());
         return Map.of("documentId", doc.getId(), "status", doc.getStatus());
     }
 
-    @Async
-    void parseAsync(Long documentId) {
+    /** 异步触发解析（不能 @Async 自调用，直接提交线程池并还原租户上下文）。 */
+    private void triggerParse(Long tenantId, Long documentId) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                TenantContext.run(tenantId, () -> doParse(documentId));
+            } catch (Exception e) {
+                log.warn("文档解析调度异常：doc={} err={}", documentId, e.getMessage());
+            }
+        });
+    }
+
+    private void doParse(Long documentId) {
         KnowledgeDocument doc = docMapper.selectById(documentId);
         if (doc == null) return;
         try {
@@ -261,6 +417,14 @@ public class KnowledgeService {
         return docMapper.selectList(new LambdaQueryWrapper<KnowledgeDocument>()
                 .eq(KnowledgeDocument::getKnowledgeBaseId, kbId)
                 .orderByDesc(KnowledgeDocument::getCreatedAt));
+    }
+
+    private void deleteVectorsQuietly(Long tenantId, Long documentId) {
+        try {
+            vectorRepository.deleteByDocument(tenantId, documentId);
+        } catch (Exception e) {
+            log.warn("删除文档向量失败 doc={} err={}（数据库记录继续清理）", documentId, e.getMessage());
+        }
     }
 
     private void updateStatus(KnowledgeDocument doc, String status, Integer chunkCount, String error) {

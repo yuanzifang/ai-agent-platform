@@ -18,6 +18,7 @@ public class KnowledgeDocument {
     private String status;   // PENDING / PARSING / DONE / FAILED
     private Integer chunkCount;
     private String errorMessage;
+    private Integer retryTimes;
     private Long tenantId;
     private LocalDateTime createdAt;
 }

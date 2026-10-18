@@ -71,6 +71,13 @@ public class VectorRepository {
                 String.valueOf(documentId));
     }
 
+    /** 删除知识库时级联清理全部向量（需求 3.6.4 / 架构 6.5）。 */
+    public void deleteByKnowledgeBase(Long tenantId, Long knowledgeBaseId) {
+        pgJdbcTemplate.update(
+                "DELETE FROM %s.embeddings WHERE metadata->>'knowledge_base_id' = ?".formatted(schema(tenantId)),
+                String.valueOf(knowledgeBaseId));
+    }
+
     private String schema(Long tenantId) {
         return "tenant_" + tenantId;
     }

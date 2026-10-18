@@ -58,6 +58,33 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.detail(id, viewer(principal)));
     }
 
+    public record UpdateKbRequest(@NotBlank String name, String description) {
+    }
+
+    /** 编辑名称/描述（需编辑权限）。 */
+    @PutMapping("/{id}")
+    public ApiResponse<Void> update(@PathVariable Long id, @Valid @RequestBody UpdateKbRequest req,
+                                    @AuthenticationPrincipal JwtPrincipal principal) {
+        knowledgeService.update(id, req.name(), req.description(), viewer(principal));
+        return ApiResponse.ok();
+    }
+
+    /** 删除前查询引用该知识库的 Agent（需求 3.6.3(6)：被引用时需提示）。 */
+    @GetMapping("/{id}/references")
+    public ApiResponse<Map<String, Object>> references(@PathVariable Long id,
+                                                       @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(knowledgeService.references(id, viewer(principal)));
+    }
+
+    /** 删除知识库；被 Agent 引用时需 force=true（前端二次确认后携带）。 */
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id,
+                                    @RequestParam(defaultValue = "false") boolean force,
+                                    @AuthenticationPrincipal JwtPrincipal principal) {
+        knowledgeService.delete(id, force, viewer(principal));
+        return ApiResponse.ok();
+    }
+
     public record PermissionRequest(@NotBlank String visibility,
                                     List<KnowledgePermissionService.Member> members) {
     }
@@ -102,6 +129,21 @@ public class KnowledgeController {
     public ApiResponse<List<KnowledgeDocument>> documents(@PathVariable Long id,
                                                           @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(knowledgeService.documents(id, viewer(principal)));
+    }
+
+    /** 删除文档（级联 MinIO/PgVector/分段，需编辑权限）。 */
+    @DeleteMapping("/{id}/documents/{docId}")
+    public ApiResponse<Void> deleteDocument(@PathVariable Long id, @PathVariable Long docId,
+                                            @AuthenticationPrincipal JwtPrincipal principal) {
+        knowledgeService.deleteDocument(id, docId, viewer(principal));
+        return ApiResponse.ok();
+    }
+
+    /** 解析失败重试（默认上限 3 次，需编辑权限）。 */
+    @PostMapping("/{id}/documents/{docId}/retry")
+    public ApiResponse<Map<String, Object>> retryDocument(@PathVariable Long id, @PathVariable Long docId,
+                                                          @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(knowledgeService.retryDocument(id, docId, viewer(principal)));
     }
 
     @GetMapping("/{id}/documents/{docId}/chunks")

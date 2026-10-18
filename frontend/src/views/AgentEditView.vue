@@ -85,8 +85,9 @@
             </template>
             <div v-if="kbRows.length === 0" class="hint">暂无知识库，请先在知识库模块创建并上传文档</div>
             <div v-for="kb in kbRows" :key="kb.knowledgeBaseId" class="kb-row">
-              <el-switch v-model="kb.enabled" />
+              <el-switch v-model="kb.enabled" :disabled="kb.missing" />
               <div class="kb-name">{{ kb.name }}</div>
+              <el-tag v-if="kb.missing" size="small" type="danger">已失效</el-tag>
               <div class="kb-params" v-if="kb.enabled">
                 topK <el-input-number v-model="kb.topK" :min="1" :max="20" size="small" />
                 阈值 <el-input-number v-model="kb.scoreThreshold" :min="0" :max="1" :step="0.05" size="small" />
@@ -232,7 +233,7 @@ const form = reactive({
 const tagsStr = ref('')
 const enabledKbCount = computed(() => kbRows.value.filter(k => k.enabled).length)
 
-interface KbRow { knowledgeBaseId: number; name: string; enabled: boolean; topK: number; scoreThreshold: number }
+interface KbRow { knowledgeBaseId: number; name: string; enabled: boolean; topK: number; scoreThreshold: number; missing?: boolean }
 interface VariableRow { key: string; type: string; required: boolean; defaultValue: string; description: string }
 
 const debugMsgs = ref<any[]>([])
@@ -284,6 +285,16 @@ onMounted(async () => {
       topK: rc.topK ?? 5, scoreThreshold: rc.scoreThreshold ?? 0.5
     }
   })
+  // 已删除/无权限的知识库显示为「已失效」，运行时跳过（需求 3.6.3(4)）
+  const visibleIds = new Set(kbListArr.map(kb => kb.id))
+  for (const b of detail.knowledgeBases || []) {
+    if (!visibleIds.has(b.knowledgeBaseId)) {
+      kbRows.value.push({
+        knowledgeBaseId: b.knowledgeBaseId, name: `已失效（KB #${b.knowledgeBaseId}）`,
+        enabled: false, topK: 5, scoreThreshold: 0.5, missing: true
+      })
+    }
+  }
 })
 
 function buildPayload() {
