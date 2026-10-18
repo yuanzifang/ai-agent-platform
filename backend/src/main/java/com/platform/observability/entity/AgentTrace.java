@@ -22,6 +22,7 @@ public class AgentTrace {
     private Long inputTokens;
     private Long outputTokens;
     private Long latencyMs;
+    private java.math.BigDecimal score;   // 在线监控评测回填（需求 3.5）
     private Long tenantId;
     private LocalDateTime createdAt;
 }

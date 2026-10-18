@@ -35,6 +35,7 @@ public class AgentService {
     private final AgentRegistryMapper agentMapper;
     private final AgentKnowledgeBaseMapper agentKbMapper;
     private final AgentUserGrantMapper grantMapper;
+    private final com.platform.eval.service.EvalService evalService;
     private final com.platform.system.service.AuditService auditService;
     private final AgentVersionMapper versionMapper;
     private final ObjectMapper objectMapper;
@@ -187,9 +188,24 @@ public class AgentService {
     /** 发布：校验提示词与模型，创建版本快照，状态置 PUBLISHED（需求文档 3.2.3）。 */
     @Transactional
     public Map<String, Object> publish(Long id, JwtPrincipal principal) {
+        return publish(id, principal, null, false);
+    }
+
+    /** 带 force：预发布门禁未过时仅 OWNER/ADMIN 可强制发布（需求 3.5）。 */
+    @Transactional
+    public Map<String, Object> publish(Long id, JwtPrincipal principal, Long gateDatasetId, boolean force) {
         AgentRegistry agent = get(id);
         if (agent.getSystemPrompt() == null || agent.getSystemPrompt().isBlank()) {
             throw new BusinessException(400, "提示词不能为空，无法发布");
+        }
+        // 预发布门禁（需求 3.5）：绑定了默认数据集才生效；force 需 OWNER/ADMIN
+        if (!force) {
+            Map<String, Object> gate = evalService.preReleaseGate(id, gateDatasetId, principal.userId());
+            if (Boolean.FALSE.equals(gate.get("skipped")) && !Boolean.TRUE.equals(gate.get("passed"))) {
+                throw new BusinessException(400, "预发布测评未通过，无法发布（通过率 "
+                        + gate.get("passRate") + " < 阈值 " + gate.get("threshold")
+                        + "；OWNER/ADMIN 可强制发布）");
+            }
         }
         if (agent.getModelConfig() == null || !agent.getModelConfig().contains("modelName")) {
             throw new BusinessException(400, "未选择模型，无法发布");

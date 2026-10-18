@@ -20,6 +20,8 @@ import com.platform.eval.mapper.EvalDatasetItemMapper;
 import com.platform.eval.mapper.EvalDatasetMapper;
 import com.platform.eval.mapper.EvalResultMapper;
 import com.platform.eval.mapper.EvalTaskMapper;
+import com.platform.observability.entity.AgentTrace;
+import com.platform.observability.mapper.AgentTraceMapper;
 import com.platform.observability.service.TraceService;
 import com.platform.security.JwtPrincipal;
 import lombok.RequiredArgsConstructor;
@@ -61,10 +63,15 @@ public class EvalService {
     private final AgentKnowledgeBaseMapper agentKbMapper;
     private final ChatService chatService;
     private final TraceService traceService;
+    private final AgentTraceMapper traceMapper;
+    private final com.platform.system.mapper.SysConfigMapper sysConfigMapper;
+    private final com.platform.conversation.mapper.MessageMapper messageMapper;
     private final BillingUsageMapper billingMapper;
     private final com.platform.knowledge.service.EmbeddingService embeddingService;
     private final com.platform.knowledge.service.VectorRepository vectorRepository;
     private final ObjectMapper objectMapper;
+    /** 自身代理：用于以独立事务（REQUIRES_NEW）执行门禁评测（自调用不经代理会使事务注解失效）。 */
+    private final org.springframework.beans.factory.ObjectProvider<EvalService> selfProvider;
 
     // ---------- 数据集 ----------
 
@@ -126,6 +133,15 @@ public class EvalService {
         item.setTenantId(principal.tenantId());
         item.setCreatedAt(LocalDateTime.now());
         itemMapper.insert(item);
+        touchDataset(datasetId);
+    }
+
+    /** 数据集内容变更时刷新 updated_at，使预发布门禁缓存失效（preReleaseGate）。 */
+    private void touchDataset(Long datasetId) {
+        EvalDataset patch = new EvalDataset();
+        patch.setId(datasetId);
+        patch.setUpdatedAt(LocalDateTime.now());
+        datasetMapper.updateById(patch);
     }
 
     /** JSONL 批量导入：每行 {"question":..,"expectedAnswer":..,"scoreCriteria":..}。 */
@@ -146,7 +162,9 @@ public class EvalService {
     }
 
     public void deleteItem(Long itemId) {
+        EvalDatasetItem item = itemMapper.selectById(itemId);
         itemMapper.deleteById(itemId);
+        if (item != null) touchDataset(item.getDatasetId());
     }
 
     // ---------- 评测任务 ----------
@@ -206,35 +224,13 @@ public class EvalService {
     /** 创建任务并异步执行（评测流程入口）。 */
     public Map<String, Object> createTask(String name, Long agentId, Long datasetId, String judgeModel,
                                           Double passThreshold, JwtPrincipal principal) {
-        AgentRegistry agent = agentMapper.selectById(agentId);
-        if (agent == null) throw new BusinessException(404, "Agent 不存在");
-        AgentVersion latest = versionMapper.selectList(new LambdaQueryWrapper<AgentVersion>()
-                        .eq(AgentVersion::getAgentId, agentId)
-                        .orderByDesc(AgentVersion::getId).last("LIMIT 1"))
-                .stream().findFirst().orElse(null);
-        Long samples = itemMapper.selectCount(new LambdaQueryWrapper<EvalDatasetItem>()
-                .eq(EvalDatasetItem::getDatasetId, datasetId));
-        if (samples == null || samples == 0) throw new BusinessException(400, "数据集为空，无法评测");
+        return createTask(name, agentId, datasetId, judgeModel, passThreshold, Map.of(), principal);
+    }
 
-        EvalTask t = new EvalTask();
-        t.setName(name == null || name.isBlank() ? "评测-" + agent.getName() : name);
-        t.setAgentId(agentId);
-        t.setAgentVersion(latest == null ? null : latest.getVersion());
-        t.setTargetType("AGENT");
-        t.setEvalType("ONCE");
-        t.setJudgeModel(judgeModel == null || judgeModel.isBlank() ? "deepseek-flash" : judgeModel);
-        t.setMetrics(toJson(List.of(Map.of("metricKey", "correctness", "name", "答案正确性",
-                "passThreshold", passThreshold == null ? 0.6 : passThreshold))));
-        t.setRounds(1);
-        t.setStatus("PENDING");
-        t.setEstimatedCalls(samples.intValue());
-        t.setCompletedCalls(0);
-        t.setDatasetId(datasetId);
-        t.setTenantId(principal.tenantId());
-        t.setCreatedBy(principal.userId());
-        t.setCreatedAt(LocalDateTime.now());
-        taskMapper.insert(t);
-
+    Map<String, Object> createTask(String name, Long agentId, Long datasetId, String judgeModel,
+                                   Double passThreshold, Map<String, Object> extra, JwtPrincipal principal) {
+        EvalTask t = createTaskRow(name, agentId, datasetId, judgeModel, passThreshold,
+                extra.get("evalType") instanceof String et && !et.isBlank() ? et : "ONCE", principal);
         final double threshold = passThreshold;
         final Long tenantId = t.getTenantId();
         // 注意不能用 @Async 自调用（不走代理），直接提交线程池；租户上下文由 execute 内部还原
@@ -254,12 +250,407 @@ public class EvalService {
         return Map.of("taskId", t.getId());
     }
 
-    /** 同步执行体：遍历样本 → Agent 执行 → Trace → 裁判 → 结果 → 汇总。 */
-    void execute(Long taskId, Long tenantId, double passThreshold) {
+    /** 仅创建任务行（校验 + INSERT），执行策略由调用方决定。 */
+    private EvalTask createTaskRow(String name, Long agentId, Long datasetId, String judgeModel,
+                                   Double passThreshold, String evalType, JwtPrincipal principal) {
+        AgentRegistry agent = agentMapper.selectById(agentId);
+        if (agent == null) throw new BusinessException(404, "Agent 不存在");
+        AgentVersion latest = versionMapper.selectList(new LambdaQueryWrapper<AgentVersion>()
+                        .eq(AgentVersion::getAgentId, agentId)
+                        .orderByDesc(AgentVersion::getId).last("LIMIT 1"))
+                .stream().findFirst().orElse(null);
+        Long samples = itemMapper.selectCount(new LambdaQueryWrapper<EvalDatasetItem>()
+                .eq(EvalDatasetItem::getDatasetId, datasetId));
+        if (samples == null || samples == 0) throw new BusinessException(400, "数据集为空，无法评测");
+
+        EvalTask t = new EvalTask();
+        t.setName(name == null || name.isBlank() ? "评测-" + agent.getName() : name);
+        t.setAgentId(agentId);
+        t.setAgentVersion(latest == null ? null : latest.getVersion());
+        t.setTargetType("AGENT");
+        t.setEvalType(evalType);
+        t.setJudgeModel(judgeModel == null || judgeModel.isBlank() ? "deepseek-flash" : judgeModel);
+        t.setMetrics(toJson(List.of(Map.of("metricKey", "correctness", "name", "答案正确性",
+                "passThreshold", passThreshold == null ? 0.6 : passThreshold))));
+        t.setRounds(1);
+        t.setStatus("PENDING");
+        t.setEstimatedCalls(samples.intValue());
+        t.setCompletedCalls(0);
+        t.setDatasetId(datasetId);
+        t.setTenantId(principal.tenantId());
+        t.setCreatedBy(principal.userId());
+        t.setCreatedAt(LocalDateTime.now());
+        taskMapper.insert(t);
+        return t;
+    }
+
+    /**
+     * 在线监控（需求 3.5）：按 trace 抽样线上成功对话，用裁判模型对「AI 实际回答」
+     * 就「用户问题」做质量打分（无需期望答案，评忠实/相关/简洁），完成后回填 agent_trace.score。
+     * 失败重试由调用方按指数退避处理（本实现最多 3 次）。
+     */
+    public Map<String, Object> runOnlineMonitoring(Long agentId, int sampleSize, JwtPrincipal principal) {
+        List<AgentTrace> traces = traceMapper.selectList(new LambdaQueryWrapper<AgentTrace>()
+                .eq(AgentTrace::getAgentId, agentId)
+                .eq(AgentTrace::getStatus, "SUCCESS")
+                .isNotNull(AgentTrace::getConversationId)   // 排除评测/集成 Trace（无会话消息可评分）
+                .isNull(AgentTrace::getScore)
+                .orderByDesc(AgentTrace::getId)
+                .last("LIMIT " + Math.max(1, Math.min(sampleSize, 50))));
+        return createOnlineTask(agentId, traces, principal.tenantId(), principal.userId());
+    }
+
+    /**
+     * 定时抽样（需求 3.5 / 架构 7.5）：扫描最近 1 小时 SUCCESS 且未评分的 Trace，
+     * 按 eval.sample-rate 比例抽样（每 Agent 至少 1 条、至多 50 条），逐 Agent 创建 ONLINE 任务。
+     * 调用方须已设置租户上下文；返回创建的任务数。
+     */
+    public int runOnlineSampling(Long tenantId, double rate) {
+        List<AgentTrace> recent = traceMapper.selectList(new LambdaQueryWrapper<AgentTrace>()
+                .eq(AgentTrace::getStatus, "SUCCESS")
+                .isNotNull(AgentTrace::getConversationId)   // 排除评测/集成 Trace（无会话消息可评分）
+                .isNull(AgentTrace::getScore)
+                .ge(AgentTrace::getCreatedAt, LocalDateTime.now().minusHours(1))
+                .orderByDesc(AgentTrace::getId));
+        if (recent.isEmpty()) return 0;
+        Map<Long, List<AgentTrace>> byAgent = recent.stream()
+                .filter(t -> t.getAgentId() != null)
+                .collect(java.util.stream.Collectors.groupingBy(AgentTrace::getAgentId,
+                        LinkedHashMap::new, java.util.stream.Collectors.toList()));
+        int created = 0;
+        for (Map.Entry<Long, List<AgentTrace>> e : byAgent.entrySet()) {
+            int n = Math.max(1, (int) Math.round(e.getValue().size() * rate));
+            List<AgentTrace> picked = e.getValue().subList(0, Math.min(n, e.getValue().size()));
+            Map<String, Object> r = createOnlineTask(e.getKey(), picked, tenantId, 0L);
+            if (((Number) r.getOrDefault("sampled", 0)).intValue() > 0) created++;
+        }
+        return created;
+    }
+
+    /** 抽样后建任务并异步执行（手动/定时共用）。 */
+    private Map<String, Object> createOnlineTask(Long agentId, List<AgentTrace> traces,
+                                                 Long tenantId, Long userId) {
+        if (traces.isEmpty()) return Map.of("taskId", 0, "sampled", 0);
+
+        EvalTask t = new EvalTask();
+        t.setName("在线监控-" + LocalDate.now());
+        t.setAgentId(agentId);
+        t.setTargetType("AGENT");
+        t.setEvalType("ONLINE");
+        t.setJudgeModel("deepseek-flash");
+        t.setMetrics(toJson(List.of(Map.of("metricKey", "online_quality", "name", "线上回答质量"))));
+        t.setRounds(1);
+        t.setStatus("RUNNING");
+        t.setEstimatedCalls(traces.size());
+        t.setCompletedCalls(0);
+        t.setTenantId(tenantId);
+        t.setCreatedBy(userId);
+        t.setCreatedAt(LocalDateTime.now());
+        taskMapper.insert(t);
+
+        final Long taskId = t.getId();
+        final List<Long> traceIds = traces.stream().map(AgentTrace::getId).toList();
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                executeOnline(taskId, tenantId, agentId, traceIds);
+            } catch (Exception e) {
+                log.error("在线监控失败 taskId={}：{}", taskId, e.getMessage(), e);
+                TenantContext.run(tenantId, () -> {
+                    EvalTask fail = new EvalTask();
+                    fail.setId(taskId);
+                    fail.setStatus("FAILED");
+                    taskMapper.updateById(fail);
+                });
+            }
+        });
+        return Map.of("taskId", taskId, "sampled", traces.size());
+    }
+
+    void executeOnline(Long taskId, Long tenantId, Long agentId, List<Long> traceIds) {
         TenantContext.run(tenantId, () -> {
-        EvalTask t = taskMapper.selectById(taskId);
-        if (t == null) return;
-        EvalTask patch = new EvalTask();
+            double scoreSum = 0;
+            int done = 0, failed = 0;
+            for (Long traceRowId : traceIds) {
+                try {
+                    AgentTrace trace = traceMapper.selectById(traceRowId);
+                    if (trace == null) continue;
+                    // 找该 trace 对应的 ASSISTANT 消息（含上一条 USER 问题）
+                    com.platform.conversation.entity.Message ai = messageMapper.selectList(
+                                    new LambdaQueryWrapper<com.platform.conversation.entity.Message>()
+                                            .eq(com.platform.conversation.entity.Message::getTraceId, trace.getTraceId()))
+                            .stream().findFirst().orElse(null);
+                    if (ai == null) { done++; continue; }
+                    com.platform.conversation.entity.Message question = messageMapper.selectList(
+                                    new LambdaQueryWrapper<com.platform.conversation.entity.Message>()
+                                            .eq(com.platform.conversation.entity.Message::getConversationId, ai.getConversationId())
+                                            .eq(com.platform.conversation.entity.Message::getRole, "USER")
+                                            .lt(com.platform.conversation.entity.Message::getId, ai.getId())
+                                            .orderByDesc(com.platform.conversation.entity.Message::getId)
+                                            .last("LIMIT 1"))
+                            .stream().findFirst().orElse(null);
+                    double score = judgeOnlineWithRetry(question == null ? "" : question.getContent(),
+                            ai.getContent() == null ? "" : ai.getContent(), "deepseek-flash");
+
+                    EvalResult r = new EvalResult();
+                    r.setTaskId(taskId);
+                    r.setDatasetItemId(0L);
+                    r.setTraceId(trace.getTraceId());
+                    r.setMetricKey("online_quality");
+                    r.setAnswer(ai.getContent());
+                    r.setScore(BigDecimal.valueOf(score).setScale(4, RoundingMode.HALF_UP));
+                    r.setPassed(score >= 0.6 ? 1 : 0);
+                    r.setLatencyMs(trace.getLatencyMs());
+                    r.setTokens(trace.getInputTokens() == null ? 0 : trace.getInputTokens().intValue()
+                            + (trace.getOutputTokens() == null ? 0 : trace.getOutputTokens().intValue()));
+                    r.setTenantId(tenantId);
+                    r.setCreatedAt(LocalDateTime.now());
+                    resultMapper.insert(r);
+
+                    // 回填 agent_trace.score（需求 3.5）：乐观条件 isNull，防止手动+定时并发重复评分覆盖；
+                    // 评测失败不回填，保留原值（失败重试最多 3 次见 judgeOnlineWithRetry）
+                    traceMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<AgentTrace>()
+                            .eq(AgentTrace::getId, traceRowId)
+                            .isNull(AgentTrace::getScore)
+                            .set(AgentTrace::getScore, BigDecimal.valueOf(score).setScale(4, RoundingMode.HALF_UP)));
+
+                    scoreSum += score;
+                    done++;
+                } catch (Exception e) {
+                    failed++;
+                    log.warn("在线监控单条失败 task={} trace={}：{}", taskId, traceRowId, e.getMessage());
+                }
+                EvalTask progress = new EvalTask();
+                progress.setId(taskId);
+                progress.setCompletedCalls(done + failed);
+                taskMapper.updateById(progress);
+            }
+            EvalTask finish = new EvalTask();
+            finish.setId(taskId);
+            finish.setStatus("DONE");
+            finish.setCompletedCalls(done + failed);
+            finish.setAvgScore(done == 0 ? null
+                    : BigDecimal.valueOf(scoreSum / done).setScale(4, RoundingMode.HALF_UP));
+            // passRate = 评分覆盖率（在线监控无期望答案，通过率语义为已评分比例）
+            finish.setPassRate(BigDecimal.valueOf((double) done / traceIds.size()).setScale(4, RoundingMode.HALF_UP));
+            taskMapper.updateById(finish);
+        });
+    }
+
+    /** 裁判调用失败重试：指数退避 1s/2s，最多 3 次（需求 3.5 在线监控补充）。 */
+    private double judgeOnlineWithRetry(String question, String answer, String judgeModel) {
+        RuntimeException last = null;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                return judgeOnline(question, answer, judgeModel)[0];
+            } catch (RuntimeException e) {
+                last = e;
+                log.warn("在线裁判第 {} 次调用失败：{}", attempt + 1, e.getMessage());
+                if (attempt < 2) {
+                    try { Thread.sleep(1000L << attempt); }
+                    catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                }
+            }
+        }
+        throw last == null ? new IllegalStateException("裁判调用失败") : last;
+    }
+
+    /** 在线裁判：无期望答案，评回答质量（相关/诚实/简洁），返回 {score}。 */
+    private double[] judgeOnline(String question, String answer, String judgeModel) {
+        String prompt = """
+                评估 AI 客服回答质量。只依据下方材料，不从外部补充事实。
+                【用户问题】%s
+                【AI回答】%s
+                评分维度：是否切题、是否诚实（不编造）、是否简洁。输出严格 JSON：{"score": 0到1, "reason": "20字内"}
+                """.formatted(question, answer);
+        var resp = ChatClient.create(chatModel()).prompt()
+                .options(OpenAiChatOptions.builder().model(judgeModel).build())
+                .system("你是评测裁判，只输出 JSON。")
+                .user(prompt).call().chatResponse();
+        String text = resp.getResult().getOutput().getText();
+        double score = 0;
+        Matcher m = JSON_BLOCK.matcher(text == null ? "" : text);
+        if (m.find()) {
+            try {
+                score = Double.parseDouble(String.valueOf(
+                        objectMapper.readValue(m.group(), Map.class).getOrDefault("score", "0")));
+            } catch (Exception ignored) {
+            }
+        }
+        return new double[]{Math.max(0, Math.min(1, score))};
+    }
+
+    /** 点踩触发 FEEDBACK 评测（需求 3.14(2)：P1 可选开关）。 */
+    public void triggerFeedbackEval(Long conversationId, Long messageId, Long tenantId) {
+        com.platform.conversation.entity.Message ai = messageMapper.selectById(messageId);
+        if (ai == null) return;
+        com.platform.conversation.entity.Message question = messageMapper.selectList(
+                        new LambdaQueryWrapper<com.platform.conversation.entity.Message>()
+                                .eq(com.platform.conversation.entity.Message::getConversationId, conversationId)
+                                .eq(com.platform.conversation.entity.Message::getRole, "USER")
+                                .lt(com.platform.conversation.entity.Message::getId, messageId)
+                                .orderByDesc(com.platform.conversation.entity.Message::getId)
+                                .last("LIMIT 1"))
+                .stream().findFirst().orElse(null);
+        if (question == null) return;
+
+        EvalTask t = new EvalTask();
+        t.setName("点踩复核-msg" + messageId);
+        t.setAgentId(0L);
+        t.setEvalType("FEEDBACK");
+        t.setJudgeModel("deepseek-flash");
+        t.setMetrics(toJson(List.of(Map.of("metricKey", "feedback"))));
+        t.setRounds(1);
+        t.setStatus("RUNNING");
+        t.setEstimatedCalls(1);
+        t.setCompletedCalls(0);
+        t.setTenantId(tenantId);
+        t.setCreatedBy(0L);
+        t.setCreatedAt(LocalDateTime.now());
+        taskMapper.insert(t);
+
+        final Long taskId = t.getId();
+        java.util.concurrent.CompletableFuture.runAsync(() ->
+                TenantContext.run(tenantId, () -> {
+                    try {
+                        double score = judgeOnlineWithRetry(question.getContent(),
+                                ai.getContent() == null ? "" : ai.getContent(), "deepseek-flash");
+                        EvalResult r = new EvalResult();
+                        r.setTaskId(taskId);
+                        r.setDatasetItemId(0L);
+                        r.setTraceId(ai.getTraceId());
+                        r.setMetricKey("feedback");
+                        r.setAnswer(ai.getContent());
+                        r.setScore(BigDecimal.valueOf(score).setScale(4, RoundingMode.HALF_UP));
+                        r.setPassed(score >= 0.6 ? 1 : 0);
+                        r.setTenantId(tenantId);
+                        r.setCreatedAt(LocalDateTime.now());
+                        resultMapper.insert(r);
+                        EvalTask finish = new EvalTask();
+                        finish.setId(taskId);
+                        finish.setStatus("DONE");
+                        finish.setCompletedCalls(1);
+                        finish.setAvgScore(BigDecimal.valueOf(score).setScale(4, RoundingMode.HALF_UP));
+                        finish.setPassRate(BigDecimal.valueOf(score >= 0.6 ? 1 : 0));
+                        taskMapper.updateById(finish);
+                    } catch (Exception e) {
+                        log.warn("点踩复核失败 task={} msg={}：{}", taskId, messageId, e.getMessage());
+                        EvalTask fail = new EvalTask();
+                        fail.setId(taskId);
+                        fail.setStatus("FAILED");
+                        fail.setCompletedCalls(1);
+                        taskMapper.updateById(fail);
+                    }
+                }));
+    }
+
+    /**
+     * 预发布门禁（需求 3.5）：对指定数据集执行同步评测，返回通过率；
+     * 通过率 < sys_config publish.gate-threshold（默认0.8）时由发布方阻断。
+     */
+    public java.util.Map<String, Object> preReleaseGate(Long agentId, Long datasetId, Long operatorId) {
+        Long dsId = datasetId;
+        if (dsId == null) {
+            // 回落：该 Agent 绑定的默认数据集（eval_dataset.agent_id），无则跳过门禁
+            EvalDataset ds = datasetMapper.selectOne(new LambdaQueryWrapper<EvalDataset>()
+                    .eq(EvalDataset::getAgentId, agentId).last("LIMIT 1"));
+            if (ds == null) return Map.of("skipped", true, "reason", "未绑定默认数据集，跳过门禁");
+            dsId = ds.getId();
+        }
+        Long samples = itemMapper.selectCount(new LambdaQueryWrapper<EvalDatasetItem>()
+                .eq(EvalDatasetItem::getDatasetId, dsId));
+        if (samples == null || samples == 0) {
+            return Map.of("skipped", true, "reason", "数据集为空，跳过门禁");
+        }
+        double threshold = gateThreshold();
+
+        // 复用最近一次门禁结果：数据集与 Agent 编辑态自该任务创建后均未更新、样本数未变，
+        // 即视为有效，避免每次发布重跑数分钟
+        EvalDataset boundDs = datasetMapper.selectById(dsId);
+        AgentRegistry gateAgent = agentMapper.selectById(agentId);
+        EvalTask recent = taskMapper.selectList(new LambdaQueryWrapper<EvalTask>()
+                        .eq(EvalTask::getAgentId, agentId)
+                        .eq(EvalTask::getDatasetId, dsId)
+                        .eq(EvalTask::getEvalType, "PRE_RELEASE")
+                        .eq(EvalTask::getStatus, "DONE")
+                        .orderByDesc(EvalTask::getId).last("LIMIT 1"))
+                .stream().findFirst().orElse(null);
+        boolean changed = recent == null || boundDs == null
+                || (boundDs.getUpdatedAt() != null && recent.getCreatedAt() != null
+                    && boundDs.getUpdatedAt().isAfter(recent.getCreatedAt()))
+                || (gateAgent != null && gateAgent.getUpdatedAt() != null && recent.getCreatedAt() != null
+                    && gateAgent.getUpdatedAt().isAfter(recent.getCreatedAt()))
+                || !Long.valueOf(samples).equals(Long.valueOf(recent.getEstimatedCalls() == null ? -1 : recent.getEstimatedCalls()));
+        if (recent != null && !changed) {
+            boolean cachedPass = recent.getPassRate() != null
+                    && recent.getPassRate().doubleValue() >= threshold;
+            return Map.of("skipped", false, "passed", cachedPass, "taskId", recent.getId(),
+                    "passRate", recent.getPassRate() == null ? 0 : recent.getPassRate().doubleValue(),
+                    "threshold", threshold, "cached", true);
+        }
+        // 同步执行（发布是同步操作），且放在独立事务（REQUIRES_NEW）中：
+        // 1) 外层发布事务处于 RR 快照隔离，轮询 DB/读回任务状态都读不到异步提交——直接同步执行取内存结果；
+        // 2) 阻断发布时回滚的是外层事务，评测记录与用量需独立提交保留（缓存与审计需要）。
+        // 评测对象为编辑态配置（即将发布的版本）
+        JwtPrincipal sysPrincipal = new com.platform.security.JwtPrincipal(
+                operatorId, TenantContext.getTenantId(), false, List.of("SYSTEM"), List.of());
+        TaskOutcome outcome = selfProvider.getObject().createAndExecuteExclusive(
+                "预发布门禁-" + LocalDate.now(), agentId, dsId, "deepseek-flash",
+                threshold, "PRE_RELEASE", sysPrincipal);
+        boolean pass = "DONE".equals(outcome.status()) && outcome.passRate() != null
+                && outcome.passRate().doubleValue() >= threshold;
+        return Map.of("skipped", false, "passed", pass, "taskId", outcome.taskId(),
+                "passRate", outcome.passRate() == null ? 0 : outcome.passRate().doubleValue(),
+                "threshold", threshold);
+    }
+
+    /** 手动触发预发布评测（需求 3.5：发布前触发，或手动触发）；异步任务，不阻断。 */
+    public Map<String, Object> runPreReleaseManual(Long agentId, Long datasetId, JwtPrincipal principal) {
+        if (agentMapper.selectById(agentId) == null) throw new BusinessException(404, "Agent 不存在");
+        Long dsId = datasetId;
+        if (dsId == null) {
+            EvalDataset ds = datasetMapper.selectOne(new LambdaQueryWrapper<EvalDataset>()
+                    .eq(EvalDataset::getAgentId, agentId).last("LIMIT 1"));
+            if (ds == null) throw new BusinessException(400, "该 Agent 未绑定默认数据集，请指定数据集");
+            dsId = ds.getId();
+        }
+        return createTask("预发布评测-" + LocalDate.now(), agentId, dsId, "deepseek-flash",
+                gateThreshold(), Map.of("evalType", "PRE_RELEASE"), principal);
+    }
+
+    private double gateThreshold() {
+        com.platform.system.entity.SysConfig cfg = sysConfigMapper.selectOne(
+                new LambdaQueryWrapper<com.platform.system.entity.SysConfig>()
+                        .eq(com.platform.system.entity.SysConfig::getConfigKey, "publish.gate-threshold"));
+        if (cfg != null && cfg.getConfigValue() != null) {
+            try { return Double.parseDouble(cfg.getConfigValue()); } catch (Exception ignored) { }
+        }
+        return 0.8;
+    }
+
+    /** 评测任务结果摘要（门禁同步等待用；由内存直接返回，规避外层事务快照隔离读不到异步提交）。 */
+    public record TaskOutcome(Long taskId, String status, BigDecimal avgScore, BigDecimal passRate) {
+    }
+
+    /**
+     * 独立事务内创建并同步执行评测（门禁用）：挂起外层发布事务，评测写入独立提交，
+     * 阻断发布回滚时评测记录/用量仍保留（供缓存复用与审计）。
+     * 经 selfProvider 代理调用，保证 REQUIRES_NEW 生效。
+     */
+    @org.springframework.transaction.annotation.Transactional(
+            propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public TaskOutcome createAndExecuteExclusive(String name, Long agentId, Long datasetId,
+                                                 String judgeModel, Double passThreshold,
+                                                 String evalType, JwtPrincipal principal) {
+        EvalTask t = createTaskRow(name, agentId, datasetId, judgeModel, passThreshold, evalType, principal);
+        return execute(t.getId(), t.getTenantId(), passThreshold == null ? 0.6 : passThreshold);
+    }
+
+    /** 同步执行体：遍历样本 → Agent 执行 → Trace → 裁判 → 结果 → 汇总。 */
+    TaskOutcome execute(Long taskId, Long tenantId, double passThreshold) {
+        return TenantContext.runWith(tenantId, () -> {
+            EvalTask t = taskMapper.selectById(taskId);
+            if (t == null) return new TaskOutcome(taskId, "FAILED", null, null);
+            EvalTask patch = new EvalTask();
             patch.setId(taskId);
             patch.setStatus("RUNNING");
             taskMapper.updateById(patch);
@@ -301,6 +692,7 @@ public class EvalService {
             taskMapper.updateById(finish);
             log.info("评测任务完成 taskId={} done={} failed={} avg={} passRate={}",
                     taskId, done, failed, finish.getAvgScore(), finish.getPassRate());
+            return new TaskOutcome(taskId, finish.getStatus(), finish.getAvgScore(), finish.getPassRate());
         });
     }
 
@@ -310,9 +702,11 @@ public class EvalService {
         long startedAt = System.currentTimeMillis();
         String traceId = UUID.randomUUID().toString().replace("-", "");
 
-        // 1) Agent 执行：发布版本配置 + 变量默认值 + RAG（与正式对话一致）
+        // 1) Agent 执行：预发布门禁评「编辑态配置」（即将发布的版本）；
+        //    其他类型评「最新发布版本快照」+ 变量默认值 + RAG
         AgentRegistry agent = agentMapper.selectById(task.getAgentId());
-        Map<String, Object> config = publishedConfig(task.getAgentId());
+        Map<String, Object> config = "PRE_RELEASE".equals(task.getEvalType())
+                ? editStateConfig(task.getAgentId()) : publishedConfig(task.getAgentId());
         String systemPrompt = str(config.get("systemPrompt"));
         systemPrompt = applyVarDefaults(systemPrompt, config.get("variables"));
         List<Map<String, Object>> citations = new ArrayList<>();
@@ -421,6 +815,17 @@ public class EvalService {
         } catch (Exception e) {
             return Map.of();
         }
+    }
+
+    /** 编辑态配置（agent_registry 当前字段），供预发布门禁评「即将发布」的版本。 */
+    private Map<String, Object> editStateConfig(Long agentId) {
+        AgentRegistry a = agentMapper.selectById(agentId);
+        if (a == null) throw new BusinessException(404, "Agent 不存在");
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("systemPrompt", a.getSystemPrompt());
+        m.put("modelConfig", fromJson(a.getModelConfig()));
+        m.put("variables", fromJson(a.getVariables()));
+        return m;
     }
 
     @SuppressWarnings("unchecked")

@@ -202,7 +202,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElLoading, ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import http from '../api/http'
 
@@ -326,11 +326,33 @@ async function save() {
   }
 }
 
-async function publish() {
+async function publish(force = false) {
   await save()
-  const res = await http.post(`/agent/${agentId}/publish`) as any
-  form.status = 'PUBLISHED'
-  ElMessage.success(`已发布 ${res.version}`)
+  // 发布可能先执行预发布门禁评测（每样本约 5-30s），超时放宽至 10 分钟
+  const loading = ElLoading.service({
+    text: force ? '强制发布中…' : '发布中…若配置了预发布门禁，将先执行评测（可能需数分钟）',
+    background: 'rgba(0, 0, 0, 0.4)'
+  })
+  try {
+    const res = await http.post(`/agent/${agentId}/publish`, { force }, { timeout: 600000 }) as any
+    form.status = 'PUBLISHED'
+    ElMessage.success(`已发布 ${res.version}`)
+  } catch (err: any) {
+    const msg = String(err?.response?.data?.message || err?.message || err)
+    if (msg.includes('预发布测评未通过')) {
+      loading.close()
+      try {
+        await ElMessageBox.confirm(
+          `${msg}\n\n是否强制发布？（需 OWNER/ADMIN 权限）`, '预发布门禁未通过',
+          { type: 'warning', confirmButtonText: '强制发布', cancelButtonText: '取消' })
+        await publish(true)
+      } catch { /* 取消 */ }
+      return
+    }
+    throw err
+  } finally {
+    loading.close()
+  }
 }
 
 async function openVersions() {

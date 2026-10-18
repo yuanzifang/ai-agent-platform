@@ -33,7 +33,7 @@
             <div v-if="m.status === 'STOPPED'" class="stopped-tag">已停止</div>
             <div v-if="(m.citations || []).length" class="citations">
               <el-collapse>
-                <el-collapse-item :title="`引用来源 ${m.citations.length} 条`">
+                <el-collapse-item :title="`引用来源 ${m.citations?.length ?? 0} 条`">
                   <div v-for="(c, i) in m.citations" :key="i" class="citation">
                     <span class="score">{{ (c.score * 100).toFixed(0) }}%</span>
                     <span class="c-text">{{ clip(c.content, 80) }}</span>

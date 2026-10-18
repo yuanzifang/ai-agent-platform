@@ -53,12 +53,72 @@
       </el-card>
     </template>
 
-    <!-- 在线监控 / 预发布（P1 后续批次） -->
-    <el-card v-else-if="tab === 'online' || tab === 'pre'" shadow="never">
-      <el-empty :description="tab === 'online'
-        ? '在线监控：基于线上 Trace 抽样评测 + 点踩触发评测（eval_type=ONLINE/FEEDBACK），随 P1 后续批次交付'
-        : '预发布评测：发布前自动跑数据集，得分低于门禁阈值(sys_config publish.gate-threshold)阻断发布，随 P1 后续批次交付'" />
-    </el-card>
+    <!-- 在线监控 -->
+    <template v-else-if="tab === 'online'">
+      <div class="sub-bar">
+        <span class="hint-inline">抽样线上 SUCCESS Trace，LLM 裁判打分并回填可观测页 SCORE 列；用户点踩也会自动触发复核任务（FEEDBACK）；系统每小时按 eval.sample-rate（默认 10%）自动抽样</span>
+        <div>
+          <el-select v-model="agentId" placeholder="选择 Agent" size="small" style="width: 160px; margin-right: 8px"
+                     @change="loadTasks">
+            <el-option v-for="a in agents" :key="a.id" :value="a.id" :label="a.name" />
+          </el-select>
+          <el-button type="primary" size="small" :loading="onlineRunning" @click="runOnline">立即抽样评测</el-button>
+        </div>
+      </div>
+      <el-card shadow="never">
+        <el-table :data="onlineTasks" size="small">
+          <el-table-column prop="name" label="任务名" min-width="150" />
+          <el-table-column label="类型" width="110">
+            <template #default="{ row }">
+              <el-tag size="small">{{ row.evalType }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="样本/进度" width="90">
+            <template #default="{ row }">{{ row.completedCalls ?? 0 }}/{{ row.estimatedCalls ?? '-' }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">{{ statusText(row.status) }}</template>
+          </el-table-column>
+          <el-table-column label="平均分" width="90">
+            <template #default="{ row }">{{ row.avgScore != null ? (row.avgScore * 100).toFixed(1) : '-' }}</template>
+          </el-table-column>
+          <el-table-column label="时间" width="140">
+            <template #default="{ row }">{{ fmt(row.createdAt) }}</template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-if="onlineTasks.length === 0" description="暂无在线监控任务，点击「立即抽样评测」" :image-size="60" />
+      </el-card>
+    </template>
+
+    <!-- 预发布评测 -->
+    <template v-else-if="tab === 'pre'">
+      <div class="sub-bar">
+        <span class="hint-inline">发布时自动用 Agent 绑定的默认数据集跑评测（评测对象为编辑态配置），通过率低于阈值（sys_config publish.gate-threshold，默认 0.8）阻断发布；OWNER/ADMIN 可强制发布</span>
+        <div>
+          <el-select v-model="agentId" placeholder="选择 Agent" size="small" style="width: 160px; margin-right: 8px"
+                     @change="loadTasks">
+            <el-option v-for="a in agents" :key="a.id" :value="a.id" :label="a.name" />
+          </el-select>
+          <el-button type="primary" size="small" :loading="preRunning" @click="runPreRelease">手动运行评测</el-button>
+        </div>
+      </div>
+      <el-card shadow="never">
+        <el-table :data="preTasks" size="small">
+          <el-table-column prop="name" label="任务名" min-width="150" />
+          <el-table-column prop="datasetName" label="数据集" width="140" />
+          <el-table-column label="通过率" width="100">
+            <template #default="{ row }">{{ row.passRate != null ? (row.passRate * 100).toFixed(0) + '%' : '-' }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">{{ statusText(row.status) }}</template>
+          </el-table-column>
+          <el-table-column label="时间" width="150">
+            <template #default="{ row }">{{ fmt(row.createdAt) }}</template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-if="preTasks.length === 0" description="暂无预发布评测记录（发布带默认数据集的 Agent 时自动产生，或点击「手动运行评测」）" :image-size="60" />
+      </el-card>
+    </template>
 
     <!-- 数据集管理 -->
     <template v-else>
@@ -247,7 +307,41 @@ onMounted(async () => {
 
 async function loadTasks() {
   const data = await http.get('/eval/tasks', { params: { agentId: agentId.value || undefined } }) as any
-  tasks.value = data.list || []
+  const all = data.list || []
+  tasks.value = all.filter((t: any) => t.evalType === 'ONCE')
+  onlineTasks.value = all.filter((t: any) => t.evalType === 'ONLINE' || t.evalType === 'FEEDBACK')
+  preTasks.value = all.filter((t: any) => t.evalType === 'PRE_RELEASE')
+}
+
+const onlineTasks = ref<any[]>([])
+const preTasks = ref<any[]>([])
+const onlineRunning = ref(false)
+const preRunning = ref(false)
+
+async function runOnline() {
+  if (!agentId.value && agents.value.length) agentId.value = agents.value[0].id
+  if (!agentId.value) { ElMessage.warning('请选择 Agent'); return }
+  onlineRunning.value = true
+  try {
+    const res = await http.post('/eval/online', null, { params: { agentId: agentId.value, sampleSize: 10 } }) as any
+    ElMessage.success(`已抽样 ${res.sampled ?? 0} 条 Trace，后台评测中`)
+    setTimeout(loadTasks, 2500)
+  } finally {
+    onlineRunning.value = false
+  }
+}
+
+async function runPreRelease() {
+  if (!agentId.value && agents.value.length) agentId.value = agents.value[0].id
+  if (!agentId.value) { ElMessage.warning('请选择 Agent'); return }
+  preRunning.value = true
+  try {
+    const res = await http.post('/eval/pre-release', null, { params: { agentId: agentId.value } }) as any
+    ElMessage.success(`预发布评测已提交（任务 ${res.taskId}），后台执行中`)
+    setTimeout(loadTasks, 2500)
+  } finally {
+    preRunning.value = false
+  }
 }
 
 async function createTask() {
@@ -322,6 +416,8 @@ function clip(t: string, n: number) { t = t || ''; return t.length > n ? t.slice
 .page { max-width: 1150px; margin: 0 auto; }
 .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .page-title { font-size: 16px; font-weight: 600; flex: 1; }
+.hint-inline { font-size: 12px; color: #909399; max-width: 560px; }
+.mb12 { margin-bottom: 12px; }
 .sub-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .dialog-hint { font-size: 12px; color: #909399; margin-top: 6px; }
 .sum-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }

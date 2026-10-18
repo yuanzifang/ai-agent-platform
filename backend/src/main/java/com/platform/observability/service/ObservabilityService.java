@@ -69,6 +69,7 @@ public class ObservabilityService {
             m.put("inputTokens", t.getInputTokens());
             m.put("outputTokens", t.getOutputTokens());
             m.put("latencyMs", t.getLatencyMs());
+            m.put("score", t.getScore());
             m.put("createdAt", t.getCreatedAt());
             return m;
         }).toList();

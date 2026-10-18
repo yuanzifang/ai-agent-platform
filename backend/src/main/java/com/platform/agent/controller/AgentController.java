@@ -5,6 +5,7 @@ import com.platform.agent.entity.AgentRegistry;
 import com.platform.agent.entity.AgentVersion;
 import com.platform.agent.service.AgentService;
 import com.platform.agent.service.ChatService;
+import com.platform.common.exception.BusinessException;
 import com.platform.common.response.ApiResponse;
 import com.platform.security.JwtPrincipal;
 import jakarta.validation.constraints.NotBlank;
@@ -70,8 +71,17 @@ public class AgentController {
     @PostMapping("/{id}/publish")
     @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('agent:publish')")
     public ApiResponse<Map<String, Object>> publish(@PathVariable Long id,
+                                                    @RequestBody(required = false) PublishRequest req,
                                                     @AuthenticationPrincipal JwtPrincipal principal) {
-        return ApiResponse.ok(agentService.publish(id, principal));
+        boolean force = req != null && Boolean.TRUE.equals(req.force());
+        Long datasetId = req == null ? null : req.gateDatasetId();
+        if (force && !principal.roles().contains("OWNER") && !principal.roles().contains("ADMIN")) {
+            throw new BusinessException(403, "强制发布需 OWNER/ADMIN 权限");
+        }
+        return ApiResponse.ok(agentService.publish(id, principal, datasetId, force));
+    }
+
+    public record PublishRequest(Long gateDatasetId, Boolean force) {
     }
 
     @GetMapping("/{id}/versions")

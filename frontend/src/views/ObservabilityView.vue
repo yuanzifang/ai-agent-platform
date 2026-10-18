@@ -49,10 +49,19 @@
         <el-table-column label="Tokens" width="120">
           <template #default="{ row }">{{ row.inputTokens }} / {{ row.outputTokens }}</template>
         </el-table-column>
-        <el-table-column prop="latencyMs" label="延迟" width="90">
+        <el-table-column prop="latencyMs" label="延迟" width="80">
           <template #default="{ row }">{{ row.latencyMs }}ms</template>
         </el-table-column>
-        <el-table-column label="时间" width="150">
+        <el-table-column label="SCORE" width="80">
+          <template #default="{ row }">
+            <el-tag v-if="row.score != null" size="small"
+                    :type="row.score >= 0.6 ? 'success' : 'danger'">
+              {{ (row.score * 100).toFixed(0) }}
+            </el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="时间" width="140">
           <template #default="{ row }">{{ fmt(row.createdAt) }}</template>
         </el-table-column>
       </el-table>

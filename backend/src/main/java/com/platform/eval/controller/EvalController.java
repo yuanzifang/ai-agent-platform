@@ -95,6 +95,24 @@ public class EvalController {
         return ApiResponse.ok(evalService.taskDetail(id));
     }
 
+    /** 在线监控：抽样线上 SUCCESS Trace 评测并回填 agent_trace.score（需求 3.5）。 */
+    @PostMapping("/online")
+    @PreAuthorize("hasAuthority('eval:manage')")
+    public ApiResponse<Map<String, Object>> runOnline(@RequestParam Long agentId,
+                                                      @RequestParam(defaultValue = "10") int sampleSize,
+                                                      @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(evalService.runOnlineMonitoring(agentId, sampleSize, principal));
+    }
+
+    /** 手动触发预发布评测（需求 3.5：发布前或手动触发；异步任务，不阻断）。 */
+    @PostMapping("/pre-release")
+    @PreAuthorize("hasAuthority('eval:manage')")
+    public ApiResponse<Map<String, Object>> runPreRelease(@RequestParam Long agentId,
+                                                          @RequestParam(required = false) Long datasetId,
+                                                          @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(evalService.runPreReleaseManual(agentId, datasetId, principal));
+    }
+
     @PostMapping("/tasks")
     @PreAuthorize("hasAuthority('eval:manage')")
     public ApiResponse<Map<String, Object>> createTask(@Valid @RequestBody TaskRequest req,

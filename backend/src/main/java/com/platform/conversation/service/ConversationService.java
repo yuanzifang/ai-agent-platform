@@ -45,6 +45,7 @@ public class ConversationService {
     private final StorageService storageService;
     private final com.platform.system.service.AuditService auditService;
     private final com.platform.system.mapper.AgentUserGrantMapper grantMapper;
+    private final com.platform.eval.service.EvalService evalService;
     private final ObjectMapper objectMapper;
 
     public Map<String, Object> list(String keyword, long page, long size, JwtPrincipal principal) {
@@ -259,6 +260,10 @@ public class ConversationService {
         f.setTenantId(principal.tenantId());
         f.setCreatedAt(LocalDateTime.now());
         feedbackMapper.insert(f);
+        // 点踩自动触发 FEEDBACK 评测复核（需求 3.14(2)，P1 开关默认开）
+        if ("DOWN".equals(type)) {
+            evalService.triggerFeedbackEval(conversationId, messageId, principal.tenantId());
+        }
     }
 
     public Map<String, Object> createShare(Long conversationId, LocalDateTime expiresAt, JwtPrincipal principal) {

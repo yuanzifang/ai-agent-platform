@@ -47,8 +47,11 @@ public class TraceService {
             t.setCreatedAt(LocalDateTime.now());
             traceMapper.insert(t);
 
+            // 注意：conversationId 在评测/集成链路为 null，Map.of 不允许 null 值（LinkedHashMap 可）
+            Map<String, Object> agentAttrs = new LinkedHashMap<>();
+            agentAttrs.put("conversationId", conversationId);
             span(tenantId, traceId, "agent", agentName == null ? "agent" : agentName,
-                    status, 0, 0, latencyMs, Map.of("conversationId", conversationId));
+                    status, 0, 0, latencyMs, agentAttrs);
             if (citationCount > 0) {
                 span(tenantId, traceId, "retrieval", "knowledge-retrieval", "SUCCESS",
                         0, 0, 0, Map.of("hits", citationCount));
@@ -56,7 +59,7 @@ public class TraceService {
             span(tenantId, traceId, "llm", modelName == null ? "llm" : modelName, status,
                     inTokens, outTokens, latencyMs, Map.of());
         } catch (Exception e) {
-            log.warn("Trace 落库失败 traceId={}：{}", traceId, e.getMessage());
+            log.warn("Trace 落库失败 traceId={}", traceId, e);
         }
     }
 
