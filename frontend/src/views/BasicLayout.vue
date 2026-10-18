@@ -114,6 +114,17 @@
         <el-button :loading="pwdSaving" @click="changePassword">修改密码</el-button>
         <span class="hint" style="margin-left: 8px">修改成功后需重新登录</span>
       </el-form>
+      <el-divider content-position="left">数据与账号</el-divider>
+      <div class="account-row">
+        <el-button size="small" @click="exportData">导出我的数据（JSON）</el-button>
+      </div>
+      <div class="danger-zone">
+        <div class="danger-title">注销账号</div>
+        <div class="hint">注销前需清空名下 Agent/知识库；非唯一所有者。注销后账号禁用并匿名化，消息/审计按合规保留。</div>
+        <el-input v-model="delForm.password" type="password" show-password placeholder="当前密码" class="mt8" />
+        <el-input v-model="delForm.confirmText" placeholder="输入“注销”确认" class="mt8" />
+        <el-button type="danger" class="mt8" :loading="deleting" @click="deleteAccount">注销账号</el-button>
+      </div>
       <div v-if="recoveryCodes.length" class="recovery-box">
         <div class="recovery-title">恢复码（仅显示一次，请妥善保存）</div>
         <div class="recovery-grid">
@@ -151,6 +162,8 @@ const mfaCode = ref('')
 const mfaLoading = ref(false)
 const recoveryCodes = ref<string[]>([])
 const pwdSaving = ref(false)
+const deleting = ref(false)
+const delForm = ref({ password: '', confirmText: '' })
 const pwdForm = ref({ oldPassword: '', newPassword: '', confirm: '' })
 
 async function onCommand(cmd: string) {
@@ -229,6 +242,31 @@ async function changePassword() {
   }
 }
 
+async function exportData() {
+  const blob = await http.get('/auth/me/export', { responseType: 'blob' }) as any
+  const url = URL.createObjectURL(new Blob([blob], { type: 'application/json' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'my-data.json'
+  a.click()
+  URL.revokeObjectURL(url)
+  ElMessage.success('已导出')
+}
+
+async function deleteAccount() {
+  if (!delForm.value.password) { ElMessage.warning('请输入密码'); return }
+  if (delForm.value.confirmText !== '注销') { ElMessage.warning('请输入“注销”确认'); return }
+  deleting.value = true
+  try {
+    await http.delete('/auth/me', { data: { password: delForm.value.password, confirmText: '注销' } })
+    ElMessage.success('账号已注销')
+    userStore.clear()
+    router.push('/login')
+  } finally {
+    deleting.value = false
+  }
+}
+
 async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text)
@@ -285,6 +323,9 @@ async function copyText(text: string) {
 .secret-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
 .secret { font-family: monospace; font-size: 14px; letter-spacing: 1px; }
 .mt8 { margin-top: 8px; }
+.account-row { margin-bottom: 8px; }
+.danger-zone { border: 1px solid #fbc4c4; background: #fef0f0; border-radius: 6px; padding: 10px; margin-bottom: 12px; }
+.danger-title { color: #f56c6c; font-weight: 600; margin-bottom: 4px; }
 .recovery-box { margin-top: 14px; border: 1px solid #e6a23c; background: #fdf6ec; border-radius: 6px; padding: 10px; }
 .recovery-title { font-weight: 600; color: #e6a23c; margin-bottom: 6px; }
 .recovery-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; margin-bottom: 8px; }

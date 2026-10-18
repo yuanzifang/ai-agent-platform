@@ -18,6 +18,26 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
     int updatePasswordIgnore(@Param("id") Long id, @Param("hash") String hash,
                              @Param("time") java.time.LocalDateTime time);
 
+    @InterceptorIgnore(tenantLine = "true")
+    @Select("""
+            SELECT COUNT(DISTINCT ur.user_id) FROM sys_user_role ur
+            JOIN sys_role r ON r.id = ur.role_id
+            JOIN sys_user u ON u.id = ur.user_id
+            WHERE r.role_key = 'OWNER' AND u.tenant_id = #{tenantId}
+              AND u.id <> #{excludeUserId} AND u.status = 'ENABLED'
+            """)
+    long countOtherOwners(@Param("tenantId") Long tenantId, @Param("excludeUserId") Long excludeUserId);
+
+    @InterceptorIgnore(tenantLine = "true")
+    @Update("""
+            UPDATE sys_user SET username = #{username}, display_name = '已注销用户',
+                   password_hash = #{passwordHash}, status = 'DISABLED',
+                   mfa_enabled = 0, mfa_secret = NULL
+            WHERE id = #{id}
+            """)
+    int anonymize(@Param("id") Long id, @Param("username") String username,
+                  @Param("passwordHash") String passwordHash);
+
 
     /** 登录链路：匿名无租户上下文，豁免多租户过滤（架构 2.2）。 */
     @InterceptorIgnore(tenantLine = "true")
