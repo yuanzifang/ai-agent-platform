@@ -731,15 +731,19 @@ public class EvalService {
                 agentUsage == null ? 0 : agentUsage.getPromptTokens(),
                 agentUsage == null ? 0 : agentUsage.getCompletionTokens());
 
-        // 2) Trace（source=eval；conversation 为空）
+        // 2) Trace（kind=eval；预发布门禁评编辑态配置无版本号，conversation 为空）
         AgentVersion latest = versionMapper.selectList(new LambdaQueryWrapper<AgentVersion>()
                         .eq(AgentVersion::getAgentId, task.getAgentId())
                         .orderByDesc(AgentVersion::getId).last("LIMIT 1"))
                 .stream().findFirst().orElse(null);
+        String traceVersion = "PRE_RELEASE".equals(task.getEvalType()) ? null
+                : (latest == null ? null : latest.getVersion());
         traceService.record(task.getTenantId(), traceId, null, null, task.getAgentId(),
                 task.getCreatedBy(), agent == null ? "agent" : agent.getName(), "SUCCESS",
                 modelName, agentUsage == null ? 0 : agentUsage.getPromptTokens(),
-                agentUsage == null ? 0 : agentUsage.getCompletionTokens(), latency, citations.size());
+                agentUsage == null ? 0 : agentUsage.getCompletionTokens(), latency, citations.size(),
+                TraceService.TraceExtra.eval(traceVersion, item.getQuestion(), answer,
+                        List.of(task.getEvalType() == null ? "once" : task.getEvalType().toLowerCase())));
 
         // 3) LLM 裁判
         long judgeStart = System.currentTimeMillis();

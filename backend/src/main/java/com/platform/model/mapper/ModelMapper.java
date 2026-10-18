@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 @Mapper
@@ -31,4 +32,14 @@ public interface ModelMapper extends BaseMapper<ModelEntity> {
             WHERE id = #{m.id}
             """)
     int updateIgnoreTenant(@Param("m") ModelEntity m);
+
+    /** 成本取价（架构 2.2 OR NULL 模式）：租户自建优先，回落平台预置。 */
+    @InterceptorIgnore(tenantLine = "true")
+    @Select("""
+            SELECT * FROM model
+            WHERE model_name = #{modelName} AND (tenant_id IS NULL OR tenant_id = #{tenantId})
+            ORDER BY (tenant_id IS NULL) ASC, id DESC
+            LIMIT 1
+            """)
+    ModelEntity findForPricing(@Param("modelName") String modelName, @Param("tenantId") Long tenantId);
 }

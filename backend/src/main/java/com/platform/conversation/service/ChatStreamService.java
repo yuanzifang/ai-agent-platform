@@ -79,7 +79,8 @@ public class ChatStreamService {
             throw new BusinessException(400, "消息不能为空");
         }
         AgentRegistry agent = agentMapper.selectById(conv.getAgentId());
-        Map<String, Object> config = publishedConfig(agent);
+        Published published = publishedOrThrow(agent);
+        Map<String, Object> config = published.config();
         Map<String, Object> variables = req.variables() == null ? Map.of() : req.variables();
         validateVariables(config.get("variables"), variables);
 
@@ -104,9 +105,9 @@ public class ChatStreamService {
             return blockedEmitter(conversationId, userMsg, hits);
         }
         if (Boolean.FALSE.equals(req.stream())) {
-            return blockingChat(conv, agent, config, userMsg, variables, llmInput);
+            return blockingChat(conv, agent, config, userMsg, variables, llmInput, published.version());
         }
-        return streamChat(conv, agent, config, userMsg, null, false, hits, variables, llmInput);
+        return streamChat(conv, agent, config, userMsg, null, false, hits, variables, llmInput, published.version());
     }
 
     /** 重新生成：以被替换消息之前的最近 USER 消息重跑，新消息带 parentMessageId。 */
@@ -128,9 +129,11 @@ public class ChatStreamService {
             throw new BusinessException(400, "找不到对应的用户消息，无法重新生成");
         }
         AgentRegistry agent = agentMapper.selectById(conv.getAgentId());
-        Map<String, Object> config = publishedConfig(agent);
+        Published published = publishedOrThrow(agent);
+        Map<String, Object> config = published.config();
         String regenInput = llmInputWithAttachments(lastUser.getContent(), lastUser.getAttachments());
-        return streamChat(conv, agent, config, lastUser, target.getId(), true, List.of(), Map.of(), regenInput);
+        return streamChat(conv, agent, config, lastUser, target.getId(), true, List.of(), Map.of(), regenInput,
+                published.version());
     }
 
     /** 停止生成（幂等）：断开进行中的流并落 STOPPED。 */
@@ -148,7 +151,7 @@ public class ChatStreamService {
     private Object streamChat(Conversation conv, AgentRegistry agent, Map<String, Object> config,
                               Message userMsg, Long parentMessageId, boolean regenerated,
                               List<ModerationService.Hit> inHits, Map<String, Object> variables,
-                              String userMsgWithAttachments) {
+                              String userMsgWithAttachments, String version) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
@@ -192,7 +195,8 @@ public class ChatStreamService {
             traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                     conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
                     modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
-                    citations.size());
+                    citations.size(),
+                    TraceService.TraceExtra.internal(version, userMsg.getContent(), acc.toString()));
             emitSafe(emitter, "done", Map.of("traceId", traceId, "messageId", ai.getId(),
                     "status", ai.getStatus(),
                     "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1])));
@@ -223,7 +227,9 @@ public class ChatStreamService {
                         traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                                 conv.getAgentId(), conv.getUserId(), agent.getName(), "ERROR",
                                 modelName, 0, tokens[1], System.currentTimeMillis() - startedAt,
-                                citations.size());
+                                citations.size(),
+                                TraceService.TraceExtra.internalError(version, userMsg.getContent(),
+                                        acc.toString(), err.getMessage()));
                     });
                     emitSafe(emitter, "error", Map.of("code", 500201, "message", "生成失败：" + err.getMessage()));
                     emitter.complete();
@@ -256,7 +262,8 @@ public class ChatStreamService {
                     traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                             conv.getAgentId(), conv.getUserId(), agent.getName(), "STOPPED",
                             modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
-                            citations.size());
+                            citations.size(),
+                            TraceService.TraceExtra.internal(version, userMsg.getContent(), acc.toString()));
                 });
                 emitSafe(emitter, "done", Map.of("traceId", traceId, "status", "STOPPED",
                         "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1])));
@@ -283,7 +290,8 @@ public class ChatStreamService {
     /** 非流式：同步调用，返回 JSON（需求文档 7.3）。 */
     private Map<String, Object> blockingChat(Conversation conv, AgentRegistry agent,
                                              Map<String, Object> config, Message userMsg,
-                                             Map<String, Object> variables, String userMsgWithAttachments) {
+                                             Map<String, Object> variables, String userMsgWithAttachments,
+                                             String version) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
@@ -317,7 +325,8 @@ public class ChatStreamService {
         recordUsage(tenantId, conv.getAgentId(), modelName, in, out);
         traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                 conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
-                modelName, in, out, System.currentTimeMillis() - startedAt, citations.size());
+                modelName, in, out, System.currentTimeMillis() - startedAt, citations.size(),
+                TraceService.TraceExtra.internal(version, userMsg.getContent(), answer));
 
         // 输出审核（P0 留痕）
         moderationService.moderate("OUT", answer, conv.getId(), ai.getId());
@@ -400,8 +409,12 @@ public class ChatStreamService {
         return result;
     }
 
-    /** 最新发布版本快照；无版本则 400（对话必须基于已发布配置）。 */
-    private Map<String, Object> publishedConfig(AgentRegistry agent) {
+    /** 已发布配置与版本号（对话必须基于已发布配置，需求 7.4）。 */
+    private record Published(Map<String, Object> config, String version) {
+    }
+
+    /** 最新发布版本快照；无版本则 400。 */
+    private Published publishedOrThrow(AgentRegistry agent) {
         AgentVersion v = versionMapper.selectList(new LambdaQueryWrapper<AgentVersion>()
                         .eq(AgentVersion::getAgentId, agent.getId())
                         .orderByDesc(AgentVersion::getId)
@@ -410,7 +423,7 @@ public class ChatStreamService {
         if (v == null) {
             throw new BusinessException(400, "Agent 尚无发布版本，无法对话");
         }
-        return fromJson(v.getSnapshot());
+        return new Published(fromJson(v.getSnapshot()), v.getVersion());
     }
 
     private String attachmentsJson(Long conversationId, List<Long> attachmentIds, Message userMsg) {

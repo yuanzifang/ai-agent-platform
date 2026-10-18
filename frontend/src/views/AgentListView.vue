@@ -25,6 +25,7 @@
         <div class="card-foot" @click.stop>
           <el-button size="small" @click="edit(a)">编辑</el-button>
           <el-button size="small" @click="observe(a)">观测</el-button>
+          <el-button size="small" @click="metrics(a)">监控</el-button>
           <el-button size="small" :disabled="a.status !== 'PUBLISHED'" @click="enter(a)">对话</el-button>
           <el-button v-if="a.status !== 'PUBLISHED'" size="small" type="success" plain @click="publish(a)">发布</el-button>
           <el-button size="small" type="danger" plain @click="remove(a)">删除</el-button>
@@ -137,6 +138,10 @@ async function remove(a: AgentItem) {
 
 function observe(a: AgentItem) {
   router.push(`/observability/${a.id}`)
+}
+
+function metrics(a: AgentItem) {
+  router.push(`/metrics/${a.id}`)
 }
 
 function edit(a: AgentItem) {
