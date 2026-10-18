@@ -40,6 +40,10 @@ management:
     web:
       exposure:
         include: health,info
+  health:
+    mail:
+      # 未配置 SMTP 时避免整体健康检查 DOWN；配置 SMTP 后可设 SMTP_HEALTH_ENABLED=true
+      enabled: ${SMTP_HEALTH_ENABLED:false}
 
 # ---- 平台配置（架构 10.7）----
 security:
