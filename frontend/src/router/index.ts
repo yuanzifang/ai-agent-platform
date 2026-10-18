@@ -16,6 +16,7 @@ const router = createRouter({
         { path: 'knowledge', component: () => import('../views/KnowledgeListView.vue') },
         { path: 'skills', component: () => import('../views/SkillListView.vue') },
         { path: 'tools', component: () => import('../views/ToolListView.vue') },
+        { path: 'prompt-templates', component: () => import('../views/PromptTemplateListView.vue') },
         { path: 'knowledge/:id', component: () => import('../views/KnowledgeDetailView.vue') },
         { path: 'settings/usage', component: () => import('../views/UsageView.vue') },
         { path: 'provider', component: () => import('../views/ProviderAdminView.vue') },

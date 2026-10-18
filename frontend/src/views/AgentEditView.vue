@@ -50,8 +50,12 @@
 
           <el-collapse-item name="prompt">
             <template #title><span class="p-title">提示词</span><span class="req">*</span></template>
+            <div class="prompt-actions">
+              <el-button size="small" @click="openTemplatePicker">从模板插入</el-button>
+              <span class="hint">插入后仍可编辑；双花括号变量由「占位变量」面板统一替换</span>
+            </div>
             <el-input v-model="form.systemPrompt" type="textarea" :rows="8"
-                      placeholder="系统提示词，可用 {{变量key}} 占位（见「占位变量」面板）" />
+                      placeholder="系统提示词，可用双花括号变量占位（见「占位变量」面板）" />
           </el-collapse-item>
 
           <el-collapse-item name="welcome">
@@ -236,6 +240,26 @@
       </div>
     </div>
 
+    <!-- Prompt 模板插入 -->
+    <el-dialog v-model="templateVisible" title="从 Prompt 模板插入" width="640px">
+      <el-select v-model="templateId" filterable style="width: 100%" placeholder="选择模板">
+        <el-option v-for="t in promptTemplates" :key="t.id" :value="t.id"
+                   :label="t.name + (t.category ? '（' + t.category + '）' : '')" />
+      </el-select>
+      <div v-if="selectedTemplate" class="tpl-preview">
+        <div class="tpl-vars">
+          变量：
+          <el-tag v-for="v in selectedTemplate.variables || []" :key="v.key" size="small" class="ml8">{{ v.key }}</el-tag>
+          <span v-if="!(selectedTemplate.variables || []).length" class="hint">无</span>
+        </div>
+        <pre class="tpl-content">{{ selectedTemplate.content }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="templateVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!selectedTemplate" @click="applyTemplate">插入</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 能力选择弹窗 -->
     <el-dialog v-model="picker.visible" :title="pickerTitle" width="520px">
       <el-select v-model="picker.selected" multiple filterable style="width: 100%"
@@ -309,6 +333,10 @@ const skillCatalog = ref<any[]>([])
 const toolCatalog = ref<any[]>([])
 const agentCatalog = ref<any[]>([])
 const picker = reactive({ visible: false, type: 'skill' as RefType, selected: [] as number[] })
+const promptTemplates = ref<any[]>([])
+const templateVisible = ref(false)
+const templateId = ref(0)
+const selectedTemplate = computed(() => promptTemplates.value.find(t => t.id === templateId.value))
 
 const enabledSkillCount = computed(() => skillRows.value.filter(r => r.enabled && !r.missing).length)
 const enabledToolCount = computed(() => toolRows.value.filter(r => r.enabled && !r.missing).length)
@@ -329,14 +357,16 @@ const debugRunning = ref(false)
 const dbgBox = ref<HTMLElement>()
 
 onMounted(async () => {
-  const [detail, modelList, kbList, skillsRes, toolsRes, agentRes] = await Promise.all([
+  const [detail, modelList, kbList, skillsRes, toolsRes, agentRes, templatesRes] = await Promise.all([
     http.get(`/agent/${agentId}`) as any,
     http.get('/provider/models') as any,
     http.get('/knowledge-base', { params: { pageSize: 100 } }) as any,
     http.get('/skills') as any,
     http.get('/tools') as any,
-    http.get('/agent', { params: { pageSize: 100 } }) as any
+    http.get('/agent', { params: { pageSize: 100 } }) as any,
+    http.get('/prompt-templates') as any
   ])
+  promptTemplates.value = templatesRes?.list || []
   skillCatalog.value = skillsRes?.list || []
   toolCatalog.value = toolsRes?.list || []
   agentCatalog.value = (agentRes?.list || []).filter((a: any) => a.id !== agentId)
@@ -418,6 +448,23 @@ function buildRefRows(type: RefType, bindings: any[], catalog: any[], target: an
     }
   }
   target.value = rows
+}
+
+function openTemplatePicker() {
+  templateId.value = 0
+  templateVisible.value = true
+}
+
+async function applyTemplate() {
+  if (!selectedTemplate.value) return
+  if (form.systemPrompt.trim()) {
+    try {
+      await ElMessageBox.confirm('插入模板将覆盖当前提示词，是否继续？', '覆盖提示词', { type: 'warning' })
+    } catch { return }
+  }
+  form.systemPrompt = selectedTemplate.value.content || ''
+  templateVisible.value = false
+  ElMessage.success('已插入模板，变量可在「占位变量」面板配置')
 }
 
 function openPicker(type: RefType) {
@@ -624,6 +671,24 @@ function clip(text: string, n: number) {
 }
 .mt8 {
   margin-top: 8px;
+}
+.prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.tpl-preview { margin-top: 12px; }
+.tpl-vars { font-size: 12px; color: #909399; margin-bottom: 6px; }
+.tpl-content {
+  white-space: pre-wrap;
+  background: #f5f7fa;
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: 260px;
+  overflow-y: auto;
 }
 .row-desc {
   flex: 1;
