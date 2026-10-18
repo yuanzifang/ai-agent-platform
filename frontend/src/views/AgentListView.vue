@@ -3,6 +3,7 @@
     <div class="toolbar">
       <el-input v-model="keyword" placeholder="搜索 Agent 名称" clearable style="width: 240px"
                 @keyup.enter="load" @clear="load" />
+      <el-button @click="$router.push('/templates')">从模板创建</el-button>
       <el-button type="primary" @click="openCreate">新建 Agent</el-button>
     </div>
 
