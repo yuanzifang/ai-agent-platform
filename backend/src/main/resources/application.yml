@@ -1,6 +1,15 @@
 spring:
   application:
     name: ai-agent-platform
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${SMTP_AUTH:true}
+      mail.smtp.starttls.enable: ${SMTP_TLS:true}
+      mail.smtp.starttls.required: ${SMTP_TLS:true}
   ai:
     openai:
       # DeepSeek 走 OpenAI 兼容协议；Key 后补，占位值保证未配置时应用可启动
@@ -94,3 +103,5 @@ billing:
 app:
   # SSO 回调地址默认前端地址（/sso/callback）
   frontend-base: ${APP_FRONTEND_BASE:http://localhost:5173}
+  mail:
+    from: ${SMTP_FROM:no-reply@ai-agent.local}

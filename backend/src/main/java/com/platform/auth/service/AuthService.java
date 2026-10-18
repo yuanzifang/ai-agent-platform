@@ -5,6 +5,7 @@ import com.platform.auth.entity.UserSession;
 import com.platform.auth.mapper.PasswordResetTokenMapper;
 import com.platform.auth.mapper.UserSessionMapper;
 import com.platform.common.exception.BusinessException;
+import com.platform.common.mail.MailService;
 import com.platform.security.JwtPrincipal;
 import com.platform.security.JwtService;
 import com.platform.system.entity.AuditLogin;
@@ -46,6 +47,9 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final MfaService mfaService;
     private final PasswordResetTokenMapper resetTokenMapper;
+    private final MailService mailService;
+    @org.springframework.beans.factory.annotation.Value("${app.frontend-base:http://localhost:5173}")
+    private String frontendBase;
 
     public record LoginResult(String accessToken, String refreshToken, long expiresIn,
                               String userId, String displayName, boolean platformAdmin, Long tenantId,
@@ -149,8 +153,14 @@ public class AuthService {
         row.setTenantId(user.getTenantId());
         row.setCreatedAt(LocalDateTime.now());
         resetTokenMapper.insert(row);
-        // 邮件服务（P1 SMTP）未接入：先记录重置链接，便于管理员/开发环境使用
-        log.info("密码重置链接（30 分钟有效）：http://localhost:5173/reset-password?token={}", token);
+        String link = frontendBase.replaceAll("/+$", "") + "/reset-password?token=" + token;
+        boolean sent = user.getUsername() != null && user.getUsername().contains("@")
+                && mailService.send(user.getUsername(), "AI Agent 平台 - 重置密码",
+                "请在 30 分钟内打开以下链接重置密码：\n" + link + "\n如非本人操作请忽略。");
+        if (!sent) {
+            // 未配置 SMTP 或发送失败：写入日志，便于管理员/开发环境使用
+            log.info("密码重置链接（30 分钟有效）：{}", link);
+        }
     }
 
     /** 找回密码第二步：Token 校验 + 重置密码 + 踢出会话 + Token 作废。 */

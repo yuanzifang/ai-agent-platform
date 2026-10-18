@@ -2,6 +2,7 @@ package com.platform.system.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.platform.common.exception.BusinessException;
+import com.platform.common.mail.MailService;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.entity.SysRole;
 import com.platform.system.entity.SysUser;
@@ -38,6 +39,9 @@ public class UserAdminService {
     private final SysRoleMapper roleMapper;
     private final SysUserRoleMapper userRoleMapper;
     private final UserInvitationMapper invitationMapper;
+    private final MailService mailService;
+    @org.springframework.beans.factory.annotation.Value("${app.frontend-base:http://localhost:5173}")
+    private String frontendBase;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
 
@@ -108,6 +112,11 @@ public class UserAdminService {
         invitationMapper.insert(inv);
         auditService.record(principal.userId(), "member.invite", "invitation",
                 String.valueOf(inv.getId()), "SUCCESS", Map.of("role", role));
+        if (email != null && email.contains("@")) {
+            String link = frontendBase.replaceAll("/+$", "") + "/login?invite=" + inv.getToken();
+            mailService.send(email, "AI Agent 平台 - 团队邀请",
+                    "你被邀请加入团队，请在 7 天内打开以下链接设置账号：\n" + link);
+        }
         return Map.of("invitationId", inv.getId(), "token", inv.getToken(), "expiresAt", inv.getExpiresAt());
     }
 
