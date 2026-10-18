@@ -16,6 +16,7 @@ import com.platform.agent.mapper.AgentToolBindingMapper;
 import com.platform.agent.mapper.AgentVersionMapper;
 import com.platform.agent.entity.McpServer;
 import com.platform.agent.mapper.McpServerMapper;
+import com.platform.agent.service.AgentCredentialService;
 import com.platform.agent.service.McpClientService;
 import com.platform.capability.entity.SkillDependency;
 import com.platform.capability.entity.SkillRegistry;
@@ -88,6 +89,7 @@ public class ToolRuntimeService {
     private final AgentUserGrantMapper grantMapper;
     private final McpServerMapper mcpServerMapper;
     private final McpClientService mcpClient;
+    private final AgentCredentialService credentialService;
     private final ChatModel chatModel;
     private final EmbeddingService embeddingService;
     private final VectorRepository vectorRepository;
@@ -142,7 +144,7 @@ public class ToolRuntimeService {
                 if ("KNOWLEDGE_BASE".equals(dep.getDepType())) {
                     if (!kbIds.contains(dep.getDepId())) kbIds.add(dep.getDepId());
                 } else if ("TOOL".equals(dep.getDepType()) && hasTools) {
-                    addTool(callbacks, names, dep.getDepId(), tenantId, collector, principal, viewer,
+                    addTool(callbacks, names, dep.getDepId(), agentId, tenantId, collector, principal, viewer,
                             variables, depth, visited);
                 }
             }
@@ -155,7 +157,7 @@ public class ToolRuntimeService {
                 if (Boolean.FALSE.equals(ref.get("enabled"))) continue;
                 Long toolId = toLong(ref.get("toolId"));
                 if (toolId != null) {
-                    addTool(callbacks, names, toolId, tenantId, collector, principal, viewer,
+                    addTool(callbacks, names, toolId, agentId, tenantId, collector, principal, viewer,
                             variables, depth, visited);
                 }
             }
@@ -186,8 +188,8 @@ public class ToolRuntimeService {
         return new RuntimeTools(callbacks, skillPrompt.isEmpty() ? null : skillPrompt.toString(), kbIds);
     }
 
-    private void addTool(List<ToolCallback> callbacks, Set<String> names, Long toolId, Long tenantId,
-                         ToolCallCollector collector, JwtPrincipal principal,
+    private void addTool(List<ToolCallback> callbacks, Set<String> names, Long toolId, Long agentId,
+                         Long tenantId, ToolCallCollector collector, JwtPrincipal principal,
                          KnowledgePermissionService.Viewer viewer, Map<String, Object> variables,
                          int depth, Set<Long> visited) {
         ToolRegistry tool = toolMapper.findVisible(toolId, tenantId);
@@ -203,7 +205,7 @@ public class ToolRuntimeService {
         if (!names.add(toolName)) return;
         callbacks.add(switch (tool.getToolType() == null ? "API" : tool.getToolType()) {
             case "BUILTIN" -> builtinCallback(tool, collector);
-            case "API" -> apiCallback(tool, collector);
+            case "API" -> apiCallback(tool, collector, agentId);
             case "MCP" -> mcpCallback(tool, collector);
             default -> {
                 log.info("未知工具类型，跳过：{}", tool.getToolKey());
@@ -257,7 +259,7 @@ public class ToolRuntimeService {
         ToolCallCollector collector = new ToolCallCollector();
         ToolCallback callback = switch (tool.getToolType() == null ? "API" : tool.getToolType()) {
             case "BUILTIN" -> builtinCallback(tool, collector);
-            case "API" -> apiCallback(tool, collector);
+            case "API" -> apiCallback(tool, collector, null);
             case "MCP" -> mcpCallback(tool, collector);
             default -> null;
         };
@@ -320,7 +322,7 @@ public class ToolRuntimeService {
 
     // ---------- API 工具 ----------
 
-    private ToolCallback apiCallback(ToolRegistry tool, ToolCallCollector collector) {
+    private ToolCallback apiCallback(ToolRegistry tool, ToolCallCollector collector, Long agentId) {
         Map<String, Object> cfg = fromJsonMap(tool.getApiConfig());
         String schema = schemaOf(tool);
         int timeout = tool.getTimeoutMs() == null ? 10000 : Math.max(tool.getTimeoutMs(), 500);
@@ -341,7 +343,13 @@ public class ToolRuntimeService {
                 String status = "SUCCESS";
                 String output;
                 try {
-                    output = executeApi(cfg, args(toolInput), timeout, retries);
+                    String credential = null;
+                    String credentialType = null;
+                    if (agentId != null) {
+                        credential = credentialService.resolveContent(agentId, tool.getId());
+                        credentialType = credentialService.typeOf(agentId, tool.getId());
+                    }
+                    output = executeApi(cfg, args(toolInput), timeout, retries, credential, credentialType);
                 } catch (Exception e) {
                     status = "ERROR";
                     output = "工具执行失败：" + rootMessage(e);
@@ -356,7 +364,7 @@ public class ToolRuntimeService {
 
     @SuppressWarnings("unchecked")
     private String executeApi(Map<String, Object> cfg, Map<String, Object> args,
-                              int timeoutMs, int retries) throws Exception {
+                              int timeoutMs, int retries, String credential, String credentialType) throws Exception {
         String url = str(cfg.get("url"));
         if (url == null || url.isBlank()) throw new IllegalArgumentException("API 地址未配置");
         URI uri = URI.create(substitutePath(url, args));
@@ -414,7 +422,17 @@ public class ToolRuntimeService {
         for (Map.Entry<String, Object> h : headers.entrySet()) {
             builder.header(h.getKey(), substitute(String.valueOf(h.getValue()), args));
         }
-        applyAuth(builder, asMap(cfg.get("auth")));
+        if (credential != null && !credential.isBlank()) {
+            String type = credentialType == null ? "API_KEY" : credentialType.toUpperCase();
+            switch (type) {
+                case "OAUTH" -> builder.header("Authorization", "Bearer " + credential);
+                case "BASIC" -> builder.header("Authorization", "Basic " + Base64.getEncoder()
+                        .encodeToString(credential.getBytes(StandardCharsets.UTF_8)));
+                default -> builder.header("X-API-Key", credential);
+            }
+        } else {
+            applyAuth(builder, asMap(cfg.get("auth")));
+        }
         if (body != null) {
             if (headers.keySet().stream().noneMatch(k -> "content-type".equalsIgnoreCase(k))) {
                 builder.header("Content-Type", "application/json");

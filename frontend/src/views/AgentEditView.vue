@@ -15,6 +15,7 @@
         <el-button @click="openVersions">版本</el-button>
         <el-button @click="openIntegration">集成</el-button>
         <el-button @click="openSchedules">定时</el-button>
+        <el-button @click="openCredentials">凭证</el-button>
         <el-button @click="evalEntry">评测</el-button>
         <el-button type="success" plain @click="publish">发布</el-button>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
@@ -255,6 +256,68 @@
         </div>
       </div>
     </div>
+
+    <!-- Agent 凭证 -->
+    <el-dialog v-model="credentialVisible" :title="`Agent 凭证：${form.name || ''}`" width="760px">
+      <div class="tab-actions">
+        <el-button type="primary" size="small" @click="openCredentialCreate">新建凭证</el-button>
+        <span class="hint">凭证加密存储、界面不回显明文；绑定工具后运行时自动注入（API_KEY→X-API-Key / OAUTH→Bearer / BASIC→Basic）</span>
+      </div>
+      <el-table :data="credentials" size="small" empty-text="暂无凭证">
+        <el-table-column prop="name" label="名称" width="150" />
+        <el-table-column prop="type" label="类型" width="100" />
+        <el-table-column label="绑定工具" width="170">
+          <template #default="{ row }">{{ toolName(row.toolId) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">
+              {{ row.status === 'ENABLED' ? '启用' : '禁用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="内容" width="90">
+          <template #default="{ row }"><span class="hint">已加密</span></template>
+        </el-table-column>
+        <el-table-column label="操作" width="150">
+          <template #default="{ row }">
+            <el-button size="small" text @click="openCredentialEdit(row)">编辑</el-button>
+            <el-button size="small" text type="danger" @click="removeCredential(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <el-dialog v-model="credentialFormVisible" :title="credentialForm.id ? '编辑凭证' : '新建凭证'" width="520px">
+      <el-form label-width="90px">
+        <el-form-item label="名称" required><el-input v-model="credentialForm.name" maxlength="64" /></el-form-item>
+        <el-form-item label="类型">
+          <el-select v-model="credentialForm.type" style="width: 160px">
+            <el-option label="API Key" value="API_KEY" />
+            <el-option label="OAuth" value="OAUTH" />
+            <el-option label="Basic Auth" value="BASIC" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="内容" required>
+          <el-input v-model="credentialForm.content" type="password" show-password
+                    :placeholder="credentialForm.id ? '留空表示不修改' : '如 API Key / Bearer Token / user:pass'" />
+        </el-form-item>
+        <el-form-item label="绑定工具">
+          <el-select v-model="credentialForm.toolId" filterable clearable style="width: 100%"
+                     placeholder="可选：运行时注入到该工具请求">
+            <el-option v-for="t in toolCatalog" :key="t.id" :value="t.id"
+                       :label="t.name + (t.toolType === 'MCP' ? '（MCP）' : '')" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="credentialForm.enabled" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="credentialFormVisible = false">取消</el-button>
+        <el-button type="primary" :loading="credentialSaving" @click="saveCredential">保存</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 定时调度 -->
     <el-dialog v-model="scheduleVisible" :title="`定时调度：${form.name || ''}`" width="820px">
@@ -516,6 +579,13 @@ const skillCatalog = ref<any[]>([])
 const toolCatalog = ref<any[]>([])
 const agentCatalog = ref<any[]>([])
 const picker = reactive({ visible: false, type: 'skill' as RefType, selected: [] as number[] })
+const credentialVisible = ref(false)
+const credentials = ref<any[]>([])
+const credentialFormVisible = ref(false)
+const credentialSaving = ref(false)
+const credentialForm = reactive({
+  id: 0, name: '', type: 'API_KEY', content: '', toolId: null as number | null, enabled: true
+})
 const scheduleVisible = ref(false)
 const schedules = ref<any[]>([])
 const scheduleFormVisible = ref(false)
@@ -649,6 +719,66 @@ function buildRefRows(type: RefType, bindings: any[], catalog: any[], target: an
     }
   }
   target.value = rows
+}
+
+async function openCredentials() {
+  await loadCredentials()
+  credentialVisible.value = true
+}
+
+async function loadCredentials() {
+  const res = await http.get(`/agent/${agentId}/credentials`) as any
+  credentials.value = res?.list || []
+}
+
+function toolName(id?: number) {
+  if (!id) return '—'
+  return toolCatalog.value.find((t: any) => t.id === id)?.name || ('工具 #' + id)
+}
+
+function openCredentialCreate() {
+  Object.assign(credentialForm, {
+    id: 0, name: '', type: 'API_KEY', content: '', toolId: null, enabled: true
+  })
+  credentialFormVisible.value = true
+}
+
+function openCredentialEdit(row: any) {
+  Object.assign(credentialForm, {
+    id: row.id, name: row.name || '', type: row.type || 'API_KEY',
+    content: '', toolId: row.toolId || null, enabled: row.status !== 'DISABLED'
+  })
+  credentialFormVisible.value = true
+}
+
+async function saveCredential() {
+  if (!credentialForm.name.trim()) { ElMessage.warning('名称必填'); return }
+  if (!credentialForm.id && !credentialForm.content.trim()) { ElMessage.warning('凭证内容必填'); return }
+  credentialSaving.value = true
+  try {
+    const payload: any = {
+      name: credentialForm.name.trim(),
+      type: credentialForm.type,
+      toolId: credentialForm.toolId,
+      status: credentialForm.enabled ? 'ENABLED' : 'DISABLED'
+    }
+    if (credentialForm.content.trim()) payload.content = credentialForm.content
+    if (credentialForm.id) await http.put(`/agent/${agentId}/credentials/${credentialForm.id}`, payload)
+    else await http.post(`/agent/${agentId}/credentials`, payload)
+    ElMessage.success('已保存')
+    credentialFormVisible.value = false
+    await loadCredentials()
+  } finally {
+    credentialSaving.value = false
+  }
+}
+
+async function removeCredential(row: any) {
+  await ElMessageBox.confirm(`删除凭证「${row.name}」？引用该凭证的工具调用将失效。`, '删除凭证',
+    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  await http.delete(`/agent/${agentId}/credentials/${row.id}`)
+  ElMessage.success('已删除')
+  await loadCredentials()
 }
 
 async function openSchedules() {
