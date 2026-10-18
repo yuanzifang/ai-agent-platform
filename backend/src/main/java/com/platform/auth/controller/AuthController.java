@@ -101,6 +101,38 @@ public class AuthController {
         return ApiResponse.ok();
     }
 
+    public record ChangePasswordRequest(@NotBlank String oldPassword, @NotBlank String newPassword) {
+    }
+
+    public record ForgotPasswordRequest(String username) {
+    }
+
+    public record ResetPasswordRequest(@NotBlank String token, @NotBlank String newPassword) {
+    }
+
+    /** 登录后自助修改密码（P0）。 */
+    @PostMapping("/change-password")
+    public ApiResponse<Void> changePassword(@RequestBody ChangePasswordRequest req,
+            @org.springframework.security.core.annotation.AuthenticationPrincipal
+            com.platform.security.JwtPrincipal principal) {
+        authService.changePassword(principal.userId(), req.oldPassword(), req.newPassword());
+        return ApiResponse.ok();
+    }
+
+    /** 忘记密码：生成一次性 Token（SMTP 未配置时写入后端日志，防账号枚举统一成功）。 */
+    @PostMapping("/forgot-password")
+    public ApiResponse<Void> forgotPassword(@RequestBody ForgotPasswordRequest req) {
+        authService.requestPasswordReset(req.username());
+        return ApiResponse.ok();
+    }
+
+    /** 重置密码：Token + 新密码。 */
+    @PostMapping("/reset-password")
+    public ApiResponse<Void> resetPassword(@RequestBody ResetPasswordRequest req) {
+        authService.resetPassword(req.token(), req.newPassword());
+        return ApiResponse.ok();
+    }
+
     @PostMapping("/refresh")
     public ApiResponse<RefreshResponse> refresh(@Valid @RequestBody RefreshRequest req) {
         return ApiResponse.ok(new RefreshResponse(authService.refresh(req.refreshToken()), 7200));

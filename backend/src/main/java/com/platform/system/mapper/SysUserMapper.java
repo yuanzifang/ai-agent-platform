@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.platform.system.entity.SysUser;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
@@ -11,6 +12,12 @@ import java.util.List;
 
 @Mapper
 public interface SysUserMapper extends BaseMapper<SysUser> {
+
+    @InterceptorIgnore(tenantLine = "true")
+    @Update("UPDATE sys_user SET password_hash = #{hash}, password_updated_at = #{time} WHERE id = #{id}")
+    int updatePasswordIgnore(@Param("id") Long id, @Param("hash") String hash,
+                             @Param("time") java.time.LocalDateTime time);
+
 
     /** 登录链路：匿名无租户上下文，豁免多租户过滤（架构 2.2）。 */
     @InterceptorIgnore(tenantLine = "true")

@@ -31,6 +31,7 @@ public class SecurityConfig {
                         // 匿名接口（需求文档 7.2）
                         .requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh",
                                 "/api/v1/auth/invitations/accept", "/api/v1/auth/mfa/verify",
+                                "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password",
                                 "/api/v1/share/**", "/api/v1/open/**", "/api/v1/auth/sso/**",
                                 "/actuator/health/**").permitAll()
                         .anyRequest().authenticated())

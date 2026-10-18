@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.platform.auth.entity.UserSession;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
@@ -17,4 +18,8 @@ public interface UserSessionMapper extends BaseMapper<UserSession> {
     @InterceptorIgnore(tenantLine = "true")
     @Update("UPDATE user_session SET revoked = 1 WHERE refresh_token_hash = #{hash}")
     int revokeByHash(String hash);
+
+    @InterceptorIgnore(tenantLine = "true")
+    @Update("UPDATE user_session SET revoked = 1 WHERE user_id = #{userId} AND revoked = 0")
+    int revokeAllByUser(@Param("userId") Long userId);
 }

@@ -100,6 +100,20 @@
         <el-input v-model="mfaCode" placeholder="动态码或恢复码" class="mt8" />
         <el-button type="danger" class="mt8" :loading="mfaLoading" @click="disableMfa">关闭 MFA</el-button>
       </template>
+      <el-divider content-position="left">修改密码</el-divider>
+      <el-form label-width="90px">
+        <el-form-item label="原密码">
+          <el-input v-model="pwdForm.oldPassword" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="pwdForm.newPassword" type="password" show-password placeholder="至少 8 位，含字母与数字" />
+        </el-form-item>
+        <el-form-item label="确认新密码">
+          <el-input v-model="pwdForm.confirm" type="password" show-password />
+        </el-form-item>
+        <el-button :loading="pwdSaving" @click="changePassword">修改密码</el-button>
+        <span class="hint" style="margin-left: 8px">修改成功后需重新登录</span>
+      </el-form>
       <div v-if="recoveryCodes.length" class="recovery-box">
         <div class="recovery-title">恢复码（仅显示一次，请妥善保存）</div>
         <div class="recovery-grid">
@@ -136,6 +150,8 @@ const mfaSetup = ref<any>(null)
 const mfaCode = ref('')
 const mfaLoading = ref(false)
 const recoveryCodes = ref<string[]>([])
+const pwdSaving = ref(false)
+const pwdForm = ref({ oldPassword: '', newPassword: '', confirm: '' })
 
 async function onCommand(cmd: string) {
   if (cmd === 'logout') {
@@ -189,6 +205,27 @@ async function disableMfa() {
     ElMessage.success('MFA 已关闭')
   } finally {
     mfaLoading.value = false
+  }
+}
+
+async function changePassword() {
+  if (!pwdForm.value.oldPassword || pwdForm.value.newPassword.length < 8) {
+    ElMessage.warning('请填写原密码，新密码至少 8 位'); return
+  }
+  if (pwdForm.value.newPassword !== pwdForm.value.confirm) {
+    ElMessage.warning('两次输入的新密码不一致'); return
+  }
+  pwdSaving.value = true
+  try {
+    await http.post('/auth/change-password', {
+      oldPassword: pwdForm.value.oldPassword, newPassword: pwdForm.value.newPassword
+    })
+    ElMessage.success('密码已修改，请重新登录')
+    securityVisible.value = false
+    userStore.clear()
+    router.push('/login')
+  } finally {
+    pwdSaving.value = false
   }
 }
 

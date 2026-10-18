@@ -1,6 +1,8 @@
 package com.platform.auth.service;
 
+import com.platform.auth.entity.PasswordResetToken;
 import com.platform.auth.entity.UserSession;
+import com.platform.auth.mapper.PasswordResetTokenMapper;
 import com.platform.auth.mapper.UserSessionMapper;
 import com.platform.common.exception.BusinessException;
 import com.platform.security.JwtPrincipal;
@@ -13,14 +15,18 @@ import com.platform.system.mapper.SysTenantMapper;
 import com.platform.system.mapper.SysUserMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.HexFormat;
 import java.util.Map;
+import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthService {
@@ -39,6 +45,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
     private final MfaService mfaService;
+    private final PasswordResetTokenMapper resetTokenMapper;
 
     public record LoginResult(String accessToken, String refreshToken, long expiresIn,
                               String userId, String displayName, boolean platformAdmin, Long tenantId,
@@ -110,6 +117,66 @@ public class AuthService {
 
     public void mfaDisable(Long userId, String code) {
         mfaService.disable(userId, code);
+    }
+
+    /** 自助修改密码（需求 3.25(3) P0）：校验旧密码、强度、更新后踢出所有刷新会话。 */
+    public void changePassword(Long userId, String oldPassword, String newPassword) {
+        SysUser user = userMapper.findByIdIgnore(userId);
+        if (user == null) throw new BusinessException(404, "用户不存在");
+        if (oldPassword == null || !passwordEncoder.matches(oldPassword, user.getPasswordHash())) {
+            throw new BusinessException(400, "原密码错误");
+        }
+        validatePassword(newPassword);
+        if (passwordEncoder.matches(newPassword, user.getPasswordHash())) {
+            throw new BusinessException(400, "新密码不能与原密码相同");
+        }
+        userMapper.updatePasswordIgnore(userId, passwordEncoder.encode(newPassword), LocalDateTime.now());
+        sessionMapper.revokeAllByUser(userId);
+    }
+
+    /** 找回密码第一步：生成一次性 Token（30 分钟）；开发环境未配置邮件时写入日志。 */
+    public void requestPasswordReset(String username) {
+        if (username == null || username.isBlank()) return;
+        SysUser user = userMapper.findByUsername(username.trim());
+        if (user == null || !"ENABLED".equals(user.getStatus())) return; // 防枚举：统一返回成功
+        String token = UUID.randomUUID().toString().replace("-", "")
+                + UUID.randomUUID().toString().replace("-", "");
+        PasswordResetToken row = new PasswordResetToken();
+        row.setUserId(user.getId());
+        row.setTokenHash(jwtService.hash(token));
+        row.setExpiresAt(LocalDateTime.now().plusMinutes(30));
+        row.setUsed(0);
+        row.setTenantId(user.getTenantId());
+        row.setCreatedAt(LocalDateTime.now());
+        resetTokenMapper.insert(row);
+        // 邮件服务（P1 SMTP）未接入：先记录重置链接，便于管理员/开发环境使用
+        log.info("密码重置链接（30 分钟有效）：http://localhost:5173/reset-password?token={}", token);
+    }
+
+    /** 找回密码第二步：Token 校验 + 重置密码 + 踢出会话 + Token 作废。 */
+    public void resetPassword(String token, String newPassword) {
+        if (token == null || token.isBlank()) throw new BusinessException(400, "重置链接无效");
+        PasswordResetToken row = resetTokenMapper.findByHashIgnore(jwtService.hash(token.trim()));
+        if (row == null || row.getUsed() != null && row.getUsed() == 1
+                || row.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new BusinessException(400, "重置链接无效或已过期");
+        }
+        validatePassword(newPassword);
+        SysUser user = userMapper.findByIdIgnore(row.getUserId());
+        if (user == null) throw new BusinessException(404, "用户不存在");
+        userMapper.updatePasswordIgnore(user.getId(), passwordEncoder.encode(newPassword), LocalDateTime.now());
+        resetTokenMapper.markUsedIgnore(row.getId());
+        sessionMapper.revokeAllByUser(user.getId());
+    }
+
+    private void validatePassword(String password) {
+        if (password == null || password.length() < 8) {
+            throw new BusinessException(400, "密码至少 8 位");
+        }
+        if (password.length() > 64) throw new BusinessException(400, "密码过长");
+        boolean hasLetter = password.chars().anyMatch(Character::isLetter);
+        boolean hasDigit = password.chars().anyMatch(Character::isDigit);
+        if (!hasLetter || !hasDigit) throw new BusinessException(400, "密码需同时包含字母和数字");
     }
 
     private LoginResult issueTokens(SysUser user, HttpServletRequest request) {

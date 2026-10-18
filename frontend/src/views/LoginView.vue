@@ -40,6 +40,7 @@
         <el-button text type="primary" style="width: 100%; margin-left: 0; margin-top: 6px" @click="ssoLogin">
           企业 SSO 登录
         </el-button>
+        <div class="forgot"><el-link type="info" :underline="false" @click="forgotPassword">忘记密码？</el-link></div>
       </el-form>
 
       <!-- MFA 二次验证 -->
@@ -63,7 +64,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../stores/user'
 import http from '../api/http'
 
@@ -95,6 +96,17 @@ async function submit() {
   } finally {
     loading.value = false
   }
+}
+
+async function forgotPassword() {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入用户名，系统将生成重置链接', '忘记密码', {
+      inputPlaceholder: '用户名', confirmButtonText: '提交', cancelButtonText: '取消'
+    })
+    if (!value) return
+    await http.post('/auth/forgot-password', { username: value })
+    ElMessage.success('如账号存在，重置链接已生成（开发环境请查看后端日志）')
+  } catch { /* 取消 */ }
 }
 
 async function ssoLogin() {
@@ -152,6 +164,7 @@ async function accept() {
 
 <style scoped>
 .mt8 { margin-top: 8px; }
+.forgot { text-align: right; margin-top: 8px; font-size: 12px; }
 .mt12 { margin-top: 12px; }
 .login-wrap {
   height: 100vh;
