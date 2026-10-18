@@ -18,6 +18,7 @@ const router = createRouter({
         { path: 'tools', component: () => import('../views/ToolListView.vue') },
         { path: 'prompt-templates', component: () => import('../views/PromptTemplateListView.vue') },
         { path: 'templates', component: () => import('../views/AgentTemplateView.vue') },
+        { path: 'square', component: () => import('../views/AgentSquareView.vue') },
         { path: 'knowledge/:id', component: () => import('../views/KnowledgeDetailView.vue') },
         { path: 'settings/usage', component: () => import('../views/UsageView.vue') },
         { path: 'provider', component: () => import('../views/ProviderAdminView.vue') },

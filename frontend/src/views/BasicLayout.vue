@@ -22,6 +22,9 @@
           <el-menu-item index="/agents">
             <el-icon><ChatDotRound /></el-icon>Agent 列表
           </el-menu-item>
+          <el-menu-item index="/square">
+            <el-icon><Star /></el-icon>Agent 广场
+          </el-menu-item>
           <el-menu-item index="/templates">
             <el-icon><Grid /></el-icon>模板库
           </el-menu-item>
@@ -72,7 +75,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
-  UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp, DocumentCopy, Grid } from '@element-plus/icons-vue'
+  UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp, DocumentCopy, Grid, Star } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()

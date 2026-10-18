@@ -305,6 +305,7 @@ public class AgentService {
         v.put("category", nvl(a.getCategory()));
         v.put("tags", fromJsonList(a.getTags()));
         v.put("status", a.getStatus());
+        v.put("visibility", a.getVisibility());
         v.put("systemPrompt", nvl(a.getSystemPrompt()));
         v.put("openingStatement", nvl(a.getOpeningStatement()));
         v.put("agentCapabilities", fromJsonMap(a.getAgentCapabilities()));
@@ -314,6 +315,7 @@ public class AgentService {
         v.put("variables", fromJsonList(a.getVariables()));
         v.put("updatedAt", a.getUpdatedAt() == null ? null
                 : a.getUpdatedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        v.put("listed", a.getListed() != null && a.getListed() == 1);
         v.put("knowledgeBases", knowledgeBases(id));
         v.put("skills", skillBindings(id));
         v.put("tools", toolBindings(id));

@@ -143,6 +143,10 @@
                   <el-radio value="PRIVATE">私有（仅授权用户）</el-radio>
                 </el-radio-group>
               </el-form-item>
+              <el-form-item v-if="form.status === 'PUBLISHED'" label="上架广场">
+                <el-switch v-model="form.listed" @change="toggleListing" />
+                <span class="hint ml8">下架后广场不可见，已使用的用户仍可继续对话</span>
+              </el-form-item>
               <el-form-item v-if="form.visibility === 'PRIVATE'" label="授权用户">
                 <el-select v-model="grantedIds" multiple placeholder="选择可使用的成员" style="width: 100%">
                   <el-option v-for="m in members.filter(m => m.id !== ownerId)"
@@ -312,7 +316,7 @@ const saving = ref(false)
 
 const form = reactive({
   status: 'DRAFT', updatedAt: '',
-  name: '', description: '', category: '', visibility: 'TENANT',
+  name: '', description: '', category: '', visibility: 'TENANT', listed: true,
   modelName: '', temperature: 0.7,
   systemPrompt: '', openingStatement: '',
   capabilities: { streamOutput: true, functionCall: false, multimodal: false },
@@ -371,6 +375,7 @@ onMounted(async () => {
   toolCatalog.value = toolsRes?.list || []
   agentCatalog.value = (agentRes?.list || []).filter((a: any) => a.id !== agentId)
   form.visibility = detail.visibility || 'TENANT'
+  form.listed = detail.listed !== false
   http.get(`/agent/${agentId}/grants`).then((g: any) => { grantedIds.value = g || [] }).catch(() => {})
   http.get('/users').then((ms: any) => { members.value = ms || [] }).catch(() => {})
   http.get(`/agent/${agentId}`).then(() => {}).catch(() => {})
@@ -563,6 +568,24 @@ async function publish(force = false) {
     throw err
   } finally {
     loading.close()
+  }
+}
+
+async function toggleListing(value: boolean) {
+  if (!value) {
+    try {
+      await ElMessageBox.confirm('下架后 Agent 广场不可见，已使用的用户仍可继续对话。是否下架？',
+        '下架 Agent', { type: 'warning', confirmButtonText: '下架', cancelButtonText: '取消' })
+    } catch {
+      form.listed = true
+      return
+    }
+  }
+  try {
+    await http.put(`/square/agents/${agentId}/listing`, { listed: value })
+    ElMessage.success(value ? '已上架广场' : '已下架')
+  } catch {
+    form.listed = !value
   }
 }
 

@@ -31,6 +31,8 @@ public class AgentRegistry {
     private String variables;       // JSON
     private Long ownerId;
     private String visibility;
+    /** 是否上架 Agent 广场（V17，需求 3.8）。 */
+    private Integer listed;
     private String status;          // DRAFT / PUBLISHED / OFFLINE / DELETED
     private Long tenantId;
     private LocalDateTime createdAt;
