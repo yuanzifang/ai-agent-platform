@@ -86,3 +86,7 @@ storage:
 moderation:
   block-words: 赌博,毒品,代开发票
   warn-words: 转账,汇款,银行卡号
+
+billing:
+  # 余额低于该值时前端提示充值（需求 3.11）
+  low-balance-threshold: ${BILLING_LOW_BALANCE_THRESHOLD:10}

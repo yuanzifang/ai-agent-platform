@@ -22,6 +22,7 @@ const router = createRouter({
         { path: 'square', component: () => import('../views/AgentSquareView.vue') },
         { path: 'knowledge/:id', component: () => import('../views/KnowledgeDetailView.vue') },
         { path: 'settings/usage', component: () => import('../views/UsageView.vue') },
+        { path: 'billing', component: () => import('../views/BillingView.vue') },
         { path: 'provider', component: () => import('../views/ProviderAdminView.vue') },
         { path: 'admin/users', component: () => import('../views/UserAdminView.vue') },
         { path: 'admin/tenant', component: () => import('../views/TenantAdminView.vue') },

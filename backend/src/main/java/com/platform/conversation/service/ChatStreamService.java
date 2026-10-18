@@ -11,6 +11,8 @@ import com.platform.agent.mapper.AgentRegistryMapper;
 import com.platform.agent.mapper.AgentVersionMapper;
 import com.platform.agent.service.ChatService;
 import com.platform.billing.entity.BillingUsage;
+import com.platform.billing.service.PricingService;
+import com.platform.billing.service.QuotaService;
 import com.platform.capability.runtime.ToolCallCollector;
 import com.platform.capability.runtime.ToolCallEvent;
 import com.platform.capability.runtime.ToolRuntimeService;
@@ -63,6 +65,8 @@ public class ChatStreamService {
     private final AgentVersionMapper versionMapper;
     private final AgentKnowledgeBaseMapper agentKbMapper;
     private final BillingUsageMapper billingMapper;
+    private final PricingService pricingService;
+    private final QuotaService quotaService;
     private final ChatService chatService;                 // 复用 RAG augmentWithKnowledge
     private final ToolRuntimeService toolRuntime;
     private final ConversationService conversationService;
@@ -83,6 +87,7 @@ public class ChatStreamService {
         if (req.message() == null || req.message().isBlank()) {
             throw new BusinessException(400, "消息不能为空");
         }
+        quotaService.checkTokensToday(Math.max(50, req.message().length() / 2 + 200));
         AgentRegistry agent = agentMapper.selectById(conv.getAgentId());
         Published published = publishedOrThrow(agent);
         Map<String, Object> config = published.config();
@@ -512,6 +517,7 @@ public class ChatStreamService {
         u.setModelName(modelName);
         u.setInputTokens(in);
         u.setOutputTokens(out);
+        u.setCost(pricingService.cost(tenantId, modelName, in, out));
         u.setStatDate(LocalDate.now());
         u.setCreatedAt(LocalDateTime.now());
         billingMapper.insert(u);

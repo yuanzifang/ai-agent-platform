@@ -49,6 +49,9 @@
           <el-menu-item v-if="can('billing:read')" index="/settings/usage">
             <el-icon><DataLine /></el-icon>用量看板
           </el-menu-item>
+          <el-menu-item v-if="can('billing:read')" index="/billing">
+            <el-icon><Money /></el-icon>计费管理
+          </el-menu-item>
           <el-menu-item v-if="can('user:manage')" index="/admin/users">
             <el-icon><UserFilled /></el-icon>成员管理
           </el-menu-item>
@@ -78,7 +81,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
-  UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp, DocumentCopy, Grid, Star, Link } from '@element-plus/icons-vue'
+  UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp, DocumentCopy, Grid, Star, Link, Money } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()

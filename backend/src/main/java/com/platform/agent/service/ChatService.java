@@ -1,6 +1,8 @@
 package com.platform.agent.service;
 
 import com.platform.billing.entity.BillingUsage;
+import com.platform.billing.service.PricingService;
+import com.platform.billing.service.QuotaService;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.capability.runtime.ToolCallCollector;
 import com.platform.capability.runtime.ToolRuntimeService;
@@ -36,6 +38,8 @@ public class ChatService {
 
     private final ChatModel chatModel;                     // 自动装配的 OpenAI 兼容实现（指向 DeepSeek）
     private final BillingUsageMapper billingMapper;
+    private final PricingService pricingService;
+    private final QuotaService quotaService;
     private final EmbeddingService embeddingService;
     private final VectorRepository vectorRepository;
     private final KnowledgePermissionService permissionService;
@@ -45,6 +49,7 @@ public class ChatService {
     public Map<String, Object> debugChat(Map<String, Object> config, String message,
                                          KnowledgePermissionService.Viewer viewer,
                                          JwtPrincipal principal) {
+        quotaService.checkTokensToday(Math.max(50, message == null ? 50 : message.length() / 2 + 200));
         String systemPrompt = config == null || config.get("systemPrompt") == null
                 ? null : String.valueOf(config.get("systemPrompt"));
         // 调试链路同样应用变量默认值替换（需求 3.1.3(9)）
@@ -167,7 +172,7 @@ public class ChatService {
         u.setModelName(modelName);
         u.setInputTokens(inputTokens);
         u.setOutputTokens(outputTokens);
-        u.setCost(null); // 计价权威 billing_rule，M5 接入前记 0/空
+        u.setCost(pricingService.cost(tenantId, modelName, inputTokens, outputTokens));
         u.setStatDate(LocalDate.now());
         u.setCreatedAt(LocalDateTime.now());
         billingMapper.insert(u);

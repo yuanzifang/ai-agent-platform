@@ -6,6 +6,7 @@ import com.platform.agent.entity.AgentVersion;
 import com.platform.agent.mapper.AgentVersionMapper;
 import com.platform.capability.runtime.ToolCallEvent;
 import com.platform.model.entity.ModelEntity;
+import com.platform.billing.service.PricingService;
 import com.platform.model.mapper.ModelMapper;
 import com.platform.observability.entity.AgentSpan;
 import com.platform.observability.entity.AgentTrace;
@@ -46,6 +47,7 @@ public class TraceService {
     private final AgentSpanMapper spanMapper;
     private final AgentVersionMapper versionMapper;
     private final ModelMapper modelMapper;
+    private final PricingService pricingService;
     private final ObjectMapper objectMapper;
 
     /** 扩展元数据：kind/版本/输入输出/错误/标签（均可为空，缺省回落）。 */
@@ -260,15 +262,7 @@ public class TraceService {
     private BigDecimal safeCost(String modelName, Long tenantId, long inTokens, long outTokens) {
         try {
             if (modelName == null || (inTokens == 0 && outTokens == 0)) return BigDecimal.ZERO;
-            ModelEntity m = modelMapper.findForPricing(modelName, tenantId);
-            if (m == null) return BigDecimal.ZERO;
-            BigDecimal inCost = m.getInputPrice() == null ? BigDecimal.ZERO
-                    : m.getInputPrice().multiply(BigDecimal.valueOf(inTokens))
-                            .divide(BigDecimal.valueOf(1000), 6, RoundingMode.HALF_UP);
-            BigDecimal outCost = m.getOutputPrice() == null ? BigDecimal.ZERO
-                    : m.getOutputPrice().multiply(BigDecimal.valueOf(outTokens))
-                            .divide(BigDecimal.valueOf(1000), 6, RoundingMode.HALF_UP);
-            return inCost.add(outCost);
+            return pricingService.cost(tenantId, modelName, inTokens, outTokens);
         } catch (Exception e) {
             log.debug("Trace 成本计算失败 model={}：{}", modelName, e.getMessage());
             return BigDecimal.ZERO;

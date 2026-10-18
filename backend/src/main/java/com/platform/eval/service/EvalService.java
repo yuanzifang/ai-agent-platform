@@ -9,6 +9,7 @@ import com.platform.agent.mapper.AgentRegistryMapper;
 import com.platform.agent.mapper.AgentVersionMapper;
 import com.platform.agent.service.ChatService;
 import com.platform.billing.entity.BillingUsage;
+import com.platform.billing.service.PricingService;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
@@ -67,6 +68,7 @@ public class EvalService {
     private final com.platform.system.mapper.SysConfigMapper sysConfigMapper;
     private final com.platform.conversation.mapper.MessageMapper messageMapper;
     private final BillingUsageMapper billingMapper;
+    private final PricingService pricingService;
     private final com.platform.knowledge.service.EmbeddingService embeddingService;
     private final com.platform.knowledge.service.VectorRepository vectorRepository;
     private final ObjectMapper objectMapper;
@@ -869,6 +871,7 @@ public class EvalService {
         u.setModelName(modelName);
         u.setInputTokens(in);
         u.setOutputTokens(out);
+        u.setCost(pricingService.cost(tenantId, modelName, in, out));
         u.setStatDate(LocalDate.now());
         u.setCreatedAt(LocalDateTime.now());
         billingMapper.insert(u);

@@ -8,6 +8,8 @@ import com.platform.agent.entity.AgentRegistry;
 import com.platform.agent.mapper.AgentKnowledgeBaseMapper;
 import com.platform.agent.mapper.AgentRegistryMapper;
 import com.platform.billing.entity.BillingUsage;
+import com.platform.billing.service.PricingService;
+import com.platform.billing.service.QuotaService;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
@@ -46,6 +48,8 @@ public class KnowledgeService {
     private final KnowledgeDocumentMapper docMapper;
     private final KnowledgeChunkMapper chunkMapper;
     private final BillingUsageMapper billingMapper;
+    private final PricingService pricingService;
+    private final QuotaService quotaService;
     private final StorageService storage;
     private final EmbeddingService embeddingService;
     private final VectorRepository vectorRepository;
@@ -66,6 +70,7 @@ public class KnowledgeService {
     private ThreadPoolTaskExecutor documentParseExecutor;
 
     public Map<String, Object> create(String name, String description, String visibility, Long userId) {
+        quotaService.checkKnowledgeBaseCreate();
         KnowledgeBase kb = new KnowledgeBase();
         kb.setName(name);
         kb.setDescription(description);
@@ -454,6 +459,7 @@ public class KnowledgeService {
             u.setModelName(embeddingService.model());
             u.setInputTokens((long) chunkCount);
             u.setOutputTokens(0L);
+            u.setCost(pricingService.cost(doc.getTenantId(), embeddingService.model(), chunkCount, 0));
             u.setStatDate(LocalDate.now());
             u.setCreatedAt(LocalDateTime.now());
             billingMapper.insert(u);

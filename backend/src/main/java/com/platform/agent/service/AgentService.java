@@ -14,6 +14,7 @@ import com.platform.agent.mapper.AgentKnowledgeBaseMapper;
 import com.platform.agent.mapper.AgentSkillBindingMapper;
 import com.platform.agent.mapper.AgentToolBindingMapper;
 import com.platform.agent.mapper.AgentSubAgentMapper;
+import com.platform.billing.service.QuotaService;
 import com.platform.capability.mapper.SkillRegistryMapper;
 import com.platform.capability.mapper.ToolRegistryMapper;
 import com.platform.system.mapper.AgentUserGrantMapper;
@@ -54,6 +55,7 @@ public class AgentService {
     private final com.platform.eval.service.EvalService evalService;
     private final com.platform.system.service.AuditService auditService;
     private final AgentVersionMapper versionMapper;
+    private final QuotaService quotaService;
     private final ObjectMapper objectMapper;
 
     /** 列表：PRIVATE Agent 仅所有者/被授权用户/管理员可见（需求 3.3）。 */
@@ -130,6 +132,7 @@ public class AgentService {
         if (modelConfig == null || !modelConfig.containsKey("modelName")) {
             throw new BusinessException(400, "必须选择模型（modelConfig.modelName）");
         }
+        quotaService.checkAgentCreate();
         AgentRegistry agent = new AgentRegistry();
         agent.setAgentKey(UUID.randomUUID().toString().replace("-", ""));
         agent.setName(str(req.get("name")));

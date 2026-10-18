@@ -13,6 +13,7 @@
       <el-card shadow="never"><div class="k">请求次数</div><div class="v">{{ summary.totalRequests }}</div></el-card>
       <el-card shadow="never"><div class="k">输入 Tokens</div><div class="v">{{ fmt(summary.totalInputTokens) }}</div></el-card>
       <el-card shadow="never"><div class="k">输出 Tokens</div><div class="v">{{ fmt(summary.totalOutputTokens) }}</div></el-card>
+      <el-card shadow="never"><div class="k">成本（元）</div><div class="v">¥{{ money(summary.totalCost) }}</div></el-card>
     </div>
 
     <div class="cols">
@@ -24,7 +25,7 @@
             <div class="bar in" :style="{ width: pct(d.inputTokens) }" :title="`输入 ${d.inputTokens}`" />
             <div class="bar out" :style="{ width: pct(d.outputTokens) }" :title="`输出 ${d.outputTokens}`" />
           </div>
-          <span class="bar-num">{{ fmt(d.inputTokens + d.outputTokens) }}</span>
+          <span class="bar-num">{{ fmt(d.inputTokens + d.outputTokens) }} · ¥{{ money(d.cost) }}</span>
         </div>
         <el-empty v-if="summary.byDay.length === 0" description="暂无数据" :image-size="60" />
       </el-card>
@@ -39,6 +40,9 @@
           </el-table-column>
           <el-table-column label="输出" width="90">
             <template #default="{ row }">{{ fmt(row.outputTokens) }}</template>
+          </el-table-column>
+          <el-table-column label="成本" width="90">
+            <template #default="{ row }">¥{{ money(row.cost) }}</template>
           </el-table-column>
         </el-table>
       </el-card>
@@ -61,6 +65,9 @@
         <el-table-column prop="modelName" label="模型" />
         <el-table-column prop="inputTokens" label="输入" width="90" />
         <el-table-column prop="outputTokens" label="输出" width="90" />
+        <el-table-column label="成本" width="100">
+          <template #default="{ row }">¥{{ money(row.cost) }}</template>
+        </el-table-column>
       </el-table>
       <el-pagination v-if="total > pageSize" v-model:current-page="page" :page-size="pageSize"
                      :total="total" layout="prev, pager, next" class="mt" @current-change="load" />
@@ -77,7 +84,8 @@ const page = ref(1)
 const pageSize = 20
 const total = ref(0)
 const rows = ref<any[]>([])
-const summary = reactive<any>({ totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0, byModel: [], byDay: [] })
+const summary = reactive<any>({ totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0,
+  totalCost: 0, byModel: [], byDay: [] })
 const maxDay = ref(1)
 
 async function load() {
@@ -88,6 +96,11 @@ async function load() {
   rows.value = data.list || []
   total.value = data.total || 0
   maxDay.value = Math.max(1, ...(summary.byDay || []).map((d: any) => d.inputTokens + d.outputTokens))
+}
+
+function money(v?: number | string) {
+  const n = Number(v || 0)
+  return n.toFixed(n !== 0 && Math.abs(n) < 0.01 ? 6 : 4)
 }
 
 function pct(v: number) {
