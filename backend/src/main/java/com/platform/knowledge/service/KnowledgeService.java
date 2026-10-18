@@ -21,16 +21,17 @@ import com.platform.system.entity.SysUser;
 import com.platform.system.mapper.SysUserMapper;
 import com.platform.system.service.AuditService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * 知识库主流程（需求文档 3.6）：预签名直传 → 回调登记 → 异步解析分段 → 嵌入入向量库 → 检索；
@@ -59,6 +60,10 @@ public class KnowledgeService {
     /** 解析失败重试上限（需求 3.6.3(2)：默认 3 次，超限后需人工介入）。 */
     @Value("${knowledge.parse.max-retries:3}")
     private int maxParseRetries;
+
+    /** 文档解析专用线程池（架构 2.3）；队列满时 CallerRuns 保证不丢任务。 */
+    @Resource(name = "documentParseExecutor")
+    private ThreadPoolTaskExecutor documentParseExecutor;
 
     public Map<String, Object> create(String name, String description, String visibility, Long userId) {
         KnowledgeBase kb = new KnowledgeBase();
@@ -319,15 +324,19 @@ public class KnowledgeService {
         return Map.of("documentId", doc.getId(), "status", doc.getStatus());
     }
 
-    /** 异步触发解析（不能 @Async 自调用，直接提交线程池并还原租户上下文）。 */
+    /** 异步触发解析（专用线程池 + 还原租户上下文）。 */
     private void triggerParse(Long tenantId, Long documentId) {
-        CompletableFuture.runAsync(() -> {
-            try {
-                TenantContext.run(tenantId, () -> doParse(documentId));
-            } catch (Exception e) {
-                log.warn("文档解析调度异常：doc={} err={}", documentId, e.getMessage());
-            }
-        });
+        try {
+            documentParseExecutor.execute(() -> {
+                try {
+                    TenantContext.run(tenantId, () -> doParse(documentId));
+                } catch (Exception e) {
+                    log.warn("文档解析调度异常：doc={} err={}", documentId, e.getMessage());
+                }
+            });
+        } catch (Exception e) {
+            log.warn("文档解析提交失败：doc={} err={}", documentId, e.getMessage());
+        }
     }
 
     private void doParse(Long documentId) {

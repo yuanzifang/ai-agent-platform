@@ -28,6 +28,12 @@ public class AuditController {
         return ApiResponse.ok(auditService.operations(page, pageSize, opType));
     }
 
+    @GetMapping("/verify")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('audit:read')")
+    public ApiResponse<Map<String, Object>> verify() {
+        return ApiResponse.ok(auditService.verifyChain());
+    }
+
     @GetMapping("/logins")
     @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('audit:read')")
     public ApiResponse<Map<String, Object>> logins(@RequestParam(defaultValue = "1") long page,

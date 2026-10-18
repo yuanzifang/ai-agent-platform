@@ -21,5 +21,6 @@ public class AuditOperation {
     private String detail;
     private String ip;
     private String prevHash;
+    private Integer hashVersion;
     private LocalDateTime createdAt;
 }
