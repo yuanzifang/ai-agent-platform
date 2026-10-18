@@ -37,6 +37,9 @@
           <el-menu-item v-if="can('tool:manage')" index="/tools">
             <el-icon><SetUp /></el-icon>工具管理
           </el-menu-item>
+          <el-menu-item v-if="can('tool:manage')" index="/mcp-servers">
+            <el-icon><Link /></el-icon>MCP Server
+          </el-menu-item>
           <el-menu-item v-if="can('prompt:manage')" index="/prompt-templates">
             <el-icon><DocumentCopy /></el-icon>Prompt 模板
           </el-menu-item>
@@ -75,7 +78,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
-  UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp, DocumentCopy, Grid, Star } from '@element-plus/icons-vue'
+  UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp, DocumentCopy, Grid, Star, Link } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()

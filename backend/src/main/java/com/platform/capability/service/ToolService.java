@@ -123,6 +123,9 @@ public class ToolService {
         if (req.containsKey("category")) t.setCategory(str(req.get("category")));
         if (req.containsKey("tags")) t.setTags(json(req.get("tags")));
         if (req.containsKey("apiConfig")) {
+            if ("MCP".equals(t.getToolType())) {
+                throw new BusinessException(400, "MCP 工具配置由 MCP Server 同步，不可手工修改");
+            }
             t.setApiConfig(normalizeApiConfig(req.get("apiConfig"), t.getApiConfig()));
         }
         if (req.containsKey("timeoutMs")) t.setTimeoutMs(clamp(req.get("timeoutMs"), 500, 120000, 10000));
@@ -253,6 +256,7 @@ public class ToolService {
         m.put("category", t.getCategory());
         m.put("tags", fromJsonValue(t.getTags()));
         m.put("toolType", t.getToolType());
+        m.put("mcpServerId", t.getMcpServerId());
         m.put("apiConfig", maskedConfig(t.getApiConfig()));
         m.put("timeoutMs", t.getTimeoutMs());
         m.put("retryTimes", t.getRetryTimes());

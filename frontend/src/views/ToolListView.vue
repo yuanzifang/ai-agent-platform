@@ -2,7 +2,7 @@
   <div class="page">
     <div class="toolbar">
       <span class="title">工具管理</span>
-      <span class="sub">内置工具只读；API 工具支持请求配置、参数 Schema、鉴权、超时重试与测试</span>
+      <span class="sub">内置工具只读；API 工具支持请求配置/鉴权/超时重试；MCP 工具由 MCP Server 同步</span>
       <div class="spacer" />
       <el-input v-model="keyword" placeholder="搜索名称/描述" clearable style="width: 190px"
                 @keyup.enter="load" @clear="load" />
@@ -18,8 +18,9 @@
       <el-table-column label="名称" width="200">
         <template #default="{ row }">
           {{ row.name }}
-          <el-tag size="small" :type="row.toolType === 'BUILTIN' ? 'info' : 'success'">
-            {{ row.toolType === 'BUILTIN' ? '内置' : row.toolType }}
+          <el-tag size="small"
+                  :type="row.toolType === 'BUILTIN' ? 'info' : (row.toolType === 'MCP' ? 'warning' : 'success')">
+            {{ row.toolType === 'BUILTIN' ? '内置' : (row.toolType === 'MCP' ? 'MCP' : 'API') }}
           </el-tag>
         </template>
       </el-table-column>
@@ -38,7 +39,7 @@
       <el-table-column label="操作" width="270">
         <template #default="{ row }">
           <el-button v-if="canManage" size="small" text @click="openTest(row)">测试</el-button>
-          <template v-if="canManage && !row.isBuiltin">
+          <template v-if="canManage && !row.isBuiltin && row.toolType !== 'MCP'">
             <el-button size="small" text @click="openEdit(row)">编辑</el-button>
             <el-button size="small" text @click="publish(row)">发布</el-button>
             <el-button size="small" text @click="openVersions(row)">版本</el-button>

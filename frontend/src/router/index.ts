@@ -17,6 +17,7 @@ const router = createRouter({
         { path: 'skills', component: () => import('../views/SkillListView.vue') },
         { path: 'tools', component: () => import('../views/ToolListView.vue') },
         { path: 'prompt-templates', component: () => import('../views/PromptTemplateListView.vue') },
+        { path: 'mcp-servers', component: () => import('../views/McpServerListView.vue') },
         { path: 'templates', component: () => import('../views/AgentTemplateView.vue') },
         { path: 'square', component: () => import('../views/AgentSquareView.vue') },
         { path: 'knowledge/:id', component: () => import('../views/KnowledgeDetailView.vue') },

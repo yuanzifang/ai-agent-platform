@@ -14,6 +14,9 @@ import com.platform.agent.mapper.AgentSkillBindingMapper;
 import com.platform.agent.mapper.AgentSubAgentMapper;
 import com.platform.agent.mapper.AgentToolBindingMapper;
 import com.platform.agent.mapper.AgentVersionMapper;
+import com.platform.agent.entity.McpServer;
+import com.platform.agent.mapper.McpServerMapper;
+import com.platform.agent.service.McpClientService;
 import com.platform.capability.entity.SkillDependency;
 import com.platform.capability.entity.SkillRegistry;
 import com.platform.capability.entity.ToolRegistry;
@@ -83,6 +86,8 @@ public class ToolRuntimeService {
     private final AgentRegistryMapper agentMapper;
     private final AgentVersionMapper versionMapper;
     private final AgentUserGrantMapper grantMapper;
+    private final McpServerMapper mcpServerMapper;
+    private final McpClientService mcpClient;
     private final ChatModel chatModel;
     private final EmbeddingService embeddingService;
     private final VectorRepository vectorRepository;
@@ -199,8 +204,9 @@ public class ToolRuntimeService {
         callbacks.add(switch (tool.getToolType() == null ? "API" : tool.getToolType()) {
             case "BUILTIN" -> builtinCallback(tool, collector);
             case "API" -> apiCallback(tool, collector);
+            case "MCP" -> mcpCallback(tool, collector);
             default -> {
-                log.info("MCP 工具暂未接入，跳过：{}", tool.getToolKey());
+                log.info("未知工具类型，跳过：{}", tool.getToolKey());
                 yield null;
             }
         });
@@ -252,6 +258,7 @@ public class ToolRuntimeService {
         ToolCallback callback = switch (tool.getToolType() == null ? "API" : tool.getToolType()) {
             case "BUILTIN" -> builtinCallback(tool, collector);
             case "API" -> apiCallback(tool, collector);
+            case "MCP" -> mcpCallback(tool, collector);
             default -> null;
         };
         if (callback == null) throw new IllegalArgumentException("暂不支持该工具类型");
@@ -473,6 +480,55 @@ public class ToolRuntimeService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    // ---------- MCP 工具 ----------
+
+    private ToolCallback mcpCallback(ToolRegistry tool, ToolCallCollector collector) {
+        Long serverId = tool.getMcpServerId();
+        if (serverId == null) return null;
+        McpServer server = mcpServerMapper.selectById(serverId);
+        if (server == null || !"ENABLED".equals(server.getStatus())) {
+            log.info("MCP Server 不可用，运行时跳过：tool={} server={}", tool.getToolKey(), serverId);
+            return null;
+        }
+        Map<String, Object> cfg = fromJsonMap(tool.getApiConfig());
+        String remoteName = str(cfg.get("toolName"));
+        if (remoteName == null || remoteName.isBlank()) remoteName = tool.getName();
+        String schema = schemaOf(tool);
+        String finalRemoteName = remoteName;
+        return new ToolCallback() {
+            @Override
+            public ToolDefinition getToolDefinition() {
+                return ToolDefinition.builder()
+                        .name(tool.getToolKey())
+                        .description(tool.getDescription() == null ? tool.getName() : tool.getDescription())
+                        .inputSchema(schema)
+                        .build();
+            }
+
+            @Override
+            public String call(String toolInput) {
+                long start = System.currentTimeMillis();
+                String status = "SUCCESS";
+                String output;
+                try {
+                    Map<String, Object> args = args(toolInput);
+                    McpClientService.McpCallResult result = TenantContext.runWith(
+                            TenantContext.getTenantId(),
+                            () -> mcpClient.callTool(server, finalRemoteName, args));
+                    output = result.text();
+                    if (result.error()) status = "ERROR";
+                } catch (Exception e) {
+                    status = "ERROR";
+                    output = "MCP 工具执行失败：" + rootMessage(e);
+                }
+                collector.add(new ToolCallEvent(tool.getToolKey(), tool.getName(), "MCP",
+                        null, null, status, System.currentTimeMillis() - start,
+                        toolInput, truncate(output, MAX_TOOL_OUTPUT), 0, 0));
+                return output;
+            }
+        };
     }
 
     // ---------- 子 Agent ----------
