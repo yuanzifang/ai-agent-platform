@@ -167,6 +167,7 @@
             </template>
             <div class="panel-links">
               <el-button size="small" @click="openPicker('skill')">＋ 添加技能</el-button>
+              <el-button size="small" plain @click="$router.push('/skills?create=1')">新增技能</el-button>
               <el-link type="primary" :underline="false" @click="$router.push('/skills')">技能管理</el-link>
             </div>
             <div v-if="skillRows.length === 0" class="hint mt8">暂未添加技能；内置技能可直接选用（技能管理可创建自定义技能）</div>
@@ -186,15 +187,17 @@
             </template>
             <div class="panel-links">
               <el-button size="small" @click="openPicker('tool')">＋ 添加工具</el-button>
+              <el-button size="small" plain @click="$router.push('/tools?create=1')">新建 API 工具</el-button>
+              <el-button size="small" plain @click="$router.push('/mcp-servers?create=1')">添加 MCP Server</el-button>
               <el-link type="primary" :underline="false" @click="$router.push('/tools')">工具管理</el-link>
-              <el-link type="primary" :underline="false" @click="$router.push('/mcp-servers')">MCP Server</el-link>
             </div>
             <div v-if="toolRows.length === 0" class="hint mt8">暂未添加工具；需在「Agent 能力」中开启函数调用后才会在对话中生效</div>
             <div v-for="row in toolRows" :key="'t' + row.id" class="kb-row">
               <el-switch v-model="row.enabled" :disabled="row.missing" />
               <div class="kb-name">{{ row.name }}</div>
-              <el-tag size="small" :type="row.type === 'BUILTIN' ? 'info' : 'success'">
-                {{ row.type === 'BUILTIN' ? '内置' : 'API' }}
+              <el-tag size="small"
+                      :type="row.type === 'BUILTIN' ? 'info' : (row.type === 'MCP' ? 'warning' : 'success')">
+                {{ row.type === 'BUILTIN' ? '内置' : (row.type === 'MCP' ? 'MCP' : 'API') }}
               </el-tag>
               <el-tag v-if="row.missing" size="small" type="danger">已失效</el-tag>
               <div class="row-desc">{{ row.description }}</div>
@@ -552,6 +555,17 @@
         <el-option v-for="o in pickerOptions" :key="o.id" :value="o.id"
                    :label="o.name + (o.isBuiltin ? '（内置）' : '')" />
       </el-select>
+      <div v-if="picker.type !== 'sub'" class="picker-create">
+        <span class="hint">没有合适的？</span>
+        <el-link v-if="picker.type === 'skill'" type="primary" :underline="false"
+                 @click="goCreate('skill')">去新增技能</el-link>
+        <template v-else>
+          <el-link type="primary" :underline="false" @click="goCreate('tool')">去新建 API 工具</el-link>
+          <el-link type="primary" :underline="false" @click="goCreate('mcp')">去添加 MCP Server</el-link>
+        </template>
+      </div>
+      <el-alert v-if="pickerOptions.length === 0" type="info" :closable="false" show-icon class="mt8"
+                :title="picker.type === 'sub' ? '暂无可添加的子 Agent' : '暂无可选项，请先通过上方入口创建'" />
       <div class="hint mt8">只展示未添加项；添加后可在面板内启用/禁用</div>
       <template #footer>
         <el-button @click="picker.visible = false">取消</el-button>
@@ -1046,6 +1060,13 @@ function openPicker(type: RefType) {
   picker.visible = true
 }
 
+function goCreate(kind: 'skill' | 'tool' | 'mcp') {
+  picker.visible = false
+  const path = kind === 'skill' ? '/skills?create=1'
+    : kind === 'tool' ? '/tools?create=1' : '/mcp-servers?create=1'
+  router.push(path)
+}
+
 function confirmPicker() {
   const options = pickerOptions.value
   for (const id of picker.selected) {
@@ -1284,7 +1305,15 @@ function clip(text: string, n: number) {
 .panel-links {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
+}
+.picker-create {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
 }
 .prompt-actions {
   display: flex;

@@ -11,10 +11,18 @@
         <el-option label="自定义" value="CUSTOM" />
       </el-select>
       <el-button @click="load">搜索</el-button>
-      <el-button v-if="canManage" type="primary" @click="openCreate">新建技能</el-button>
+      <el-button type="primary" :disabled="!canManage" @click="openCreate">新增技能</el-button>
     </div>
 
-    <el-table :data="list" size="small" v-loading="loading" empty-text="暂无技能（内置技能应已预置）">
+    <el-alert v-if="!canManage" type="info" :closable="false" show-icon class="mb12"
+              title="只读模式：新增/验证技能需要 Owner 或管理员权限（skill:manage）" />
+
+    <el-table :data="list" size="small" v-loading="loading">
+      <template #empty>
+        <el-empty description="暂无技能">
+          <el-button type="primary" :disabled="!canManage" @click="openCreate">新增技能</el-button>
+        </el-empty>
+      </template>
       <el-table-column label="名称" width="200">
         <template #default="{ row }">
           {{ row.name }}
@@ -37,7 +45,7 @@
       </el-table-column>
       <el-table-column label="操作" width="270">
         <template #default="{ row }">
-          <el-button v-if="canManage" size="small" text @click="openTest(row)">测试</el-button>
+          <el-button size="small" text :disabled="!canManage" @click="openTest(row)">验证</el-button>
           <template v-if="canManage && !row.isBuiltin">
             <el-button size="small" text @click="openEdit(row)">编辑</el-button>
             <el-button size="small" text @click="publish(row)">发布</el-button>
@@ -92,11 +100,11 @@
     </el-dialog>
 
     <!-- 测试 -->
-    <el-dialog v-model="testVisible" :title="`测试技能：${testForm.name}`" width="640px">
-      <el-input v-model="testForm.input" type="textarea" :rows="3" placeholder="输入测试内容" />
+    <el-dialog v-model="testVisible" :title="`验证技能：${testForm.name}`" width="640px">
+      <el-input v-model="testForm.input" type="textarea" :rows="3" placeholder="输入验证内容" />
       <div class="mt8">
-        <el-button type="primary" :loading="testing" @click="runTest">执行测试</el-button>
-        <span class="hint">测试使用当前配置，不写入正式 Trace</span>
+        <el-button type="primary" :loading="testing" @click="runTest">开始验证</el-button>
+        <span class="hint">验证使用当前配置与模型，不写入正式 Trace</span>
       </div>
       <div v-if="testForm.answer" class="test-result">
         <div class="test-label">输出</div>
@@ -129,11 +137,14 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import { useUserStore } from '../stores/user'
 
 const userStore = useUserStore()
+const route = useRoute()
+const router = useRouter()
 const canManage = computed(() => {
   const perms = userStore.userInfo?.permissions || []
   return userStore.userInfo?.isPlatformAdmin || perms.includes('skill:manage')
@@ -164,6 +175,13 @@ const versionSkillId = ref(0)
 
 onMounted(async () => {
   await Promise.all([load(), loadOptions()])
+  if (route.query.create === '1') {
+    if (canManage.value) openCreate()
+    else ElMessage.warning('当前账号无新增技能权限')
+    const query = { ...route.query }
+    delete query.create
+    router.replace({ query })
+  }
 })
 
 async function load() {
@@ -311,12 +329,13 @@ async function remove(row: any) {
 
 <style scoped>
 .page { background: #fff; border: 1px solid #e4e7ed; border-radius: 6px; padding: 14px; }
-.toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.title { font-weight: 600; font-size: 15px; }
+.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.title { font-weight: 600; font-size: 15px; white-space: nowrap; flex-shrink: 0; }
 .sub { color: #909399; font-size: 12px; margin-left: 8px; }
 .spacer { flex: 1; }
 .deps { color: #606266; font-size: 12px; }
 .hint { color: #909399; font-size: 12px; margin-left: 8px; }
+.mb12 { margin-bottom: 12px; }
 .mt8 { margin-top: 8px; }
 .test-result { margin-top: 12px; border: 1px solid #ebeef5; border-radius: 6px; padding: 10px; }
 .test-label { font-size: 12px; color: #909399; margin-bottom: 4px; }

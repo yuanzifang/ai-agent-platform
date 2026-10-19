@@ -9,12 +9,23 @@
       <el-select v-model="type" placeholder="类型" clearable style="width: 110px" @change="load">
         <el-option label="内置" value="BUILTIN" />
         <el-option label="API" value="API" />
+        <el-option label="MCP" value="MCP" />
       </el-select>
       <el-button @click="load">搜索</el-button>
-      <el-button v-if="canManage" type="primary" @click="openCreate">新建工具</el-button>
+      <el-button type="primary" :disabled="!canManage" @click="openCreate">新建 API 工具</el-button>
+      <el-button :disabled="!canManage" @click="$router.push('/mcp-servers?create=1')">添加 MCP Server</el-button>
     </div>
 
-    <el-table :data="list" size="small" v-loading="loading" empty-text="暂无工具（内置工具应已预置）">
+    <el-alert v-if="!canManage" type="info" :closable="false" show-icon class="mb12"
+              title="只读模式：新建/测试工具需要 Owner 或管理员权限（tool:manage）" />
+
+    <el-table :data="list" size="small" v-loading="loading">
+      <template #empty>
+        <el-empty description="暂无工具">
+          <el-button type="primary" :disabled="!canManage" @click="openCreate">新建 API 工具</el-button>
+          <el-button :disabled="!canManage" @click="$router.push('/mcp-servers?create=1')">添加 MCP Server</el-button>
+        </el-empty>
+      </template>
       <el-table-column label="名称" width="200">
         <template #default="{ row }">
           {{ row.name }}
@@ -38,7 +49,7 @@
       </el-table-column>
       <el-table-column label="操作" width="270">
         <template #default="{ row }">
-          <el-button v-if="canManage" size="small" text @click="openTest(row)">测试</el-button>
+          <el-button size="small" text :disabled="!canManage" @click="openTest(row)">测试</el-button>
           <template v-if="canManage && !row.isBuiltin && row.toolType !== 'MCP'">
             <el-button size="small" text @click="openEdit(row)">编辑</el-button>
             <el-button size="small" text @click="publish(row)">发布</el-button>
@@ -51,6 +62,8 @@
 
     <!-- 新建/编辑 -->
     <el-dialog v-model="editVisible" :title="editForm.id ? '编辑工具' : '新建 API 工具'" width="760px">
+      <el-alert v-if="!editForm.id" type="info" :closable="false" show-icon class="mb12"
+                title="这里创建 API 工具；MCP 工具请到「MCP Server」添加服务后同步生成。" />
       <el-form label-width="96px">
         <el-form-item label="名称" required>
           <el-input v-model="editForm.name" maxlength="128" />
@@ -188,11 +201,14 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import { useUserStore } from '../stores/user'
 
 const userStore = useUserStore()
+const route = useRoute()
+const router = useRouter()
 const canManage = computed(() => {
   const perms = userStore.userInfo?.permissions || []
   return userStore.userInfo?.isPlatformAdmin || perms.includes('tool:manage')
@@ -221,7 +237,16 @@ const versionsVisible = ref(false)
 const versions = ref<any[]>([])
 const versionToolId = ref(0)
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  if (route.query.create === '1') {
+    if (canManage.value) openCreate()
+    else ElMessage.warning('当前账号无新建工具权限')
+    const query = { ...route.query }
+    delete query.create
+    router.replace({ query })
+  }
+})
 
 async function load() {
   loading.value = true
@@ -392,11 +417,12 @@ async function remove(row: any) {
 
 <style scoped>
 .page { background: #fff; border: 1px solid #e4e7ed; border-radius: 6px; padding: 14px; }
-.toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.title { font-weight: 600; font-size: 15px; }
+.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.title { font-weight: 600; font-size: 15px; white-space: nowrap; flex-shrink: 0; }
 .sub { color: #909399; font-size: 12px; margin-left: 8px; }
 .spacer { flex: 1; }
 .hint { color: #909399; font-size: 12px; margin-left: 8px; }
+.mb12 { margin-bottom: 12px; }
 .mt8 { margin-top: 8px; }
 .param-editor { width: 100%; }
 .test-result { margin-top: 12px; border: 1px solid #ebeef5; border-radius: 6px; padding: 10px; }

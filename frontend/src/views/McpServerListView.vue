@@ -5,12 +5,15 @@
       <span class="sub">接入 MCP 服务，发现并同步工具；同步后的工具可在 Agent 中绑定</span>
       <div class="spacer" />
       <el-button @click="load">刷新</el-button>
-      <el-button v-if="canManage" type="primary" @click="openCreate">接入 Server</el-button>
+      <el-button type="primary" :disabled="!canManage" @click="openCreate">添加 MCP Server</el-button>
     </div>
 
-    <el-empty v-if="!loading && list.length === 0" description="尚未接入 MCP Server">
-      <el-button v-if="canManage" type="primary" @click="openCreate">接入第一个 MCP Server</el-button>
-      <span v-else class="hint">请联系租户管理员接入</span>
+    <el-alert v-if="!canManage" type="info" :closable="false" show-icon class="mb12"
+              title="只读模式：添加/验证 MCP Server 需要 Owner 或管理员权限（tool:manage）" />
+
+    <el-empty v-if="!loading && list.length === 0" description="尚未添加 MCP Server">
+      <el-button type="primary" :disabled="!canManage" @click="openCreate">添加第一个 MCP Server</el-button>
+      <span v-if="!canManage" class="hint">请联系租户管理员添加</span>
     </el-empty>
     <el-table v-else :data="list" size="small" v-loading="loading">
       <el-table-column prop="name" label="名称" width="180" />
@@ -29,7 +32,8 @@
       </el-table-column>
       <el-table-column label="操作" width="300">
         <template #default="{ row }">
-          <el-button v-if="canManage" size="small" text @click="test(row)">测试</el-button>
+          <el-button size="small" text :loading="testingId === row.id" :disabled="!canManage"
+                     @click="test(row)">验证</el-button>
           <el-button v-if="canManage" size="small" text type="primary" @click="openSync(row)">同步工具</el-button>
           <el-button size="small" text @click="openTools(row)">已同步</el-button>
           <el-button v-if="canManage" size="small" text @click="openEdit(row)">编辑</el-button>
@@ -39,7 +43,7 @@
     </el-table>
 
     <!-- 接入/编辑 -->
-    <el-dialog v-model="editVisible" :title="editForm.id ? '编辑 MCP Server' : '接入 MCP Server'" width="620px">
+    <el-dialog v-model="editVisible" :title="editForm.id ? '编辑 MCP Server' : '添加 MCP Server'" width="620px">
       <div class="preset-row">
         <span class="hint">快速预设：</span>
         <el-button size="small" @click="applyPreset('feishu')">飞书 MCP</el-button>
@@ -85,7 +89,7 @@
                     placeholder="Token（****** 表示不修改）" />
         </el-form-item>
         <el-form-item label="提示">
-          <span class="hint">编辑地址或鉴权后，需重新「同步工具」</span>
+          <span class="hint">保存后点击列表中的「验证」检测连通性；修改地址或鉴权后需重新「同步工具」</span>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -133,11 +137,14 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import { useUserStore } from '../stores/user'
 
 const userStore = useUserStore()
+const route = useRoute()
+const router = useRouter()
 const canManage = computed(() => {
   const perms = userStore.userInfo?.permissions || []
   return userStore.userInfo?.isPlatformAdmin || perms.includes('tool:manage')
@@ -145,6 +152,7 @@ const canManage = computed(() => {
 
 const list = ref<any[]>([])
 const loading = ref(false)
+const testingId = ref(0)
 
 const editVisible = ref(false)
 const saving = ref(false)
@@ -179,7 +187,16 @@ const toolsVisible = ref(false)
 const tools = ref<any[]>([])
 const toolsServerName = ref('')
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  if (route.query.create === '1') {
+    if (canManage.value) openCreate()
+    else ElMessage.warning('当前账号无添加 MCP Server 权限')
+    const query = { ...route.query }
+    delete query.create
+    router.replace({ query })
+  }
+})
 
 async function load() {
   loading.value = true
@@ -259,9 +276,15 @@ async function save() {
 }
 
 async function test(row: any) {
-  const res = await http.post(`/mcp-servers/${row.id}/test`) as any
-  ElMessage[res.success ? 'success' : 'error'](res.message + (res.success ? `（${res.latencyMs}ms）` : ''))
-  await load()
+  testingId.value = row.id
+  try {
+    const res = await http.post(`/mcp-servers/${row.id}/test`) as any
+    ElMessage[res.success ? 'success' : 'error'](
+      res.success ? `连接正常（${res.latencyMs}ms）` : `验证失败：${res.message}`)
+    await load()
+  } finally {
+    testingId.value = 0
+  }
 }
 
 async function openSync(row: any) {
@@ -326,11 +349,12 @@ function fmt(v?: string) {
 
 <style scoped>
 .page { background: #fff; border: 1px solid #e4e7ed; border-radius: 6px; padding: 14px; }
-.toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.title { font-weight: 600; font-size: 15px; }
+.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.title { font-weight: 600; font-size: 15px; white-space: nowrap; flex-shrink: 0; }
 .sub { color: #909399; font-size: 12px; margin-left: 8px; }
 .spacer { flex: 1; }
 .hint { color: #909399; font-size: 12px; }
+.mb12 { margin-bottom: 12px; }
 .preset-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .mb8 { margin-bottom: 8px; }
 </style>

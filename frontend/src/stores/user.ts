@@ -23,6 +23,23 @@ export const useUserStore = defineStore('user', {
       localStorage.setItem('refreshToken', data.refreshToken)
       localStorage.setItem('userInfo', JSON.stringify(data.user))
     },
+    async refreshProfile() {
+      try {
+        const me = await http.get('/auth/me') as any
+        if (!me) return
+        this.userInfo = {
+          ...(this.userInfo || { displayName: '' }),
+          id: me.id,
+          tenantId: me.tenantId,
+          isPlatformAdmin: me.isPlatformAdmin,
+          roles: me.roles || [],
+          permissions: me.permissions || []
+        }
+        localStorage.setItem('userInfo', JSON.stringify(this.userInfo))
+      } catch {
+        // 保留本地登录信息，权限刷新失败不阻断页面
+      }
+    },
     async doRefresh() {
       const data = await http.post('/auth/refresh', { refreshToken: this.refreshToken }) as any
       this.accessToken = data.accessToken

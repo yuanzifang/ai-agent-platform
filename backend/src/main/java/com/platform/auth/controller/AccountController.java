@@ -22,6 +22,19 @@ public class AccountController {
 
     private final AccountService accountService;
 
+    public record MeInfo(String id, String tenantId, boolean isPlatformAdmin,
+                         java.util.List<String> roles, java.util.List<String> permissions) {
+    }
+
+    /** 当前登录态的角色/权限（前端启动时刷新，避免使用过期缓存）。 */
+    @GetMapping
+    public ApiResponse<MeInfo> me(@AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(new MeInfo(
+                principal.userId() == null ? null : String.valueOf(principal.userId()),
+                principal.tenantId() == null ? null : String.valueOf(principal.tenantId()),
+                principal.platformAdmin(), principal.roles(), principal.permissions()));
+    }
+
     @GetMapping("/export")
     public ResponseEntity<byte[]> export(@AuthenticationPrincipal JwtPrincipal principal) {
         byte[] data = accountService.exportData(principal);
