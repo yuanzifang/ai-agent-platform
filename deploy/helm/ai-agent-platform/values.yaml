@@ -1,0 +1,142 @@
+# 默认值面向生产：依赖 MySQL/Redis/PgVector/MinIO/Ollama 使用外部或集群内独立服务。
+# 全量单机环境请用根目录 docker-compose.yml。
+
+nameOverride: ""
+fullnameOverride: ""
+
+imagePullSecrets: []
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+podAnnotations: {}
+commonLabels: {}
+
+backend:
+  image:
+    repository: ghcr.io/example/ai-agent-platform-backend
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  javaOpts: "-Xms512m -Xmx2g"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 3Gi
+  service:
+    type: ClusterIP
+    port: 8080
+    # SSE 停止/重生成依赖单实例内存状态；多副本时用 ClientIP 会话保持
+    sessionAffinity: ClientIP
+    sessionAffinityTimeoutSeconds: 10800
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    minAvailable: 1
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+frontend:
+  image:
+    repository: ghcr.io/example/ai-agent-platform-frontend
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  service:
+    type: ClusterIP
+    port: 80
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    minAvailable: 1
+  securityContext: {}
+
+# 非敏感运行时配置（写入 ConfigMap）
+config:
+  timezone: Asia/Shanghai
+  mysqlHost: mysql
+  mysqlPort: "3306"
+  mysqlUsername: aiagent
+  redisHost: redis
+  redisPort: "6379"
+  pgUrl: jdbc:postgresql://pgvector:5432/vector
+  pgUsername: aiagent
+  minioEndpoint: http://minio:9000
+  ollamaEndpoint: http://ollama:11434
+  deepseekBaseUrl: https://api.deepseek.com
+  toolAllowPrivate: "false"
+  toolAllowedHosts: ""
+  rateLimitPerMinute: "60"
+  skillScriptEnabled: "true"
+  asrEnabled: "false"
+  asrEndpoint: ""
+  smtpHost: ""
+  smtpPort: "587"
+  smtpAuth: "true"
+  smtpTls: "true"
+
+# 敏感配置（写入 Secret 或引用 existingSecret）
+# existingSecret 非空时不再创建 Secret，Secret 需包含下列同名 key。
+secrets:
+  existingSecret: ""
+  mysqlPassword: ""
+  redisPassword: ""
+  pgPassword: ""
+  minioAccessKey: "aiagent"
+  minioSecretKey: ""
+  jwtSecret: ""
+  aesKey: ""
+  deepseekApiKey: "sk-not-configured"
+  platformAdminPassword: ""
+  smtpUsername: ""
+  smtpPassword: ""
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "20m"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+  hosts:
+    - host: ai-agent.example.com
+      paths:
+        - path: /api
+          pathType: Prefix
+          service: backend
+        - path: /
+          pathType: Prefix
+          service: frontend
+  tls: []
+
+networkPolicy:
+  enabled: false
+  ingressNamespace: ingress-nginx

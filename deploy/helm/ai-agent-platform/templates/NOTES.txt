@@ -1,0 +1,21 @@
+AI Agent Platform 已部署。
+
+访问入口（Ingress 开启时）：
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+
+检查状态：
+  kubectl -n {{ .Release.Namespace }} get pods
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "ai-agent-platform.backend.fullname" . }}
+
+平台管理员：admin / <secrets.platformAdminPassword>
+首次启动会执行 Flyway 迁移并初始化 dev 账号（DEV_PASSWORD 未设置时默认 Dev@123456，生产请覆盖）。
+
+重要：
+- 本 Chart 只部署后端/前端；MySQL、Redis、PgVector、MinIO、Ollama 需外部或集群内独立部署，
+  并通过 values.yaml 的 config.* / secrets.* 指向。
+- 多副本下 SSE「停止生成」依赖会话保持（Service 已配置 ClientIP affinity）；
+  若 Ingress/负载均衡不保持连接，建议将 backend.replicaCount 设为 1 或引入共享流状态。
+- 生产请使用 secrets.existingSecret，不要把密码写入 values.yaml。
+- 指标：Pod 已带 prometheus.io/scrape 注解；如使用 Prometheus Operator，可自行添加 ServiceMonitor。

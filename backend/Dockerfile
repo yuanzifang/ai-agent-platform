@@ -10,7 +10,7 @@ RUN mvn -q -DskipTests package
 # 运行：JRE + Python/Node（技能脚本）+ curl（健康检查）
 FROM eclipse-temurin:17-jre-alpine
 RUN apk add --no-cache curl python3 nodejs tzdata \
-    && addgroup -S app && adduser -S app -G app
+    && addgroup -g 1000 -S app && adduser -u 1000 -S app -G app
 ENV TZ=Asia/Shanghai \
     JAVA_OPTS="-Xms512m -Xmx1g"
 WORKDIR /app

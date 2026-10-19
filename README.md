@@ -101,6 +101,38 @@ scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 - 定期备份 MySQL/PgVector/MinIO 数据卷
 - 当前 Compose 为单机部署；K8s/Helm 多实例部署为后续项
 
+## Kubernetes / Helm
+
+生产多副本建议用 Helm Chart（后端/前端；MySQL/Redis/PgVector/MinIO/Ollama 使用托管服务或集群内独立服务）：
+
+```bash
+# 构建并推送镜像后
+helm upgrade --install ai-agent deploy/helm/ai-agent-platform \
+  -n ai-agent --create-namespace \
+  --set backend.image.repository=registry.example.com/ai-agent/backend \
+  --set backend.image.tag=0.1.0 \
+  --set frontend.image.repository=registry.example.com/ai-agent/frontend \
+  --set frontend.image.tag=0.1.0 \
+  --set config.mysqlHost=mysql \
+  --set config.redisHost=redis \
+  --set config.pgUrl=jdbc:postgresql://pgvector:5432/vector \
+  --set config.minioEndpoint=http://minio:9000 \
+  --set config.ollamaEndpoint=http://ollama:11434 \
+  --set secrets.mysqlPassword='***' \
+  --set secrets.pgPassword='***' \
+  --set secrets.minioAccessKey='***' \
+  --set secrets.minioSecretKey='***' \
+  --set secrets.jwtSecret='***' \
+  --set secrets.aesKey='***' \
+  --set secrets.platformAdminPassword='***'
+```
+
+- Ingress 默认 `/api` → backend，`/` → frontend，SSE 已关闭代理缓冲
+- 支持 HPA/PDB/NetworkPolicy/ServiceAccount
+- 生产建议 `secrets.existingSecret` 引用 Secret，不把密码写进 values
+- 多副本 SSE 停止/重生成依赖 ClientIP 会话保持；如不生效请先将 backend 副本设为 1
+- 详见 `deploy/helm/ai-agent-platform/README.md`
+
 ## 里程碑
 
 M1 平台基座（当前）→ M2 模型与 Agent → M3 知识库 → M4 会话对话 → M5 可观测 → M6 安全合规验收。

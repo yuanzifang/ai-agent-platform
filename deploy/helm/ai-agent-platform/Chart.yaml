@@ -1,0 +1,14 @@
+apiVersion: v2
+name: ai-agent-platform
+description: 企业级多租户 AI Agent 平台（后端 + 前端；MySQL/Redis/PgVector/MinIO/Ollama 使用外部或集群内独立服务）
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - ai
+  - agent
+  - rag
+  - llm
+home: https://github.com/example/ai-agent-platform
+maintainers:
+  - name: platform-team
