@@ -17,6 +17,7 @@
     </el-empty>
     <el-table v-else :data="list" size="small" v-loading="loading">
       <el-table-column prop="name" label="名称" width="180" />
+      <el-table-column prop="transport" label="传输" width="90" />
       <el-table-column prop="endpoint" label="地址" min-width="240" show-overflow-tooltip />
       <el-table-column prop="authType" label="鉴权" width="100" />
       <el-table-column label="状态" width="100">
@@ -48,48 +49,67 @@
         <span class="hint">快速预设：</span>
         <el-button size="small" @click="applyPreset('feishu')">飞书 MCP</el-button>
         <el-button size="small" @click="applyPreset('zhipu')">智谱 MCP</el-button>
+        <el-button size="small" @click="applyPreset('filesystem')">本地文件系统（stdio）</el-button>
         <span class="hint">Endpoint/Token 请按官方文档填写，可修改</span>
       </div>
       <el-form label-width="90px">
         <el-form-item label="名称" required>
           <el-input v-model="editForm.name" maxlength="128" placeholder="如：内部工具服务" />
         </el-form-item>
-        <el-form-item label="地址" required>
-          <el-input v-model="editForm.endpoint" placeholder="http://localhost:18081/mcp 或 https://mcp.feishu.cn/mcp" />
-        </el-form-item>
         <el-form-item label="传输方式">
-          <el-select v-model="editForm.transport" style="width: 160px">
+          <el-select v-model="editForm.transport" style="width: 200px">
             <el-option label="Streamable HTTP" value="HTTP" />
             <el-option label="SSE（旧版）" value="SSE" />
+            <el-option label="STDIO（本地进程）" value="STDIO" />
           </el-select>
         </el-form-item>
-        <el-form-item label="自定义请求头">
-          <el-input v-model="editForm.headersText" type="textarea" :rows="2"
-                    placeholder='JSON 对象，如 {"X-Tenant-Id":"xxx"}（Authorization 请用鉴权方式）' />
-        </el-form-item>
-        <el-form-item label="鉴权方式">
-          <el-select v-model="editForm.authType" style="width: 160px">
-            <el-option label="无" value="NONE" />
-            <el-option label="API Key" value="API_KEY" />
-            <el-option label="Bearer" value="BEARER" />
-            <el-option label="OAuth" value="OAUTH" />
-          </el-select>
-        </el-form-item>
-        <template v-if="editForm.authType === 'API_KEY'">
-          <el-form-item label="Header">
-            <el-input v-model="editForm.authHeader" placeholder="X-API-Key" style="width: 220px" />
+        <template v-if="editForm.transport === 'STDIO'">
+          <el-form-item label="启动命令" required>
+            <el-input v-model="editForm.command" placeholder="npx / python3 / uvx" />
           </el-form-item>
-          <el-form-item label="Key">
-            <el-input v-model="editForm.authValue" type="password" show-password
-                      placeholder="密钥（****** 表示不修改）" />
+          <el-form-item label="启动参数">
+            <el-input v-model="editForm.argsText" type="textarea" :rows="2"
+                      placeholder='JSON 数组，如 ["-y","@modelcontextprotocol/server-filesystem","/tmp"]' />
+          </el-form-item>
+          <el-form-item label="环境变量">
+            <el-input v-model="editForm.envText" type="textarea" :rows="2"
+                      placeholder='JSON 对象，如 {"GITHUB_TOKEN":"xxx"}（AES 加密存储；编辑时留空不修改）' />
+          </el-form-item>
+          <el-alert type="warning" :closable="false" show-icon class="mb12"
+                    title="stdio 会在平台后端主机启动本地进程（支持会话复用与空闲回收）：仅限可信来源配置，命令不允许 shell 特殊字符或解释器。" />
+        </template>
+        <template v-else>
+          <el-form-item label="地址" required>
+            <el-input v-model="editForm.endpoint" placeholder="http://localhost:18081/mcp 或 https://mcp.feishu.cn/mcp" />
+          </el-form-item>
+          <el-form-item label="自定义请求头">
+            <el-input v-model="editForm.headersText" type="textarea" :rows="2"
+                      placeholder='JSON 对象，如 {"X-Tenant-Id":"xxx"}（Authorization 请用鉴权方式）' />
+          </el-form-item>
+          <el-form-item label="鉴权方式">
+            <el-select v-model="editForm.authType" style="width: 160px">
+              <el-option label="无" value="NONE" />
+              <el-option label="API Key" value="API_KEY" />
+              <el-option label="Bearer" value="BEARER" />
+              <el-option label="OAuth" value="OAUTH" />
+            </el-select>
+          </el-form-item>
+          <template v-if="editForm.authType === 'API_KEY'">
+            <el-form-item label="Header">
+              <el-input v-model="editForm.authHeader" placeholder="X-API-Key" style="width: 220px" />
+            </el-form-item>
+            <el-form-item label="Key">
+              <el-input v-model="editForm.authValue" type="password" show-password
+                        placeholder="密钥（****** 表示不修改）" />
+            </el-form-item>
+          </template>
+          <el-form-item v-if="editForm.authType === 'BEARER' || editForm.authType === 'OAUTH'" label="Token">
+            <el-input v-model="editForm.authToken" type="password" show-password
+                      placeholder="Token（****** 表示不修改）" />
           </el-form-item>
         </template>
-        <el-form-item v-if="editForm.authType === 'BEARER' || editForm.authType === 'OAUTH'" label="Token">
-          <el-input v-model="editForm.authToken" type="password" show-password
-                    placeholder="Token（****** 表示不修改）" />
-        </el-form-item>
         <el-form-item label="提示">
-          <span class="hint">保存后点击列表中的「验证」检测连通性；修改地址或鉴权后需重新「同步工具」</span>
+          <span class="hint">保存后点击列表中的「验证」检测连通性；修改配置后需重新「同步工具」</span>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -158,7 +178,8 @@ const editVisible = ref(false)
 const saving = ref(false)
 const editForm = reactive({
   id: 0, name: '', endpoint: '', transport: 'HTTP', headersText: '{}', authType: 'NONE',
-  authHeader: 'X-API-Key', authValue: '', authToken: ''
+  authHeader: 'X-API-Key', authValue: '', authToken: '',
+  command: '', argsText: '[]', envText: ''
 })
 
 function applyPreset(type: string) {
@@ -171,6 +192,11 @@ function applyPreset(type: string) {
     Object.assign(editForm, {
       name: '智谱 MCP', endpoint: 'https://open.bigmodel.cn/api/mcp/sse', transport: 'SSE',
       authType: 'BEARER', headersText: '{}'
+    })
+  } else if (type === 'filesystem') {
+    Object.assign(editForm, {
+      name: '本地文件系统（示例）', transport: 'STDIO', command: 'npx',
+      argsText: '["-y","@modelcontextprotocol/server-filesystem","/tmp"]', envText: '{}'
     })
   }
 }
@@ -225,7 +251,8 @@ function healthType(s?: string) {
 function openCreate() {
   Object.assign(editForm, {
     id: 0, name: '', endpoint: '', transport: 'HTTP', headersText: '{}', authType: 'NONE',
-    authHeader: 'X-API-Key', authValue: '', authToken: ''
+    authHeader: 'X-API-Key', authValue: '', authToken: '',
+    command: '', argsText: '[]', envText: ''
   })
   editVisible.value = true
 }
@@ -242,28 +269,47 @@ async function openEdit(row: any) {
     authType: detail.authType || 'NONE',
     authHeader: auth.header || 'X-API-Key',
     authValue: auth.value || '',
-    authToken: auth.token || ''
+    authToken: auth.token || '',
+    command: detail.command || '',
+    argsText: JSON.stringify(detail.args || []),
+    envText: '{}'
   })
   editVisible.value = true
 }
 
 async function save() {
-  if (!editForm.name.trim() || !editForm.endpoint.trim()) { ElMessage.warning('名称与地址必填'); return }
-  const auth: any = { type: editForm.authType }
-  if (editForm.authType === 'API_KEY') {
-    auth.header = editForm.authHeader || 'X-API-Key'
-    auth.value = editForm.authValue
-  } else if (editForm.authType === 'BEARER' || editForm.authType === 'OAUTH') {
-    auth.token = editForm.authToken
+  if (!editForm.name.trim()) { ElMessage.warning('名称必填'); return }
+  if (editForm.transport === 'STDIO') {
+    if (!editForm.command.trim()) { ElMessage.warning('STDIO 需要填写启动命令'); return }
+  } else if (!editForm.endpoint.trim()) {
+    ElMessage.warning('地址必填'); return
   }
   saving.value = true
   try {
-    let headers: any = {}
-    try { headers = JSON.parse(editForm.headersText || '{}') } catch { ElMessage.error('自定义请求头不是合法 JSON'); return }
-    const payload = {
-      name: editForm.name.trim(), endpoint: editForm.endpoint.trim(),
-      transport: editForm.transport, customHeaders: headers,
-      authType: editForm.authType, auth
+    const payload: any = { name: editForm.name.trim(), transport: editForm.transport }
+    if (editForm.transport === 'STDIO') {
+      let args: any
+      try { args = JSON.parse(editForm.argsText || '[]') } catch { ElMessage.error('启动参数不是合法 JSON 数组'); return }
+      if (!Array.isArray(args)) { ElMessage.error('启动参数需为 JSON 数组'); return }
+      let env: any
+      try { env = JSON.parse(editForm.envText || '{}') } catch { ElMessage.error('环境变量不是合法 JSON 对象'); return }
+      payload.command = editForm.command.trim()
+      payload.args = args
+      if (Object.keys(env).length) payload.env = env
+    } else {
+      const auth: any = { type: editForm.authType }
+      if (editForm.authType === 'API_KEY') {
+        auth.header = editForm.authHeader || 'X-API-Key'
+        auth.value = editForm.authValue
+      } else if (editForm.authType === 'BEARER' || editForm.authType === 'OAUTH') {
+        auth.token = editForm.authToken
+      }
+      let headers: any = {}
+      try { headers = JSON.parse(editForm.headersText || '{}') } catch { ElMessage.error('自定义请求头不是合法 JSON'); return }
+      payload.endpoint = editForm.endpoint.trim()
+      payload.customHeaders = headers
+      payload.authType = editForm.authType
+      payload.auth = auth
     }
     if (editForm.id) await http.put(`/mcp-servers/${editForm.id}`, payload)
     else await http.post('/mcp-servers', payload)

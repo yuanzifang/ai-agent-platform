@@ -14,7 +14,10 @@ public class McpServer {
     private Long id;
     private String name;
     private String endpoint;
-    private String transport;      // HTTP / SSE
+    private String transport;      // HTTP / SSE / STDIO
+    private String command;        // STDIO 启动命令
+    private String args;           // STDIO 启动参数（JSON 数组）
+    private String envEncrypted;   // STDIO 环境变量（AES-GCM 密文 JSON）
     private String authType;      // NONE / API_KEY / BEARER / OAUTH
     private String encryptedAuth; // AES-GCM 密文（JSON）
     private String customHeaders; // JSON：自定义请求头

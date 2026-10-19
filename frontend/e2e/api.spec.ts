@@ -1,7 +1,9 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
+import path from 'path'
 
 const P = '/api/v1'
 const MOCK = 'http://127.0.0.1:18092'
+const MCP_MOCK = 'http://127.0.0.1:18093'
 
 function auth(token: string) {
   return { Authorization: `Bearer ${token}` }
@@ -226,5 +228,95 @@ test('配额阻断', async ({ request }) => {
     await request.put(`${P}/billing/quota`, {
       headers: auth(token!), data: { maxTokensPerDay: quota.maxTokensPerDay }
     })
+  }
+})
+
+test('MCP HTTP：会话复用与 2025-03-26 能力', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const statsBefore = await (await request.get(`${MCP_MOCK}/stats`)).json()
+  let serverId: number | null = null
+  try {
+    const create = await request.post(`${P}/mcp-servers`, {
+      headers: auth(token!),
+      data: { name: `E2E MCP HTTP-${Date.now()}`, transport: 'HTTP', endpoint: `${MCP_MOCK}/mcp` }
+    })
+    const created = await create.json()
+    expect(created.code, JSON.stringify(created)).toBe(0)
+    serverId = created.data.id
+
+    const testRes = await request.post(`${P}/mcp-servers/${serverId}/test`, { headers: auth(token!) })
+    const tested = await testRes.json()
+    expect(tested.code).toBe(0)
+    expect(tested.data.success, JSON.stringify(tested.data)).toBe(true)
+
+    const discover = await request.get(`${P}/mcp-servers/${serverId}/discover`, { headers: auth(token!) })
+    const discovered = await discover.json()
+    expect(discovered.code).toBe(0)
+    expect(discovered.data.tools.length).toBeGreaterThan(0)
+    expect(JSON.stringify(discovered.data.tools[0].annotations)).toContain('readOnlyHint')
+
+    const sync = await request.post(`${P}/mcp-servers/${serverId}/sync`, {
+      headers: auth(token!), data: {}
+    })
+    const synced = await sync.json()
+    expect(synced.code).toBe(0)
+    expect(synced.data.total).toBeGreaterThan(0)
+
+    const statsAfter = await (await request.get(`${MCP_MOCK}/stats`)).json()
+    expect(statsAfter.initialize - statsBefore.initialize,
+      'Mcp-Session-Id 应复用，不应每次 RPC 重新 initialize').toBe(1)
+    expect(statsAfter.toolsList - statsBefore.toolsList).toBeGreaterThanOrEqual(3)
+  } finally {
+    if (serverId) await request.delete(`${P}/mcp-servers/${serverId}`, { headers: auth(token!) })
+  }
+})
+
+test('MCP stdio：本地进程接入与命令防护', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const script = path.resolve(process.cwd(), 'e2e', 'stdio_mcp_server.py')
+  let serverId: number | null = null
+  try {
+    const create = await request.post(`${P}/mcp-servers`, {
+      headers: auth(token!),
+      data: {
+        name: `E2E MCP stdio-${Date.now()}`, transport: 'STDIO', command: 'python3',
+        args: [script], env: { MCP_E2E_TOKEN: 'hello' }
+      }
+    })
+    const created = await create.json()
+    expect(created.code, JSON.stringify(created)).toBe(0)
+    serverId = created.data.id
+
+    const testRes = await request.post(`${P}/mcp-servers/${serverId}/test`, { headers: auth(token!) })
+    const tested = await testRes.json()
+    expect(tested.code).toBe(0)
+    expect(tested.data.success, JSON.stringify(tested.data)).toBe(true)
+    expect(tested.data.toolCount).toBe(1)
+
+    const discover = await request.get(`${P}/mcp-servers/${serverId}/discover`, { headers: auth(token!) })
+    const discovered = await discover.json()
+    expect(discovered.code).toBe(0)
+    expect(JSON.stringify(discovered.data.tools[0].annotations)).toContain('destructiveHint')
+
+    const sync = await request.post(`${P}/mcp-servers/${serverId}/sync`, {
+      headers: auth(token!), data: {}
+    })
+    expect((await sync.json()).data.total).toBe(1)
+
+    const detail = await request.get(`${P}/mcp-servers/${serverId}`, { headers: auth(token!) })
+    const view = (await detail.json()).data
+    expect(view.transport).toBe('STDIO')
+    expect(view.command).toBe('python3')
+    expect(view.envKeys).toContain('MCP_E2E_TOKEN')
+
+    const bad = await request.post(`${P}/mcp-servers`, {
+      headers: auth(token!),
+      data: { name: '非法命令', transport: 'STDIO', command: 'bash', args: [] }
+    })
+    expect((await bad.json()).code, 'shell 解释器应被拒绝').toBe(400)
+  } finally {
+    if (serverId) await request.delete(`${P}/mcp-servers/${serverId}`, { headers: auth(token!) })
   }
 })

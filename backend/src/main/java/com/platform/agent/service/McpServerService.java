@@ -35,6 +35,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * MCP Server 管理（需求 3.15 / P1）：接入、连通性测试、工具发现/同步、引用检查、删除。
@@ -46,6 +47,10 @@ import java.util.UUID;
 public class McpServerService {
 
     private static final String MASK = "******";
+    private static final Pattern COMMAND_ILLEGAL = Pattern.compile("[;&|`$><\"'(){}\\\\ \\n\\r\\t]");
+    private static final List<String> FORBIDDEN_COMMANDS = List.of(
+            "sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh", "fish",
+            "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe");
 
     private final McpServerMapper serverMapper;
     private final McpClientService client;
@@ -77,17 +82,22 @@ public class McpServerService {
     public Map<String, Object> create(Map<String, Object> req, JwtPrincipal principal) {
         Long tenantId = TenantContext.getTenantId();
         String name = str(req.get("name"));
-        String endpoint = str(req.get("endpoint"));
         if (name == null || name.isBlank()) throw new BusinessException(400, "名称不能为空");
-        validateEndpoint(endpoint);
+        String transport = normalizeTransport(req.get("transport"));
         McpServer s = new McpServer();
         s.setName(name.trim());
-        s.setEndpoint(endpoint.trim());
-        s.setTransport(normalizeTransport(req.get("transport")));
-        s.setCustomHeaders(normalizeHeaders(req.get("customHeaders")));
-        String authType = normalizeAuthType(req.get("authType"));
-        s.setAuthType(authType);
-        s.setEncryptedAuth(encryptAuth(authType, asMap(req.get("auth")), null));
+        s.setTransport(transport);
+        if ("STDIO".equals(transport)) {
+            applyStdioConfig(s, req, null);
+        } else {
+            String endpoint = str(req.get("endpoint"));
+            validateEndpoint(endpoint);
+            s.setEndpoint(endpoint.trim());
+            s.setCustomHeaders(normalizeHeaders(req.get("customHeaders")));
+            String authType = normalizeAuthType(req.get("authType"));
+            s.setAuthType(authType);
+            s.setEncryptedAuth(encryptAuth(authType, asMap(req.get("auth")), null));
+        }
         s.setStatus("ENABLED");
         s.setHealthStatus("UNKNOWN");
         s.setTenantId(tenantId);
@@ -108,22 +118,35 @@ public class McpServerService {
             if (name == null || name.isBlank()) throw new BusinessException(400, "名称不能为空");
             s.setName(name.trim());
         }
-        if (req.get("endpoint") != null) {
-            String endpoint = str(req.get("endpoint"));
-            validateEndpoint(endpoint);
-            s.setEndpoint(endpoint.trim());
-        }
-        if (req.get("transport") != null) s.setTransport(normalizeTransport(req.get("transport")));
-        if (req.containsKey("customHeaders")) s.setCustomHeaders(normalizeHeaders(req.get("customHeaders")));
-        if (req.get("authType") != null) {
-            String authType = normalizeAuthType(req.get("authType"));
-            s.setAuthType(authType);
-            s.setEncryptedAuth(encryptAuth(authType, asMap(req.get("auth")), s.getEncryptedAuth()));
-        } else if (req.get("auth") != null) {
-            s.setEncryptedAuth(encryptAuth(s.getAuthType(), asMap(req.get("auth")), s.getEncryptedAuth()));
+        String transport = req.get("transport") != null ? normalizeTransport(req.get("transport"))
+                : (s.getTransport() == null ? "HTTP" : s.getTransport());
+        s.setTransport(transport);
+        if ("STDIO".equals(transport)) {
+            applyStdioConfig(s, req, s);
+            s.setAuthType("NONE");
+            s.setEncryptedAuth("");
+            s.setCustomHeaders("");
+        } else {
+            s.setCommand("");
+            s.setArgs("");
+            s.setEnvEncrypted("");
+            if (req.get("endpoint") != null) {
+                String endpoint = str(req.get("endpoint"));
+                validateEndpoint(endpoint);
+                s.setEndpoint(endpoint.trim());
+            }
+            if (req.containsKey("customHeaders")) s.setCustomHeaders(normalizeHeaders(req.get("customHeaders")));
+            if (req.get("authType") != null) {
+                String authType = normalizeAuthType(req.get("authType"));
+                s.setAuthType(authType);
+                s.setEncryptedAuth(encryptAuth(authType, asMap(req.get("auth")), s.getEncryptedAuth()));
+            } else if (req.get("auth") != null) {
+                s.setEncryptedAuth(encryptAuth(s.getAuthType(), asMap(req.get("auth")), s.getEncryptedAuth()));
+            }
         }
         s.setUpdatedAt(LocalDateTime.now());
         serverMapper.updateById(s);
+        client.closeServer(id);
         auditService.record(principal.userId(), "mcp_server.update", "mcp_server", String.valueOf(id),
                 "SUCCESS", Map.of("name", s.getName()));
     }
@@ -160,6 +183,8 @@ public class McpServerService {
                 m.put("name", t.name());
                 m.put("description", t.description());
                 m.put("inputSchema", t.inputSchema());
+                m.put("outputSchema", parseJson(t.outputSchema()));
+                m.put("annotations", parseJson(t.annotations()));
                 rows.add(m);
             }
             return Map.of("tools", rows, "total", rows.size());
@@ -220,6 +245,11 @@ public class McpServerService {
                     cfg.put("inputSchemaText", t.inputSchema());
                 }
             }
+            // 2025-03-26：structuredContent/outputSchema 与 tool annotations（readOnlyHint 等）落库
+            Object outputSchema = parseJson(t.outputSchema());
+            if (outputSchema != null) cfg.put("outputSchema", outputSchema);
+            Object annotations = parseJson(t.annotations());
+            if (annotations != null) cfg.put("annotations", annotations);
             tool.setApiConfig(json(cfg));
             tool.setUpdatedAt(LocalDateTime.now());
             if (isNew) toolMapper.insert(tool);
@@ -283,6 +313,7 @@ public class McpServerService {
             toolMapper.deleteById(t.getId());
         }
         serverMapper.deleteById(id);
+        client.closeServer(id);
         auditService.record(principal.userId(), "mcp_server.delete", "mcp_server", String.valueOf(id),
                 "SUCCESS", Map.of("name", s.getName(), "tools", tools.size()));
     }
@@ -309,10 +340,130 @@ public class McpServerService {
 
     private String normalizeTransport(Object raw) {
         String transport = raw == null ? "HTTP" : String.valueOf(raw).toUpperCase(Locale.ROOT);
-        if (!List.of("HTTP", "SSE").contains(transport)) {
-            throw new BusinessException(400, "传输方式仅支持 HTTP/SSE");
+        if (!List.of("HTTP", "SSE", "STDIO").contains(transport)) {
+            throw new BusinessException(400, "传输方式仅支持 HTTP/SSE/STDIO");
         }
         return transport;
+    }
+
+    /** STDIO 配置：命令/参数/环境变量（env AES-GCM 加密；更新未传则沿用旧值）。 */
+    private void applyStdioConfig(McpServer s, Map<String, Object> req, McpServer existing) {
+        String command = req.get("command") != null ? normalizeCommand(req.get("command"))
+                : (existing == null ? null : existing.getCommand());
+        if (command == null || command.isBlank()) throw new BusinessException(400, "STDIO 需要配置启动命令");
+        s.setCommand(command);
+        if (req.containsKey("args")) {
+            List<String> args = normalizeArgs(req.get("args"));
+            s.setArgs(args.isEmpty() ? "" : json(args));
+        } else {
+            s.setArgs(existing == null ? "" : existing.getArgs());
+        }
+        if (req.containsKey("env")) {
+            s.setEnvEncrypted(encryptEnv(req.get("env"), existing == null ? null : existing.getEnvEncrypted()));
+        } else {
+            s.setEnvEncrypted(existing == null ? "" : existing.getEnvEncrypted());
+        }
+        List<String> args = normalizeArgs(s.getArgs());
+        String display = "stdio://" + command + (args.isEmpty() ? "" : " " + String.join(" ", args));
+        s.setEndpoint(display.length() > 250 ? display.substring(0, 250) : display);
+    }
+
+    /** 命令注入防护：无 shell（ProcessBuilder 数组执行）、禁特殊字符/空格、禁 shell 解释器。 */
+    private String normalizeCommand(Object raw) {
+        String command = str(raw);
+        if (command == null || command.isBlank()) throw new BusinessException(400, "STDIO 启动命令不能为空");
+        command = command.trim();
+        if (command.length() > 256) throw new BusinessException(400, "STDIO 启动命令过长");
+        if (COMMAND_ILLEGAL.matcher(command).find()) {
+            throw new BusinessException(400, "STDIO 启动命令不能包含空格或 shell 特殊字符");
+        }
+        String base = command.substring(command.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
+        if (FORBIDDEN_COMMANDS.contains(base)) {
+            throw new BusinessException(400, "禁止以 shell 解释器作为 MCP stdio 命令：" + base);
+        }
+        return command;
+    }
+
+    private List<String> normalizeArgs(Object raw) {
+        if (raw == null || (raw instanceof String text && text.isBlank())) return List.of();
+        List<?> list;
+        if (raw instanceof List<?> l) {
+            list = l;
+        } else {
+            try {
+                list = objectMapper.readValue(String.valueOf(raw), List.class);
+            } catch (Exception e) {
+                throw new BusinessException(400, "STDIO 参数需为 JSON 数组");
+            }
+        }
+        List<String> args = new ArrayList<>();
+        for (Object item : list) {
+            String arg = item == null ? "" : String.valueOf(item);
+            if (arg.contains("\n") || arg.contains("\r")) throw new BusinessException(400, "STDIO 参数不允许换行");
+            if (arg.length() > 4096) throw new BusinessException(400, "STDIO 参数过长");
+            args.add(arg);
+        }
+        if (args.size() > 64) throw new BusinessException(400, "STDIO 参数数量过多");
+        return args;
+    }
+
+    private String encryptEnv(Object incoming, String existingEncrypted) {
+        Map<String, Object> old = decryptMap(existingEncrypted);
+        Map<String, Object> env;
+        if (incoming instanceof Map<?, ?> m) {
+            env = asMap(m);
+        } else {
+            try {
+                env = asMap(objectMapper.readValue(String.valueOf(incoming), Map.class));
+            } catch (Exception e) {
+                throw new BusinessException(400, "环境变量需为 JSON 对象");
+            }
+        }
+        Map<String, Object> merged = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> e : env.entrySet()) {
+            String key = e.getKey() == null ? "" : e.getKey().trim();
+            if (!key.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                throw new BusinessException(400, "环境变量名不合法：" + key);
+            }
+            Object value = e.getValue();
+            if (value != null && MASK.equals(String.valueOf(value)) && old.containsKey(key)) {
+                value = old.get(key);
+            }
+            String text = value == null ? "" : String.valueOf(value);
+            if (text.length() > 8192) throw new BusinessException(400, "环境变量值过长：" + key);
+            merged.put(key, text);
+        }
+        return merged.isEmpty() ? "" : cryptoService.encrypt(json(merged));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> decryptMap(String encrypted) {
+        if (encrypted == null || encrypted.isBlank()) return Map.of();
+        try {
+            Map<String, Object> map = objectMapper.readValue(cryptoService.decrypt(encrypted), Map.class);
+            return map == null ? Map.of() : map;
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> listOfJson(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        try {
+            return objectMapper.readValue(raw, List.class);
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private Object parseJson(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            return objectMapper.readTree(raw);
+        } catch (Exception e) {
+            return raw;
+        }
     }
 
     private String normalizeHeaders(Object raw) {
@@ -394,6 +545,9 @@ public class McpServerService {
         m.put("name", s.getName());
         m.put("endpoint", s.getEndpoint());
         m.put("transport", s.getTransport() == null ? "HTTP" : s.getTransport());
+        m.put("command", s.getCommand());
+        m.put("args", listOfJson(s.getArgs()));
+        m.put("envKeys", new ArrayList<>(decryptMap(s.getEnvEncrypted()).keySet()));
         m.put("authType", s.getAuthType());
         m.put("auth", maskedAuth(s));
         m.put("customHeaders", fromJsonMap(s.getCustomHeaders()));

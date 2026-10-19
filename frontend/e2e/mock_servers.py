@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""离线 Mock：OpenAI 兼容对话(18080) + Ollama 嵌入(11434) + 渠道出站捕获(18092)。
+"""离线 Mock：OpenAI 兼容对话(18080) + Ollama 嵌入(11434) + 渠道出站捕获(18092) + MCP HTTP(18093)。
 
-供 E2E 在没有真实模型/嵌入/渠道时跑通核心链路；仅用于测试环境。
+供 E2E 在没有真实模型/嵌入/渠道/MCP 时跑通核心链路；仅用于测试环境。
+MCP Mock 强制 Mcp-Session-Id 会话（未携带返回 404），用于验证会话复用。
 """
 import json
 import threading
@@ -216,6 +217,70 @@ class CaptureHandler(BaseHTTPRequestHandler):
         pass
 
 
+class McpHandler(BaseHTTPRequestHandler):
+    """Streamable HTTP MCP Mock：initialize 返回 Mcp-Session-Id，其余方法必须携带有效会话。"""
+
+    sessions = set()
+    stats = {"initialize": 0, "toolsList": 0, "toolsCall": 0}
+
+    def _json(self, code, obj, headers=None):
+        data = json.dumps(obj, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        if self.path == "/stats":
+            body = dict(McpHandler.stats)
+            body["activeSessions"] = len(McpHandler.sessions)
+            return self._json(200, body)
+        self._json(404, {"error": "not found"})
+
+    def do_POST(self):
+        body = json.loads(read_body(self) or b"{}")
+        method = body.get("method", "")
+        rid = body.get("id")
+        if method == "initialize":
+            McpHandler.stats["initialize"] += 1
+            sid = f"sess-{McpHandler.stats['initialize']}"
+            McpHandler.sessions.add(sid)
+            return self._json(200, {
+                "jsonrpc": "2.0", "id": rid,
+                "result": {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}},
+                           "serverInfo": {"name": "mcp-mock", "version": "1.0"}}
+            }, headers={"Mcp-Session-Id": sid})
+        sid = self.headers.get("Mcp-Session-Id")
+        if not sid or sid not in McpHandler.sessions:
+            return self._json(404, {"error": "session not found"})
+        if method == "notifications/initialized":
+            return self._json(200, {})
+        if method == "tools/list":
+            McpHandler.stats["toolsList"] += 1
+            return self._json(200, {"jsonrpc": "2.0", "id": rid, "result": {"tools": [{
+                "name": "echo", "description": "回显输入",
+                "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+                "outputSchema": {"type": "object", "properties": {"echo": {"type": "string"}}},
+                "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
+            }]}})
+        if method == "tools/call":
+            McpHandler.stats["toolsCall"] += 1
+            args = (body.get("params") or {}).get("arguments") or {}
+            text = str(args.get("text", ""))
+            return self._json(200, {"jsonrpc": "2.0", "id": rid, "result": {
+                "content": [{"type": "text", "text": "echo: " + text}],
+                "structuredContent": {"echo": text}
+            }})
+        self._json(200, {"jsonrpc": "2.0", "id": rid,
+                         "error": {"code": -32601, "message": "method not found"}})
+
+    def log_message(self, *args):
+        pass
+
+
 def serve(port, handler):
     ThreadingHTTPServer(("127.0.0.1", port), handler).serve_forever()
 
@@ -223,4 +288,5 @@ def serve(port, handler):
 if __name__ == "__main__":
     threading.Thread(target=serve, args=(18080, OpenAiHandler), daemon=True).start()
     threading.Thread(target=serve, args=(11434, OllamaHandler), daemon=True).start()
+    threading.Thread(target=serve, args=(18093, McpHandler), daemon=True).start()
     serve(18092, CaptureHandler)
