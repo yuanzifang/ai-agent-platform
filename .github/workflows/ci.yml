@@ -22,9 +22,9 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: 后端打包
+      - name: 后端打包 + 单元测试
         working-directory: backend
-        run: mvn -q -DskipTests package
+        run: mvn -q package
 
       - uses: actions/setup-node@v4
         with:
@@ -100,7 +100,7 @@ jobs:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       OLLAMA_ENDPOINT: http://127.0.0.1:11434
-      DEEPSEEK_API_KEY: sk-not-configured
+      DEEPSEEK_API_KEY: sk-ci-mock-key
       JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123456789abcdef
       AES_KEY: ci-only-aes-key-0123456789abcdef0123456789abcdef
       PLATFORM_ADMIN_PASSWORD: Admin@123456
@@ -125,9 +125,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: 后端打包
+      - name: 后端打包 + 单元测试
         working-directory: backend
-        run: mvn -q -DskipTests package
+        run: mvn -q package
 
       - name: 前端依赖
         working-directory: frontend
@@ -136,6 +136,25 @@ jobs:
       - name: 安装 Playwright Chromium
         working-directory: frontend
         run: npx playwright install --with-deps chromium
+
+      - name: 启动离线模型/嵌入/渠道 Mock
+        working-directory: frontend
+        run: |
+          nohup python3 e2e/mock_servers.py > /tmp/mock-servers.log 2>&1 &
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:18080/v1/models >/dev/null 2>&1; then
+              echo "mock ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/mock-servers.log
+          exit 1
+
+      - name: 内置 DeepSeek Provider 指向 Mock
+        run: |
+          docker exec ${{ job.services.mysql.id }} mysql -uroot -proot ai_agent_platform \
+            -e "UPDATE provider SET base_url='http://127.0.0.1:18080' WHERE provider_type='DEEPSEEK';"
 
       - name: 启动后端
         working-directory: backend

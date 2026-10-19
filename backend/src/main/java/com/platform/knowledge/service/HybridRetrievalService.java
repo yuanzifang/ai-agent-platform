@@ -119,7 +119,7 @@ public class HybridRetrievalService {
             Map<String, Object> hit = keywordHits.get(i);
             String key = String.valueOf(hit.get("id"));
             Candidate c = merged.computeIfAbsent(key, k -> new Candidate());
-            c.content = str(hit.get("content"));
+            if (c.content == null || c.content.isBlank()) c.content = str(hit.get("content"));
             if (c.metadata == null) c.metadata = keywordMetadata(kbId, hit);
             c.keywordScore = toDouble(hit.get("score"), 0);
             keywordRank.put(key, i + 1);

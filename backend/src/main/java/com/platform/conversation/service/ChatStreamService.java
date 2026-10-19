@@ -254,6 +254,7 @@ public class ChatStreamService {
         final String finalSystemPrompt = systemPrompt;
         long[] tokens = {0, 0};
 
+        if (!runtime.callbacks().isEmpty()) options.toolCallbacks(runtime.callbacks());
         ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options.build());
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
         if (!runtime.callbacks().isEmpty()) spec = spec.toolCallbacks(runtime.callbacks());
@@ -412,6 +413,7 @@ public class ChatStreamService {
         systemPrompt = fitted.systemPrompt();
         history = fitted.history();
 
+        if (!runtime.callbacks().isEmpty()) options.toolCallbacks(runtime.callbacks());
         ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options.build());
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
         if (!runtime.callbacks().isEmpty()) spec = spec.toolCallbacks(runtime.callbacks());

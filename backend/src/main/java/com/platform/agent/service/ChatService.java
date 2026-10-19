@@ -94,6 +94,7 @@ public class ChatService {
         OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(modelName);
         if (temperature != null) options.temperature(temperature);
         systemPrompt = contextWindow.fitPrompt(modelName, systemPrompt, message);
+        if (!runtime.callbacks().isEmpty()) options.toolCallbacks(runtime.callbacks());
 
         var spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options.build());
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);

@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.stereotype.Service;
 
@@ -84,6 +85,7 @@ public class ChatModelRouter {
         OpenAiChatModel chatModel = OpenAiChatModel.builder()
                 .openAiApi(api)
                 .defaultOptions(options)
+                .toolCallingManager(ToolCallingManager.builder().build())
                 .build();
         log.info("模型路由：provider={}({}) base={} path={} model={}",
                 provider.getName(), provider.getProviderType(), baseUrl, path, model.getModelName());

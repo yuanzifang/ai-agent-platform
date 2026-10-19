@@ -723,6 +723,7 @@ public class ToolRuntimeService {
         OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(modelName);
         if (modelConfig.get("temperature") instanceof Number n) options.temperature(n.doubleValue());
         prompt = contextWindow.fitPrompt(modelName, prompt, task);
+        if (!subTools.callbacks().isEmpty()) options.toolCallbacks(subTools.callbacks());
 
         var spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options.build());
         if (prompt != null && !prompt.isBlank()) spec = spec.system(prompt);
