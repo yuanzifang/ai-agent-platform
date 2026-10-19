@@ -28,11 +28,18 @@ public class ChannelController {
 
     /** 公开入站：token 鉴权；飞书/企微按类型验签解密。 */
     @PostMapping("/channels/{token}/message")
-    public ApiResponse<Map<String, Object>> inbound(@PathVariable String token,
-                                                    @RequestBody(required = false) String rawBody,
-                                                    HttpServletRequest request) {
-        return ApiResponse.ok(channelService.handleInbound(token, rawBody,
-                headers(request), params(request)));
+    public ResponseEntity<?> inbound(@PathVariable String token,
+                                     @RequestBody(required = false) String rawBody,
+                                     HttpServletRequest request) {
+        Map<String, Object> data = channelService.handleInbound(token, rawBody,
+                headers(request), params(request));
+        if (data.containsKey("_wecomXml")) {
+            return ResponseEntity.ok().contentType(MediaType.TEXT_XML).body(data.get("_wecomXml"));
+        }
+        if (data.containsKey("_wecomPlain")) {
+            return ResponseEntity.ok().contentType(MediaType.TEXT_PLAIN).body("success");
+        }
+        return ResponseEntity.ok(ApiResponse.ok(data));
     }
 
     /** 企业微信 URL 验证（GET echostr）。 */

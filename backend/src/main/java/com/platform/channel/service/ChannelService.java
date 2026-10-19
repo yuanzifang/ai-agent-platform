@@ -172,6 +172,10 @@ public class ChannelService {
         if ("url_verification".equals(str(payload.get("type"))) && payload.get("challenge") != null) {
             return Map.of("challenge", payload.get("challenge"));
         }
+        String eventId = extractEventId(payload);
+        if (eventId != null && !claimEvent(channel, eventId)) {
+            return "WECOM".equals(type) ? Map.of("_wecomPlain", "success") : Map.of("duplicate", true);
+        }
         String text = extractText(payload);
         if (text == null || text.isBlank()) throw new BusinessException(400, "未识别到消息文本");
         String externalUserId = extractUserId(payload);
@@ -221,6 +225,10 @@ public class ChannelService {
             r.put("traceId", traceId);
             r.put("outboundSent", outboundSent);
             if (outboundError != null) r.put("outboundError", outboundError);
+            if ("WECOM".equals(type)) {
+                String xmlReply = wecomReply(payload, config, params, answer == null ? "" : answer);
+                if (xmlReply != null) r.put("_wecomXml", xmlReply);
+            }
             return r;
         });
     }
@@ -339,6 +347,83 @@ public class ChannelService {
             return sb.toString();
         } catch (Exception e) {
             throw new BusinessException(500, "签名计算失败");
+        }
+    }
+
+    private String wecomReply(Map<String, Object> payload, Map<String, Object> config,
+                              Map<String, String> params, String answer) {
+        String aesKey = str(config.get("encodingAesKey"));
+        String token = str(config.get("verificationToken"));
+        String ts = params == null ? null : params.get("timestamp");
+        String nonce = params == null ? null : params.get("nonce");
+        if (aesKey == null || aesKey.isBlank() || ts == null || nonce == null) return null;
+        String from = cdata(str(payload.get("FromUserName")));
+        String to = cdata(str(payload.get("ToUserName")));
+        String content = cdata(answer);
+        String xml = "<xml><ToUserName><![CDATA[" + from + "]]></ToUserName>"
+                + "<FromUserName><![CDATA[" + to + "]]></FromUserName>"
+                + "<CreateTime>" + (System.currentTimeMillis() / 1000) + "</CreateTime>"
+                + "<MsgType><![CDATA[text]]></MsgType>"
+                + "<Content><![CDATA[" + content + "]]></Content></xml>";
+        try {
+            String encrypt = wecomEncrypt(xml, aesKey, str(config.getOrDefault("corpId", "")));
+            String signature = wecomSignature(token == null ? "" : token, ts, nonce, encrypt);
+            return "<xml><Encrypt><![CDATA[" + encrypt + "]]></Encrypt>"
+                    + "<MsgSignature><![CDATA[" + signature + "]]></MsgSignature>"
+                    + "<TimeStamp>" + ts + "</TimeStamp>"
+                    + "<Nonce><![CDATA[" + nonce + "]]></Nonce></xml>";
+        } catch (Exception e) {
+            log.warn("企微加密回复失败：{}", e.getMessage());
+            return null;
+        }
+    }
+
+    private String wecomEncrypt(String plainXml, String encodingAesKey, String corpId) throws Exception {
+        byte[] key = Base64.getDecoder().decode(encodingAesKey + "=");
+        byte[] iv = new byte[16];
+        System.arraycopy(key, 0, iv, 0, 16);
+        byte[] msg = plainXml.getBytes(StandardCharsets.UTF_8);
+        byte[] appId = new byte[16];
+        byte[] corp = corpId == null ? new byte[0] : corpId.getBytes(StandardCharsets.UTF_8);
+        System.arraycopy(corp, 0, appId, 0, Math.min(corp.length, 16));
+        byte[] random = new byte[16];
+        new java.security.SecureRandom().nextBytes(random);
+        byte[] raw = new byte[16 + 4 + msg.length + 16];
+        System.arraycopy(random, 0, raw, 0, 16);
+        raw[16] = (byte) (msg.length >> 24);
+        raw[17] = (byte) (msg.length >> 16);
+        raw[18] = (byte) (msg.length >> 8);
+        raw[19] = (byte) msg.length;
+        System.arraycopy(msg, 0, raw, 20, msg.length);
+        System.arraycopy(appId, 0, raw, 20 + msg.length, 16);
+        Cipher c = Cipher.getInstance("AES/CBC/PKCS5Padding");
+        c.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
+        return Base64.getEncoder().encodeToString(c.doFinal(raw));
+    }
+
+    private String cdata(String text) {
+        if (text == null) return "";
+        return text.replace("]]>", "]]&gt;");
+    }
+
+    private String extractEventId(Map<String, Object> payload) {
+        Object header = payload.get("header");
+        if (header instanceof Map<?, ?> h && h.get("event_id") != null) return String.valueOf(h.get("event_id"));
+        for (String key : List.of("MsgId", "MsgID", "event_id", "eventId")) {
+            if (payload.get(key) != null) return String.valueOf(payload.get(key));
+        }
+        Object event = payload.get("event");
+        if (event instanceof Map<?, ?> e && e.get("event_id") != null) return String.valueOf(e.get("event_id"));
+        return null;
+    }
+
+    private boolean claimEvent(AgentChannel channel, String eventId) {
+        try {
+            Boolean ok = redis.opsForValue().setIfAbsent(
+                    "channel:event:" + channel.getId() + ":" + eventId, "1", Duration.ofMinutes(10));
+            return !Boolean.FALSE.equals(ok);
+        } catch (Exception e) {
+            return true;
         }
     }
 

@@ -460,10 +460,11 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220">
+        <el-table-column label="操作" width="280">
           <template #default="{ row }">
             <el-button size="small" text @click="copyInbound(row)">复制地址</el-button>
             <el-button size="small" text :loading="channelTestingId === row.id" @click="testChannel(row)">测试</el-button>
+            <el-button size="small" text @click="openChannelMessages(row)">消息</el-button>
             <el-button size="small" text @click="toggleChannel(row)">
               {{ row.status === 'ENABLED' ? '停用' : '启用' }}
             </el-button>
@@ -508,6 +509,9 @@
         <el-form-item label="EncodingAESKey">
           <el-input v-model="channelForm.encodingAesKey" type="password" show-password placeholder="企业微信 EncodingAESKey（可选，启用验签解密）" />
         </el-form-item>
+        <el-form-item label="CorpID/AppID">
+          <el-input v-model="channelForm.corpId" placeholder="企业微信 CorpID / AppID（加密回复用，可选）" />
+        </el-form-item>
         <el-form-item label="每分钟限流">
           <el-input-number v-model="channelForm.rateLimitPerMinute" :min="0" :max="10000" />
           <span class="hint ml8">0 = 不限制</span>
@@ -518,6 +522,18 @@
         <el-button type="primary" :loading="channelSaving" @click="createChannel">创建</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="channelMessagesVisible" :title="`渠道消息：${messagesChannelName}`" size="640px">
+      <el-table :data="channelMessages" size="small" empty-text="暂无消息">
+        <el-table-column label="时间" width="160">
+          <template #default="{ row }">{{ String(row.createdAt || '').replace('T',' ').slice(0,19) }}</template>
+        </el-table-column>
+        <el-table-column prop="direction" label="方向" width="70" />
+        <el-table-column prop="status" label="状态" width="80" />
+        <el-table-column prop="externalUserId" label="外部用户" width="120" show-overflow-tooltip />
+        <el-table-column prop="content" label="内容" min-width="240" show-overflow-tooltip />
+      </el-table>
+    </el-drawer>
 
     <!-- 集成 API Key -->
     <el-dialog v-model="integrationVisible" :title="`集成调用：${form.name || ''}`" width="780px">
@@ -1018,12 +1034,15 @@ const integrationVisible = ref(false)
 const apiKeys = ref<any[]>([])
 const createdKey = ref('')
 const channelsVisible = ref(false)
+const channelMessagesVisible = ref(false)
+const channelMessages = ref<any[]>([])
+const messagesChannelName = ref('')
 const channels = ref<any[]>([])
 const channelCreateVisible = ref(false)
 const channelSaving = ref(false)
 const channelTestingId = ref(0)
 const createdInbound = ref('')
-const channelForm = reactive({ name: '', type: 'WEBHOOK', outboundUrl: '', secret: '', verificationToken: '', encryptKey: '', encodingAesKey: '', rateLimitPerMinute: 60 })
+const channelForm = reactive({ name: '', type: 'WEBHOOK', outboundUrl: '', secret: '', verificationToken: '', encryptKey: '', encodingAesKey: '', corpId: '', rateLimitPerMinute: 60 })
 const widgetSnippet = ref('')
 const widgetKey = ref('')
 const widgetCreating = ref(false)
@@ -1367,6 +1386,7 @@ async function createChannel() {
         verificationToken: channelForm.verificationToken,
         encryptKey: channelForm.encryptKey,
         encodingAesKey: channelForm.encodingAesKey,
+        corpId: channelForm.corpId,
         rateLimitPerMinute: channelForm.rateLimitPerMinute
       }
     }) as any
@@ -1375,7 +1395,7 @@ async function createChannel() {
     await openChannels()
     createdInbound.value = location.origin + res.inboundPath
     Object.assign(channelForm, { name: '', type: 'WEBHOOK', outboundUrl: '', secret: '',
-      verificationToken: '', encryptKey: '', encodingAesKey: '', rateLimitPerMinute: 60 })
+      verificationToken: '', encryptKey: '', encodingAesKey: '', corpId: '', rateLimitPerMinute: 60 })
   } finally {
     channelSaving.value = false
   }
@@ -1383,6 +1403,13 @@ async function createChannel() {
 
 function inboundUrl(row: any) {
   return location.origin + row.inboundPath
+}
+
+async function openChannelMessages(row: any) {
+  messagesChannelName.value = row.name
+  const data = await http.get(`/agent/${agentId}/channels/${row.id}/messages`, { params: { pageSize: 50 } }) as any
+  channelMessages.value = data?.list || []
+  channelMessagesVisible.value = true
 }
 
 async function copyInbound(row: any) {
