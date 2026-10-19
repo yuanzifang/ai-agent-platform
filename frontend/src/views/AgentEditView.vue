@@ -621,6 +621,7 @@
         </el-select>
         <el-button @click="addWorkflowNode">添加节点</el-button>
         <el-button @click="rewireWorkflow">整理连线</el-button>
+        <el-button @click="openWorkflowTemplates">模板</el-button>
         <el-button @click="openWorkflowVersions">版本</el-button>
         <el-button type="success" :loading="workflowPublishing" @click="publishWorkflow">发布</el-button>
         <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow">保存草稿</el-button>
@@ -632,7 +633,8 @@
       </el-radio-group>
 
       <div v-show="wfMode === 'list'" class="wf-flow">
-        <div v-for="(n, idx) in workflowForm.nodes" :key="n.id" class="wf-node">
+        <div v-for="(n, idx) in workflowForm.nodes" :key="n.id" class="wf-node"
+             :class="{ selected: wfSelected === n.id }">
           <div class="wf-node-head">
             <el-tag size="small" :type="wfTagType(n.type)">{{ wfTypeText(n.type) }}</el-tag>
             <el-input v-model="n.name" size="small" style="width: 200px" />
@@ -748,9 +750,17 @@
         </div>
       </div>
 
-      <div v-show="wfMode === 'canvas'" class="wf-canvas-wrap">
-        <div ref="wfCanvasEl" class="wf-canvas"
-             :style="{ width: wfCanvasSize.w + 'px', height: wfCanvasSize.h + 'px' }">
+      <div v-show="wfMode === 'canvas'">
+        <div class="wf-canvas-tools">
+          <el-button size="small" @click="zoomCanvas(-0.1)">－</el-button>
+          <span class="hint">{{ Math.round(wfZoom * 100) }}%</span>
+          <el-button size="small" @click="zoomCanvas(0.1)">＋</el-button>
+          <el-button size="small" @click="wfZoom = 1">100%</el-button>
+          <el-button size="small" @click="autoLayoutWorkflow">自动布局</el-button>
+        </div>
+        <div ref="wfCanvasEl" class="wf-canvas-wrap" @mousedown="startCanvasPan">
+        <div class="wf-canvas"
+             :style="{ width: wfCanvasSize.w + 'px', height: wfCanvasSize.h + 'px', transform: `scale(${wfZoom})`, transformOrigin: '0 0' }">
           <svg class="wf-edges" :width="wfCanvasSize.w" :height="wfCanvasSize.h">
             <defs>
               <marker id="wf-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3"
@@ -765,13 +775,15 @@
                class="wf-canvas-node" :class="{ selected: wfSelected === n.id }"
                :style="{ left: nodeX(n) + 'px', top: nodeY(n) + 'px' }"
                @mousedown.stop="startNodeDrag($event, n)"
+               @dblclick="editWorkflowNode(n.id)"
                @click="wfSelected = n.id">
             <el-tag size="small" :type="wfTagType(n.type)">{{ wfTypeText(n.type) }}</el-tag>
             <div class="wf-cn-name">{{ n.name }}</div>
             <div class="wf-cn-id">#{{ n.id }}</div>
           </div>
         </div>
-        <div class="hint mt8">拖拽节点调整布局，连线按 next / 条件分支 / 并行分支自动绘制；节点字段编辑请切回「列表编辑」。</div>
+        <div class="hint mt8">拖拽节点调整布局，滚轮/按钮缩放，空白处拖拽平移，双击节点回列表编辑；连线按 next / 条件分支 / 并行分支自动绘制。</div>
+        </div>
       </div>
 
       <el-divider content-position="left">运行测试</el-divider>
@@ -814,6 +826,18 @@
         </el-table-column>
       </el-table>
     </el-drawer>
+
+    <el-dialog v-model="wfTemplatesVisible" title="工作流模板" width="680px">
+      <el-table :data="wfTemplates" size="small" @row-click="applyWorkflowTemplate">
+        <el-table-column prop="name" label="模板" width="140" />
+        <el-table-column prop="description" label="说明" min-width="320" show-overflow-tooltip />
+        <el-table-column label="操作" width="90">
+          <template #default="{ row }">
+            <el-button size="small" text type="primary" @click.stop="applyWorkflowTemplate(row)">使用</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
 
     <el-dialog v-model="wfDiffVisible" :title="wfDiffTitle" width="680px">
       <el-table :data="wfDiffRows" size="small" empty-text="无差异">
@@ -959,6 +983,9 @@ const wfCanvasEl = ref<HTMLElement>()
 const wfDiffVisible = ref(false)
 const wfDiffTitle = ref('')
 const wfDiffRows = ref<any[]>([])
+const wfZoom = ref(1)
+const wfTemplatesVisible = ref(false)
+const wfTemplates = ref<any[]>([])
 
 const enabledSkillCount = computed(() => skillRows.value.filter(r => r.enabled && !r.missing).length)
 const enabledToolCount = computed(() => toolRows.value.filter(r => r.enabled && !r.missing).length)
@@ -1492,6 +1519,60 @@ const wfEdges = computed(() => {
   }
   return edges
 })
+
+function zoomCanvas(delta: number) {
+  wfZoom.value = Math.min(1.6, Math.max(0.5, Number((wfZoom.value + delta).toFixed(2))))
+}
+
+function autoLayoutWorkflow() {
+  workflowForm.nodes.forEach((n: any, i: number) => {
+    n.position = { x: 60 + (i % 3) * 240, y: 40 + Math.floor(i / 3) * 120 }
+  })
+}
+
+function editWorkflowNode(id: string) {
+  wfSelected.value = id
+  wfMode.value = 'list'
+}
+
+function startCanvasPan(ev: MouseEvent) {
+  const el = wfCanvasEl.value
+  if (!el) return
+  const startX = ev.clientX
+  const startY = ev.clientY
+  const sl = el.scrollLeft
+  const st = el.scrollTop
+  const move = (e: MouseEvent) => {
+    el.scrollLeft = sl - (e.clientX - startX)
+    el.scrollTop = st - (e.clientY - startY)
+  }
+  const up = () => {
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', up)
+  }
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', up)
+}
+
+async function openWorkflowTemplates() {
+  wfTemplates.value = await http.get('/workflow/templates') as any
+  wfTemplatesVisible.value = true
+}
+
+function applyWorkflowTemplate(t: any) {
+  let def: any = t?.definition
+  if (typeof def === 'string') {
+    try { def = JSON.parse(def) } catch { def = {} }
+  }
+  const nodes = def?.nodes || []
+  if (!nodes.length) { ElMessage.warning('模板无节点'); return }
+  workflowForm.nodes = nodes.map((n: any) => ({ ...n }))
+  ensureWorkflowPositions()
+  wfMode.value = 'list'
+  wfSelected.value = ''
+  wfTemplatesVisible.value = false
+  ElMessage.success('模板已载入，请补充知识库/工具等配置后保存')
+}
 
 function startNodeDrag(ev: MouseEvent, n: any) {
   ensureWorkflowPositions()
@@ -2079,7 +2160,10 @@ function clip(text: string, n: number) {
 .wf-run { margin-top: 10px; padding: 10px; background: #f5f7fa; border-radius: 6px; }
 .wf-run pre { white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; font-size: 13px; line-height: 1.6; }
 .wf-mode { margin-bottom: 10px; }
-.wf-canvas-wrap { max-height: 52vh; overflow: auto; border: 1px solid #ebeef5; border-radius: 8px; background: #fafbfc; }
+.wf-canvas-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.wf-canvas-wrap { max-height: 52vh; overflow: auto; border: 1px solid #ebeef5; border-radius: 8px; background: #fafbfc; cursor: grab; }
+.wf-canvas-wrap:active { cursor: grabbing; }
+.wf-node.selected { border-color: #409eff; box-shadow: 0 0 0 2px rgba(64,158,255,.15); }
 .wf-canvas { position: relative; min-width: 640px; min-height: 380px; }
 .wf-edges { position: absolute; left: 0; top: 0; pointer-events: none; }
 .wf-canvas-node {

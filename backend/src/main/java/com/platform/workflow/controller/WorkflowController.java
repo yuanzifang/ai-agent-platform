@@ -23,6 +23,11 @@ public class WorkflowController {
 
     private final WorkflowService workflowService;
 
+    @GetMapping("/workflow/templates")
+    public ApiResponse<List<Map<String, Object>>> templates() {
+        return ApiResponse.ok(workflowService.templates());
+    }
+
     @GetMapping("/agent/{agentId}/workflow")
     public ApiResponse<Map<String, Object>> get(@PathVariable Long agentId) {
         return ApiResponse.ok(workflowService.get(agentId));
