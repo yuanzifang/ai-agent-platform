@@ -683,6 +683,21 @@
                 <el-input v-model="n.conditionValue" placeholder="条件值" style="width: 220px" />
               </div>
             </template>
+            <template v-else-if="n.type === 'PARALLEL'">
+              <div class="wf-line">
+                <el-select v-model="n.branches" multiple filterable placeholder="选择分支起点（可多选）" style="width: 420px">
+                  <el-option v-for="o in wfBranchTargets(n.id)" :key="o.id" :value="o.id"
+                             :label="wfTypeText(o.type) + ' · ' + o.name" />
+                </el-select>
+                <el-select v-model="n.joinNode" placeholder="汇合节点" style="width: 200px">
+                  <el-option v-for="o in workflowForm.nodes.filter((x: any) => x.type === 'JOIN')"
+                             :key="o.id" :value="o.id" :label="'JOIN · ' + o.name" />
+                </el-select>
+              </div>
+            </template>
+            <template v-else-if="n.type === 'JOIN'">
+              <span class="hint">汇合节点：等待所有并行分支完成后继续</span>
+            </template>
             <template v-else-if="n.type === 'APPROVAL'">
               <div class="wf-line">
                 <el-input v-model="n.title" placeholder="审批标题" style="width: 300px" />
@@ -697,7 +712,7 @@
               <span class="hint">开始 / 结束节点无需配置</span>
             </template>
           </div>
-          <div v-if="n.type !== 'END'" class="wf-node-next">
+          <div v-if="n.type !== 'END' && n.type !== 'PARALLEL'" class="wf-node-next">
             <template v-if="n.type === 'CONDITION'">
               命中 →
               <el-select v-model="n.trueNext" size="small" style="width: 150px">
@@ -871,6 +886,8 @@ const wfTypes = [
   { label: '工具调用', value: 'TOOL' },
   { label: '知识库检索', value: 'KNOWLEDGE' },
   { label: '条件分支', value: 'CONDITION' },
+  { label: '并行分支', value: 'PARALLEL' },
+  { label: '汇合节点', value: 'JOIN' },
   { label: '人工审批', value: 'APPROVAL' }
 ]
 const workflowForm = reactive({ name: '', status: 'ENABLED', nodes: [] as any[] })
@@ -1332,7 +1349,7 @@ async function openWorkflow() {
 }
 
 function wfTypeText(type: string) {
-  return ({ START: '开始', END: '结束', LLM: 'LLM 生成', AGENT: 'Agent 调用', TOOL: '工具调用', KNOWLEDGE: '知识库检索', CONDITION: '条件分支', APPROVAL: '人工审批' } as any)[type] || type
+  return ({ START: '开始', END: '结束', LLM: 'LLM 生成', AGENT: 'Agent 调用', TOOL: '工具调用', KNOWLEDGE: '知识库检索', CONDITION: '条件分支', APPROVAL: '人工审批', PARALLEL: '并行分支', JOIN: '汇合节点' } as any)[type] || type
 }
 
 function wfTagType(type: string) {
@@ -1343,6 +1360,11 @@ function wfTargets(currentId: string) {
   return workflowForm.nodes.filter((n: any) => n.id !== currentId)
 }
 
+function wfBranchTargets(currentId: string) {
+  return workflowForm.nodes.filter((n: any) => n.id !== currentId
+    && !['START', 'END', 'JOIN', 'PARALLEL'].includes(n.type))
+}
+
 function addWorkflowNode() {
   const id = `n${Date.now().toString(36)}${Math.floor(Math.random() * 100)}`
   const node: any = { id, type: wfAddType.value, name: wfTypeText(wfAddType.value), next: 'end' }
@@ -1351,6 +1373,8 @@ function addWorkflowNode() {
   if (wfAddType.value === 'TOOL') node.argsTemplate = '{}'
   if (wfAddType.value === 'KNOWLEDGE') { node.mode = 'hybrid'; node.topK = 5; node.queryTemplate = '' }
   if (wfAddType.value === 'APPROVAL') node.requiredRole = ''
+  if (wfAddType.value === 'PARALLEL') { node.branches = []; node.joinNode = ''; node.next = '' }
+  if (wfAddType.value === 'JOIN') node.next = 'end'
   if (wfAddType.value === 'CONDITION') {
     node.conditionType = 'contains'
     node.conditionValue = ''
@@ -1386,6 +1410,12 @@ function rewireWorkflow() {
       const ids = new Set(nodes.map((x: any) => x.id))
       if (!n.trueNext || !ids.has(n.trueNext)) n.trueNext = nextId
       if (!n.falseNext || !ids.has(n.falseNext)) n.falseNext = nextId
+    } else if (n.type === 'PARALLEL') {
+      const ids = new Set(nodes.map((x: any) => x.id))
+      if (!n.joinNode || !ids.has(n.joinNode)) {
+        n.joinNode = nodes.find((x: any) => x.type === 'JOIN')?.id || ''
+      }
+      n.next = n.joinNode || n.next
     } else if (!n.next || !nodes.some((x: any) => x.id === n.next)) {
       n.next = nextId
     }

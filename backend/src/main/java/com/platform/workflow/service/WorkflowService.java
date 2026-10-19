@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Agent 工作流引擎 MVP：
@@ -361,6 +362,15 @@ public class WorkflowService {
                 } else if ("KNOWLEDGE".equals(type)) {
                     output = retrieveKnowledge(node, run, lastOutput, principal);
                     next = str(node.get("next"));
+                } else if ("PARALLEL".equals(type)) {
+                    ParallelResult result = executeParallel(node, run, nodes, outputs, principal);
+                    output = result.output();
+                    run.setInputTokens(nz(run.getInputTokens()) + result.inputTokens());
+                    run.setOutputTokens(nz(run.getOutputTokens()) + result.outputTokens());
+                    next = str(node.get("joinNode"));
+                } else if ("JOIN".equals(type)) {
+                    output = lastOutput == null ? run.getInputText() : lastOutput;
+                    next = str(node.get("next"));
                 } else if ("CONDITION".equals(type)) {
                     boolean matched = evaluate(node, lastOutput == null ? run.getInputText() : lastOutput);
                     output = matched ? "true" : "false";
@@ -472,6 +482,107 @@ public class WorkflowService {
     }
 
     private record NodeResult(String output, long inputTokens, long outputTokens) {
+    }
+
+    private record BranchResult(String output, long inputTokens, long outputTokens) {
+    }
+
+    private record ParallelResult(String output, long inputTokens, long outputTokens) {
+    }
+
+    /** 并行节点：分支用独立线程执行，结果文本汇总后进入 JOIN。 */
+    private ParallelResult executeParallel(Map<String, Object> node, WorkflowRun run,
+                                            Map<String, Map<String, Object>> nodes,
+                                            List<Map<String, Object>> outputs, JwtPrincipal principal) {
+        Object raw = node.get("branches");
+        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+            throw new BusinessException(400, "PARALLEL 节点没有分支");
+        }
+        String joinId = str(node.get("joinNode"));
+        List<CompletableFuture<BranchResult>> futures = new ArrayList<>();
+        for (Object o : list) {
+            String start = str(o);
+            futures.add(CompletableFuture.supplyAsync(() -> TenantContext.runWith(run.getTenantId(),
+                    () -> executeBranch(run, nodes, start, joinId, outputs, principal))));
+        }
+        StringBuilder merged = new StringBuilder("【并行分支结果】\n");
+        long in = 0, out = 0;
+        for (int i = 0; i < futures.size(); i++) {
+            BranchResult br = futures.get(i).join();
+            merged.append("\n[分支 ").append(i + 1).append("]\n")
+                    .append(br.output() == null ? "" : br.output()).append("\n");
+            in += br.inputTokens();
+            out += br.outputTokens();
+        }
+        return new ParallelResult(merged.toString(), in, out);
+    }
+
+    private BranchResult executeBranch(WorkflowRun run, Map<String, Map<String, Object>> nodes,
+                                       String start, String joinId, List<Map<String, Object>> baseOutputs,
+                                       JwtPrincipal principal) {
+        String nodeId = start;
+        String lastOutput = run.getOutputText();
+        List<Map<String, Object>> outputs = new ArrayList<>(baseOutputs);
+        long in = 0, out = 0;
+        int steps = 0;
+        while (steps++ < 30) {
+            if (nodeId == null || nodeId.isBlank() || nodeId.equals(joinId)) break;
+            Map<String, Object> node = nodes.get(nodeId);
+            if (node == null) throw new BusinessException(500, "分支节点不存在：" + nodeId);
+            String type = str(node.getOrDefault("type", "LLM")).toUpperCase();
+            if ("END".equals(type) || "JOIN".equals(type)) break;
+            if ("START".equals(type)) {
+                lastOutput = run.getInputText();
+                nodeId = str(node.get("next"));
+                continue;
+            }
+            if ("APPROVAL".equals(type) || "PARALLEL".equals(type)) {
+                throw new BusinessException(400, "并行分支内暂不支持 " + type + " 节点");
+            }
+            String name = str(node.getOrDefault("name", nodeId));
+            WorkflowNodeRun nr = new WorkflowNodeRun();
+            nr.setRunId(run.getId());
+            nr.setTenantId(run.getTenantId());
+            nr.setNodeId(nodeId);
+            nr.setNodeType(type);
+            nr.setName(name);
+            nr.setStatus("RUNNING");
+            nr.setInputText(truncate(lastOutput, 8000));
+            nr.setStartedAt(LocalDateTime.now());
+            nodeRunMapper.insert(nr);
+
+            String output;
+            String next;
+            if ("LLM".equals(type) || "AGENT".equals(type)) {
+                NodeResult result = callModel(node, run, outputs, principal);
+                output = result.output();
+                in += result.inputTokens();
+                out += result.outputTokens();
+                next = str(node.get("next"));
+            } else if ("TOOL".equals(type)) {
+                output = callTool(node, run, lastOutput);
+                next = str(node.get("next"));
+            } else if ("KNOWLEDGE".equals(type)) {
+                output = retrieveKnowledge(node, run, lastOutput, principal);
+                next = str(node.get("next"));
+            } else if ("CONDITION".equals(type)) {
+                boolean matched = evaluate(node, lastOutput == null ? run.getInputText() : lastOutput);
+                output = matched ? "true" : "false";
+                next = matched ? str(node.get("trueNext")) : str(node.get("falseNext"));
+            } else {
+                throw new BusinessException(400, "分支内不支持的节点类型：" + type);
+            }
+            nr.setStatus("SUCCESS");
+            nr.setOutputText(truncate(output, 20000));
+            nr.setEndedAt(LocalDateTime.now());
+            nodeRunMapper.updateById(nr);
+            outputs.add(Map.of("nodeId", nodeId, "name", name,
+                    "output", truncate(output, 1500)));
+            lastOutput = output;
+            nodeId = next;
+            if (nodeId == null || nodeId.isBlank()) break;
+        }
+        return new BranchResult(lastOutput, in, out);
     }
 
     private String callTool(Map<String, Object> node, WorkflowRun run, String lastOutput) {
@@ -643,7 +754,7 @@ public class WorkflowService {
             if (id == null || id.isBlank()) throw new BusinessException(400, "节点 id 不能为空");
             if (nodes.containsKey(id)) throw new BusinessException(400, "节点 id 重复：" + id);
             String t = type == null ? "" : type.toUpperCase();
-            if (!List.of("START", "LLM", "AGENT", "TOOL", "KNOWLEDGE", "CONDITION", "APPROVAL", "END").contains(t)) {
+            if (!List.of("START", "LLM", "AGENT", "TOOL", "KNOWLEDGE", "CONDITION", "APPROVAL", "PARALLEL", "JOIN", "END").contains(t)) {
                 throw new BusinessException(400, "不支持的节点类型：" + type);
             }
             if ("START".equals(t)) hasStart = true;
@@ -658,7 +769,7 @@ public class WorkflowService {
             if ("CONDITION".equals(type)) {
                 checkTarget(nodes, str(node.get("trueNext")), "条件节点 trueNext");
                 checkTarget(nodes, str(node.get("falseNext")), "条件节点 falseNext");
-            } else {
+            } else if (!"PARALLEL".equals(type)) {
                 checkTarget(nodes, str(node.get("next")), "节点 next");
             }
             if ("AGENT".equals(type) && node.get("agentId") == null) {
@@ -669,6 +780,23 @@ public class WorkflowService {
             }
             if ("KNOWLEDGE".equals(type) && node.get("knowledgeBaseId") == null) {
                 throw new BusinessException(400, "KNOWLEDGE 节点必须选择知识库");
+            }
+            if ("PARALLEL".equals(type)) {
+                Object branches = node.get("branches");
+                if (!(branches instanceof List<?> branchList) || branchList.isEmpty()) {
+                    throw new BusinessException(400, "PARALLEL 节点至少需要一个分支起点");
+                }
+                for (Object b : branchList) {
+                    checkTarget(nodes, str(b), "并行分支起点");
+                }
+                String join = str(node.get("joinNode"));
+                checkTarget(nodes, join, "并行汇合节点");
+                if (!"JOIN".equalsIgnoreCase(str(nodes.get(join).get("type")))) {
+                    throw new BusinessException(400, "PARALLEL.joinNode 必须是 JOIN 节点");
+                }
+            }
+            if ("JOIN".equals(type) && (node.get("next") == null || str(node.get("next")).isBlank())) {
+                throw new BusinessException(400, "JOIN 节点必须配置 next");
             }
         }
     }
