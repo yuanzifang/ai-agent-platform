@@ -89,6 +89,25 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
             """)
     java.util.List<String> findPermKeys(Long userId);
 
+    @InterceptorIgnore(tenantLine = "true")
+    @Select("""
+            SELECT DISTINCT u.id FROM sys_user u
+            JOIN sys_user_role ur ON ur.user_id = u.id
+            JOIN sys_role r ON r.id = ur.role_id
+            WHERE u.tenant_id = #{tenantId} AND u.status = 'ENABLED' AND r.role_key = #{roleKey}
+            """)
+    List<Long> findUserIdsByRole(@Param("tenantId") Long tenantId, @Param("roleKey") String roleKey);
+
+    @InterceptorIgnore(tenantLine = "true")
+    @Select("""
+            SELECT DISTINCT u.id FROM sys_user u
+            JOIN sys_user_role ur ON ur.user_id = u.id
+            JOIN sys_role r ON r.id = ur.role_id
+            WHERE u.tenant_id = #{tenantId} AND u.status = 'ENABLED'
+              AND r.role_key IN ('OWNER', 'ADMIN')
+            """)
+    List<Long> findOwnerAdminUserIds(@Param("tenantId") Long tenantId);
+
     /** 用户名全局唯一校验（平台开通租户时无租户上下文）。 */
     @InterceptorIgnore(tenantLine = "true")
     @Select("SELECT COUNT(*) FROM sys_user WHERE username = #{username}")

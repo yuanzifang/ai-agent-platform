@@ -67,6 +67,8 @@ public class WorkflowService {
     private final com.platform.capability.runtime.ToolRuntimeService toolRuntime;
     private final HybridRetrievalService hybridRetrieval;
     private final KnowledgePermissionService permissionService;
+    private final com.platform.system.service.NotificationService notificationService;
+    private final com.platform.system.mapper.SysUserMapper userMapper;
     private final ObjectMapper objectMapper;
 
     private static final int MAX_STEPS = 50;
@@ -285,6 +287,11 @@ public class WorkflowService {
             runMapper.updateById(run);
             auditService.record(principal.userId(), "workflow.approve", "workflow_approval",
                     String.valueOf(approvalId), "SUCCESS", Map.of("runId", run.getId()));
+            notificationService.notify(run.getTenantId(),
+                    run.getUserId() == null ? java.util.List.of() : java.util.List.of(run.getUserId()),
+                    "workflow_result", "审批已通过：" + approval.getTitle(),
+                    "工作流 " + run.getId() + " 已继续执行",
+                    "/agent/edit/" + run.getAgentId());
             execute(run, next, principal);
         } else {
             if (nodeRun != null) {
@@ -299,6 +306,11 @@ public class WorkflowService {
             runMapper.updateById(run);
             auditService.record(principal.userId(), "workflow.reject", "workflow_approval",
                     String.valueOf(approvalId), "SUCCESS", Map.of("runId", run.getId()));
+            notificationService.notify(run.getTenantId(),
+                    run.getUserId() == null ? java.util.List.of() : java.util.List.of(run.getUserId()),
+                    "workflow_result", "审批已拒绝：" + approval.getTitle(),
+                    comment == null ? "工作流已拒绝" : comment,
+                    "/agent/edit/" + run.getAgentId());
         }
         return runView(runMapper.selectById(run.getId()));
     }
@@ -382,12 +394,22 @@ public class WorkflowService {
                     approval.setAgentId(run.getAgentId());
                     approval.setTenantId(run.getTenantId());
                     approval.setNodeId(nodeId);
-                    approval.setTitle(str(node.getOrDefault("title", name)));
-                    approval.setRequiredRole(str(node.get("requiredRole")));
+                    String approvalTitle = str(node.getOrDefault("title", name));
+                    approval.setTitle(approvalTitle);
+                    String requiredRole = str(node.get("requiredRole"));
+                    approval.setRequiredRole(requiredRole);
                     approval.setPayload(truncate(output, 20000));
                     approval.setStatus("PENDING");
                     approval.setCreatedAt(LocalDateTime.now());
                     approvalMapper.insert(approval);
+                    java.util.List<Long> recipients = requiredRole == null || requiredRole.isBlank()
+                            ? userMapper.findOwnerAdminUserIds(run.getTenantId())
+                            : userMapper.findUserIdsByRole(run.getTenantId(), requiredRole);
+                    if (recipients.isEmpty()) recipients = userMapper.findOwnerAdminUserIds(run.getTenantId());
+                    notificationService.notify(run.getTenantId(), recipients, "workflow_approval",
+                            "待审批：" + approvalTitle,
+                            "Agent 工作流 " + run.getId() + " 需要审批；输入：" + truncate(run.getInputText(), 200),
+                            "/approvals");
                     nr.setStatus("WAITING");
                     nr.setOutputText(truncate(output, 20000));
                     nr.setEndedAt(LocalDateTime.now());

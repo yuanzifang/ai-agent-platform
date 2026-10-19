@@ -3,6 +3,26 @@
     <el-header class="header">
       <div class="brand" @click="$router.push('/agents')">AI Agent 平台</div>
       <div class="spacer" />
+      <el-popover placement="bottom-end" :width="380" trigger="click" @show="loadNotifications">
+        <template #reference>
+          <span class="bell">
+            <el-badge :value="unreadCount" :hidden="unreadCount === 0" :max="99">
+              <el-icon size="18"><Bell /></el-icon>
+            </el-badge>
+          </span>
+        </template>
+        <div class="notif-head">
+          <b>通知</b>
+          <el-button text size="small" @click="markAllRead">全部已读</el-button>
+        </div>
+        <div v-if="notifications.length === 0" class="notif-empty">暂无通知</div>
+        <div v-for="n in notifications" :key="n.id" class="notif-item" :class="{ unread: !n.isRead }"
+             @click="openNotification(n)">
+          <div class="notif-title">{{ n.title }}</div>
+          <div class="notif-content">{{ n.content }}</div>
+          <div class="notif-time">{{ fmtNotif(n.createdAt) }}</div>
+        </div>
+      </el-popover>
       <el-dropdown @command="onCommand">
         <span class="user-chip">
           <el-icon><User /></el-icon>
@@ -140,18 +160,59 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '../stores/user'
 import http from '../api/http'
 import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
   UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp, DocumentCopy, Grid, Star, Link, Money,
-  Checked } from '@element-plus/icons-vue'
+  Checked, Bell } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
 const userName = computed(() => userStore.userInfo?.displayName || '用户')
+const notifications = ref<any[]>([])
+const unreadCount = ref(0)
+let notifTimer: any = null
+
+onMounted(() => {
+  if (userStore.accessToken) fetchUnread()
+  notifTimer = setInterval(() => { if (userStore.accessToken) fetchUnread() }, 30000)
+})
+onUnmounted(() => { if (notifTimer) clearInterval(notifTimer) })
+
+async function fetchUnread() {
+  try {
+    const data = await http.get('/notifications/unread-count') as any
+    unreadCount.value = data?.count || 0
+  } catch { /* 通知失败不打扰 */ }
+}
+
+async function loadNotifications() {
+  const data = await http.get('/notifications', { params: { pageSize: 10 } }) as any
+  notifications.value = data?.list || []
+  unreadCount.value = data?.unread || 0
+}
+
+async function openNotification(n: any) {
+  if (!n.isRead) {
+    await http.post(`/notifications/${n.id}/read`)
+    n.isRead = 1
+    await fetchUnread()
+  }
+  if (n.link && n.link.startsWith('/')) router.push(n.link)
+}
+
+async function markAllRead() {
+  await http.post('/notifications/read-all')
+  notifications.value.forEach(n => { n.isRead = 1 })
+  unreadCount.value = 0
+}
+
+function fmtNotif(v?: string) {
+  return v ? String(v).replace('T', ' ').slice(0, 16) : ''
+}
 
 function can(perm: string) {
   const perms = userStore.userInfo?.permissions || []
@@ -334,4 +395,12 @@ async function copyText(text: string) {
 .recovery-title { font-weight: 600; color: #e6a23c; margin-bottom: 6px; }
 .recovery-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; margin-bottom: 8px; }
 .recovery-grid code { font-family: monospace; font-size: 13px; }
+.bell { display: inline-flex; align-items: center; margin-right: 16px; cursor: pointer; color: #606266; }
+.notif-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.notif-empty { color: #909399; font-size: 13px; padding: 18px 0; text-align: center; }
+.notif-item { padding: 8px 4px; border-bottom: 1px solid #f2f3f5; cursor: pointer; }
+.notif-item.unread { background: #f0f7ff; }
+.notif-title { font-size: 13px; font-weight: 600; color: #303133; }
+.notif-content { font-size: 12px; color: #606266; margin-top: 2px; word-break: break-word; }
+.notif-time { font-size: 11px; color: #a8abb2; margin-top: 2px; }
 </style>
