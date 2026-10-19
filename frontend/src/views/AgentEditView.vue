@@ -228,6 +228,21 @@
               <el-button size="small" text type="danger" @click="removeRow(subRows, row)">移除</el-button>
             </div>
           </el-collapse-item>
+
+          <el-collapse-item name="workflow">
+            <template #title><span class="p-title">工作流 / 人工审批</span>
+              <el-tag size="small" class="ml8">
+                {{ workflowConfigured ? `已配置 ${workflowForm.nodes.length} 个节点` : '未配置' }}
+              </el-tag>
+            </template>
+            <div class="panel-links">
+              <el-button size="small" @click="openWorkflow">编辑工作流</el-button>
+              <el-link type="primary" :underline="false" @click="$router.push('/approvals')">审批箱</el-link>
+            </div>
+            <div class="hint mt8">
+              节点类型：LLM 生成 / Agent 调用 / 条件分支 / 人工审批；审批节点会暂停运行，等待审批箱处理。
+            </div>
+          </el-collapse-item>
         </el-collapse>
       </div>
 
@@ -590,6 +605,111 @@
       </template>
     </el-dialog>
 
+    <!-- 工作流编排 -->
+    <el-dialog v-model="workflowVisible" title="工作流编排 / 人工审批" width="900px" top="4vh">
+      <div class="wf-head">
+        <el-input v-model="workflowForm.name" placeholder="工作流名称" style="width: 220px" />
+        <el-select v-model="workflowForm.status" style="width: 110px">
+          <el-option label="启用" value="ENABLED" />
+          <el-option label="停用" value="DISABLED" />
+        </el-select>
+        <el-select v-model="wfAddType" style="width: 130px">
+          <el-option v-for="t in wfTypes" :key="t.value" :label="t.label" :value="t.value" />
+        </el-select>
+        <el-button @click="addWorkflowNode">添加节点</el-button>
+        <el-button @click="rewireWorkflow">整理连线</el-button>
+        <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow">保存</el-button>
+      </div>
+
+      <div class="wf-flow">
+        <div v-for="(n, idx) in workflowForm.nodes" :key="n.id" class="wf-node">
+          <div class="wf-node-head">
+            <el-tag size="small" :type="wfTagType(n.type)">{{ wfTypeText(n.type) }}</el-tag>
+            <el-input v-model="n.name" size="small" style="width: 200px" />
+            <span class="hint">#{{ n.id }}</span>
+            <el-button text :disabled="idx === 0" @click="moveWorkflowNode(idx, -1)">↑</el-button>
+            <el-button text :disabled="idx === workflowForm.nodes.length - 1"
+                       @click="moveWorkflowNode(idx, 1)">↓</el-button>
+            <el-button v-if="!['START', 'END'].includes(n.type)" text type="danger"
+                       @click="removeWorkflowNode(idx)">删除</el-button>
+          </div>
+          <div class="wf-node-body">
+            <template v-if="n.type === 'LLM'">
+              <el-input v-model="n.prompt" type="textarea" :rows="2" placeholder="节点提示词" />
+              <el-input v-model="n.modelName" placeholder="模型（留空用 Agent 默认）" style="width: 240px" class="mt8" />
+            </template>
+            <template v-else-if="n.type === 'AGENT'">
+              <el-select v-model="n.agentId" filterable placeholder="选择 Agent" style="width: 240px">
+                <el-option v-for="a in agentCatalog" :key="a.id" :value="a.id" :label="a.name" />
+              </el-select>
+              <el-input v-model="n.prompt" type="textarea" :rows="2" placeholder="附加提示词（可选）" class="mt8" />
+            </template>
+            <template v-else-if="n.type === 'CONDITION'">
+              <div class="wf-line">
+                <el-select v-model="n.conditionType" style="width: 130px">
+                  <el-option label="包含" value="contains" />
+                  <el-option label="不包含" value="notContains" />
+                  <el-option label="等于" value="equals" />
+                  <el-option label="长度 >" value="lengthGt" />
+                </el-select>
+                <el-input v-model="n.conditionValue" placeholder="条件值" style="width: 220px" />
+              </div>
+            </template>
+            <template v-else-if="n.type === 'APPROVAL'">
+              <el-input v-model="n.title" placeholder="审批标题" style="width: 320px" />
+            </template>
+            <template v-else>
+              <span class="hint">开始 / 结束节点无需配置</span>
+            </template>
+          </div>
+          <div v-if="n.type !== 'END'" class="wf-node-next">
+            <template v-if="n.type === 'CONDITION'">
+              命中 →
+              <el-select v-model="n.trueNext" size="small" style="width: 150px">
+                <el-option v-for="o in wfTargets(n.id)" :key="o.id" :value="o.id"
+                           :label="wfTypeText(o.type) + ' · ' + o.name" />
+              </el-select>
+              未命中 →
+              <el-select v-model="n.falseNext" size="small" style="width: 150px">
+                <el-option v-for="o in wfTargets(n.id)" :key="o.id" :value="o.id"
+                           :label="wfTypeText(o.type) + ' · ' + o.name" />
+              </el-select>
+            </template>
+            <template v-else>
+              下一步 →
+              <el-select v-model="n.next" size="small" style="width: 180px">
+                <el-option v-for="o in wfTargets(n.id)" :key="o.id" :value="o.id"
+                           :label="wfTypeText(o.type) + ' · ' + o.name" />
+              </el-select>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <el-divider content-position="left">运行测试</el-divider>
+      <el-input v-model="workflowRunInput" type="textarea" :rows="2" placeholder="输入测试内容" />
+      <div class="mt8">
+        <el-button type="primary" :loading="workflowRunning" @click="runWorkflow">运行</el-button>
+        <el-link v-if="workflowRunResult?.status === 'WAITING_APPROVAL'" type="warning"
+                 @click="goApprovals">待审批，去审批箱处理</el-link>
+      </div>
+      <div v-if="workflowRunResult" class="wf-run">
+        <div>
+          状态：{{ workflowRunResult.status }} · 当前节点：{{ workflowRunResult.currentNode || '-' }}
+          · Token：{{ workflowRunResult.inputTokens || 0 }}/{{ workflowRunResult.outputTokens || 0 }}
+        </div>
+        <pre>{{ workflowRunResult.output || workflowRunResult.error || '' }}</pre>
+        <div v-if="workflowRunResult.nodeRuns?.length" class="hint mt8">
+          节点：
+          {{ workflowRunResult.nodeRuns.map((x: any) => `${x.name || x.nodeId}(${x.status})`).join(' → ') }}
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="workflowVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow">保存工作流</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 版本抽屉 -->
     <el-drawer v-model="versionsVisible" title="版本历史" size="420px">
       <el-table :data="versions" size="small">
@@ -687,6 +807,22 @@ const promptTemplates = ref<any[]>([])
 const templateVisible = ref(false)
 const templateId = ref(0)
 const selectedTemplate = computed(() => promptTemplates.value.find(t => t.id === templateId.value))
+
+// ---- 工作流 / 人工审批 ----
+const workflowVisible = ref(false)
+const workflowConfigured = ref(false)
+const workflowSaving = ref(false)
+const workflowRunning = ref(false)
+const wfAddType = ref('LLM')
+const wfTypes = [
+  { label: 'LLM 生成', value: 'LLM' },
+  { label: 'Agent 调用', value: 'AGENT' },
+  { label: '条件分支', value: 'CONDITION' },
+  { label: '人工审批', value: 'APPROVAL' }
+]
+const workflowForm = reactive({ name: '', status: 'ENABLED', nodes: [] as any[] })
+const workflowRunInput = ref('')
+const workflowRunResult = ref<any>(null)
 
 const enabledSkillCount = computed(() => skillRows.value.filter(r => r.enabled && !r.missing).length)
 const enabledToolCount = computed(() => toolRows.value.filter(r => r.enabled && !r.missing).length)
@@ -1118,6 +1254,120 @@ function goCreate(kind: 'skill' | 'tool' | 'mcp') {
   router.push(path)
 }
 
+async function openWorkflow() {
+  const data = await http.get(`/agent/${agentId}/workflow`) as any
+  workflowConfigured.value = !!data?.configured
+  workflowForm.name = data?.name || `${form.name} 工作流`
+  workflowForm.status = data?.status || 'ENABLED'
+  workflowForm.nodes = (data?.definition?.nodes || []).map((n: any) => ({ ...n }))
+  if (!workflowForm.nodes.length) {
+    workflowForm.nodes = [
+      { id: 'start', type: 'START', name: '开始', next: 'end' },
+      { id: 'end', type: 'END', name: '结束' }
+    ]
+  }
+  workflowRunInput.value = ''
+  workflowRunResult.value = null
+  workflowVisible.value = true
+}
+
+function wfTypeText(type: string) {
+  return ({ START: '开始', END: '结束', LLM: 'LLM 生成', AGENT: 'Agent 调用', CONDITION: '条件分支', APPROVAL: '人工审批' } as any)[type] || type
+}
+
+function wfTagType(type: string) {
+  return ({ START: 'info', END: 'info', LLM: 'success', AGENT: 'warning', CONDITION: 'primary', APPROVAL: 'danger' } as any)[type] || 'info'
+}
+
+function wfTargets(currentId: string) {
+  return workflowForm.nodes.filter((n: any) => n.id !== currentId)
+}
+
+function addWorkflowNode() {
+  const id = `n${Date.now().toString(36)}${Math.floor(Math.random() * 100)}`
+  const node: any = { id, type: wfAddType.value, name: wfTypeText(wfAddType.value), next: 'end' }
+  if (wfAddType.value === 'APPROVAL') node.title = '人工审批'
+  if (wfAddType.value === 'LLM') node.prompt = ''
+  if (wfAddType.value === 'CONDITION') {
+    node.conditionType = 'contains'
+    node.conditionValue = ''
+    node.trueNext = 'end'
+    node.falseNext = 'end'
+  }
+  const endIndex = workflowForm.nodes.findIndex((n: any) => n.type === 'END')
+  if (endIndex >= 0) workflowForm.nodes.splice(endIndex, 0, node)
+  else workflowForm.nodes.push(node)
+  rewireWorkflow()
+}
+
+function removeWorkflowNode(index: number) {
+  workflowForm.nodes.splice(index, 1)
+  rewireWorkflow()
+}
+
+function moveWorkflowNode(index: number, delta: number) {
+  const target = index + delta
+  if (target < 0 || target >= workflowForm.nodes.length) return
+  const [node] = workflowForm.nodes.splice(index, 1)
+  workflowForm.nodes.splice(target, 0, node)
+  rewireWorkflow()
+}
+
+function rewireWorkflow() {
+  const nodes = workflowForm.nodes
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i]
+    if (n.type === 'END') continue
+    const nextId = nodes[i + 1]?.id || 'end'
+    if (n.type === 'CONDITION') {
+      const ids = new Set(nodes.map((x: any) => x.id))
+      if (!n.trueNext || !ids.has(n.trueNext)) n.trueNext = nextId
+      if (!n.falseNext || !ids.has(n.falseNext)) n.falseNext = nextId
+    } else if (!n.next || !nodes.some((x: any) => x.id === n.next)) {
+      n.next = nextId
+    }
+  }
+}
+
+async function saveWorkflow() {
+  if (!workflowForm.nodes.some((n: any) => n.type === 'START')
+      || !workflowForm.nodes.some((n: any) => n.type === 'END')) {
+    ElMessage.warning('工作流必须包含开始和结束节点')
+    return
+  }
+  workflowSaving.value = true
+  try {
+    const data = await http.put(`/agent/${agentId}/workflow`, {
+      name: workflowForm.name,
+      status: workflowForm.status,
+      definition: { nodes: workflowForm.nodes }
+    }) as any
+    workflowConfigured.value = true
+    ElMessage.success('工作流已保存')
+  } finally {
+    workflowSaving.value = false
+  }
+}
+
+async function runWorkflow() {
+  if (!workflowRunInput.value.trim()) { ElMessage.warning('请输入测试内容'); return }
+  workflowRunning.value = true
+  try {
+    workflowRunResult.value = await http.post(`/agent/${agentId}/workflow/run`,
+      { input: workflowRunInput.value.trim() }, { timeout: 180000 }) as any
+    if (workflowRunResult.value?.status === 'WAITING_APPROVAL') {
+      ElMessage.info('已暂停在人工审批节点，请到审批箱处理')
+    }
+  } finally {
+    workflowRunning.value = false
+  }
+}
+
+function goApprovals() {
+  workflowVisible.value = false
+  router.push('/approvals')
+}
+
 function confirmPicker() {
   const options = pickerOptions.value
   for (const id of picker.selected) {
@@ -1494,4 +1744,20 @@ function clip(text: string, n: number) {
   padding: 10px;
   border-top: 1px solid #e4e7ed;
 }
+.wf-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.wf-flow { max-height: 46vh; overflow-y: auto; padding-right: 4px; }
+.wf-node {
+  border: 1px solid #e4e7ed;
+  border-left: 3px solid #409eff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+.wf-node-head { display: flex; align-items: center; gap: 8px; }
+.wf-node-body { margin-top: 8px; }
+.wf-node-next { margin-top: 8px; font-size: 13px; color: #606266; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.wf-line { display: flex; align-items: center; gap: 8px; }
+.wf-run { margin-top: 10px; padding: 10px; background: #f5f7fa; border-radius: 6px; }
+.wf-run pre { white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; font-size: 13px; line-height: 1.6; }
 </style>

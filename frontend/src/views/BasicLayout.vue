@@ -41,6 +41,9 @@
           <el-menu-item index="/mcp-servers">
             <el-icon><Link /></el-icon>MCP Server
           </el-menu-item>
+          <el-menu-item v-if="can('agent:edit')" index="/approvals">
+            <el-icon><Checked /></el-icon>审批箱
+          </el-menu-item>
           <el-menu-item v-if="can('prompt:manage')" index="/prompt-templates">
             <el-icon><DocumentCopy /></el-icon>Prompt 模板
           </el-menu-item>
@@ -143,7 +146,8 @@ import { ElMessage } from 'element-plus'
 import { useUserStore } from '../stores/user'
 import http from '../api/http'
 import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
-  UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp, DocumentCopy, Grid, Star, Link, Money } from '@element-plus/icons-vue'
+  UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp, DocumentCopy, Grid, Star, Link, Money,
+  Checked } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()

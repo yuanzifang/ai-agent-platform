@@ -66,6 +66,9 @@ test('登录与能力入口可见', async ({ page }) => {
   })
   await expect(providerDialog.getByText('API Key')).toBeVisible()
   await providerDialog.getByRole('button', { name: '取消' }).click()
+
+  await page.goto('/approvals')
+  await expect(page.getByText('人工审批箱')).toBeVisible()
 })
 
 test('技能脚本可直跑并保存', async ({ page, request }) => {
