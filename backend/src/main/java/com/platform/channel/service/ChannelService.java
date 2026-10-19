@@ -22,15 +22,21 @@ import com.platform.system.mapper.SysUserMapper;
 import com.platform.system.service.AuditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jsoup.Jsoup;
+import org.jsoup.parser.Parser;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import javax.crypto.Cipher;
 import javax.crypto.Mac;
+import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -61,6 +67,7 @@ public class ChannelService {
     private final NetworkPolicyService networkPolicy;
     private final CryptoService cryptoService;
     private final AuditService auditService;
+    private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
 
     // ---------- 管理 ----------
@@ -149,11 +156,19 @@ public class ChannelService {
 
     // ---------- 入站 ----------
 
-    public Map<String, Object> handleInbound(String token, Map<String, Object> payload) {
+    public Map<String, Object> handleInbound(String token, String rawBody,
+                                             Map<String, String> headers, Map<String, String> params) {
         AgentChannel channel = channelMapper.findByTokenIgnoreTenant(token);
         if (channel == null) throw new BusinessException(404, "渠道不存在");
         if (!"ENABLED".equals(channel.getStatus())) throw new BusinessException(403, "渠道已停用");
-        // 飞书 URL 校验
+        Map<String, Object> config = config(channel);
+        checkRateLimit(channel, config);
+        String type = channel.getType() == null ? "WEBHOOK" : channel.getType().toUpperCase(Locale.ROOT);
+        Map<String, Object> payload = switch (type) {
+            case "FEISHU" -> feishuPayload(rawBody, headers, config);
+            case "WECOM" -> wecomPayload(rawBody, params, config);
+            default -> parseJson(rawBody);
+        };
         if ("url_verification".equals(str(payload.get("type"))) && payload.get("challenge") != null) {
             return Map.of("challenge", payload.get("challenge"));
         }
@@ -208,6 +223,195 @@ public class ChannelService {
             if (outboundError != null) r.put("outboundError", outboundError);
             return r;
         });
+    }
+
+    /** 企业微信 URL 验证：返回解密后的 echostr 明文。 */
+    public String wecomVerify(String token, Map<String, String> params) {
+        AgentChannel channel = channelMapper.findByTokenIgnoreTenant(token);
+        if (channel == null || !"WECOM".equalsIgnoreCase(channel.getType())) {
+            throw new BusinessException(404, "企微渠道不存在");
+        }
+        Map<String, Object> config = config(channel);
+        String echostr = params.get("echostr");
+        String aesKey = str(config.get("encodingAesKey"));
+        if (echostr == null || echostr.isBlank()) return "ok";
+        if (aesKey == null || aesKey.isBlank()) return "ok";
+        return wecomDecrypt(echostr, aesKey);
+    }
+
+    // ---------- 渠道签名/解密 ----------
+
+    private Map<String, Object> feishuPayload(String rawBody, Map<String, String> headers,
+                                              Map<String, Object> config) {
+        String body = rawBody == null ? "" : rawBody;
+        String encryptKey = str(config.get("encryptKey"));
+        if (encryptKey != null && !encryptKey.isBlank()) {
+            String ts = header(headers, "x-lark-request-timestamp");
+            String nonce = header(headers, "x-lark-request-nonce");
+            String sig = header(headers, "x-lark-signature");
+            if (ts == null || nonce == null || sig == null) {
+                throw new BusinessException(400, "飞书事件缺少签名头");
+            }
+            String expected = sha256Hex(ts + nonce + encryptKey + body);
+            if (!expected.equalsIgnoreCase(sig)) throw new BusinessException(403, "飞书签名校验失败");
+        }
+        Map<String, Object> payload = parseJson(body);
+        if (payload.get("encrypt") != null && encryptKey != null && !encryptKey.isBlank()) {
+            payload = parseJson(feishuDecrypt(String.valueOf(payload.get("encrypt")), encryptKey));
+        }
+        return payload;
+    }
+
+    private Map<String, Object> wecomPayload(String rawBody, Map<String, String> params,
+                                             Map<String, Object> config) {
+        Map<String, Object> body = parseXml(rawBody);
+        String encrypt = str(body.get("Encrypt"));
+        if (encrypt == null || encrypt.isBlank()) encrypt = params.get("encrypt");
+        String token = str(config.get("verificationToken"));
+        if (token != null && !token.isBlank() && encrypt != null && !encrypt.isBlank()) {
+            String expected = wecomSignature(token, params.get("timestamp"), params.get("nonce"), encrypt);
+            String actual = params.get("msg_signature");
+            if (actual != null && !actual.equalsIgnoreCase(expected)) {
+                throw new BusinessException(403, "企微签名校验失败");
+            }
+        }
+        String aesKey = str(config.get("encodingAesKey"));
+        if (encrypt != null && !encrypt.isBlank() && aesKey != null && !aesKey.isBlank()) {
+            return parseXml(wecomDecrypt(encrypt, aesKey));
+        }
+        return body;
+    }
+
+    private String feishuDecrypt(String encrypt, String encryptKey) {
+        try {
+            byte[] key = MessageDigest.getInstance("SHA-256")
+                    .digest(encryptKey.getBytes(StandardCharsets.UTF_8));
+            byte[] all = Base64.getMimeDecoder().decode(encrypt);
+            byte[] iv = new byte[16];
+            byte[] cipher = new byte[all.length - 16];
+            System.arraycopy(all, 0, iv, 0, 16);
+            System.arraycopy(all, 16, cipher, 0, cipher.length);
+            Cipher c = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            c.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
+            return new String(c.doFinal(cipher), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new BusinessException(400, "飞书事件解密失败");
+        }
+    }
+
+    private String wecomDecrypt(String encrypt, String encodingAesKey) {
+        try {
+            byte[] key = Base64.getDecoder().decode(encodingAesKey + "=");
+            byte[] iv = new byte[16];
+            System.arraycopy(key, 0, iv, 0, 16);
+            byte[] cipher = Base64.getMimeDecoder().decode(encrypt);
+            Cipher c = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            c.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
+            byte[] plain = c.doFinal(cipher);
+            int len = ((plain[16] & 0xff) << 24) | ((plain[17] & 0xff) << 16)
+                    | ((plain[18] & 0xff) << 8) | (plain[19] & 0xff);
+            return new String(plain, 20, len, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new BusinessException(400, "企微消息解密失败");
+        }
+    }
+
+    private String wecomSignature(String token, String timestamp, String nonce, String encrypt) {
+        List<String> parts = new ArrayList<>(List.of(token,
+                timestamp == null ? "" : timestamp, nonce == null ? "" : nonce, encrypt));
+        parts.sort(String::compareTo);
+        return sha1Hex(String.join("", parts));
+    }
+
+    private String sha256Hex(String input) {
+        return digestHex("SHA-256", input);
+    }
+
+    private String sha1Hex(String input) {
+        return digestHex("SHA-1", input);
+    }
+
+    private String digestHex(String algorithm, String input) {
+        try {
+            byte[] hash = MessageDigest.getInstance(algorithm).digest(input.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hash) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            throw new BusinessException(500, "签名计算失败");
+        }
+    }
+
+    private Map<String, Object> parseXml(String xml) {
+        if (xml == null || xml.isBlank()) return Map.of();
+        try {
+            var doc = Jsoup.parse(xml, "", Parser.xmlParser());
+            Map<String, Object> map = new LinkedHashMap<>();
+            for (var child : doc.children()) {
+                for (var node : child.children()) {
+                    map.put(node.tagName(), node.text());
+                }
+            }
+            if (map.isEmpty()) {
+                for (var node : doc.children()) map.put(node.tagName(), node.text());
+            }
+            return map;
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    private Map<String, Object> parseJson(String body) {
+        try {
+            return body == null || body.isBlank() ? Map.of()
+                    : objectMapper.readValue(body, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+        } catch (Exception e) {
+            throw new BusinessException(400, "消息体不是合法 JSON");
+        }
+    }
+
+    private String header(Map<String, String> headers, String name) {
+        if (headers == null) return null;
+        for (var e : headers.entrySet()) {
+            if (e.getKey() != null && e.getKey().equalsIgnoreCase(name)) return e.getValue();
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> config(AgentChannel channel) {
+        if (channel.getConfigJson() == null || channel.getConfigJson().isBlank()) return Map.of();
+        try {
+            return objectMapper.readValue(channel.getConfigJson(), Map.class);
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    private void checkRateLimit(AgentChannel channel, Map<String, Object> config) {
+        int limit = intValue(config.get("rateLimitPerMinute"), 60);
+        if (limit <= 0) return;
+        try {
+            long minute = System.currentTimeMillis() / 60000;
+            String key = "channel:rate:" + channel.getId() + ":" + minute;
+            Long count = redis.opsForValue().increment(key);
+            if (count != null && count == 1) redis.expire(key, Duration.ofMinutes(2));
+            if (count != null && count > limit) {
+                throw new BusinessException(429, "渠道调用过于频繁，请稍后再试");
+            }
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.debug("渠道限流不可用：{}", e.getMessage());
+        }
+    }
+
+    private int intValue(Object o, int def) {
+        if (o instanceof Number n) return n.intValue();
+        if (o instanceof String s && !s.isBlank()) {
+            try { return Integer.parseInt(s.trim()); } catch (NumberFormatException ignored) { }
+        }
+        return def;
     }
 
     // ---------- 辅助 ----------
@@ -388,6 +592,8 @@ public class ChannelService {
 
     @SuppressWarnings("unchecked")
     private String extractText(Map<String, Object> payload) {
+        // 企微 XML
+        if (payload.get("Content") != null) return String.valueOf(payload.get("Content"));
         // 通用
         for (String key : List.of("text", "content", "message")) {
             Object v = payload.get(key);
@@ -415,6 +621,7 @@ public class ChannelService {
     }
 
     private String extractUserId(Map<String, Object> payload) {
+        if (payload.get("FromUserName") != null) return String.valueOf(payload.get("FromUserName"));
         for (String key : List.of("userId", "user_id", "open_id", "senderId", "from")) {
             Object v = payload.get(key);
             if (v instanceof String s && !s.isBlank()) return s;

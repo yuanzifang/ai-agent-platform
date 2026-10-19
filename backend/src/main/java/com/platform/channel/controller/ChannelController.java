@@ -8,6 +8,11 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -21,11 +26,35 @@ public class ChannelController {
 
     private final ChannelService channelService;
 
-    /** 公开入站：token 鉴权。 */
+    /** 公开入站：token 鉴权；飞书/企微按类型验签解密。 */
     @PostMapping("/channels/{token}/message")
     public ApiResponse<Map<String, Object>> inbound(@PathVariable String token,
-                                                    @RequestBody Map<String, Object> payload) {
-        return ApiResponse.ok(channelService.handleInbound(token, payload));
+                                                    @RequestBody(required = false) String rawBody,
+                                                    HttpServletRequest request) {
+        return ApiResponse.ok(channelService.handleInbound(token, rawBody,
+                headers(request), params(request)));
+    }
+
+    /** 企业微信 URL 验证（GET echostr）。 */
+    @GetMapping(value = "/channels/{token}/wecom/verify", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> wecomVerify(@PathVariable String token, HttpServletRequest request) {
+        return ResponseEntity.ok(channelService.wecomVerify(token, params(request)));
+    }
+
+    private Map<String, String> headers(HttpServletRequest request) {
+        Map<String, String> map = new LinkedHashMap<>();
+        var names = request.getHeaderNames();
+        while (names.hasMoreElements()) {
+            String name = names.nextElement();
+            map.put(name, request.getHeader(name));
+        }
+        return map;
+    }
+
+    private Map<String, String> params(HttpServletRequest request) {
+        Map<String, String> map = new LinkedHashMap<>();
+        request.getParameterMap().forEach((k, v) -> map.put(k, v == null || v.length == 0 ? null : v[0]));
+        return map;
     }
 
     @GetMapping("/agent/{agentId}/channels")

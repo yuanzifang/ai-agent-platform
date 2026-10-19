@@ -499,6 +499,19 @@
         <el-form-item label="签名密钥">
           <el-input v-model="channelForm.secret" type="password" show-password placeholder="钉钉/飞书机器人签名密钥（可选）" />
         </el-form-item>
+        <el-form-item label="验证 Token">
+          <el-input v-model="channelForm.verificationToken" placeholder="飞书/企微回调验证 Token（可选）" />
+        </el-form-item>
+        <el-form-item label="Encrypt Key">
+          <el-input v-model="channelForm.encryptKey" type="password" show-password placeholder="飞书事件 Encrypt Key（可选，启用验签解密）" />
+        </el-form-item>
+        <el-form-item label="EncodingAESKey">
+          <el-input v-model="channelForm.encodingAesKey" type="password" show-password placeholder="企业微信 EncodingAESKey（可选，启用验签解密）" />
+        </el-form-item>
+        <el-form-item label="每分钟限流">
+          <el-input-number v-model="channelForm.rateLimitPerMinute" :min="0" :max="10000" />
+          <span class="hint ml8">0 = 不限制</span>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="channelCreateVisible = false">取消</el-button>
@@ -1010,7 +1023,7 @@ const channelCreateVisible = ref(false)
 const channelSaving = ref(false)
 const channelTestingId = ref(0)
 const createdInbound = ref('')
-const channelForm = reactive({ name: '', type: 'WEBHOOK', outboundUrl: '', secret: '' })
+const channelForm = reactive({ name: '', type: 'WEBHOOK', outboundUrl: '', secret: '', verificationToken: '', encryptKey: '', encodingAesKey: '', rateLimitPerMinute: 60 })
 const widgetSnippet = ref('')
 const widgetKey = ref('')
 const widgetCreating = ref(false)
@@ -1345,11 +1358,24 @@ async function openChannels() {
 async function createChannel() {
   channelSaving.value = true
   try {
-    const res = await http.post(`/agent/${agentId}/channels`, { ...channelForm }) as any
+    const res = await http.post(`/agent/${agentId}/channels`, {
+      name: channelForm.name,
+      type: channelForm.type,
+      outboundUrl: channelForm.outboundUrl,
+      secret: channelForm.secret,
+      config: {
+        verificationToken: channelForm.verificationToken,
+        encryptKey: channelForm.encryptKey,
+        encodingAesKey: channelForm.encodingAesKey,
+        rateLimitPerMinute: channelForm.rateLimitPerMinute
+      }
+    }) as any
     ElMessage.success('渠道已创建')
     channelCreateVisible.value = false
     await openChannels()
     createdInbound.value = location.origin + res.inboundPath
+    Object.assign(channelForm, { name: '', type: 'WEBHOOK', outboundUrl: '', secret: '',
+      verificationToken: '', encryptKey: '', encodingAesKey: '', rateLimitPerMinute: 60 })
   } finally {
     channelSaving.value = false
   }
