@@ -48,6 +48,12 @@ public class AuthService {
     private final MfaService mfaService;
     private final PasswordResetTokenMapper resetTokenMapper;
     private final MailService mailService;
+
+    @org.springframework.beans.factory.annotation.Value("${security.login.max-failures:5}")
+    private int maxLoginFailures;
+
+    @org.springframework.beans.factory.annotation.Value("${security.login.lock-minutes:15}")
+    private int loginLockMinutes;
     @org.springframework.beans.factory.annotation.Value("${app.frontend-base:http://localhost:5173}")
     private String frontendBase;
 
@@ -60,8 +66,15 @@ public class AuthService {
     public LoginResult login(String username, String password, String tenantKey,
                              HttpServletRequest request) {
         SysUser user = userMapper.findByUsername(username);
-        if (user == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
+        if (user != null && user.getLockedUntil() != null
+                && user.getLockedUntil().isAfter(LocalDateTime.now())) {
+            long minutes = java.time.Duration.between(LocalDateTime.now(), user.getLockedUntil()).toMinutes() + 1;
             audit(user, "FAIL", request);
+            throw new BusinessException(423, "账号已锁定，请 " + minutes + " 分钟后再试");
+        }
+        if (user == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
+            if (user != null) registerLoginFailure(user, request);
+            else audit(null, "FAIL", request);
             throw new BusinessException(401, "用户名或密码错误");
         }
         if (!"ENABLED".equals(user.getStatus())) {
@@ -78,6 +91,7 @@ public class AuthService {
             }
         }
 
+        userMapper.resetLoginFailure(user.getId());
         // MFA：第一步校验密码成功，签发 5 分钟短期凭证，待动态码校验后再发正式 Token
         if (user.getMfaEnabled() != null && user.getMfaEnabled() == 1) {
             return new LoginResult(null, null, 0, null, null,
@@ -177,6 +191,24 @@ public class AuthService {
         userMapper.updatePasswordIgnore(user.getId(), passwordEncoder.encode(newPassword), LocalDateTime.now());
         resetTokenMapper.markUsedIgnore(row.getId());
         sessionMapper.revokeAllByUser(user.getId());
+    }
+
+    /** 连续失败计数与锁定；达到阈值时记录异常登录告警并邮件提醒（若用户名是邮箱且配置 SMTP）。 */
+    private void registerLoginFailure(SysUser user, HttpServletRequest request) {
+        int failed = (user.getFailedAttempts() == null ? 0 : user.getFailedAttempts()) + 1;
+        LocalDateTime lockedUntil = failed >= maxLoginFailures
+                ? LocalDateTime.now().plusMinutes(loginLockMinutes) : null;
+        userMapper.updateLoginFailure(user.getId(), failed, lockedUntil);
+        audit(user, "FAIL", request);
+        if (lockedUntil != null) {
+            log.warn("异常登录告警：账号 {} 连续失败 {} 次，已锁定至 {}（IP={}）",
+                    user.getUsername(), failed, lockedUntil, clientIp(request));
+            if (user.getUsername() != null && user.getUsername().contains("@")) {
+                mailService.send(user.getUsername(), "AI Agent 平台 - 安全提醒",
+                        "你的账号因连续 " + failed + " 次登录失败已被锁定至 " + lockedUntil
+                                + "。如非本人操作，请联系管理员。\nIP：" + clientIp(request));
+            }
+        }
     }
 
     private void validatePassword(String password) {

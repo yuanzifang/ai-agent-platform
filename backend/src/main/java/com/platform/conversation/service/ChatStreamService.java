@@ -73,6 +73,7 @@ public class ChatStreamService {
     private final StorageService storageService;
     private final DocumentParser documentParser;
     private final ToolRuntimeService toolRuntime;
+    private final com.platform.agent.service.ContextWindowService contextWindow;
     private final ConversationService conversationService;
     private final ModerationService moderationService;
     private final TraceService traceService;
@@ -209,6 +210,12 @@ public class ChatStreamService {
         OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(modelName);
         Object temperature = modelConfig.get("temperature");
         if (temperature instanceof Number n) options.temperature(n.doubleValue());
+
+        // 上下文窗口适配：超限时截断系统提示 + 历史摘要压缩
+        com.platform.agent.service.ContextWindowService.Fitted fitted =
+                contextWindow.fit(modelName, systemPrompt, userMsgWithAttachments, history);
+        systemPrompt = fitted.systemPrompt();
+        history = fitted.history();
 
         StringBuilder acc = new StringBuilder();
         final String finalSystemPrompt = systemPrompt;
@@ -359,6 +366,11 @@ public class ChatStreamService {
         String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-chat"));
         OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(modelName);
         if (modelConfig.get("temperature") instanceof Number n) options.temperature(n.doubleValue());
+
+        com.platform.agent.service.ContextWindowService.Fitted fitted =
+                contextWindow.fit(modelName, systemPrompt, userMsgWithAttachments, history);
+        systemPrompt = fitted.systemPrompt();
+        history = fitted.history();
 
         ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModel).prompt().options(options.build());
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);

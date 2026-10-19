@@ -28,7 +28,9 @@ public interface ModelMapper extends BaseMapper<ModelEntity> {
     @InterceptorIgnore(tenantLine = "true")
     @Update("""
             UPDATE model SET display_name = #{m.displayName}, capabilities = #{m.capabilities},
-                   default_params = #{m.defaultParams}, status = #{m.status}
+                   default_params = #{m.defaultParams}, status = #{m.status},
+                   input_price = #{m.inputPrice}, output_price = #{m.outputPrice},
+                   context_window = #{m.contextWindow}
             WHERE id = #{m.id}
             """)
     int updateIgnoreTenant(@Param("m") ModelEntity m);
@@ -42,6 +44,10 @@ public interface ModelMapper extends BaseMapper<ModelEntity> {
             LIMIT 1
             """)
     ModelEntity findForPricing(@Param("modelName") String modelName, @Param("tenantId") Long tenantId);
+
+    @InterceptorIgnore(tenantLine = "true")
+    @Select("SELECT * FROM model WHERE id = #{id}")
+    ModelEntity findByIdIgnore(@Param("id") Long id);
 
     /** 默认对话模型：租户自建优先，回落平台预置（技能测试等内部调用）。 */
     @InterceptorIgnore(tenantLine = "true")

@@ -7,6 +7,7 @@
           <el-radio-button value="admin">接入管理</el-radio-button>
           <el-radio-button value="market">模型广场</el-radio-button>
         </el-radio-group>
+        <el-button v-if="view === 'admin'" @click="modelCreateVisible = true">新增模型</el-button>
         <el-button v-if="view === 'admin'" type="primary" @click="createVisible = true">接入新 Provider</el-button>
       </div>
     </div>
@@ -24,6 +25,7 @@
           <div class="m-row">模型 ID：{{ m.modelName }}</div>
           <div class="m-row">输入价：{{ m.inputPrice ?? '未设置' }} 元/千Token</div>
           <div class="m-row">输出价：{{ m.outputPrice ?? '未设置' }} 元/千Token</div>
+          <div class="m-row">上下文：{{ contextLabel(m.contextWindow) }}</div>
           <div class="m-foot">
             <el-tag :type="m.status === 'ENABLED' ? 'success' : 'info'" size="small">
               {{ m.status === 'ENABLED' ? '可使用' : '已停用' }}
@@ -64,6 +66,9 @@
         <el-table-column prop="modelName" label="模型 ID" width="150" />
         <el-table-column prop="providerName" label="Provider" width="120" />
         <el-table-column prop="purpose" label="用途" width="90" />
+        <el-table-column label="上下文" width="110">
+          <template #default="{ row }">{{ contextLabel(row.contextWindow) }}</template>
+        </el-table-column>
         <el-table-column label="启停" width="90">
           <template #default="{ row }">
             <el-switch :model-value="modelStatus(row)" @change="(v: any) => toggleModel(row, v)" />
@@ -71,7 +76,7 @@
         </el-table-column>
         <el-table-column label="操作" width="110">
           <template #default="{ row }">
-            <el-button size="small" text type="primary" @click="editPrice(row)">定价</el-button>
+            <el-button size="small" text type="primary" @click="editPrice(row)">配置</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -97,13 +102,49 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="priceVisible" title="模型默认定价" width="420px">
-      <el-form label-width="120px">
+    <el-dialog v-model="modelCreateVisible" title="新增模型" width="520px">
+      <el-form label-width="110px">
+        <el-form-item label="Provider" required>
+          <el-select v-model="modelForm.providerId" style="width: 100%">
+            <el-option v-for="p in providers" :key="p.id" :value="p.id" :label="p.name" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="模型 ID" required>
+          <el-input v-model="modelForm.modelName" placeholder="如 deepseek-chat" />
+        </el-form-item>
+        <el-form-item label="显示名称">
+          <el-input v-model="modelForm.displayName" />
+        </el-form-item>
+        <el-form-item label="用途">
+          <el-select v-model="modelForm.purpose" style="width: 160px">
+            <el-option label="对话 CHAT" value="CHAT" />
+            <el-option label="嵌入 EMBEDDING" value="EMBEDDING" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="上下文窗口">
+          <el-select v-model="modelForm.contextWindow" filterable allow-create style="width: 220px">
+            <el-option v-for="c in contextOptions" :key="c.value" :value="c.value" :label="c.label" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="modelCreateVisible = false">取消</el-button>
+        <el-button type="primary" :loading="modelCreating" @click="createModel">创建</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="priceVisible" title="模型配置" width="440px">
+      <el-form label-width="130px">
         <el-form-item label="输入 元/千Token">
           <el-input-number v-model="price.input" :min="0" :step="0.001" :precision="4" />
         </el-form-item>
         <el-form-item label="输出 元/千Token">
           <el-input-number v-model="price.output" :min="0" :step="0.001" :precision="4" />
+        </el-form-item>
+        <el-form-item label="上下文窗口">
+          <el-select v-model="price.contextWindow" filterable allow-create style="width: 220px">
+            <el-option v-for="c in contextOptions" :key="c.value" :value="c.value" :label="c.label" />
+          </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -125,7 +166,23 @@ const disabled = ref<Set<number>>(new Set())
 const createVisible = ref(false)
 const creating = ref(false)
 const priceVisible = ref(false)
-const price = reactive({ id: 0, input: 0, output: 0 })
+const price = reactive({ id: 0, input: 0, output: 0, contextWindow: 0 })
+const modelCreateVisible = ref(false)
+const modelCreating = ref(false)
+const modelForm = reactive({ providerId: null as number | null, modelName: '', displayName: '', purpose: 'CHAT', contextWindow: 0 })
+const contextOptions = [
+  { value: 0, label: '未设置（默认）' },
+  { value: 32768, label: '32K' },
+  { value: 65536, label: '64K' },
+  { value: 131072, label: '128K' },
+  { value: 262144, label: '256K' },
+  { value: 1048576, label: '1M' }
+]
+function contextLabel(v?: number) {
+  const c = Number(v || 0)
+  if (c <= 0) return '未设置'
+  return c >= 1048576 ? (c / 1048576) + 'M' : (c / 1024) + 'K'
+}
 const form = reactive({ name: '', providerType: 'OPENAI_COMPATIBLE', baseUrl: '' })
 const view = ref('admin')
 
@@ -173,16 +230,41 @@ async function toggleModel(row: any, enabled: boolean) {
   ElMessage.success(enabled ? '已启用' : '已停用')
 }
 
+async function createModel() {
+  if (!modelForm.providerId || !modelForm.modelName.trim()) {
+    ElMessage.warning('Provider 与模型 ID 必填'); return
+  }
+  modelCreating.value = true
+  try {
+    await http.post(`/provider/${modelForm.providerId}/models`, {
+      modelName: modelForm.modelName.trim(),
+      displayName: modelForm.displayName,
+      purpose: modelForm.purpose,
+      contextWindow: modelForm.contextWindow
+    })
+    ElMessage.success('模型已创建')
+    modelCreateVisible.value = false
+    modelForm.modelName = ''
+    modelForm.displayName = ''
+    await load()
+  } finally {
+    modelCreating.value = false
+  }
+}
+
 function editPrice(row: any) {
   price.id = row.modelId
   price.input = Number(row.inputPrice ?? 0)
   price.output = Number(row.outputPrice ?? 0)
+  price.contextWindow = Number(row.contextWindow ?? 0)
   priceVisible.value = true
 }
 
 async function savePrice() {
-  await http.put(`/models/${price.id}`, { inputPrice: price.input, outputPrice: price.output })
-  ElMessage.success('已保存默认定价')
+  await http.put(`/models/${price.id}`, {
+    inputPrice: price.input, outputPrice: price.output, contextWindow: price.contextWindow
+  })
+  ElMessage.success('已保存模型配置')
   priceVisible.value = false
 }
 </script>

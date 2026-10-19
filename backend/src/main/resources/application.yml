@@ -49,12 +49,21 @@ management:
 security:
   # 租户级接口限流（次/分钟，0=关闭；需求 3.22）
   rate-limit-per-minute: ${RATE_LIMIT_PER_MINUTE:60}
+  # 登录失败锁定（需求 3.25(1)）
+  login:
+    max-failures: ${LOGIN_MAX_FAILURES:5}
+    lock-minutes: ${LOGIN_LOCK_MINUTES:15}
   jwt:
     secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
     expiry-seconds: 7200
   aes-key: ${AES_KEY:}          # 凭证加密密钥，M2 使用
 
 llm:
+  context:
+    # 模型未配置 context_window 时的默认窗口；预留输出 Token；超限启用历史摘要压缩
+    default-window: ${LLM_CONTEXT_DEFAULT_WINDOW:32768}
+    reserve-tokens: ${LLM_CONTEXT_RESERVE_TOKENS:2048}
+    compress-enabled: ${LLM_CONTEXT_COMPRESS:true}
   deepseek:
     base-url: https://api.deepseek.com
     api-key: ${DEEPSEEK_API_KEY:}   # 后补；为空时模型相关功能返回「未配置」

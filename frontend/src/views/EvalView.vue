@@ -162,7 +162,7 @@
         </el-form-item>
         <el-form-item label="裁判模型">
           <el-select v-model="taskForm.judgeModel" style="width: 100%">
-            <el-option v-for="m in models" :key="m.modelName" :value="m.modelName" :label="m.displayName || m.modelName" />
+            <el-option v-for="m in models" :key="m.modelName" :value="m.modelName" :label="modelLabel(m)" />
           </el-select>
         </el-form-item>
         <el-form-item label="通过阈值">
@@ -277,6 +277,11 @@ const agentId = ref<number | null>(route.params.agentId ? Number(route.params.ag
 const agents = ref<any[]>([])
 const models = ref<any[]>([])
 const datasets = ref<any[]>([])
+function modelLabel(m: any) {
+  const name = m.displayName || m.modelName
+  const c = Number(m.contextWindow || 0)
+  return c > 0 ? `${name}（${c >= 1048576 ? (c / 1048576) + 'M' : (c / 1024) + 'K'} 上下文）` : name
+}
 const tasks = ref<any[]>([])
 const taskDialog = ref(false)
 const creating = ref(false)

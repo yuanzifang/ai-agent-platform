@@ -21,6 +21,7 @@ public class ModelEntity {
     private String defaultParams;
     private BigDecimal inputPrice;
     private BigDecimal outputPrice;
+    private Integer contextWindow;   // 上下文窗口（tokens，0=未知）
     private String status;
     private Long tenantId;
     private LocalDateTime createdAt;

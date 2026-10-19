@@ -44,6 +44,7 @@ public class ChatService {
     private final VectorRepository vectorRepository;
     private final KnowledgePermissionService permissionService;
     private final ToolRuntimeService toolRuntime;
+    private final ContextWindowService contextWindow;
 
     @SuppressWarnings("unchecked")
     public Map<String, Object> debugChat(Map<String, Object> config, String message,
@@ -96,6 +97,7 @@ public class ChatService {
 
         OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(modelName);
         if (temperature != null) options.temperature(temperature);
+        systemPrompt = contextWindow.fitPrompt(modelName, systemPrompt, message);
 
         var spec = ChatClient.create(chatModel).prompt().options(options.build());
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);

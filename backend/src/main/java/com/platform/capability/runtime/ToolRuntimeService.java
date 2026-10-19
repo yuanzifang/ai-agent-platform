@@ -91,6 +91,7 @@ public class ToolRuntimeService {
     private final McpServerMapper mcpServerMapper;
     private final McpClientService mcpClient;
     private final AgentCredentialService credentialService;
+    private final com.platform.agent.service.ContextWindowService contextWindow;
     private final CryptoService cryptoService;
     private final ChatModel chatModel;
     private final EmbeddingService embeddingService;
@@ -635,6 +636,7 @@ public class ToolRuntimeService {
         String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-flash"));
         OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(modelName);
         if (modelConfig.get("temperature") instanceof Number n) options.temperature(n.doubleValue());
+        prompt = contextWindow.fitPrompt(modelName, prompt, task);
 
         var spec = ChatClient.create(chatModel).prompt().options(options.build());
         if (prompt != null && !prompt.isBlank()) spec = spec.system(prompt);

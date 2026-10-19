@@ -45,7 +45,7 @@
         <el-form-item label="模型" required>
           <el-select v-model="form.modelName" placeholder="选择模型" style="width: 100%">
             <el-option v-for="m in models" :key="m.modelName" :value="m.modelName"
-                       :label="m.displayName || m.modelName" />
+                       :label="modelLabel(m)" />
           </el-select>
         </el-form-item>
         <el-form-item label="提示词" required>
@@ -95,6 +95,12 @@ async function load() {
 async function loadModels() {
   const data = await http.get('/provider/models') as any
   models.value = (data || []).filter((m: any) => !m.purpose || String(m.purpose).toUpperCase() === 'CHAT')
+}
+
+function modelLabel(m: any) {
+  const name = m.displayName || m.modelName
+  const c = Number(m.contextWindow || 0)
+  return c > 0 ? `${name}（${c >= 1048576 ? (c / 1048576) + 'M' : (c / 1024) + 'K'} 上下文）` : name
 }
 
 function openCreate() {

@@ -29,6 +29,15 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
     long countOtherOwners(@Param("tenantId") Long tenantId, @Param("excludeUserId") Long excludeUserId);
 
     @InterceptorIgnore(tenantLine = "true")
+    @Update("UPDATE sys_user SET failed_attempts = #{attempts}, locked_until = #{lockedUntil} WHERE id = #{id}")
+    int updateLoginFailure(@Param("id") Long id, @Param("attempts") int attempts,
+                           @Param("lockedUntil") java.time.LocalDateTime lockedUntil);
+
+    @InterceptorIgnore(tenantLine = "true")
+    @Update("UPDATE sys_user SET failed_attempts = 0, locked_until = NULL WHERE id = #{id}")
+    int resetLoginFailure(@Param("id") Long id);
+
+    @InterceptorIgnore(tenantLine = "true")
     @Update("""
             UPDATE sys_user SET username = #{username}, display_name = '已注销用户',
                    password_hash = #{passwordHash}, status = 'DISABLED',

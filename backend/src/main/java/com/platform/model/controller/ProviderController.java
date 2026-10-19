@@ -33,7 +33,8 @@ public class ProviderController {
     public record ModelItem(Long modelId, Long providerId, String providerName, String providerType,
                             String modelName, String displayName, String purpose,
                             String capabilities, String defaultParams,
-                            java.math.BigDecimal inputPrice, java.math.BigDecimal outputPrice, String status) {
+                            java.math.BigDecimal inputPrice, java.math.BigDecimal outputPrice,
+                            Integer contextWindow, String status) {
     }
 
     /** Provider 列表：平台预置（tenant_id 空）+ 本租户自建；不含凭证。 */
@@ -70,7 +71,7 @@ public class ProviderController {
                             p == null ? "" : p.getName(), p == null ? "" : p.getProviderType(),
                             m.getModelName(), m.getDisplayName(), m.getPurpose(),
                             m.getCapabilities(), m.getDefaultParams(),
-                            m.getInputPrice(), m.getOutputPrice(), m.getStatus());
+                            m.getInputPrice(), m.getOutputPrice(), m.getContextWindow(), m.getStatus());
                 }).toList());
     }
 
@@ -101,7 +102,7 @@ public class ProviderController {
     @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('model:manage')")
     public ApiResponse<Map<String, Object>> updateModel(@PathVariable Long id,
                                                         @RequestBody UpdateModelRequest req) {
-        ModelEntity m = modelMapper.selectById(id);
+        ModelEntity m = modelMapper.findByIdIgnore(id);
         if (m == null) throw new BusinessException(404, "模型不存在");
         if (req.inputPrice() != null) m.setInputPrice(req.inputPrice());
         if (req.outputPrice() != null) m.setOutputPrice(req.outputPrice());
@@ -109,12 +110,51 @@ public class ProviderController {
             m.setStatus(req.status());
         }
         if (req.displayName() != null && !req.displayName().isBlank()) m.setDisplayName(req.displayName());
-        modelMapper.updateById(m);
+        if (req.contextWindow() != null && req.contextWindow() >= 0) m.setContextWindow(req.contextWindow());
+        modelMapper.updateIgnoreTenant(m);
         return ApiResponse.ok(Map.of("id", id));
     }
 
     public record UpdateModelRequest(java.math.BigDecimal inputPrice, java.math.BigDecimal outputPrice,
-                                     String status, String displayName) {
+                                     String status, String displayName, Integer contextWindow) {
+    }
+
+    public record CreateModelRequest(@NotBlank String modelName, String displayName, String purpose,
+                                     Integer contextWindow) {
+    }
+
+    /** 手动新增模型（用于未同步到的模型），创建时选择上下文窗口（tokens）。 */
+    @PostMapping("/provider/{providerId}/models")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('model:manage')")
+    public ApiResponse<Map<String, Object>> createModel(@PathVariable Long providerId,
+                                                        @RequestBody CreateModelRequest req,
+                                                        @AuthenticationPrincipal JwtPrincipal principal) {
+        com.platform.model.entity.Provider provider = providerMapper.findByIdIgnore(providerId);
+        if (provider == null) throw new BusinessException(404, "Provider 不存在");
+        Long tenantId = principal.tenantId() != null ? principal.tenantId() : TenantContext.getTenantId();
+        if (provider.getTenantId() != null && !provider.getTenantId().equals(tenantId)) {
+            throw new BusinessException(403, "无权在该 Provider 下创建模型");
+        }
+        long exists = modelMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ModelEntity>()
+                .eq(ModelEntity::getProviderId, providerId)
+                .eq(ModelEntity::getModelName, req.modelName().trim()));
+        if (exists > 0) throw new BusinessException(400, "模型已存在：" + req.modelName());
+        ModelEntity m = new ModelEntity();
+        m.setProviderId(providerId);
+        m.setModelName(req.modelName().trim());
+        m.setDisplayName(req.displayName() == null || req.displayName().isBlank()
+                ? req.modelName().trim() : req.displayName().trim());
+        String purpose = req.purpose() == null ? "CHAT" : req.purpose().toUpperCase();
+        if (!List.of("CHAT", "EMBEDDING", "RERANK").contains(purpose)) {
+            throw new BusinessException(400, "用途仅支持 CHAT/EMBEDDING/RERANK");
+        }
+        m.setPurpose(purpose);
+        m.setContextWindow(req.contextWindow() == null ? 0 : Math.max(req.contextWindow(), 0));
+        m.setStatus("ENABLED");
+        m.setTenantId(tenantId);
+        m.setCreatedAt(java.time.LocalDateTime.now());
+        modelMapper.insert(m);
+        return ApiResponse.ok(Map.of("id", m.getId()));
     }
 
     @PostMapping("/provider/{id}/test")

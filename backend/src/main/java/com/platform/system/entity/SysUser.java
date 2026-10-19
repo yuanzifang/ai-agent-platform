@@ -21,6 +21,7 @@ public class SysUser {
     private String status;
     private LocalDateTime lastLoginAt;
     private LocalDateTime lockedUntil;
+    private Integer failedAttempts;
     private java.time.LocalDateTime passwordUpdatedAt;
     private Integer mfaEnabled;
     private String mfaSecret;
