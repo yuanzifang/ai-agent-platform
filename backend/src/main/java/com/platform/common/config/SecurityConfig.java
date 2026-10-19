@@ -35,7 +35,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh",
                                 "/api/v1/auth/invitations/accept", "/api/v1/auth/mfa/verify",
                                 "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password",
-                                "/api/v1/share/**", "/api/v1/open/**", "/api/v1/auth/sso/**",
+                                "/api/v1/share/**", "/api/v1/open/**", "/api/v1/channels/**", "/api/v1/auth/sso/**",
                                 // 仅容器内网供 Prometheus 抓取；Nginx 不反代该路径
                                 "/actuator/health/**", "/actuator/prometheus").permitAll()
                         .anyRequest().authenticated())

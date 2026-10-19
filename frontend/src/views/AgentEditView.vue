@@ -14,6 +14,7 @@
       <div class="actions">
         <el-button @click="openVersions">版本</el-button>
         <el-button @click="openIntegration">集成</el-button>
+        <el-button @click="openChannels">渠道</el-button>
         <el-button @click="openSchedules">定时</el-button>
         <el-button @click="openCredentials">凭证</el-button>
         <el-button @click="evalEntry">评测</el-button>
@@ -436,6 +437,74 @@
       </el-table>
       <el-empty v-if="scheduleResults.length === 0" description="暂无执行结果" :image-size="50" />
     </el-drawer>
+
+    <!-- 渠道 -->
+    <el-dialog v-model="channelsVisible" :title="`渠道接入：${form.name || ''}`" width="820px">
+      <div class="hint mb8">
+        外部消息入口：POST /api/v1/channels/{token}/message（公开，token 鉴权）；出站回复支持通用 Webhook / Slack / 钉钉 / 飞书 / 企微文本格式。
+      </div>
+      <div class="tab-actions">
+        <el-button type="primary" size="small" @click="channelCreateVisible = true">添加渠道</el-button>
+        <el-button size="small" @click="openChannels">刷新</el-button>
+      </div>
+      <el-table :data="channels" size="small">
+        <el-table-column prop="name" label="名称" width="140" />
+        <el-table-column prop="type" label="类型" width="100" />
+        <el-table-column label="入站地址" min-width="240" show-overflow-tooltip>
+          <template #default="{ row }">{{ inboundUrl(row) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">
+              {{ row.status === 'ENABLED' ? '启用' : '停用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="220">
+          <template #default="{ row }">
+            <el-button size="small" text @click="copyInbound(row)">复制地址</el-button>
+            <el-button size="small" text :loading="channelTestingId === row.id" @click="testChannel(row)">测试</el-button>
+            <el-button size="small" text @click="toggleChannel(row)">
+              {{ row.status === 'ENABLED' ? '停用' : '启用' }}
+            </el-button>
+            <el-button size="small" text type="danger" @click="removeChannel(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="channels.length === 0" description="暂无渠道" :image-size="50" />
+      <div v-if="createdInbound" class="created-key">
+        <div class="ck-title">入站地址已生成（请复制）</div>
+        <div class="ck-row">
+          <code class="ck-value">{{ createdInbound }}</code>
+          <el-button size="small" type="primary" @click="copyText(createdInbound)">复制</el-button>
+        </div>
+      </div>
+    </el-dialog>
+
+    <el-dialog v-model="channelCreateVisible" title="添加渠道" width="560px">
+      <el-form label-width="110px">
+        <el-form-item label="名称"><el-input v-model="channelForm.name" maxlength="64" /></el-form-item>
+        <el-form-item label="类型">
+          <el-select v-model="channelForm.type" style="width: 200px">
+            <el-option label="通用 Webhook" value="WEBHOOK" />
+            <el-option label="Slack" value="SLACK" />
+            <el-option label="钉钉" value="DINGTALK" />
+            <el-option label="飞书" value="FEISHU" />
+            <el-option label="企业微信" value="WECOM" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="出站 Webhook">
+          <el-input v-model="channelForm.outboundUrl" placeholder="机器人 Webhook 地址（可留空，仅入站）" />
+        </el-form-item>
+        <el-form-item label="签名密钥">
+          <el-input v-model="channelForm.secret" type="password" show-password placeholder="钉钉/飞书机器人签名密钥（可选）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="channelCreateVisible = false">取消</el-button>
+        <el-button type="primary" :loading="channelSaving" @click="createChannel">创建</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 集成 API Key -->
     <el-dialog v-model="integrationVisible" :title="`集成调用：${form.name || ''}`" width="780px">
@@ -935,6 +1004,13 @@ const resultsTitle = ref('')
 const integrationVisible = ref(false)
 const apiKeys = ref<any[]>([])
 const createdKey = ref('')
+const channelsVisible = ref(false)
+const channels = ref<any[]>([])
+const channelCreateVisible = ref(false)
+const channelSaving = ref(false)
+const channelTestingId = ref(0)
+const createdInbound = ref('')
+const channelForm = reactive({ name: '', type: 'WEBHOOK', outboundUrl: '', secret: '' })
 const widgetSnippet = ref('')
 const widgetKey = ref('')
 const widgetCreating = ref(false)
@@ -1260,6 +1336,59 @@ async function openIntegration() {
   integrationVisible.value = true
 }
 
+async function openChannels() {
+  channels.value = await http.get(`/agent/${agentId}/channels`) as any
+  createdInbound.value = ''
+  channelsVisible.value = true
+}
+
+async function createChannel() {
+  channelSaving.value = true
+  try {
+    const res = await http.post(`/agent/${agentId}/channels`, { ...channelForm }) as any
+    ElMessage.success('渠道已创建')
+    channelCreateVisible.value = false
+    await openChannels()
+    createdInbound.value = location.origin + res.inboundPath
+  } finally {
+    channelSaving.value = false
+  }
+}
+
+function inboundUrl(row: any) {
+  return location.origin + row.inboundPath
+}
+
+async function copyInbound(row: any) {
+  await copyText(inboundUrl(row))
+}
+
+async function testChannel(row: any) {
+  channelTestingId.value = row.id
+  try {
+    const res = await http.post(`/agent/${agentId}/channels/${row.id}/test`) as any
+    if (res.success) ElMessage.success(`出站正常（${res.latencyMs}ms）`)
+    else ElMessage.error(`出站失败：${res.message}`)
+  } finally {
+    channelTestingId.value = 0
+  }
+}
+
+async function toggleChannel(row: any) {
+  await http.put(`/agent/${agentId}/channels/${row.id}`, {
+    status: row.status === 'ENABLED' ? 'DISABLED' : 'ENABLED'
+  })
+  await openChannels()
+}
+
+async function removeChannel(row: any) {
+  await ElMessageBox.confirm(`删除渠道「${row.name}」？入站地址将立即失效。`, '删除渠道',
+    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  await http.delete(`/agent/${agentId}/channels/${row.id}`)
+  ElMessage.success('已删除')
+  await openChannels()
+}
+
 async function loadApiKeys() {
   const res = await http.get(`/agent/${agentId}/api-keys`) as any
   apiKeys.value = res?.list || []
@@ -1299,6 +1428,15 @@ async function createWidgetKey() {
     await loadApiKeys()
   } finally {
     widgetCreating.value = false
+  }
+}
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('已复制')
+  } catch {
+    ElMessage.warning('复制失败，请手动选择')
   }
 }
 
