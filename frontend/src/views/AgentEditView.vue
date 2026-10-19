@@ -626,7 +626,12 @@
         <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow">保存草稿</el-button>
       </div>
 
-      <div class="wf-flow">
+      <el-radio-group v-model="wfMode" size="small" class="wf-mode">
+        <el-radio-button value="list">列表编辑</el-radio-button>
+        <el-radio-button value="canvas">画布布局</el-radio-button>
+      </el-radio-group>
+
+      <div v-show="wfMode === 'list'" class="wf-flow">
         <div v-for="(n, idx) in workflowForm.nodes" :key="n.id" class="wf-node">
           <div class="wf-node-head">
             <el-tag size="small" :type="wfTagType(n.type)">{{ wfTypeText(n.type) }}</el-tag>
@@ -736,6 +741,32 @@
         </div>
       </div>
 
+      <div v-show="wfMode === 'canvas'" class="wf-canvas-wrap">
+        <div ref="wfCanvasEl" class="wf-canvas"
+             :style="{ width: wfCanvasSize.w + 'px', height: wfCanvasSize.h + 'px' }">
+          <svg class="wf-edges" :width="wfCanvasSize.w" :height="wfCanvasSize.h">
+            <defs>
+              <marker id="wf-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3"
+                      orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L7,3 L0,6 z" fill="#909399" />
+              </marker>
+            </defs>
+            <path v-for="(e, i) in wfEdges" :key="i" :d="e.d" fill="none"
+                  :stroke="e.color" stroke-width="1.6" marker-end="url(#wf-arrow)" />
+          </svg>
+          <div v-for="n in workflowForm.nodes" :key="'c' + n.id"
+               class="wf-canvas-node" :class="{ selected: wfSelected === n.id }"
+               :style="{ left: nodeX(n) + 'px', top: nodeY(n) + 'px' }"
+               @mousedown.stop="startNodeDrag($event, n)"
+               @click="wfSelected = n.id">
+            <el-tag size="small" :type="wfTagType(n.type)">{{ wfTypeText(n.type) }}</el-tag>
+            <div class="wf-cn-name">{{ n.name }}</div>
+            <div class="wf-cn-id">#{{ n.id }}</div>
+          </div>
+        </div>
+        <div class="hint mt8">拖拽节点调整布局，连线按 next / 条件分支 / 并行分支自动绘制；节点字段编辑请切回「列表编辑」。</div>
+      </div>
+
       <el-divider content-position="left">运行测试</el-divider>
       <el-input v-model="workflowRunInput" type="textarea" :rows="2" placeholder="输入测试内容" />
       <div class="hint mt8">运行优先使用已发布版本；未发布时使用当前草稿。</div>
@@ -768,13 +799,30 @@
         <el-table-column label="发布时间" width="170">
           <template #default="{ row }">{{ String(row.createdAt || '').replace('T',' ').slice(0,19) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="90">
+        <el-table-column label="操作" width="140">
           <template #default="{ row }">
+            <el-button size="small" text @click="compareVersion(row)">对比</el-button>
             <el-button size="small" text type="primary" @click="rollbackWorkflow(row.version)">回滚</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-drawer>
+
+    <el-dialog v-model="wfDiffVisible" :title="wfDiffTitle" width="680px">
+      <el-table :data="wfDiffRows" size="small" empty-text="无差异">
+        <el-table-column prop="id" label="节点" width="120" />
+        <el-table-column prop="name" label="名称" width="180" show-overflow-tooltip />
+        <el-table-column label="变更" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="diffTag(row.change)">{{ row.change }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="detail" label="差异字段" min-width="220" show-overflow-tooltip />
+      </el-table>
+      <template #footer>
+        <el-button @click="wfDiffVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 版本抽屉 -->
     <el-drawer v-model="versionsVisible" title="版本历史" size="420px">
@@ -898,6 +946,12 @@ const workflowHasUnpublishedChanges = ref(false)
 const workflowPublishing = ref(false)
 const wfVersionsVisible = ref(false)
 const wfVersions = ref<any[]>([])
+const wfMode = ref<'list' | 'canvas'>('list')
+const wfSelected = ref('')
+const wfCanvasEl = ref<HTMLElement>()
+const wfDiffVisible = ref(false)
+const wfDiffTitle = ref('')
+const wfDiffRows = ref<any[]>([])
 
 const enabledSkillCount = computed(() => skillRows.value.filter(r => r.enabled && !r.missing).length)
 const enabledToolCount = computed(() => toolRows.value.filter(r => r.enabled && !r.missing).length)
@@ -1337,11 +1391,15 @@ async function openWorkflow() {
   workflowPublishedVersion.value = data?.publishedVersion || ''
   workflowHasUnpublishedChanges.value = !!data?.hasUnpublishedChanges
   workflowForm.nodes = (data?.definition?.nodes || []).map((n: any) => ({ ...n }))
+  ensureWorkflowPositions()
+  wfMode.value = 'list'
+  wfSelected.value = ''
   if (!workflowForm.nodes.length) {
     workflowForm.nodes = [
       { id: 'start', type: 'START', name: '开始', next: 'end' },
       { id: 'end', type: 'END', name: '结束' }
     ]
+    ensureWorkflowPositions()
   }
   workflowRunInput.value = ''
   workflowRunResult.value = null
@@ -1365,6 +1423,126 @@ function wfBranchTargets(currentId: string) {
     && !['START', 'END', 'JOIN', 'PARALLEL'].includes(n.type))
 }
 
+function ensureWorkflowPositions() {
+  workflowForm.nodes.forEach((n: any, i: number) => {
+    if (!n.position || typeof n.position.x !== 'number' || typeof n.position.y !== 'number') {
+      n.position = { x: 60 + (i % 3) * 230, y: 40 + Math.floor(i / 3) * 120 }
+    }
+  })
+}
+
+function nodeX(n: any) {
+  return n.position?.x ?? 0
+}
+
+function nodeY(n: any) {
+  return n.position?.y ?? 0
+}
+
+const wfCanvasSize = computed(() => {
+  let maxX = 640
+  let maxY = 380
+  for (const n of workflowForm.nodes) {
+    maxX = Math.max(maxX, nodeX(n) + 260)
+    maxY = Math.max(maxY, nodeY(n) + 140)
+  }
+  return { w: maxX, h: maxY }
+})
+
+const wfEdges = computed(() => {
+  const nodes = workflowForm.nodes
+  const map = new Map(nodes.map((n: any) => [n.id, n]))
+  const edges: any[] = []
+  const seen = new Set<string>()
+  const add = (from: any, to: any, color: string) => {
+    if (!from || !to) return
+    const key = `${from.id}->${to.id}`
+    if (seen.has(key)) return
+    seen.add(key)
+    const x1 = nodeX(from) + 190
+    const y1 = nodeY(from) + 34
+    const x2 = nodeX(to)
+    const y2 = nodeY(to) + 34
+    edges.push({ color, d: `M ${x1} ${y1} C ${x1 + 60} ${y1}, ${x2 - 60} ${y2}, ${x2} ${y2}` })
+  }
+  for (const n of nodes) {
+    if (n.type === 'END') continue
+    if (n.type === 'CONDITION') {
+      add(n, map.get(n.trueNext), '#67c23a')
+      add(n, map.get(n.falseNext), '#f56c6c')
+    } else if (n.type === 'PARALLEL') {
+      const branches: string[] = Array.isArray(n.branches) ? n.branches : []
+      const join = map.get(n.joinNode)
+      for (const b of branches) {
+        const bn = map.get(b)
+        add(n, bn, '#e6a23c')
+        add(bn, join, '#e6a23c')
+      }
+      if (!branches.length) add(n, join, '#e6a23c')
+    } else {
+      add(n, map.get(n.next), '#909399')
+    }
+  }
+  return edges
+})
+
+function startNodeDrag(ev: MouseEvent, n: any) {
+  ensureWorkflowPositions()
+  wfSelected.value = n.id
+  const startX = ev.clientX
+  const startY = ev.clientY
+  const ox = n.position.x
+  const oy = n.position.y
+  const move = (e: MouseEvent) => {
+    n.position.x = Math.max(0, ox + e.clientX - startX)
+    n.position.y = Math.max(0, oy + e.clientY - startY)
+  }
+  const up = () => {
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', up)
+  }
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', up)
+  ev.preventDefault()
+}
+
+function compareVersion(row: any) {
+  let oldNodes: any[] = []
+  try {
+    oldNodes = JSON.parse(row.definition || '{}')?.nodes || []
+  } catch {
+    oldNodes = []
+  }
+  const current = workflowForm.nodes
+  const oldMap = new Map(oldNodes.map((n: any) => [n.id, n]))
+  const curMap = new Map(current.map((n: any) => [n.id, n]))
+  const fields = ['type', 'name', 'prompt', 'modelName', 'agentId', 'toolId', 'argsTemplate',
+    'knowledgeBaseId', 'mode', 'topK', 'queryTemplate', 'conditionType', 'conditionValue',
+    'trueNext', 'falseNext', 'next', 'title', 'requiredRole', 'branches', 'joinNode']
+  const rows: any[] = []
+  for (const n of current) {
+    const old = oldMap.get(n.id)
+    if (!old) {
+      rows.push({ id: n.id, name: n.name, change: '新增', detail: '新节点' })
+      continue
+    }
+    const changed = fields.filter(f => JSON.stringify(n[f] ?? null) !== JSON.stringify(old[f] ?? null))
+    if (changed.length) rows.push({ id: n.id, name: n.name, change: '修改', detail: changed.join(', ') })
+  }
+  for (const o of oldNodes) {
+    if (!curMap.has(o.id)) rows.push({ id: o.id, name: o.name, change: '删除', detail: '已从草稿移除' })
+  }
+  wfDiffRows.value = rows
+  wfDiffTitle.value = `版本 ${row.version} ↔ 当前草稿`
+  wfDiffVisible.value = true
+}
+
+function diffTag(change: string) {
+  if (change === '新增') return 'success'
+  if (change === '删除') return 'danger'
+  return 'warning'
+}
+
 function addWorkflowNode() {
   const id = `n${Date.now().toString(36)}${Math.floor(Math.random() * 100)}`
   const node: any = { id, type: wfAddType.value, name: wfTypeText(wfAddType.value), next: 'end' }
@@ -1384,6 +1562,7 @@ function addWorkflowNode() {
   const endIndex = workflowForm.nodes.findIndex((n: any) => n.type === 'END')
   if (endIndex >= 0) workflowForm.nodes.splice(endIndex, 0, node)
   else workflowForm.nodes.push(node)
+  ensureWorkflowPositions()
   rewireWorkflow()
 }
 
@@ -1476,6 +1655,7 @@ async function rollbackWorkflow(version: string) {
   workflowForm.name = data.name
   workflowForm.status = data.status
   workflowForm.nodes = (data.definition?.nodes || []).map((n: any) => ({ ...n }))
+  ensureWorkflowPositions()
   workflowPublishedVersion.value = data.publishedVersion || ''
   workflowHasUnpublishedChanges.value = !!data.hasUnpublishedChanges
 }
@@ -1891,4 +2071,23 @@ function clip(text: string, n: number) {
 .wf-line { display: flex; align-items: center; gap: 8px; }
 .wf-run { margin-top: 10px; padding: 10px; background: #f5f7fa; border-radius: 6px; }
 .wf-run pre { white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; font-size: 13px; line-height: 1.6; }
+.wf-mode { margin-bottom: 10px; }
+.wf-canvas-wrap { max-height: 52vh; overflow: auto; border: 1px solid #ebeef5; border-radius: 8px; background: #fafbfc; }
+.wf-canvas { position: relative; min-width: 640px; min-height: 380px; }
+.wf-edges { position: absolute; left: 0; top: 0; pointer-events: none; }
+.wf-canvas-node {
+  position: absolute;
+  width: 190px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #dcdfe6;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  cursor: grab;
+  user-select: none;
+}
+.wf-canvas-node:active { cursor: grabbing; }
+.wf-canvas-node.selected { border-color: #409eff; box-shadow: 0 0 0 2px rgba(64,158,255,.2); }
+.wf-cn-name { margin-top: 4px; font-size: 13px; font-weight: 600; color: #303133; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-cn-id { font-size: 11px; color: #a8abb2; margin-top: 2px; }
 </style>
