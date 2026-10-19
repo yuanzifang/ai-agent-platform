@@ -58,6 +58,14 @@ test('登录与能力入口可见', async ({ page }) => {
   await page.goto('/observability')
   await page.getByRole('tab', { name: 'Logs' }).click()
   await expect(page.getByText('应用日志异步采集')).toBeVisible()
+
+  await page.goto('/provider')
+  await page.getByRole('button', { name: '接入新 Provider' }).click()
+  const providerDialog = page.locator('.el-dialog:visible').filter({
+    has: page.locator('.el-dialog__title', { hasText: '接入新 Provider' })
+  })
+  await expect(providerDialog.getByText('API Key')).toBeVisible()
+  await providerDialog.getByRole('button', { name: '取消' }).click()
 })
 
 test('技能脚本可直跑并保存', async ({ page, request }) => {

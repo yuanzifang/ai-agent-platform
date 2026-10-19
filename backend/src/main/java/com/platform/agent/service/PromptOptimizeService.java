@@ -12,7 +12,6 @@ import com.platform.security.JwtPrincipal;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 
@@ -30,7 +29,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class PromptOptimizeService {
 
-    private final ChatModel chatModel;
+    private final com.platform.model.service.ChatModelRouter chatModelRouter;
     private final ModelMapper modelMapper;
     private final QuotaService quotaService;
     private final ContextWindowService contextWindow;
@@ -67,7 +66,7 @@ public class PromptOptimizeService {
 
         OpenAiChatOptions options = OpenAiChatOptions.builder().model(modelName).temperature(0.3).build();
         long start = System.currentTimeMillis();
-        var response = ChatClient.create(chatModel).prompt().options(options)
+        var response = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options)
                 .system(system).user(user.toString()).call().chatResponse();
         long latency = System.currentTimeMillis() - start;
         String optimized = response.getResult() == null ? "" : response.getResult().getOutput().getText();

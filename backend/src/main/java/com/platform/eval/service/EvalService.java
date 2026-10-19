@@ -468,7 +468,7 @@ public class EvalService {
                 【AI回答】%s
                 评分维度：是否切题、是否诚实（不编造）、是否简洁。输出严格 JSON：{"score": 0到1, "reason": "20字内"}
                 """.formatted(question, answer);
-        var resp = ChatClient.create(chatModel()).prompt()
+        var resp = ChatClient.create(chatModelRouter.resolve(judgeModel)).prompt()
                 .options(OpenAiChatOptions.builder().model(judgeModel).build())
                 .system("你是评测裁判，只输出 JSON。")
                 .user(prompt).call().chatResponse();
@@ -726,7 +726,7 @@ public class EvalService {
                 ? (Map<String, Object>) mc : Map.of();
         String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-flash"));
 
-        var spec = ChatClient.create(chatModel()).prompt()
+        var spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt()
                 .options(OpenAiChatOptions.builder().model(modelName).build());
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
         var agentResp = spec.user(item.getQuestion()).call().chatResponse();
@@ -767,7 +767,7 @@ public class EvalService {
                 item.getScoreCriteria() == null || item.getScoreCriteria().isBlank()
                         ? "回答须与期望答案事实一致、完整、不编造" : item.getScoreCriteria(),
                 answer == null ? "" : answer);
-        var judgeResp = ChatClient.create(chatModel()).prompt()
+        var judgeResp = ChatClient.create(chatModelRouter.resolve(task.getJudgeModel())).prompt()
                 .options(OpenAiChatOptions.builder().model(task.getJudgeModel()).build())
                 .system("你是评测裁判，只输出 JSON，不要任何其他文字。")
                 .user(judgePrompt).call().chatResponse();
@@ -810,11 +810,7 @@ public class EvalService {
 
     // ---------- 辅助 ----------
 
-    private org.springframework.ai.chat.model.ChatModel chatModel() {
-        return chatModelBean;
-    }
-
-    private final org.springframework.ai.chat.model.ChatModel chatModelBean;
+    private final com.platform.model.service.ChatModelRouter chatModelRouter;
 
     private Map<String, Object> publishedConfig(Long agentId) {
         AgentVersion v = versionMapper.selectList(new LambdaQueryWrapper<AgentVersion>()

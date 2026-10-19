@@ -8,7 +8,7 @@
           <el-radio-button value="market">模型广场</el-radio-button>
         </el-radio-group>
         <el-button v-if="view === 'admin'" @click="modelCreateVisible = true">新增模型</el-button>
-        <el-button v-if="view === 'admin'" type="primary" @click="createVisible = true">接入新 Provider</el-button>
+        <el-button v-if="view === 'admin'" type="primary" @click="openCreateProvider">接入新 Provider</el-button>
       </div>
     </div>
 
@@ -41,7 +41,12 @@
     <el-card shadow="never" class="mb">
       <template #header>Provider（平台预置 + 租户自建）</template>
       <el-table :data="providers" size="small">
-        <el-table-column prop="name" label="名称" width="140" />
+        <el-table-column label="名称" width="200">
+          <template #default="{ row }">
+            {{ row.name }}
+            <el-tag v-if="row.credentialConfigured" size="small" type="success" class="ml6">密钥已配置</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="providerType" label="类型" width="110" />
         <el-table-column prop="baseUrl" label="Base URL" min-width="200" />
         <el-table-column label="归属" width="100">
@@ -50,10 +55,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="status" label="状态" width="90" />
-        <el-table-column label="操作" width="180">
+        <el-table-column label="操作" width="250">
           <template #default="{ row }">
             <el-button size="small" @click="test(row)">测试</el-button>
             <el-button size="small" type="primary" plain @click="sync(row)">同步模型</el-button>
+            <el-button v-if="!row.preset" size="small" text type="primary" @click="openCredential(row)">密钥</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -95,10 +101,28 @@
         <el-form-item label="Base URL" required>
           <el-input v-model="form.baseUrl" placeholder="https://api.example.com（OpenAI 兼容）" />
         </el-form-item>
+        <el-form-item label="API Key">
+          <el-input v-model="form.apiKey" type="password" show-password
+                    placeholder="sk-...（Ollama/内网代理可留空；加密存储）" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
         <el-button type="primary" :loading="creating" @click="create">创建</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="credentialVisible" title="配置 Provider API Key" width="440px">
+      <el-form label-width="90px">
+        <el-form-item label="Provider">{{ credentialProvider.name }}</el-form-item>
+        <el-form-item label="API Key">
+          <el-input v-model="credentialKey" type="password" show-password
+                    placeholder="留空并保存表示清除密钥" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="credentialVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingCredential" @click="saveCredential">保存</el-button>
       </template>
     </el-dialog>
 
@@ -183,8 +207,30 @@ function contextLabel(v?: number) {
   if (c <= 0) return '未设置'
   return c >= 1048576 ? (c / 1048576) + 'M' : (c / 1024) + 'K'
 }
-const form = reactive({ name: '', providerType: 'OPENAI_COMPATIBLE', baseUrl: '' })
+const form = reactive({ name: '', providerType: 'OPENAI_COMPATIBLE', baseUrl: '', apiKey: '' })
 const view = ref('admin')
+const credentialVisible = ref(false)
+const credentialProvider = ref<any>({})
+const credentialKey = ref('')
+const savingCredential = ref(false)
+
+function openCredential(row: any) {
+  credentialProvider.value = row
+  credentialKey.value = ''
+  credentialVisible.value = true
+}
+
+async function saveCredential() {
+  savingCredential.value = true
+  try {
+    await http.put(`/provider/${credentialProvider.value.id}/credential`, { apiKey: credentialKey.value })
+    ElMessage.success(credentialKey.value ? '密钥已加密保存' : '已清除密钥')
+    credentialVisible.value = false
+    await load()
+  } finally {
+    savingCredential.value = false
+  }
+}
 
 onMounted(load)
 
@@ -194,13 +240,19 @@ async function load() {
   disabled.value = new Set(models.value.filter((m: any) => m.status === 'DISABLED').map((m: any) => m.modelId))
 }
 
+function openCreateProvider() {
+  Object.assign(form, { name: '', providerType: 'OPENAI_COMPATIBLE', baseUrl: '', apiKey: '' })
+  createVisible.value = true
+}
+
 async function create() {
   if (!form.name.trim() || !form.baseUrl.trim()) { ElMessage.warning('名称和 Base URL 必填'); return }
   creating.value = true
   try {
     await http.post('/provider', { ...form })
-    ElMessage.success('已创建，凭证请在测试连通后由管理员配置')
+    ElMessage.success('Provider 已创建；可测试连通性并同步模型')
     createVisible.value = false
+    Object.assign(form, { name: '', providerType: 'OPENAI_COMPATIBLE', baseUrl: '', apiKey: '' })
     await load()
   } finally {
     creating.value = false
@@ -209,12 +261,12 @@ async function create() {
 
 async function test(row: any) {
   const res = await http.post(`/provider/${row.id}/test`) as any
-  ElMessage.success(`连通正常，可用模型 ${res.modelCount ?? '?'} 个，耗时 ${res.latencyMs ?? '?'}ms`)
+  ElMessage.success(res.message || `连通正常，耗时 ${res.latencyMs ?? '?'}ms`)
 }
 
 async function sync(row: any) {
   const res = await http.post(`/provider/${row.id}/models/sync`) as any
-  ElMessage.success(`同步完成：新增 ${res.inserted ?? 0}，更新 ${res.updated ?? 0}`)
+  ElMessage.success(`同步完成：模型 ${res.total ?? 0} 个，启用 ${res.enabled ?? 0} 个`)
   await load()
 }
 
@@ -283,4 +335,5 @@ async function savePrice() {
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .page-title { font-size: 16px; font-weight: 600; }
 .mb { margin-bottom: 14px; }
+.ml6 { margin-left: 6px; }
 </style>

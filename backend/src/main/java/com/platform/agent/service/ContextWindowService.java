@@ -14,7 +14,6 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -33,7 +32,7 @@ import java.util.List;
 public class ContextWindowService {
 
     private final ModelMapper modelMapper;
-    private final ChatModel chatModel;
+    private final com.platform.model.service.ChatModelRouter chatModelRouter;
     private final BillingUsageMapper billingMapper;
     private final PricingService pricingService;
 
@@ -165,7 +164,7 @@ public class ContextWindowService {
             }
             String source = truncateChars(text.toString(), Math.max(maxTokens * 3, 400));
             OpenAiChatOptions options = OpenAiChatOptions.builder().model(modelName).temperature(0.2).build();
-            var response = ChatClient.create(chatModel).prompt().options(options)
+            var response = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options)
                     .system("你是对话压缩器。把以下历史对话压缩成简洁要点，保留事实、数字、结论和未完成事项；"
                             + "不超过 " + Math.max(maxTokens, 80) + " 字，不要添加新信息。")
                     .user(source)

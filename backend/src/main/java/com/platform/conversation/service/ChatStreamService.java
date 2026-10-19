@@ -34,7 +34,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -59,7 +58,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class ChatStreamService {
 
-    private final ChatModel chatModel;
+    private final com.platform.model.service.ChatModelRouter chatModelRouter;
     private final ConversationMapper conversationMapper;
     private final MessageMapper messageMapper;
     private final ChatAttachmentMapper attachmentMapper;
@@ -255,7 +254,7 @@ public class ChatStreamService {
         final String finalSystemPrompt = systemPrompt;
         long[] tokens = {0, 0};
 
-        ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModel).prompt().options(options.build());
+        ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options.build());
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
         if (!runtime.callbacks().isEmpty()) spec = spec.toolCallbacks(runtime.callbacks());
         spec = spec.messages(history).user(userMsgWithAttachments);
@@ -413,7 +412,7 @@ public class ChatStreamService {
         systemPrompt = fitted.systemPrompt();
         history = fitted.history();
 
-        ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModel).prompt().options(options.build());
+        ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options.build());
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
         if (!runtime.callbacks().isEmpty()) spec = spec.toolCallbacks(runtime.callbacks());
         var resp = spec.messages(history).user(userMsgWithAttachments).call().chatResponse();

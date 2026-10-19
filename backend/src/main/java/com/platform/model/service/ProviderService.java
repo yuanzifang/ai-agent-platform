@@ -1,10 +1,14 @@
 package com.platform.model.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
+import com.platform.common.security.CryptoService;
 import com.platform.model.entity.ModelEntity;
 import com.platform.model.entity.Provider;
+import com.platform.model.entity.ProviderCredential;
 import com.platform.model.mapper.ModelMapper;
+import com.platform.model.mapper.ProviderCredentialMapper;
 import com.platform.model.mapper.ProviderMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,7 +17,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -26,25 +32,107 @@ public class ProviderService {
 
     private final ProviderMapper providerMapper;
     private final ModelMapper modelMapper;
+    private final ProviderCredentialMapper credentialMapper;
+    private final CryptoService cryptoService;
     private final Environment env;
 
     private RestClient client(Provider p, Duration timeout) {
-        return RestClient.builder()
-                .baseUrl(p.getBaseUrl())
-                .defaultHeader("Authorization", "Bearer " + resolveApiKey(p))
-                .build();
+        RestClient.Builder builder = RestClient.builder().baseUrl(p.getBaseUrl());
+        String key = resolveApiKey(p);
+        if (key != null && !key.isBlank()) {
+            builder.defaultHeader("Authorization", "Bearer " + key);
+        }
+        return builder.build();
     }
 
-    /** API Key：平台预置 Provider 从环境变量解析（不落库）；租户自建走 provider_credential（M2+）。 */
+    /**
+     * API Key：平台预置 Provider 从环境变量解析（不落库）；租户自建走 provider_credential（AES-GCM 加密）。
+     * OLLAMA / OPENAI_COMPATIBLE 允许无 Key（本地服务或内网代理）。
+     */
     public String resolveApiKey(Provider p) {
-        if ("DEEPSEEK".equals(p.getProviderType())) {
-            String key = env.getProperty("DEEPSEEK_API_KEY");
-            if (key == null || key.isBlank() || key.startsWith("sk-not")) {
-                throw new BusinessException(400, "DeepSeek API Key 未配置（DEEPSEEK_API_KEY）");
+        String type = p.getProviderType() == null ? "" : p.getProviderType().toUpperCase(Locale.ROOT);
+        if (p.getTenantId() != null) {
+            ProviderCredential c = credentialMapper.selectOne(new LambdaQueryWrapper<ProviderCredential>()
+                    .eq(ProviderCredential::getProviderId, p.getId())
+                    .eq(ProviderCredential::getName, "api-key")
+                    .eq(ProviderCredential::getStatus, "ENABLED")
+                    .last("LIMIT 1"));
+            if (c != null && c.getEncryptedContent() != null && !c.getEncryptedContent().isBlank()) {
+                return cryptoService.decrypt(c.getEncryptedContent());
             }
-            return key;
+            if (allowsEmptyKey(type)) return "";
+            throw new BusinessException(400, "租户 Provider 未配置 API Key，请在模型接入页填写密钥");
         }
-        throw new BusinessException(400, "暂不支持的 Provider 类型：" + p.getProviderType());
+        String envName = switch (type) {
+            case "DEEPSEEK" -> "DEEPSEEK_API_KEY";
+            case "OPENAI" -> "OPENAI_API_KEY";
+            case "DASHSCOPE", "QWEN" -> "DASHSCOPE_API_KEY";
+            case "ZHIPU", "GLM" -> "ZHIPU_API_KEY";
+            case "MOONSHOT" -> "MOONSHOT_API_KEY";
+            case "VOLC" -> "VOLC_API_KEY";
+            default -> null;
+        };
+        String key = envName == null ? null : env.getProperty(envName);
+        if (allowsEmptyKey(type) && (key == null || key.isBlank())) return "";
+        if (key == null || key.isBlank() || key.startsWith("sk-not")) {
+            throw new BusinessException(400, "Provider「" + p.getName() + "」API Key 未配置"
+                    + (envName == null ? "" : "（" + envName + "）"));
+        }
+        return key;
+    }
+
+    public void saveCredential(Long providerId, String apiKey) {
+        Provider p = providerMapper.findByIdIgnore(providerId);
+        if (p == null) throw new BusinessException(404, "Provider 不存在");
+        if (p.getTenantId() == null) {
+            throw new BusinessException(403, "平台预置 Provider 请在服务端环境变量配置密钥");
+        }
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null || !p.getTenantId().equals(tenantId)) {
+            throw new BusinessException(403, "无权修改该 Provider 的密钥");
+        }
+        ProviderCredential c = credentialMapper.selectOne(new LambdaQueryWrapper<ProviderCredential>()
+                .eq(ProviderCredential::getProviderId, providerId)
+                .eq(ProviderCredential::getName, "api-key")
+                .last("LIMIT 1"));
+        if (apiKey == null || apiKey.isBlank()) {
+            if (c != null) credentialMapper.deleteById(c.getId());
+            return;
+        }
+        if (c == null) {
+            c = new ProviderCredential();
+            c.setProviderId(providerId);
+            c.setName("api-key");
+            c.setTenantId(tenantId);
+            c.setStatus("ENABLED");
+            c.setCreatedAt(LocalDateTime.now());
+            c.setEncryptedContent(cryptoService.encrypt(apiKey.trim()));
+            credentialMapper.insert(c);
+        } else {
+            c.setEncryptedContent(cryptoService.encrypt(apiKey.trim()));
+            c.setStatus("ENABLED");
+            credentialMapper.updateById(c);
+        }
+    }
+
+    public boolean hasCredential(Long providerId) {
+        Provider p = providerMapper.findByIdIgnore(providerId);
+        if (p == null) return false;
+        if (p.getTenantId() == null) {
+            try {
+                return !resolveApiKey(p).isBlank();
+            } catch (Exception e) {
+                return false;
+            }
+        }
+        return credentialMapper.selectCount(new LambdaQueryWrapper<ProviderCredential>()
+                .eq(ProviderCredential::getProviderId, providerId)
+                .eq(ProviderCredential::getName, "api-key")
+                .eq(ProviderCredential::getStatus, "ENABLED")) > 0;
+    }
+
+    private boolean allowsEmptyKey(String type) {
+        return "OLLAMA".equals(type) || "OPENAI_COMPATIBLE".equals(type);
     }
 
     public Map<String, Object> test(Long providerId) {

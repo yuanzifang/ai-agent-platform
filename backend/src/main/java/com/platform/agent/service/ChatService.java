@@ -15,7 +15,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.metadata.Usage;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 
@@ -36,7 +35,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ChatService {
 
-    private final ChatModel chatModel;                     // 自动装配的 OpenAI 兼容实现（指向 DeepSeek）
+    private final com.platform.model.service.ChatModelRouter chatModelRouter;
     private final BillingUsageMapper billingMapper;
     private final PricingService pricingService;
     private final QuotaService quotaService;
@@ -99,7 +98,7 @@ public class ChatService {
         if (temperature != null) options.temperature(temperature);
         systemPrompt = contextWindow.fitPrompt(modelName, systemPrompt, message);
 
-        var spec = ChatClient.create(chatModel).prompt().options(options.build());
+        var spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options.build());
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
         if (!runtime.callbacks().isEmpty()) spec = spec.toolCallbacks(runtime.callbacks());
 

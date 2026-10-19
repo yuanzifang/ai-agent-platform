@@ -36,7 +36,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.metadata.Usage;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
@@ -96,7 +95,7 @@ public class ToolRuntimeService {
     private final AgentCredentialService credentialService;
     private final com.platform.agent.service.ContextWindowService contextWindow;
     private final CryptoService cryptoService;
-    private final ChatModel chatModel;
+    private final com.platform.model.service.ChatModelRouter chatModelRouter;
     private final EmbeddingService embeddingService;
     private final ScriptRunnerService scriptRunner;
     private final VectorRepository vectorRepository;
@@ -707,7 +706,7 @@ public class ToolRuntimeService {
         if (modelConfig.get("temperature") instanceof Number n) options.temperature(n.doubleValue());
         prompt = contextWindow.fitPrompt(modelName, prompt, task);
 
-        var spec = ChatClient.create(chatModel).prompt().options(options.build());
+        var spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options.build());
         if (prompt != null && !prompt.isBlank()) spec = spec.system(prompt);
         if (!subTools.callbacks().isEmpty()) spec = spec.toolCallbacks(subTools.callbacks());
         var resp = spec.user(task).call().chatResponse();

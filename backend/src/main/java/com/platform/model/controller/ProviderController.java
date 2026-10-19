@@ -51,6 +51,7 @@ public class ProviderController {
             m.put("status", p.getStatus());
             m.put("tenantId", p.getTenantId());
             m.put("preset", p.getTenantId() == null);
+            m.put("credentialConfigured", providerService.hasCredential(p.getId()));
             return m;
         }).toList());
     }
@@ -89,12 +90,26 @@ public class ProviderController {
         p.setStatus("ENABLED");
         p.setTenantId(principal.tenantId()); // 租户自建；平台预置走种子/平台管理员链路
         providerMapper.insert(p);
+        if (req.apiKey() != null && !req.apiKey().isBlank()) {
+            providerService.saveCredential(p.getId(), req.apiKey());
+        }
         return ApiResponse.ok(Map.of("id", p.getId()));
     }
 
     public record CreateProviderRequest(@NotBlank String name, @NotBlank String providerType,
                                         @NotBlank String baseUrl, String proxy,
-                                        Integer timeoutMs, Integer retryTimes) {
+                                        Integer timeoutMs, Integer retryTimes, String apiKey) {
+    }
+
+    public record CredentialRequest(String apiKey) {
+    }
+
+    /** 设置/清除租户 Provider 的 API Key（加密存储，不回显）。 */
+    @PutMapping("/provider/{id}/credential")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('model:manage')")
+    public ApiResponse<Void> saveCredential(@PathVariable Long id, @RequestBody CredentialRequest req) {
+        providerService.saveCredential(id, req.apiKey());
+        return ApiResponse.ok();
     }
 
     /** 模型默认定价/启停（计价权威为 billing_rule，此处仅默认预填，需求 3.7）。 */
