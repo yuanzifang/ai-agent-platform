@@ -24,6 +24,15 @@ import java.util.Map;
 public class ObservabilityController {
 
     private final ObservabilityService observabilityService;
+    private final com.platform.observability.log.LogQueryService logQueryService;
+
+    @GetMapping("/logs")
+    public ApiResponse<Map<String, Object>> logs(@RequestParam(required = false) String level,
+                                                 @RequestParam(required = false) String keyword,
+                                                 @RequestParam(defaultValue = "1") long page,
+                                                 @RequestParam(defaultValue = "50") long pageSize) {
+        return ApiResponse.ok(logQueryService.query(level, keyword, page, pageSize));
+    }
 
     @GetMapping("/overview")
     public ApiResponse<Map<String, Object>> overview(@RequestParam(required = false) Long agentId,

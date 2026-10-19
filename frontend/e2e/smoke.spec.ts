@@ -54,6 +54,10 @@ test('登录与能力入口可见', async ({ page }) => {
     .fill('你是客服，回答用户问题，变量 {{product}}，不知道就说不知道。')
   await expect(templateDialog.getByRole('button', { name: 'AI 优化' })).toBeVisible()
   await templateDialog.getByRole('button', { name: '取消' }).click()
+
+  await page.goto('/observability')
+  await page.getByRole('tab', { name: 'Logs' }).click()
+  await expect(page.getByText('应用日志异步采集')).toBeVisible()
 })
 
 test('技能脚本可直跑并保存', async ({ page, request }) => {

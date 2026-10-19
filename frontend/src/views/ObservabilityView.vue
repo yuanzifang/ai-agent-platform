@@ -265,7 +265,41 @@
 
         <!-- Logs -->
         <el-tab-pane label="Logs" name="logs">
-          <el-empty description="应用日志经 OpenTelemetry 采集后在此展示（当前环境未接入 OTel，暂无日志）" :image-size="60" />
+          <div class="filter-bar">
+            <el-select v-model="logLevel" clearable placeholder="级别" style="width: 120px"
+                       @change="loadLogs(true)">
+              <el-option label="INFO" value="INFO" />
+              <el-option label="WARN" value="WARN" />
+              <el-option label="ERROR" value="ERROR" />
+            </el-select>
+            <el-input v-model="logKeyword" placeholder="搜索消息 / Logger" clearable style="width: 260px"
+                      @keyup.enter="loadLogs(true)" @clear="loadLogs(true)" />
+            <el-button @click="loadLogs(true)">搜索</el-button>
+            <span class="hint">应用日志异步采集，默认保留 7 天；ERROR 展开可看堆栈</span>
+          </div>
+          <el-table :data="logs" size="small" v-loading="logLoading" empty-text="暂无日志">
+            <el-table-column type="expand">
+              <template #default="{ row }">
+                <pre v-if="row.exception" class="log-exception">{{ row.exception }}</pre>
+                <span v-else class="hint">无异常堆栈</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="时间" width="170">
+              <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
+            </el-table-column>
+            <el-table-column label="级别" width="80">
+              <template #default="{ row }">
+                <el-tag size="small" :type="levelType(row.level)">{{ row.level }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="logger" label="Logger" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="message" label="消息" min-width="320" show-overflow-tooltip />
+            <el-table-column prop="traceId" label="Trace ID" width="190" show-overflow-tooltip />
+            <el-table-column prop="thread" label="线程" width="140" show-overflow-tooltip />
+          </el-table>
+          <el-pagination class="pager" layout="total, prev, pager, next" background
+                         :total="logTotal" v-model:current-page="logPage" :page-size="50"
+                         @current-change="loadLogs(false)" />
         </el-tab-pane>
       </el-tabs>
     </el-card>
@@ -391,6 +425,8 @@ const visibleColumns = computed(() =>
 const sessions = ref<any[]>([]); const sessionTotal = ref(0); const sessionPage = ref(1); const sessionKw = ref('')
 const users = ref<any[]>([]); const userTotal = ref(0); const userPage = ref(1); const userKw = ref('')
 const versions = ref<any[]>([]); const versionTotal = ref(0); const versionPage = ref(1); const versionKw = ref('')
+const logs = ref<any[]>([]); const logTotal = ref(0); const logPage = ref(1)
+const logLevel = ref(''); const logKeyword = ref(''); const logLoading = ref(false)
 
 // ---- Detail ----
 const traceVisible = ref(false)
@@ -477,6 +513,7 @@ watch(tab, (t) => {
   if (t === 'sessions' && sessions.value.length === 0) loadSessions(true)
   if (t === 'users' && users.value.length === 0) loadUsers(true)
   if (t === 'versions' && versions.value.length === 0) loadVersions(true)
+  if (t === 'logs' && logs.value.length === 0) loadLogs(true)
 })
 
 async function refreshAll() {
@@ -488,7 +525,8 @@ async function refreshAll() {
       loadTraces(true),
       loadSessions(true),
       loadUsers(true),
-      loadVersions(true)
+      loadVersions(true),
+      loadLogs(true)
     ])
   } finally {
     refreshing.value = false
@@ -552,6 +590,30 @@ async function loadVersions(reset: boolean) {
   }) as any
   versions.value = data.list || []
   versionTotal.value = data.total || 0
+}
+
+async function loadLogs(reset: boolean) {
+  if (reset) logPage.value = 1
+  logLoading.value = true
+  try {
+    const data = await http.get('/observability/logs', {
+      params: {
+        level: logLevel.value || undefined,
+        keyword: logKeyword.value || undefined,
+        page: logPage.value, pageSize: 50
+      }
+    }) as any
+    logs.value = data.list || []
+    logTotal.value = data.total || 0
+  } finally {
+    logLoading.value = false
+  }
+}
+
+function levelType(level: string) {
+  if (level === 'ERROR') return 'danger'
+  if (level === 'WARN') return 'warning'
+  return 'info'
 }
 
 async function openTrace(row: any) {
@@ -680,6 +742,18 @@ function kindType(k: string) {
 .spacer { flex: 1; }
 .hint { color: #909399; font-size: 13px; }
 .pager { margin-top: 12px; justify-content: flex-end; }
+.log-exception {
+  margin: 0;
+  padding: 8px 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 320px;
+  overflow: auto;
+}
 .tid { color: #409eff; cursor: pointer; }
 .cell-ellipsis { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .adv-form .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
