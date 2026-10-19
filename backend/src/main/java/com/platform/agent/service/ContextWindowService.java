@@ -1,5 +1,8 @@
 package com.platform.agent.service;
 
+import com.platform.billing.entity.BillingUsage;
+import com.platform.billing.mapper.BillingUsageMapper;
+import com.platform.billing.service.PricingService;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
 import com.platform.model.entity.ModelEntity;
@@ -31,6 +34,8 @@ public class ContextWindowService {
 
     private final ModelMapper modelMapper;
     private final ChatModel chatModel;
+    private final BillingUsageMapper billingMapper;
+    private final PricingService pricingService;
 
     @Value("${llm.context.default-window:32768}")
     private int defaultWindow;
@@ -160,15 +165,40 @@ public class ContextWindowService {
             }
             String source = truncateChars(text.toString(), Math.max(maxTokens * 3, 400));
             OpenAiChatOptions options = OpenAiChatOptions.builder().model(modelName).temperature(0.2).build();
-            String summary = ChatClient.create(chatModel).prompt().options(options)
+            var response = ChatClient.create(chatModel).prompt().options(options)
                     .system("你是对话压缩器。把以下历史对话压缩成简洁要点，保留事实、数字、结论和未完成事项；"
                             + "不超过 " + Math.max(maxTokens, 80) + " 字，不要添加新信息。")
                     .user(source)
-                    .call().chatResponse().getResult().getOutput().getText();
+                    .call().chatResponse();
+            recordCompressionUsage(modelName, response);
+            String summary = response.getResult() == null ? null : response.getResult().getOutput().getText();
             return summary == null ? null : summary.trim();
         } catch (Exception e) {
             log.warn("历史摘要生成失败（回落截断）model={}：{}", modelName, e.getMessage());
             return null;
+        }
+    }
+
+    /** 摘要调用也计入用量（source=intelligent），避免压缩成本不可见。 */
+    private void recordCompressionUsage(String modelName, org.springframework.ai.chat.model.ChatResponse response) {
+        try {
+            long in = 0, out = 0;
+            if (response.getMetadata() != null && response.getMetadata().getUsage() != null) {
+                in = response.getMetadata().getUsage().getPromptTokens();
+                out = response.getMetadata().getUsage().getCompletionTokens();
+            }
+            BillingUsage u = new BillingUsage();
+            u.setTenantId(TenantContext.getTenantId());
+            u.setSource("intelligent");
+            u.setModelName(modelName);
+            u.setInputTokens(in);
+            u.setOutputTokens(out);
+            u.setCost(pricingService.cost(TenantContext.getTenantId(), modelName, in, out));
+            u.setStatDate(java.time.LocalDate.now());
+            u.setCreatedAt(java.time.LocalDateTime.now());
+            billingMapper.insert(u);
+        } catch (Exception e) {
+            log.debug("上下文压缩用量记录失败：{}", e.getMessage());
         }
     }
 

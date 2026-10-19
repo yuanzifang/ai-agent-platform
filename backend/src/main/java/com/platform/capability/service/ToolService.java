@@ -18,6 +18,7 @@ import com.platform.capability.runtime.ToolRuntimeService;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
 import com.platform.common.security.CryptoService;
+import com.platform.common.security.NetworkPolicyService;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.service.AuditService;
 import lombok.RequiredArgsConstructor;
@@ -53,6 +54,7 @@ public class ToolService {
     private final ToolRuntimeService runtimeService;
     private final AuditService auditService;
     private final CryptoService cryptoService;
+    private final NetworkPolicyService networkPolicy;
     private final ObjectMapper objectMapper;
 
     public Map<String, Object> list(String keyword, String category, String type) {
@@ -296,10 +298,7 @@ public class ToolService {
             throw new BusinessException(400, "apiConfig 不是合法 JSON");
         }
         String url = str(cfg.get("url"));
-        if (url == null || url.isBlank()) throw new BusinessException(400, "API 地址不能为空");
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            throw new BusinessException(400, "API 地址仅支持 http/https");
-        }
+        networkPolicy.validateHttpUrl(url, "API 地址");
         String method = str(cfg.getOrDefault("method", "GET")).toUpperCase(Locale.ROOT);
         if (!List.of("GET", "POST", "PUT", "PATCH", "DELETE").contains(method)) {
             throw new BusinessException(400, "不支持的请求方法：" + method);

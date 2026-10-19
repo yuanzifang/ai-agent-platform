@@ -298,8 +298,10 @@ public class KnowledgeService {
     }
 
     /** 申请直传：返回预签名 PUT URL 与登记的 objectName（架构 3.8 路径规范）；需编辑权限。 */
-    public Map<String, Object> requestUpload(Long kbId, String fileName, KnowledgePermissionService.Viewer viewer) {
+    public Map<String, Object> requestUpload(Long kbId, String fileName, Long sizeBytes,
+                                             KnowledgePermissionService.Viewer viewer) {
         permissionService.requireEdit(kbId, viewer);
+        if (sizeBytes != null && sizeBytes > 0) quotaService.checkStorage(sizeBytes);
         Long tenantId = TenantContext.getTenantId();
         String objectName = tenantId + "/knowledge/" + kbId + "/"
                 + UUID.randomUUID().toString().replace("-", "").substring(0, 12) + "/" + fileName;
@@ -324,6 +326,7 @@ public class KnowledgeService {
         doc.setObjectName(objectName);
         doc.setStatus("PENDING");
         doc.setChunkCount(0);
+        doc.setSizeBytes(storage.statSize(objectName));
         doc.setRetryTimes(0);
         doc.setTenantId(tenantId);
         doc.setCreatedAt(LocalDateTime.now());

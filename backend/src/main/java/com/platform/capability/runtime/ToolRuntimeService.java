@@ -75,7 +75,10 @@ import java.util.concurrent.ThreadLocalRandom;
 public class ToolRuntimeService {
 
     private static final int MAX_SUB_AGENT_DEPTH = 3;
-    private static final int MAX_TOOL_OUTPUT = 4000;
+    private static final int MAX_TOOL_EVENT_OUTPUT = 4000;
+
+    @org.springframework.beans.factory.annotation.Value("${tool.max-output-chars:8000}")
+    private int maxToolOutput;
     private static final String EMPTY_SCHEMA = "{\"type\":\"object\",\"properties\":{}}";
 
     private final ToolRegistryMapper toolMapper;
@@ -306,10 +309,12 @@ public class ToolRuntimeService {
                     status = "ERROR";
                     output = "工具执行失败：" + rootMessage(e);
                 }
+                String modelOutput = limitModelOutput(output);
+                long end = System.currentTimeMillis();
                 collector.add(new ToolCallEvent(tool.getToolKey(), tool.getName(), "BUILTIN",
-                        null, null, status, System.currentTimeMillis() - start,
-                        toolInput, truncate(output, MAX_TOOL_OUTPUT), 0, 0));
-                return output;
+                        null, null, status, end - start,
+                        truncate(toolInput, 4000), truncate(output, MAX_TOOL_EVENT_OUTPUT), 0, 0, start, end));
+                return modelOutput;
             }
         };
     }
@@ -360,10 +365,12 @@ public class ToolRuntimeService {
                     status = "ERROR";
                     output = "工具执行失败：" + rootMessage(e);
                 }
+                String modelOutput = limitModelOutput(output);
+                long end = System.currentTimeMillis();
                 collector.add(new ToolCallEvent(tool.getToolKey(), tool.getName(), "API",
-                        null, null, status, System.currentTimeMillis() - start,
-                        toolInput, truncate(output, MAX_TOOL_OUTPUT), 0, 0));
-                return output;
+                        null, null, status, end - start,
+                        truncate(toolInput, 4000), truncate(output, MAX_TOOL_EVENT_OUTPUT), 0, 0, start, end));
+                return modelOutput;
             }
         };
     }
@@ -453,7 +460,7 @@ public class ToolRuntimeService {
         for (int attempt = 0; attempt <= retries; attempt++) {
             try {
                 HttpResponse<String> resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-                if (resp.statusCode() >= 500 && attempt < retries) {
+                if ((resp.statusCode() >= 500 || resp.statusCode() == 429) && attempt < retries) {
                     last = new IllegalStateException("HTTP " + resp.statusCode());
                     sleepBackoff(attempt);
                     continue;
@@ -500,14 +507,14 @@ public class ToolRuntimeService {
 
     private String extractResponse(String body, String path) throws Exception {
         if (body == null) return "";
-        if (path == null || path.isBlank()) return truncate(body, MAX_TOOL_OUTPUT);
+        if (path == null || path.isBlank()) return truncate(body, MAX_TOOL_EVENT_OUTPUT);
         JsonNode node = objectMapper.readTree(body);
         for (String seg : path.split("\\.")) {
             if (node == null) return "";
             node = node.isArray() && seg.matches("\\d+") ? node.get(Integer.parseInt(seg)) : node.get(seg);
         }
         if (node == null || node.isNull()) return "";
-        return truncate(node.isValueNode() ? node.asText() : node.toString(), MAX_TOOL_OUTPUT);
+        return truncate(node.isValueNode() ? node.asText() : node.toString(), MAX_TOOL_EVENT_OUTPUT);
     }
 
     private void sleepBackoff(int attempt) {
@@ -559,10 +566,12 @@ public class ToolRuntimeService {
                     status = "ERROR";
                     output = "MCP 工具执行失败：" + rootMessage(e);
                 }
+                String modelOutput = limitModelOutput(output);
+                long end = System.currentTimeMillis();
                 collector.add(new ToolCallEvent(tool.getToolKey(), tool.getName(), "MCP",
-                        null, null, status, System.currentTimeMillis() - start,
-                        toolInput, truncate(output, MAX_TOOL_OUTPUT), 0, 0));
-                return output;
+                        null, null, status, end - start,
+                        truncate(toolInput, 4000), truncate(output, MAX_TOOL_EVENT_OUTPUT), 0, 0, start, end));
+                return modelOutput;
             }
         };
     }
@@ -600,10 +609,13 @@ public class ToolRuntimeService {
                     status = "ERROR";
                     output = "子 Agent 执行失败：" + rootMessage(e);
                 }
+                String modelOutput = limitModelOutput(output);
+                long end = System.currentTimeMillis();
                 collector.add(new ToolCallEvent(name, sub.getName(), "SUB_AGENT",
-                        sub.getId(), sub.getName(), status, System.currentTimeMillis() - start,
-                        toolInput, truncate(output, MAX_TOOL_OUTPUT), usage[0], usage[1]));
-                return output;
+                        sub.getId(), sub.getName(), status, end - start,
+                        truncate(toolInput, 4000), truncate(output, MAX_TOOL_EVENT_OUTPUT), usage[0], usage[1],
+                        start, end));
+                return modelOutput;
             }
         };
     }
@@ -845,6 +857,13 @@ public class ToolRuntimeService {
 
     private String str(Object o) {
         return o == null ? null : String.valueOf(o);
+    }
+
+    /** 工具返回给模型的长度上限（超出截断并标注原长度，避免撑爆上下文）。 */
+    private String limitModelOutput(String output) {
+        int limit = Math.max(maxToolOutput, 500);
+        if (output == null || output.length() <= limit) return output;
+        return output.substring(0, limit) + "\n...[工具输出过长，已截断，原长度 " + output.length() + " 字符]";
     }
 
     private String truncate(String text, int limit) {

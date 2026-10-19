@@ -8,5 +8,6 @@ public record ToolCallEvent(String toolName, String displayName, String toolType
                             Long subAgentId, String subAgentName,
                             String status, long durationMs,
                             String input, String output,
-                            long inputTokens, long outputTokens) {
+                            long inputTokens, long outputTokens,
+                            long startEpochMs, long endEpochMs) {
 }

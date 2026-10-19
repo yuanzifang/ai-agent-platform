@@ -129,6 +129,13 @@ public class ChatService {
     public String augmentWithKnowledge(String systemPrompt, String message, List<?> kbs,
                                         List<Map<String, Object>> citations,
                                         KnowledgePermissionService.Viewer viewer) {
+        return augmentWithKnowledge(systemPrompt, message, kbs, citations, viewer, null);
+    }
+
+    public String augmentWithKnowledge(String systemPrompt, String message, List<?> kbs,
+                                        List<Map<String, Object>> citations,
+                                        KnowledgePermissionService.Viewer viewer,
+                                        com.platform.capability.runtime.TraceStepCollector steps) {
         Long tenantId = TenantContext.getTenantId();
         if (tenantId == null) return systemPrompt;
         StringBuilder context = new StringBuilder();
@@ -136,15 +143,31 @@ public class ChatService {
             Map<String, Object> binding = asMap(o);
             Long kbId = toLong(binding.get("knowledgeBaseId"));
             if (kbId == null || Boolean.FALSE.equals(binding.get("enabled"))) continue;
+            long stepStart = System.currentTimeMillis();
             // 运行时按当前用户实时校验知识库可见权限；不可见/已删除则跳过（需求 3.6.3(5)、3.3）
-            if (permissionService.findVisible(kbId, viewer) == null) continue;
+            if (permissionService.findVisible(kbId, viewer) == null) {
+                if (steps != null) {
+                    long now = System.currentTimeMillis();
+                    steps.add("retrieval", "kb-" + kbId, "SKIPPED", stepStart, now,
+                            Map.of("reason", "invisible_or_deleted"));
+                }
+                continue;
+            }
             Map<String, Object> rc = binding.get("retrievalConfig") == null
                     ? Map.of() : asMap(binding.get("retrievalConfig"));
             int topK = toInt(rc.get("topK"), 5);
             double threshold = toDoubleOrDefault(rc.get("scoreThreshold"), 0.5);
 
+            long embedStart = System.currentTimeMillis();
             float[] queryVector = embeddingService.embedOne(message);
+            long searchStart = System.currentTimeMillis();
             List<Map<String, Object>> hits = vectorRepository.search(tenantId, queryVector, kbId, topK, threshold);
+            long stepEnd = System.currentTimeMillis();
+            if (steps != null) {
+                steps.add("retrieval", "kb-" + kbId, "SUCCESS", stepStart, stepEnd,
+                        Map.of("topK", topK, "scoreThreshold", threshold, "hits", hits.size(),
+                                "embedMs", searchStart - embedStart, "searchMs", stepEnd - searchStart));
+            }
             for (Map<String, Object> hit : hits) {
                 context.append("\n---\n").append(hit.get("content"));
                 Map<String, Object> citation = new LinkedHashMap<>();

@@ -315,6 +315,7 @@
           <template v-if="s.spanType === 'llm'">{{ s.inputTokens }}/{{ s.outputTokens }} tok · </template>
           <template v-if="s.spanType === 'retrieval'">{{ (s.attributes || {}).hits || 0 }} 命中 · </template>
           {{ s.durationMs }}ms · {{ s.status }}
+          <span class="span-time">{{ fmtTime(s.startTime) }}</span>
         </span>
       </div>
       <div class="legend">
@@ -688,6 +689,7 @@ function kindType(k: string) {
 .col-config .drag { color: #c0c4cc; cursor: grab; }
 .span-row { display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px dashed #ebeef5; font-size: 13px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.span-time { color: #c0c4cc; font-size: 11px; margin-left: 8px; }
 .dot.agent { background: #3B82F6; }
 .dot.chain { background: #10B981; }
 .dot.llm { background: #F59E0B; }

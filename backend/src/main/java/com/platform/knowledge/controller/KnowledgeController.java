@@ -112,7 +112,7 @@ public class KnowledgeController {
     public ApiResponse<Map<String, Object>> requestUpload(@PathVariable Long id,
                                                           @Valid @RequestBody UploadRequest req,
                                                           @AuthenticationPrincipal JwtPrincipal principal) {
-        return ApiResponse.ok(knowledgeService.requestUpload(id, req.fileName(), viewer(principal)));
+        return ApiResponse.ok(knowledgeService.requestUpload(id, req.fileName(), req.sizeBytes(), viewer(principal)));
     }
 
     public record CallbackRequest(@NotBlank String objectName) {

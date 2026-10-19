@@ -19,6 +19,7 @@ import com.platform.capability.mapper.ToolVersionMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
 import com.platform.common.security.CryptoService;
+import com.platform.common.security.NetworkPolicyService;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.service.AuditService;
 import lombok.RequiredArgsConstructor;
@@ -55,6 +56,7 @@ public class McpServerService {
     private final SkillRegistryMapper skillMapper;
     private final AgentRegistryMapper agentMapper;
     private final CryptoService cryptoService;
+    private final NetworkPolicyService networkPolicy;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
 
@@ -302,10 +304,7 @@ public class McpServerService {
     }
 
     private void validateEndpoint(String endpoint) {
-        if (endpoint == null || endpoint.isBlank()) throw new BusinessException(400, "Server 地址不能为空");
-        if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
-            throw new BusinessException(400, "Server 地址仅支持 http/https");
-        }
+        networkPolicy.validateHttpUrl(endpoint, "Server 地址");
     }
 
     private String normalizeTransport(Object raw) {

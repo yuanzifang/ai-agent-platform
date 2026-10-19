@@ -72,6 +72,14 @@ public class StorageService {
     }
 
     /** 读取对象字节（解析用）。 */
+    public long statSize(String objectName) {
+        try {
+            return client.statObject(StatObjectArgs.builder().bucket(bucket).object(objectName).build()).size();
+        } catch (Exception e) {
+            return 0L;
+        }
+    }
+
     public byte[] get(String objectName) {
         try (var in = client.getObject(io.minio.GetObjectArgs.builder().bucket(bucket).object(objectName).build())) {
             return in.readAllBytes();

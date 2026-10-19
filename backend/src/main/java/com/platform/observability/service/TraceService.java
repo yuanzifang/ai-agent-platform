@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.agent.entity.AgentVersion;
 import com.platform.agent.mapper.AgentVersionMapper;
 import com.platform.capability.runtime.ToolCallEvent;
+import com.platform.capability.runtime.TraceStep;
 import com.platform.model.entity.ModelEntity;
 import com.platform.billing.service.PricingService;
 import com.platform.model.mapper.ModelMapper;
@@ -18,7 +19,9 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -95,6 +98,16 @@ public class TraceService {
                        Long agentId, Long userId, String agentName, String status,
                        String modelName, long inTokens, long outTokens, long latencyMs,
                        int citationCount, TraceExtra extra, List<ToolCallEvent> toolCalls) {
+        record(tenantId, traceId, conversationId, sessionId, agentId, userId, agentName, status,
+                modelName, inTokens, outTokens, latencyMs, citationCount, extra, toolCalls, null);
+    }
+
+    /** 带执行步骤（检索/装配/记忆/持久化等）：每个步骤落独立 Span 并记录真实起止时间。 */
+    public void record(Long tenantId, String traceId, Long conversationId, String sessionId,
+                       Long agentId, Long userId, String agentName, String status,
+                       String modelName, long inTokens, long outTokens, long latencyMs,
+                       int citationCount, TraceExtra extra, List<ToolCallEvent> toolCalls,
+                       List<TraceStep> steps) {
         try {
             String kind = extra != null && extra.kind() != null ? extra.kind() : KIND_INTERNAL;
             String version = extra != null && extra.version() != null ? extra.version()
@@ -156,8 +169,12 @@ public class TraceService {
 
             if (toolCalls != null) {
                 for (ToolCallEvent tc : toolCalls) {
-                    LocalDateTime toolEnd = LocalDateTime.now();
-                    LocalDateTime toolStart = toolEnd.minusNanos(Math.max(tc.durationMs(), 0) * 1_000_000L);
+                    LocalDateTime toolEnd = tc.endEpochMs() > 0
+                            ? LocalDateTime.ofInstant(Instant.ofEpochMilli(tc.endEpochMs()), ZoneId.systemDefault())
+                            : LocalDateTime.now();
+                    LocalDateTime toolStart = tc.startEpochMs() > 0
+                            ? LocalDateTime.ofInstant(Instant.ofEpochMilli(tc.startEpochMs()), ZoneId.systemDefault())
+                            : toolEnd.minusNanos(Math.max(tc.durationMs(), 0) * 1_000_000L);
                     AgentSpan toolSpan = newSpan(tenantId, traceId, newSpanId(), rootSpanId, agentId,
                             "tool", tc.displayName() == null ? tc.toolName() : tc.displayName(),
                             tc.status(), toolStart, toolEnd, tc.durationMs());
@@ -183,6 +200,19 @@ public class TraceService {
                                 "inputTokens", tc.inputTokens(), "outputTokens", tc.outputTokens())));
                         spanMapper.insert(chain);
                     }
+                }
+            }
+
+            if (steps != null) {
+                for (TraceStep step : steps) {
+                    LocalDateTime stepEnd = LocalDateTime.ofInstant(Instant.ofEpochMilli(step.endEpochMs()),
+                            ZoneId.systemDefault());
+                    LocalDateTime stepStart = LocalDateTime.ofInstant(Instant.ofEpochMilli(step.startEpochMs()),
+                            ZoneId.systemDefault());
+                    AgentSpan span = newSpan(tenantId, traceId, newSpanId(), rootSpanId, agentId,
+                            step.spanType(), step.name(), step.status(), stepStart, stepEnd, step.durationMs());
+                    span.setAttributes(json(step.attributes()));
+                    spanMapper.insert(span);
                 }
             }
         } catch (Exception e) {

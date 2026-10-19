@@ -105,7 +105,12 @@ public class ChatStreamService {
         validateVariables(config.get("variables"), variables);
 
         // 输入审核（P0：敏感词/注入，BLOCK 拦截并留痕）
+        com.platform.capability.runtime.TraceStepCollector steps =
+                new com.platform.capability.runtime.TraceStepCollector();
+        long moderationStart = System.currentTimeMillis();
         List<ModerationService.Hit> hits = moderationService.moderate("IN", req.message(), conversationId, null);
+        steps.add("chain", "moderation-in", "SUCCESS", moderationStart, System.currentTimeMillis(),
+                java.util.Map.of("hits", hits.size()));
         boolean blocked = moderationService.blocked(hits);
 
         Message userMsg = new Message();
@@ -127,10 +132,10 @@ public class ChatStreamService {
         KnowledgePermissionService.Viewer viewer = viewer(principal);
         if (Boolean.FALSE.equals(req.stream())) {
             return blockingChat(conv, agent, config, userMsg, variables, llmInput, published.version(),
-                    viewer, principal, source);
+                    viewer, principal, source, steps);
         }
         return streamChat(conv, agent, config, userMsg, null, false, hits, variables, llmInput,
-                published.version(), viewer, principal, source);
+                published.version(), viewer, principal, source, steps);
     }
 
     /** 重新生成：以被替换消息之前的最近 USER 消息重跑，新消息带 parentMessageId。 */
@@ -156,7 +161,8 @@ public class ChatStreamService {
         Map<String, Object> config = published.config();
         String regenInput = llmInputWithAttachments(lastUser.getContent(), lastUser.getAttachments());
         return streamChat(conv, agent, config, lastUser, target.getId(), true, List.of(), Map.of(), regenInput,
-                published.version(), viewer(principal), principal, "chat");
+                published.version(), viewer(principal), principal, "chat",
+                new com.platform.capability.runtime.TraceStepCollector());
     }
 
     /** 停止生成（幂等）：断开进行中的流并落 STOPPED。 */
@@ -176,7 +182,7 @@ public class ChatStreamService {
                               List<ModerationService.Hit> inHits, Map<String, Object> variables,
                               String userMsgWithAttachments, String version,
                               KnowledgePermissionService.Viewer viewer, JwtPrincipal principal,
-                              String source) {
+                              String source, com.platform.capability.runtime.TraceStepCollector steps) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
@@ -184,8 +190,12 @@ public class ChatStreamService {
 
         // 技能/工具/子 Agent 装配（工具调用事件实时推送 SSE）
         ToolCallCollector collector = new ToolCallCollector(event -> emitSafe(emitter, "tool", toolEvent(event)));
+        long assemblyStart = System.currentTimeMillis();
         ToolRuntimeService.RuntimeTools runtime = toolRuntime.build(conv.getAgentId(), config, principal, viewer,
                 collector, variables);
+        steps.add("chain", "tool-assembly", "SUCCESS", assemblyStart, System.currentTimeMillis(),
+                java.util.Map.of("callbacks", runtime.callbacks().size(),
+                        "skills", runtime.skillPrompt() != null, "kbDeps", runtime.knowledgeBaseIds().size()));
         // RAG 检索在请求线程完成（租户上下文可用）
         String systemPrompt = applyVariables(str(config.get("systemPrompt")), config.get("variables"), variables);
         if (runtime.skillPrompt() != null) {
@@ -199,10 +209,13 @@ public class ChatStreamService {
         }
         if (!kbBindings.isEmpty()) {
             systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings,
-                    citations, viewer);
+                    citations, viewer, steps);
         }
+        long memoryStart = System.currentTimeMillis();
         List<org.springframework.ai.chat.messages.Message> history = history(conv.getId(), userMsg.getId(),
                 memoryWindow(config));
+        steps.add("chain", "memory-load", "SUCCESS", memoryStart, System.currentTimeMillis(),
+                java.util.Map.of("messages", history.size()));
 
         Map<String, Object> modelConfig = config.get("modelConfig") instanceof Map<?, ?> m
                 ? (Map<String, Object>) m : Map.of();
@@ -232,16 +245,19 @@ public class ChatStreamService {
             ai.setContent(acc.toString());
             ai.setStatus("SUCCESS");
             ai.setTokens((int) (tokens[0] + tokens[1]));
+            long persistStart = System.currentTimeMillis();
             messageMapper.insert(ai);
             conversationService.touch(conv.getId());
             recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1], source);
             moderationService.moderate("OUT", acc.toString(), conv.getId(), ai.getId());
+            steps.add("chain", "persist", "SUCCESS", persistStart, System.currentTimeMillis(),
+                    java.util.Map.of("messageId", ai.getId()));
             traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                     conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
                     modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
                     citations.size(),
                     traceExtra(source, version, userMsg.getContent(), acc.toString(), null),
-                    collector.events());
+                    collector.events(), steps.steps());
             emitSafe(emitter, "done", Map.of("traceId", traceId, "messageId", ai.getId(),
                     "status", ai.getStatus(),
                     "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1])));
@@ -309,7 +325,7 @@ public class ChatStreamService {
                             modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
                             citations.size(),
                             traceExtra(source, version, userMsg.getContent(), acc.toString(), null),
-                            collector.events());
+                            collector.events(), steps.steps());
                 });
                 emitSafe(emitter, "done", Map.of("traceId", traceId, "status", "STOPPED",
                         "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1])));
@@ -338,7 +354,8 @@ public class ChatStreamService {
                                              Map<String, Object> config, Message userMsg,
                                              Map<String, Object> variables, String userMsgWithAttachments,
                                              String version, KnowledgePermissionService.Viewer viewer,
-                                             JwtPrincipal principal, String source) {
+                                             JwtPrincipal principal, String source,
+                                             com.platform.capability.runtime.TraceStepCollector steps) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
@@ -358,10 +375,13 @@ public class ChatStreamService {
         }
         if (!kbBindings.isEmpty()) {
             systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings,
-                    citations, viewer);
+                    citations, viewer, steps);
         }
+        long memoryStart = System.currentTimeMillis();
         List<org.springframework.ai.chat.messages.Message> history = history(conv.getId(), userMsg.getId(),
                 memoryWindow(config));
+        steps.add("chain", "memory-load", "SUCCESS", memoryStart, System.currentTimeMillis(),
+                java.util.Map.of("messages", history.size()));
         Map<String, Object> modelConfig = asMap(config.get("modelConfig"));
         String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-chat"));
         OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(modelName);
@@ -385,13 +405,17 @@ public class ChatStreamService {
         ai.setContent(answer == null ? "" : answer);
         ai.setStatus("SUCCESS");
         ai.setTokens((int) (in + out));
+        long persistStart = System.currentTimeMillis();
         messageMapper.insert(ai);
         conversationService.touch(conv.getId());
         recordUsage(tenantId, conv.getAgentId(), modelName, in, out, source);
+        steps.add("chain", "persist", "SUCCESS", persistStart, System.currentTimeMillis(),
+                java.util.Map.of("messageId", ai.getId()));
         traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                 conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
                 modelName, in, out, System.currentTimeMillis() - startedAt, citations.size(),
-                traceExtra(source, version, userMsg.getContent(), answer, null), collector.events());
+                traceExtra(source, version, userMsg.getContent(), answer, null), collector.events(),
+                steps.steps());
 
         // 输出审核（P0 留痕）
         moderationService.moderate("OUT", answer, conv.getId(), ai.getId());

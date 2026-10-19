@@ -47,6 +47,10 @@ management:
 
 # ---- 平台配置（架构 10.7）----
 security:
+  network:
+    # 生产建议 TOOL_ALLOW_PRIVATE=false，并可配置出口域名白名单（逗号分隔）
+    allow-private: ${TOOL_ALLOW_PRIVATE:true}
+    allowed-hosts: ${TOOL_ALLOWED_HOSTS:}
   # 租户级接口限流（次/分钟，0=关闭；需求 3.22）
   rate-limit-per-minute: ${RATE_LIMIT_PER_MINUTE:60}
   # 登录失败锁定（需求 3.25(1)）
