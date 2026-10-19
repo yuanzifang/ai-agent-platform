@@ -10,6 +10,7 @@ import com.platform.agent.mapper.AgentVersionMapper;
 import com.platform.agent.service.ChatService;
 import com.platform.billing.entity.BillingUsage;
 import com.platform.billing.service.PricingService;
+import com.platform.billing.service.QuotaService;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
@@ -69,6 +70,7 @@ public class EvalService {
     private final com.platform.conversation.mapper.MessageMapper messageMapper;
     private final BillingUsageMapper billingMapper;
     private final PricingService pricingService;
+    private final QuotaService quotaService;
     private final com.platform.knowledge.service.EmbeddingService embeddingService;
     private final com.platform.knowledge.service.VectorRepository vectorRepository;
     private final ObjectMapper objectMapper;
@@ -231,6 +233,7 @@ public class EvalService {
 
     Map<String, Object> createTask(String name, Long agentId, Long datasetId, String judgeModel,
                                    Double passThreshold, Map<String, Object> extra, JwtPrincipal principal) {
+        quotaService.checkTokensToday(1000);
         EvalTask t = createTaskRow(name, agentId, datasetId, judgeModel, passThreshold,
                 extra.get("evalType") instanceof String et && !et.isBlank() ? et : "ONCE", principal);
         final double threshold = passThreshold;
@@ -333,6 +336,7 @@ public class EvalService {
     private Map<String, Object> createOnlineTask(Long agentId, List<AgentTrace> traces,
                                                  Long tenantId, Long userId) {
         if (traces.isEmpty()) return Map.of("taskId", 0, "sampled", 0);
+        quotaService.checkTokensToday(500);
 
         EvalTask t = new EvalTask();
         t.setName("在线监控-" + LocalDate.now());

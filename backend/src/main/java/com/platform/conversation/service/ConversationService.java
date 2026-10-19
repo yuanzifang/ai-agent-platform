@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.agent.entity.AgentRegistry;
 import com.platform.agent.mapper.AgentRegistryMapper;
 import com.platform.common.context.TenantContext;
+import com.platform.billing.service.QuotaService;
 import com.platform.common.exception.BusinessException;
 import com.platform.conversation.entity.ChatAttachment;
 import com.platform.conversation.entity.Conversation;
@@ -39,6 +40,7 @@ public class ConversationService {
     private final ConversationMapper conversationMapper;
     private final MessageMapper messageMapper;
     private final ChatAttachmentMapper attachmentMapper;
+    private final QuotaService quotaService;
     private final FeedbackMapper feedbackMapper;
     private final ConversationShareMapper shareMapper;
     private final AgentRegistryMapper agentMapper;
@@ -209,6 +211,7 @@ public class ConversationService {
     /** 保存会话附件（multipart → MinIO → chat_attachment）。 */
     public Map<String, Object> saveAttachment(Long conversationId, MultipartFilePart file, JwtPrincipal principal) {
         owned(conversationId, principal);
+        quotaService.checkStorage(file.bytes().length);
         String objectName = "%d/chat/%d/%s/%s".formatted(principal.tenantId(), conversationId,
                 UUID.randomUUID().toString().replace("-", "").substring(0, 12), file.fileName());
         storageService.put(objectName, file.bytes(), file.contentType());

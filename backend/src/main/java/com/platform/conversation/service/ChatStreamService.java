@@ -3,7 +3,9 @@ package com.platform.conversation.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.agent.entity.AgentKnowledgeBase;
+import com.platform.knowledge.service.DocumentParser;
 import com.platform.knowledge.service.KnowledgePermissionService;
+import com.platform.knowledge.service.StorageService;
 import com.platform.agent.entity.AgentRegistry;
 import com.platform.agent.entity.AgentVersion;
 import com.platform.agent.mapper.AgentKnowledgeBaseMapper;
@@ -68,6 +70,8 @@ public class ChatStreamService {
     private final PricingService pricingService;
     private final QuotaService quotaService;
     private final ChatService chatService;                 // 复用 RAG augmentWithKnowledge
+    private final StorageService storageService;
+    private final DocumentParser documentParser;
     private final ToolRuntimeService toolRuntime;
     private final ConversationService conversationService;
     private final ModerationService moderationService;
@@ -569,16 +573,46 @@ public class ChatStreamService {
         }
     }
 
-    /** 附件文件名注入 LLM 输入（P0 告知存在；附件内容理解随 P1 多模态）。 */
+    /**
+     * 附件内容解析注入（需求 3.25 / 3.6）：TXT/MD/DOCX/PDF 提取正文，按文件与总长度截断；
+     * 图片等不支持的类型仅告知文件名；解析失败不阻断对话。
+     */
     @SuppressWarnings("unchecked")
     private String llmInputWithAttachments(String message, String attachmentsJson) {
         if (attachmentsJson == null || attachmentsJson.isBlank()) return message;
         try {
-            List<Map<String, Object>> list = objectMapper.readValue(attachmentsJson, List.class);
+            java.util.List<Map<String, Object>> list = objectMapper.readValue(attachmentsJson, java.util.List.class);
             if (list.isEmpty()) return message;
-            String names = list.stream().map(a -> String.valueOf(a.get("fileName")))
-                    .reduce((a, b) -> a + ", " + b).orElse("");
-            return message + "\n[用户随消息上传了附件：" + names + "]";
+            StringBuilder sb = new StringBuilder(message);
+            sb.append("\n\n[用户随消息上传了以下附件，内容已解析，请结合附件回答]");
+            int total = 0;
+            for (Map<String, Object> a : list) {
+                String name = String.valueOf(a.get("fileName"));
+                String objectName = a.get("objectName") == null ? null : String.valueOf(a.get("objectName"));
+                sb.append("\n--- 附件：").append(name).append(" ---\n");
+                if (objectName == null || total >= 20000) {
+                    sb.append("（文件内容未解析或已达上下文上限）");
+                    continue;
+                }
+                try {
+                    byte[] bytes = storageService.get(objectName);
+                    List<String> chunks = documentParser.parse(name, bytes);
+                    String text = String.join("\n", chunks);
+                    if (text.isBlank()) {
+                        sb.append("（未提取到文本内容）");
+                    } else {
+                        int remain = 20000 - total;
+                        String clipped = text.length() > Math.min(8000, remain)
+                                ? text.substring(0, Math.min(8000, remain)) : text;
+                        sb.append(clipped);
+                        total += clipped.length();
+                    }
+                } catch (Exception e) {
+                    log.warn("附件解析失败 file={}：{}", name, e.getMessage());
+                    sb.append("（附件解析失败：").append(e.getMessage()).append("）");
+                }
+            }
+            return sb.toString();
         } catch (Exception e) {
             return message;
         }

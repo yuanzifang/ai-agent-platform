@@ -295,8 +295,27 @@ public class AgentScheduleService {
                     .POST(HttpRequest.BodyPublishers.ofString(
                             objectMapper.writeValueAsString(payload), StandardCharsets.UTF_8))
                     .build();
-            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
-            log.info("调度 Webhook 回调 schedule={} http={}", schedule.getId(), resp.statusCode());
+            Exception last = null;
+            for (int attempt = 0; attempt < 3; attempt++) {
+                try {
+                    HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+                    if (resp.statusCode() < 400) {
+                        log.info("调度 Webhook 回调 schedule={} http={}", schedule.getId(), resp.statusCode());
+                        return;
+                    }
+                    last = new IllegalStateException("HTTP " + resp.statusCode());
+                } catch (Exception e) {
+                    last = e;
+                }
+                try {
+                    Thread.sleep(500L * (attempt + 1));
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            log.warn("调度 Webhook 回调失败（已重试）schedule={}：{}", schedule.getId(),
+                    last == null ? "unknown" : last.getMessage());
         } catch (Exception e) {
             log.warn("调度 Webhook 回调失败 schedule={}：{}", schedule.getId(), e.getMessage());
         }

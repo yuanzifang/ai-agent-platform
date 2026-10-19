@@ -84,6 +84,8 @@ public class ConversationController {
             ConversationService.MultipartFilePart part = new ConversationService.MultipartFilePart(
                     file.getOriginalFilename(), file.getContentType(), file.getBytes());
             return ApiResponse.ok(conversationService.saveAttachment(id, part, principal));
+        } catch (com.platform.common.exception.BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return ApiResponse.error(400, "附件读取失败：" + e.getMessage());
         }

@@ -1,6 +1,9 @@
 package com.platform.common.config;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.platform.common.context.TenantContext;
+import com.platform.system.entity.SysTenantQuota;
+import com.platform.system.mapper.SysTenantQuotaMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +23,7 @@ import java.time.Duration;
 public class RateLimitInterceptor implements HandlerInterceptor {
 
     private final StringRedisTemplate redis;
+    private final SysTenantQuotaMapper quotaMapper;
 
     @Value("${security.rate-limit-per-minute:60}")
     private int limitPerMinute;
@@ -27,16 +31,23 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws Exception {
-        if (limitPerMinute <= 0) return true;
         Long tenantId = TenantContext.getTenantId();
         if (tenantId == null) return true;
+        // 租户配额优先（0=不限制）；未配置时用全局默认
+        int limit = limitPerMinute;
+        try {
+            SysTenantQuota q = quotaMapper.selectOne(new LambdaQueryWrapper<SysTenantQuota>()
+                    .eq(SysTenantQuota::getTenantId, tenantId));
+            if (q != null && q.getMaxApiCallsPerMin() != null) limit = q.getMaxApiCallsPerMin();
+        } catch (Exception ignored) { }
+        if (limit <= 0) return true;
 
         String bucket = "ratelimit:t:" + tenantId + ":" + (System.currentTimeMillis() / 60_000);
         Long count = redis.opsForValue().increment(bucket);
         if (count != null && count == 1L) {
             redis.expire(bucket, Duration.ofSeconds(70));
         }
-        if (count != null && count > limitPerMinute) {
+        if (count != null && count > limit) {
             response.setStatus(429);
             response.setCharacterEncoding("UTF-8");
             response.setContentType("application/json");

@@ -14,8 +14,10 @@ public class McpServer {
     private Long id;
     private String name;
     private String endpoint;
+    private String transport;      // HTTP / SSE
     private String authType;      // NONE / API_KEY / BEARER / OAUTH
     private String encryptedAuth; // AES-GCM 密文（JSON）
+    private String customHeaders; // JSON：自定义请求头
     private String status;        // ENABLED / DISABLED
     private String healthStatus;  // ONLINE / OFFLINE / UNKNOWN
     private LocalDateTime lastSyncAt;

@@ -81,6 +81,8 @@ public class McpServerService {
         McpServer s = new McpServer();
         s.setName(name.trim());
         s.setEndpoint(endpoint.trim());
+        s.setTransport(normalizeTransport(req.get("transport")));
+        s.setCustomHeaders(normalizeHeaders(req.get("customHeaders")));
         String authType = normalizeAuthType(req.get("authType"));
         s.setAuthType(authType);
         s.setEncryptedAuth(encryptAuth(authType, asMap(req.get("auth")), null));
@@ -109,6 +111,8 @@ public class McpServerService {
             validateEndpoint(endpoint);
             s.setEndpoint(endpoint.trim());
         }
+        if (req.get("transport") != null) s.setTransport(normalizeTransport(req.get("transport")));
+        if (req.containsKey("customHeaders")) s.setCustomHeaders(normalizeHeaders(req.get("customHeaders")));
         if (req.get("authType") != null) {
             String authType = normalizeAuthType(req.get("authType"));
             s.setAuthType(authType);
@@ -204,7 +208,7 @@ public class McpServerService {
             tool.setCategory("MCP");
             tool.setStatus("ENABLED");
             tool.setTimeoutMs(30000);
-            tool.setRetryTimes(0);
+            tool.setRetryTimes(2);
             Map<String, Object> cfg = new LinkedHashMap<>();
             cfg.put("toolName", t.name());
             if (t.inputSchema() != null && !t.inputSchema().isBlank()) {
@@ -304,6 +308,33 @@ public class McpServerService {
         }
     }
 
+    private String normalizeTransport(Object raw) {
+        String transport = raw == null ? "HTTP" : String.valueOf(raw).toUpperCase(Locale.ROOT);
+        if (!List.of("HTTP", "SSE").contains(transport)) {
+            throw new BusinessException(400, "传输方式仅支持 HTTP/SSE");
+        }
+        return transport;
+    }
+
+    private String normalizeHeaders(Object raw) {
+        if (raw == null) return null;
+        Map<String, Object> headers;
+        try {
+            headers = raw instanceof Map<?, ?> m ? asMap(m)
+                    : objectMapper.readValue(String.valueOf(raw), Map.class);
+        } catch (Exception e) {
+            throw new BusinessException(400, "自定义请求头需为 JSON 对象");
+        }
+        if (headers.isEmpty()) return null;
+        for (String key : headers.keySet()) {
+            if (key == null || key.isBlank() || key.equalsIgnoreCase("Authorization")
+                    || key.equalsIgnoreCase("Mcp-Session-Id") || key.equalsIgnoreCase("Content-Type")) {
+                throw new BusinessException(400, "请求头不合法或与系统头冲突：" + key);
+            }
+        }
+        return json(headers);
+    }
+
     private String normalizeAuthType(Object raw) {
         String type = raw == null ? "NONE" : String.valueOf(raw).toUpperCase(Locale.ROOT);
         if (!List.of("NONE", "API_KEY", "BEARER", "OAUTH", "BASIC").contains(type)) {
@@ -363,8 +394,10 @@ public class McpServerService {
         m.put("id", s.getId());
         m.put("name", s.getName());
         m.put("endpoint", s.getEndpoint());
+        m.put("transport", s.getTransport() == null ? "HTTP" : s.getTransport());
         m.put("authType", s.getAuthType());
         m.put("auth", maskedAuth(s));
+        m.put("customHeaders", fromJsonMap(s.getCustomHeaders()));
         m.put("status", s.getStatus());
         m.put("healthStatus", s.getHealthStatus());
         m.put("lastSyncAt", s.getLastSyncAt());

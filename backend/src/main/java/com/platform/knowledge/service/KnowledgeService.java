@@ -65,6 +65,10 @@ public class KnowledgeService {
     @Value("${knowledge.parse.max-retries:3}")
     private int maxParseRetries;
 
+    /** 自动重试次数（指数退避），失败后才置 FAILED，用户仍可手动重试。 */
+    @Value("${knowledge.parse.auto-retries:2}")
+    private int autoParseRetries;
+
     /** 文档解析专用线程池（架构 2.3）；队列满时 CallerRuns 保证不丢任务。 */
     @Resource(name = "documentParseExecutor")
     private ThreadPoolTaskExecutor documentParseExecutor;
@@ -347,44 +351,77 @@ public class KnowledgeService {
     private void doParse(Long documentId) {
         KnowledgeDocument doc = docMapper.selectById(documentId);
         if (doc == null) return;
-        try {
-            updateStatus(doc, "PARSING", null, null);
-            byte[] bytes = storage.get(doc.getObjectName());
-            List<String> chunks = parser.parse(doc.getFileName(), bytes);
-            float[][] vectors = embeddingService.embedBatch(chunks);
-
-            List<Map<String, Object>> rows = new ArrayList<>();
-            for (int i = 0; i < chunks.size(); i++) {
-                KnowledgeChunk chunk = new KnowledgeChunk();
-                chunk.setDocumentId(doc.getId());
-                chunk.setKnowledgeBaseId(doc.getKnowledgeBaseId());
-                chunk.setChunkIndex(i);
-                chunk.setContent(chunks.get(i));
-                chunk.setTenantId(doc.getTenantId());
-                chunk.setCreatedAt(LocalDateTime.now());
-                chunkMapper.insert(chunk);
-
-                Map<String, Object> row = new HashMap<>();
-                row.put("content", chunks.get(i));
-                row.put("embedding", vectors[i]);
-                row.put("metadata", objectMapper.writeValueAsString(Map.of(
-                        "knowledge_base_id", doc.getKnowledgeBaseId(),
-                        "document_id", doc.getId(),
-                        "chunk_id", chunk.getId(),
-                        "chunk_index", i,
-                        "file_name", doc.getFileName())));
-                rows.add(row);
+        updateStatus(doc, "PARSING", null, null);
+        int attempts = 1 + Math.max(autoParseRetries, 0);
+        for (int attempt = 0; attempt < attempts; attempt++) {
+            try {
+                parseOnce(doc);
+                return;
+            } catch (Exception e) {
+                Throwable root = e;
+                while (root.getCause() != null) root = root.getCause();
+                log.warn("文档解析失败（第 {}/{} 次）doc={} err={}", attempt + 1, attempts,
+                        documentId, root.getMessage());
+                cleanupPartial(doc);
+                if (attempt == attempts - 1) {
+                    updateStatus(doc, "FAILED", null, root.getMessage());
+                    return;
+                }
+                try {
+                    Thread.sleep(600L * (attempt + 1));
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    updateStatus(doc, "FAILED", null, "解析被中断");
+                    return;
+                }
+                updateStatus(doc, "PARSING", null, null);
             }
-            vectorRepository.saveBatch(doc.getTenantId(), rows);
-            updateStatus(doc, "DONE", chunks.size(), null);
-            recordEmbeddingUsage(doc, chunks.size());
-            log.info("文档解析完成：doc={} chunks={}", documentId, chunks.size());
-        } catch (Exception e) {
-            Throwable root = e;
-            while (root.getCause() != null) root = root.getCause();
-            log.warn("文档解析失败：doc={} err={}", documentId, root.getMessage());
-            updateStatus(doc, "FAILED", null, root.getMessage());
         }
+    }
+
+    /** 单次解析：上传对象 → 分段 → 嵌入 → 向量落库。失败时由 doParse 清理残留并重试。 */
+    private void parseOnce(KnowledgeDocument doc) throws Exception {
+        byte[] bytes = storage.get(doc.getObjectName());
+        List<String> chunks = parser.parse(doc.getFileName(), bytes);
+        float[][] vectors = embeddingService.embedBatch(chunks);
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 0; i < chunks.size(); i++) {
+            KnowledgeChunk chunk = new KnowledgeChunk();
+            chunk.setDocumentId(doc.getId());
+            chunk.setKnowledgeBaseId(doc.getKnowledgeBaseId());
+            chunk.setChunkIndex(i);
+            chunk.setContent(chunks.get(i));
+            chunk.setTenantId(doc.getTenantId());
+            chunk.setCreatedAt(LocalDateTime.now());
+            chunkMapper.insert(chunk);
+
+            Map<String, Object> row = new HashMap<>();
+            row.put("content", chunks.get(i));
+            row.put("embedding", vectors[i]);
+            row.put("metadata", objectMapper.writeValueAsString(Map.of(
+                    "knowledge_base_id", doc.getKnowledgeBaseId(),
+                    "document_id", doc.getId(),
+                    "chunk_id", chunk.getId(),
+                    "chunk_index", i,
+                    "file_name", doc.getFileName())));
+            rows.add(row);
+        }
+        vectorRepository.saveBatch(doc.getTenantId(), rows);
+        updateStatus(doc, "DONE", chunks.size(), null);
+        recordEmbeddingUsage(doc, chunks.size());
+        log.info("文档解析完成：doc={} chunks={}", doc.getId(), chunks.size());
+    }
+
+    /** 补偿清理：重试前删除可能已写入的部分分段与向量。 */
+    private void cleanupPartial(KnowledgeDocument doc) {
+        try {
+            chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
+                    .eq(KnowledgeChunk::getDocumentId, doc.getId()));
+        } catch (Exception e) {
+            log.warn("清理失败分段失败 doc={}：{}", doc.getId(), e.getMessage());
+        }
+        deleteVectorsQuietly(doc.getTenantId(), doc.getId());
     }
 
     /** 检索测试（需求文档 3.6(4)）：query 嵌入 → PgVector topK + 阈值过滤；需可见权限。 */

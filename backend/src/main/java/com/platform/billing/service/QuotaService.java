@@ -29,6 +29,7 @@ public class QuotaService {
     private final AgentRegistryMapper agentMapper;
     private final KnowledgeBaseMapper kbMapper;
     private final BillingUsageMapper usageMapper;
+    private final com.platform.conversation.mapper.ChatAttachmentMapper attachmentMapper;
 
     public void checkAgentCreate() {
         SysTenantQuota q = quota();
@@ -60,6 +61,21 @@ public class QuotaService {
         if (used + Math.max(estimatedTokens, 0) > q.getMaxTokensPerDay()) {
             throw new BusinessException(429, "本次调用将超出今日 Token 配额（已用 " + used + "/"
                     + q.getMaxTokensPerDay() + "），请调整配额或明天再试");
+        }
+    }
+
+    /** 存储配额：当前租户附件大小 + 本次新增（知识库文档暂未计入）。 */
+    public void checkStorage(long addBytes) {
+        SysTenantQuota q = quota();
+        if (q == null || q.getMaxStorageBytes() == null || q.getMaxStorageBytes() <= 0) return;
+        long used = 0;
+        for (com.platform.conversation.entity.ChatAttachment a
+                : attachmentMapper.selectList(new LambdaQueryWrapper<>())) {
+            used += a.getSizeBytes() == null ? 0 : a.getSizeBytes();
+        }
+        if (used + Math.max(addBytes, 0) > q.getMaxStorageBytes()) {
+            throw new BusinessException(429, "存储配额不足（已用 " + used + " / " + q.getMaxStorageBytes()
+                    + " 字节），请清理附件或调整配额");
         }
     }
 

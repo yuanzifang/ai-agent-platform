@@ -39,13 +39,29 @@
     </el-table>
 
     <!-- 接入/编辑 -->
-    <el-dialog v-model="editVisible" :title="editForm.id ? '编辑 MCP Server' : '接入 MCP Server'" width="600px">
+    <el-dialog v-model="editVisible" :title="editForm.id ? '编辑 MCP Server' : '接入 MCP Server'" width="620px">
+      <div class="preset-row">
+        <span class="hint">快速预设：</span>
+        <el-button size="small" @click="applyPreset('feishu')">飞书 MCP</el-button>
+        <el-button size="small" @click="applyPreset('zhipu')">智谱 MCP</el-button>
+        <span class="hint">Endpoint/Token 请按官方文档填写，可修改</span>
+      </div>
       <el-form label-width="90px">
         <el-form-item label="名称" required>
           <el-input v-model="editForm.name" maxlength="128" placeholder="如：内部工具服务" />
         </el-form-item>
         <el-form-item label="地址" required>
-          <el-input v-model="editForm.endpoint" placeholder="http://localhost:18081/mcp" />
+          <el-input v-model="editForm.endpoint" placeholder="http://localhost:18081/mcp 或 https://mcp.feishu.cn/mcp" />
+        </el-form-item>
+        <el-form-item label="传输方式">
+          <el-select v-model="editForm.transport" style="width: 160px">
+            <el-option label="Streamable HTTP" value="HTTP" />
+            <el-option label="SSE（旧版）" value="SSE" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="自定义请求头">
+          <el-input v-model="editForm.headersText" type="textarea" :rows="2"
+                    placeholder='JSON 对象，如 {"X-Tenant-Id":"xxx"}（Authorization 请用鉴权方式）' />
         </el-form-item>
         <el-form-item label="鉴权方式">
           <el-select v-model="editForm.authType" style="width: 160px">
@@ -133,9 +149,23 @@ const loading = ref(false)
 const editVisible = ref(false)
 const saving = ref(false)
 const editForm = reactive({
-  id: 0, name: '', endpoint: '', authType: 'NONE',
+  id: 0, name: '', endpoint: '', transport: 'HTTP', headersText: '{}', authType: 'NONE',
   authHeader: 'X-API-Key', authValue: '', authToken: ''
 })
+
+function applyPreset(type: string) {
+  if (type === 'feishu') {
+    Object.assign(editForm, {
+      name: '飞书 MCP', endpoint: 'https://mcp.feishu.cn/mcp', transport: 'HTTP',
+      authType: 'BEARER', headersText: '{}'
+    })
+  } else if (type === 'zhipu') {
+    Object.assign(editForm, {
+      name: '智谱 MCP', endpoint: 'https://open.bigmodel.cn/api/mcp/sse', transport: 'SSE',
+      authType: 'BEARER', headersText: '{}'
+    })
+  }
+}
 
 const syncVisible = ref(false)
 const discovering = ref(false)
@@ -177,7 +207,7 @@ function healthType(s?: string) {
 
 function openCreate() {
   Object.assign(editForm, {
-    id: 0, name: '', endpoint: '', authType: 'NONE',
+    id: 0, name: '', endpoint: '', transport: 'HTTP', headersText: '{}', authType: 'NONE',
     authHeader: 'X-API-Key', authValue: '', authToken: ''
   })
   editVisible.value = true
@@ -190,6 +220,8 @@ async function openEdit(row: any) {
     id: detail.id,
     name: detail.name || '',
     endpoint: detail.endpoint || '',
+    transport: detail.transport || 'HTTP',
+    headersText: JSON.stringify(detail.customHeaders || {}, null, 2),
     authType: detail.authType || 'NONE',
     authHeader: auth.header || 'X-API-Key',
     authValue: auth.value || '',
@@ -209,8 +241,11 @@ async function save() {
   }
   saving.value = true
   try {
+    let headers: any = {}
+    try { headers = JSON.parse(editForm.headersText || '{}') } catch { ElMessage.error('自定义请求头不是合法 JSON'); return }
     const payload = {
       name: editForm.name.trim(), endpoint: editForm.endpoint.trim(),
+      transport: editForm.transport, customHeaders: headers,
       authType: editForm.authType, auth
     }
     if (editForm.id) await http.put(`/mcp-servers/${editForm.id}`, payload)
@@ -296,5 +331,6 @@ function fmt(v?: string) {
 .sub { color: #909399; font-size: 12px; margin-left: 8px; }
 .spacer { flex: 1; }
 .hint { color: #909399; font-size: 12px; }
+.preset-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .mb8 { margin-bottom: 8px; }
 </style>

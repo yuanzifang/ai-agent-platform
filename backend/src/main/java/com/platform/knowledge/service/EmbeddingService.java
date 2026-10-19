@@ -1,5 +1,6 @@
 package com.platform.knowledge.service;
 
+import com.platform.billing.service.QuotaService;
 import com.platform.common.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,14 +22,17 @@ public class EmbeddingService {
 
     private final RestClient client;
     private final String model;
+    private final QuotaService quotaService;
 
     public EmbeddingService(@Value("${embedding.endpoint}") String endpoint,
-                            @Value("${embedding.model}") String model) {
+                            @Value("${embedding.model}") String model,
+                            QuotaService quotaService) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(Duration.ofSeconds(5));
         factory.setReadTimeout(Duration.ofSeconds(120));
         this.client = RestClient.builder().baseUrl(endpoint).requestFactory(factory).build();
         this.model = model;
+        this.quotaService = quotaService;
     }
 
     public float[] embedOne(String text) {
@@ -38,6 +42,8 @@ public class EmbeddingService {
     @SuppressWarnings("unchecked")
     public float[][] embedBatch(List<String> texts) {
         if (texts == null || texts.isEmpty()) return new float[0][];
+        long chars = texts.stream().mapToLong(t -> t == null ? 0 : t.length()).sum();
+        quotaService.checkTokensToday(Math.max(50, chars / 2));
         try {
             Map<String, Object> resp = client.post()
                     .uri("/v1/embeddings")

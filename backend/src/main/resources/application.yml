@@ -69,6 +69,8 @@ knowledge:
   parse:
     # 解析失败手动重试上限（需求 3.6.3(2)，默认 3 次，超限需人工介入）
     max-retries: ${KNOWLEDGE_PARSE_MAX_RETRIES:3}
+    # 自动重试次数（指数退避 + 残留分段/向量补偿清理）
+    auto-retries: ${KNOWLEDGE_PARSE_AUTO_RETRIES:2}
 
 pgvector:
   url: ${PG_URL:jdbc:postgresql://localhost:5432/vector}
