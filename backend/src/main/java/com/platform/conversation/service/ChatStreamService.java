@@ -86,6 +86,13 @@ public class ChatStreamService {
     public record SendRequest(String message, Boolean stream, Map<String, Object> variables, List<Long> attachmentIds) {
     }
 
+    /** 流式输出接收端：Web 端写平台 SSE，Open API 端转换为 OpenAI chunk。 */
+    public interface StreamSink {
+        void event(String name, Object data);
+        void complete();
+        SseEmitter emitter();
+    }
+
     /** 发送消息：入口（校验/审核/落用户消息），随后进入流式或非流式生成。 */
     public Object send(Long conversationId, SendRequest req, JwtPrincipal principal) {
         return sendWithSource(conversationId, req, principal, "chat");
@@ -93,6 +100,18 @@ public class ChatStreamService {
 
     /** 带来源的发送（chat / scheduled 等，影响 billing_usage.source 与 Trace tags）。 */
     public Object sendWithSource(Long conversationId, SendRequest req, JwtPrincipal principal, String source) {
+        return sendInternal(conversationId, req, principal, source, null);
+    }
+
+    /** Open API 真流式：复用对话主链路，增量通过 sink 转发为 OpenAI chunk。 */
+    public Object sendStreaming(Long conversationId, SendRequest req, JwtPrincipal principal,
+                                String source, StreamSink sink) {
+        SendRequest streaming = new SendRequest(req.message(), true, req.variables(), req.attachmentIds());
+        return sendInternal(conversationId, streaming, principal, source, sink);
+    }
+
+    private Object sendInternal(Long conversationId, SendRequest req, JwtPrincipal principal,
+                                String source, StreamSink sink) {
         Conversation conv = conversationService.owned(conversationId, principal);
         if (req.message() == null || req.message().isBlank()) {
             throw new BusinessException(400, "消息不能为空");
@@ -127,7 +146,7 @@ public class ChatStreamService {
         messageMapper.insert(userMsg);
 
         if (blocked) {
-            return blockedEmitter(conversationId, userMsg, hits);
+            return blockedEmitter(conversationId, userMsg, hits, sink);
         }
         KnowledgePermissionService.Viewer viewer = viewer(principal);
         if (Boolean.FALSE.equals(req.stream())) {
@@ -135,7 +154,7 @@ public class ChatStreamService {
                     viewer, principal, source, steps);
         }
         return streamChat(conv, agent, config, userMsg, null, false, hits, variables, llmInput,
-                published.version(), viewer, principal, source, steps);
+                published.version(), viewer, principal, source, steps, sink);
     }
 
     /** 重新生成：以被替换消息之前的最近 USER 消息重跑，新消息带 parentMessageId。 */
@@ -162,7 +181,7 @@ public class ChatStreamService {
         String regenInput = llmInputWithAttachments(lastUser.getContent(), lastUser.getAttachments());
         return streamChat(conv, agent, config, lastUser, target.getId(), true, List.of(), Map.of(), regenInput,
                 published.version(), viewer(principal), principal, "chat",
-                new com.platform.capability.runtime.TraceStepCollector());
+                new com.platform.capability.runtime.TraceStepCollector(), null);
     }
 
     /** 停止生成（幂等）：断开进行中的流并落 STOPPED。 */
@@ -182,14 +201,16 @@ public class ChatStreamService {
                               List<ModerationService.Hit> inHits, Map<String, Object> variables,
                               String userMsgWithAttachments, String version,
                               KnowledgePermissionService.Viewer viewer, JwtPrincipal principal,
-                              String source, com.platform.capability.runtime.TraceStepCollector steps) {
+                              String source, com.platform.capability.runtime.TraceStepCollector steps,
+                              StreamSink sink) {
         Long tenantId = conv.getTenantId();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
-        SseEmitter emitter = new SseEmitter(300_000L);
+        StreamSink out = sink == null ? new SseStreamSink(new SseEmitter(300_000L)) : sink;
+        SseEmitter emitter = out.emitter();
 
         // 技能/工具/子 Agent 装配（工具调用事件实时推送 SSE）
-        ToolCallCollector collector = new ToolCallCollector(event -> emitSafe(emitter, "tool", toolEvent(event)));
+        ToolCallCollector collector = new ToolCallCollector(event -> out.event("tool", toolEvent(event)));
         long assemblyStart = System.currentTimeMillis();
         ToolRuntimeService.RuntimeTools runtime = toolRuntime.build(conv.getAgentId(), config, principal, viewer,
                 collector, variables);
@@ -258,10 +279,10 @@ public class ChatStreamService {
                     citations.size(),
                     traceExtra(source, version, userMsg.getContent(), acc.toString(), null),
                     collector.events(), steps.steps());
-            emitSafe(emitter, "done", Map.of("traceId", traceId, "messageId", ai.getId(),
+            out.event("done", Map.of("traceId", traceId, "messageId", ai.getId(),
                     "status", ai.getStatus(),
                     "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1])));
-            emitter.complete();
+            out.complete();
         });
 
         Disposable disposable = flux.subscribe(
@@ -269,7 +290,7 @@ public class ChatStreamService {
                     String delta = resp.getResult() == null ? null : resp.getResult().getOutput().getText();
                     if (delta != null && !delta.isEmpty()) {
                         acc.append(delta);
-                        emitSafe(emitter, "delta", Map.of("content", delta));
+                        out.event("delta", Map.of("content", delta));
                     }
                     if (resp.getMetadata() != null && resp.getMetadata().getUsage() != null) {
                         var u = resp.getMetadata().getUsage();
@@ -292,8 +313,8 @@ public class ChatStreamService {
                                 traceExtra(source, version, userMsg.getContent(), acc.toString(),
                                         err.getMessage()), collector.events());
                     });
-                    emitSafe(emitter, "error", Map.of("code", 500201, "message", "生成失败：" + err.getMessage()));
-                    emitter.complete();
+                    out.event("error", Map.of("code", 500201, "message", "生成失败：" + err.getMessage()));
+                    out.complete();
                 },
                 () -> {
                     ACTIVE.remove(conv.getId());
@@ -301,7 +322,7 @@ public class ChatStreamService {
                         tokens[0] = estimateTokens(userMsg.getContent() + finalSystemPrompt);
                         tokens[1] = estimateTokens(acc.toString());
                     }
-                    emitSafe(emitter, "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1]));
+                    out.event("usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1]));
                     persist.run();
                 });
 
@@ -327,9 +348,9 @@ public class ChatStreamService {
                             traceExtra(source, version, userMsg.getContent(), acc.toString(), null),
                             collector.events(), steps.steps());
                 });
-                emitSafe(emitter, "done", Map.of("traceId", traceId, "status", "STOPPED",
+                out.event("done", Map.of("traceId", traceId, "status", "STOPPED",
                         "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1])));
-                emitter.complete();
+                out.complete();
             }
         };
         emitter.onCompletion(() -> { });
@@ -342,9 +363,9 @@ public class ChatStreamService {
         });
 
         // 先发 citation / moderation 事件再进入增量
-        for (Map<String, Object> c : citations) emitSafe(emitter, "citation", c);
-        for (ModerationService.Hit h : inHits) emitSafe(emitter, "moderation", moderationService.toEvent(h));
-        emitSafe(emitter, "meta", Map.of("traceId", traceId, "conversationId", conv.getId(),
+        for (Map<String, Object> c : citations) out.event("citation", c);
+        for (ModerationService.Hit h : inHits) out.event("moderation", moderationService.toEvent(h));
+        out.event("meta", Map.of("traceId", traceId, "conversationId", conv.getId(),
                 "userMessageId", userMsg.getId()));
         return emitter;
     }
@@ -426,15 +447,41 @@ public class ChatStreamService {
     }
 
     /** 输入命中 BLOCK：不调用模型，返回仅含 moderation/error/done 的 SSE。 */
-    private SseEmitter blockedEmitter(Long conversationId, Message userMsg, List<ModerationService.Hit> hits) {
-        SseEmitter emitter = new SseEmitter(10_000L);
+    private SseEmitter blockedEmitter(Long conversationId, Message userMsg, List<ModerationService.Hit> hits,
+                                      StreamSink sink) {
+        StreamSink out = sink == null ? new SseStreamSink(new SseEmitter(10_000L)) : sink;
+        SseEmitter emitter = out.emitter();
         for (ModerationService.Hit h : hits) {
-            emitSafe(emitter, "moderation", moderationService.toEvent(h));
+            out.event("moderation", moderationService.toEvent(h));
         }
-        emitSafe(emitter, "error", Map.of("code", 700001, "message", "消息包含违规内容，已被拦截"));
-        emitSafe(emitter, "done", Map.of("status", "BLOCKED"));
-        emitter.complete();
+        out.event("error", Map.of("code", 700001, "message", "消息包含违规内容，已被拦截"));
+        out.event("done", Map.of("status", "BLOCKED"));
+        out.complete();
         return emitter;
+    }
+
+    /** Web 端 SSE 输出。 */
+    private final class SseStreamSink implements StreamSink {
+        private final SseEmitter emitter;
+
+        private SseStreamSink(SseEmitter emitter) {
+            this.emitter = emitter;
+        }
+
+        @Override
+        public void event(String name, Object data) {
+            emitSafe(emitter, name, data);
+        }
+
+        @Override
+        public void complete() {
+            emitter.complete();
+        }
+
+        @Override
+        public SseEmitter emitter() {
+            return emitter;
+        }
     }
 
     // ---------- 辅助 ----------

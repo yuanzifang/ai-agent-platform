@@ -18,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -47,10 +48,11 @@ public class OpenApiController {
 
     @PostMapping(value = "/chat/completions",
             produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_EVENT_STREAM_VALUE})
-    public ResponseEntity<?> chatCompletions(
+    public Object chatCompletions(
             @RequestHeader(value = "X-Api-Key", required = false) String xApiKey,
             @RequestHeader(value = "Authorization", required = false) String authorization,
-            @RequestBody Map<String, Object> body) {
+            @RequestBody Map<String, Object> body,
+            jakarta.servlet.http.HttpServletResponse httpResponse) {
         String rawKey = extractKey(xApiKey, authorization);
         IntegrationApiKey key = apiKeyService.authenticate(rawKey);
         AgentRegistry agent = TenantContext.runWith(key.getTenantId(),
@@ -58,10 +60,11 @@ public class OpenApiController {
         if (agent == null || !"PUBLISHED".equals(agent.getStatus())) {
             throw new BusinessException(403, "Agent 未发布，无法调用");
         }
-        return TenantContext.runWith(key.getTenantId(), () -> handle(key, agent, body));
+        return TenantContext.runWith(key.getTenantId(), () -> handle(key, agent, body, httpResponse));
     }
 
-    private ResponseEntity<?> handle(IntegrationApiKey key, AgentRegistry agent, Map<String, Object> body) {
+    private Object handle(IntegrationApiKey key, AgentRegistry agent, Map<String, Object> body,
+                          jakarta.servlet.http.HttpServletResponse httpResponse) {
         String message = extractUserMessage(body.get("messages"));
         if (message == null || message.isBlank()) {
             throw new BusinessException(400, "messages 中缺少 user 消息");
@@ -75,8 +78,28 @@ public class OpenApiController {
         Conversation conversation = resolveConversation(key, agent, sessionId, endUserId);
         JwtPrincipal principal = new JwtPrincipal(key.getServiceUserId(), key.getTenantId(), false,
                 List.of(), List.of());
-        Object result = chatStreamService.send(conversation.getId(),
-                new ChatStreamService.SendRequest(message, false, Map.of(), null), principal);
+        String model = modelName(agent);
+        String completionId = "chatcmpl-" + conversation.getSessionId();
+        long created = Instant.now().getEpochSecond();
+
+        if (stream) {
+            httpResponse.setHeader("Cache-Control", "no-cache");
+            httpResponse.setHeader("X-Accel-Buffering", "no");
+            httpResponse.setHeader("Connection", "keep-alive");
+            OpenAiSseSink sink = new OpenAiSseSink(completionId, created, model,
+                    conversation.getSessionId(), objectMapper);
+            chatStreamService.sendStreaming(conversation.getId(),
+                    new ChatStreamService.SendRequest(message, true, Map.of(), null),
+                    principal, "api", sink);
+            auditService.record(key.getServiceUserId(), "api_key.chat", "agent",
+                    String.valueOf(agent.getId()), "SUCCESS",
+                    Map.of("keyId", key.getId(), "sessionId", conversation.getSessionId(),
+                            "endUserId", endUserId == null ? "" : endUserId));
+            return sink.emitter();
+        }
+
+        Object result = chatStreamService.sendWithSource(conversation.getId(),
+                new ChatStreamService.SendRequest(message, false, Map.of(), null), principal, "api");
         if (!(result instanceof Map<?, ?> map)) {
             throw new BusinessException(500, "对话执行失败");
         }
@@ -93,16 +116,6 @@ public class OpenApiController {
                 Map.of("keyId", key.getId(), "sessionId", conversation.getSessionId(),
                         "endUserId", endUserId == null ? "" : endUserId));
 
-        String model = modelName(agent);
-        String completionId = "chatcmpl-" + conversation.getSessionId();
-        long created = Instant.now().getEpochSecond();
-        if (stream) {
-            String sse = buildStream(completionId, created, model, answer, inputTokens, outputTokens,
-                    conversation.getSessionId());
-            return ResponseEntity.ok()
-                    .contentType(MediaType.TEXT_EVENT_STREAM)
-                    .body(sse);
-        }
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("id", completionId);
         response.put("object", "chat.completion");
@@ -193,33 +206,172 @@ public class OpenApiController {
         return v;
     }
 
-    private String buildStream(String id, long created, String model, String answer,
-                               long inputTokens, long outputTokens, String sessionId) {
-        try {
+    /**
+     * OpenAI SSE chunk 输出：delta 实时转发，done 时补 finish_reason/usage，最后 [DONE]。
+     * 平台内部事件（citation/tool/moderation）不暴露给 OpenAI 客户端。
+     */
+    private static final class OpenAiSseSink implements ChatStreamService.StreamSink {
+        private final SseEmitter emitter = new SseEmitter(300_000L);
+        private final ObjectMapper mapper;
+        private final String id;
+        private final long created;
+        private final String model;
+        private final String sessionId;
+        private long inputTokens;
+        private long outputTokens;
+        private String traceId;
+        private String status = "SUCCESS";
+        private boolean roleSent;
+        private boolean finished;
+        private boolean failed;
+
+        private OpenAiSseSink(String id, long created, String model, String sessionId, ObjectMapper mapper) {
+            this.id = id;
+            this.created = created;
+            this.model = model;
+            this.sessionId = sessionId;
+            this.mapper = mapper;
+        }
+
+        @Override
+        public synchronized void event(String name, Object data) {
+            if (failed && !"error".equals(name)) return;
+            try {
+                switch (name) {
+                    case "delta" -> {
+                        String content = contentOf(data);
+                        if (content != null && !content.isEmpty()) {
+                            if (!roleSent) {
+                                Map<String, Object> role = new LinkedHashMap<>();
+                                role.put("role", "assistant");
+                                role.put("content", "");
+                                sendDelta(role);
+                                roleSent = true;
+                            }
+                            Map<String, Object> delta = new LinkedHashMap<>();
+                            delta.put("content", content);
+                            sendDelta(delta);
+                        }
+                    }
+                    case "usage" -> captureUsage(data);
+                    case "meta" -> captureMeta(data);
+                    case "done" -> {
+                        captureUsage(data);
+                        captureMeta(data);
+                        if (data instanceof Map<?, ?> m && m.get("status") != null) {
+                            status = String.valueOf(m.get("status"));
+                        }
+                        if (!failed) sendFinal();
+                    }
+                    case "error" -> {
+                        failed = true;
+                        sendError(data);
+                    }
+                    default -> {
+                        // citation / moderation / tool 等平台事件不输出给 OpenAI 客户端
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("OpenAPI SSE 写出失败：{}", e.getMessage());
+                try {
+                    emitter.completeWithError(e);
+                } catch (Exception ignored) {
+                    // 客户端可能已断开
+                }
+            }
+        }
+
+        @Override
+        public synchronized void complete() {
+            try {
+                if (!finished && !failed) sendFinal();
+            } catch (Exception e) {
+                log.warn("OpenAPI SSE 完成失败：{}", e.getMessage());
+            }
+            emitter.complete();
+        }
+
+        @Override
+        public SseEmitter emitter() {
+            return emitter;
+        }
+
+        private void sendDelta(Map<String, Object> delta) throws Exception {
+            Map<String, Object> choice = new LinkedHashMap<>();
+            choice.put("index", 0);
+            choice.put("delta", delta);
+            choice.put("finish_reason", null);
             Map<String, Object> chunk = new LinkedHashMap<>();
             chunk.put("id", id);
             chunk.put("object", "chat.completion.chunk");
             chunk.put("created", created);
             chunk.put("model", model);
-            Map<String, Object> deltaChoice = new LinkedHashMap<>();
-            deltaChoice.put("index", 0);
-            deltaChoice.put("delta", Map.of("role", "assistant", "content", answer == null ? "" : answer));
-            deltaChoice.put("finish_reason", null);
-            chunk.put("choices", List.of(deltaChoice));
-            Map<String, Object> done = new LinkedHashMap<>();
-            done.put("id", id);
-            done.put("object", "chat.completion.chunk");
-            done.put("created", created);
-            done.put("model", model);
-            done.put("choices", List.of(Map.of("index", 0, "delta", Map.of(), "finish_reason", "stop")));
-            done.put("usage", Map.of("prompt_tokens", inputTokens, "completion_tokens", outputTokens,
+            chunk.put("choices", List.of(choice));
+            sendData(mapper.writeValueAsString(chunk));
+        }
+
+        private void sendFinal() throws Exception {
+            Map<String, Object> choice = new LinkedHashMap<>();
+            choice.put("index", 0);
+            choice.put("delta", Map.of());
+            choice.put("finish_reason", "error".equalsIgnoreCase(status) ? "stop" : "stop");
+            Map<String, Object> chunk = new LinkedHashMap<>();
+            chunk.put("id", id);
+            chunk.put("object", "chat.completion.chunk");
+            chunk.put("created", created);
+            chunk.put("model", model);
+            chunk.put("choices", List.of(choice));
+            chunk.put("usage", Map.of(
+                    "prompt_tokens", inputTokens,
+                    "completion_tokens", outputTokens,
                     "total_tokens", inputTokens + outputTokens));
-            done.put("session_id", sessionId);
-            return "data: " + objectMapper.writeValueAsString(chunk) + "\n\n"
-                    + "data: " + objectMapper.writeValueAsString(done) + "\n\n"
-                    + "data: [DONE]\n\n";
-        } catch (Exception e) {
-            throw new BusinessException(500, "流式响应序列化失败");
+            chunk.put("session_id", sessionId);
+            if (traceId != null) chunk.put("trace_id", traceId);
+            sendData(mapper.writeValueAsString(chunk));
+            sendData("[DONE]");
+            finished = true;
+        }
+
+        private void sendError(Object data) throws Exception {
+            String message = "生成失败";
+            Object code = 500201;
+            if (data instanceof Map<?, ?> m) {
+                if (m.get("message") != null) message = String.valueOf(m.get("message"));
+                if (m.get("code") != null) code = m.get("code");
+            }
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("message", message);
+            error.put("type", "server_error");
+            error.put("code", code);
+            sendData(mapper.writeValueAsString(Map.of("error", error)));
+            sendData("[DONE]");
+            finished = true;
+        }
+
+        private void sendData(String data) throws Exception {
+            emitter.send(SseEmitter.event().data(data));
+        }
+
+        private void captureUsage(Object data) {
+            Object usage = data;
+            if (data instanceof Map<?, ?> m && m.get("usage") instanceof Map<?, ?> u) usage = u;
+            if (usage instanceof Map<?, ?> u) {
+                if (u.get("inputTokens") instanceof Number n) inputTokens = n.longValue();
+                if (u.get("outputTokens") instanceof Number n) outputTokens = n.longValue();
+            }
+        }
+
+        private void captureMeta(Object data) {
+            if (data instanceof Map<?, ?> m && m.get("traceId") != null) {
+                traceId = String.valueOf(m.get("traceId"));
+            }
+        }
+
+        private String contentOf(Object data) {
+            if (data instanceof Map<?, ?> m && m.get("content") != null) {
+                return String.valueOf(m.get("content"));
+            }
+            return null;
         }
     }
 
