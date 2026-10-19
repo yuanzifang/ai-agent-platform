@@ -20,7 +20,10 @@ public class SkillRegistry {
     private String tags;        // JSON array
     private String skillType;   // BUILTIN / CUSTOM
     private String prompt;
-    private String params;      // JSON array（参数定义）
+    private String params;          // JSON array（参数定义）
+    private String scriptLanguage;  // NONE / PYTHON / JAVASCRIPT
+    private String scriptCode;      // 脚本正文（stdout 作为工具结果）
+    private Integer scriptTimeoutMs;
     private String status;      // ENABLED / DISABLED / DELETED
     private Integer isBuiltin;
     private Long tenantId;

@@ -84,6 +84,13 @@ public class SkillController {
     public record TestRequest(String input) {
     }
 
+    /** 脚本直跑测试（支持未保存代码）；只执行脚本，不调用模型。 */
+    @PostMapping("/script/test")
+    @PreAuthorize("hasAuthority('skill:manage')")
+    public ApiResponse<Map<String, Object>> testScript(@RequestBody Map<String, Object> req) {
+        return ApiResponse.ok(skillService.testScript(req));
+    }
+
     /** 技能测试：当前配置直接试跑，不写正式 Trace（需求 3.13(6)）。 */
     @PostMapping("/{id}/test")
     @PreAuthorize("hasAuthority('skill:manage')")

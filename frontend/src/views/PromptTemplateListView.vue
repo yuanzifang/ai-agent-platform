@@ -43,6 +43,10 @@
         <el-form-item label="内容" required>
           <el-input v-model="editForm.content" type="textarea" :rows="9"
                     placeholder="模板内容，使用 {{key}} 定义变量" />
+          <div class="content-actions">
+            <el-button size="small" type="primary" plain @click="openOptimize">AI 优化</el-button>
+            <span class="hint">保留原有变量占位，优化结果需手动应用</span>
+          </div>
         </el-form-item>
         <el-form-item label="变量">
           <div>
@@ -55,6 +59,44 @@
         <el-button @click="editVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
+    </el-dialog>
+
+    <!-- AI 优化 Prompt 模板 -->
+    <el-dialog v-model="optimizeVisible" title="AI 优化模板内容" width="760px">
+      <div class="hint mb8">保留双花括号变量与原始业务意图；优化结果需手动应用，不会自动保存。</div>
+      <el-form label-width="90px">
+        <el-form-item label="优化方向">
+          <el-select v-model="optimizeStyle" clearable placeholder="可选" style="width: 220px">
+            <el-option label="结构化" value="结构化、分点清晰" />
+            <el-option label="更简洁" value="精简冗余，保持信息完整" />
+            <el-option label="更专业" value="更专业严谨，适合企业场景" />
+            <el-option label="客服语气" value="礼貌、先结论后步骤的客服语气" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="额外要求">
+          <el-input v-model="optimizeInstruction" type="textarea" :rows="2"
+                    placeholder="如：保留变量；补充拒答边界；不要改变语言" />
+        </el-form-item>
+      </el-form>
+      <div class="opt-origin">
+        <div class="opt-label">当前内容（{{ (editForm.content || '').length }} 字）</div>
+        <div class="opt-origin-text">{{ editForm.content || '（空）' }}</div>
+      </div>
+      <div class="mt8">
+        <el-button type="primary" :loading="optimizing" @click="runOptimize">开始优化</el-button>
+        <span v-if="optimizeUsage" class="hint">
+          {{ optimizeModel }} · 输入 {{ optimizeUsage.inputTokens }} / 输出 {{ optimizeUsage.outputTokens }} tokens
+        </span>
+      </div>
+      <div v-if="optimizeResult" class="opt-result">
+        <div class="opt-label">优化结果（{{ optimizeResult.length }} 字）</div>
+        <el-input v-model="optimizeResult" type="textarea" :rows="9" />
+        <div class="mt8">
+          <el-button type="primary" @click="applyOptimized('replace')">替换原内容</el-button>
+          <el-button @click="applyOptimized('append')">追加到末尾</el-button>
+          <el-button @click="optimizeResult = ''">清除结果</el-button>
+        </div>
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -80,6 +122,14 @@ const categories = computed(() => [...new Set(list.value.map(t => t.category).fi
 const editVisible = ref(false)
 const saving = ref(false)
 const editForm = reactive({ id: 0, name: '', category: '', content: '' })
+
+const optimizeVisible = ref(false)
+const optimizing = ref(false)
+const optimizeStyle = ref('')
+const optimizeInstruction = ref('')
+const optimizeResult = ref('')
+const optimizeUsage = ref<any>(null)
+const optimizeModel = ref('')
 const previewVars = computed(() => {
   const keys = new Set<string>()
   const re = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g
@@ -113,6 +163,43 @@ async function openEdit(row: any) {
     id: detail.id, name: detail.name || '', category: detail.category || '', content: detail.content || ''
   })
   editVisible.value = true
+}
+
+function openOptimize() {
+  if (!editForm.content.trim()) { ElMessage.warning('请先填写模板内容'); return }
+  optimizeResult.value = ''
+  optimizeUsage.value = null
+  optimizeInstruction.value = ''
+  optimizeVisible.value = true
+}
+
+async function runOptimize() {
+  if (!editForm.content.trim()) { ElMessage.warning('请先填写模板内容'); return }
+  optimizing.value = true
+  try {
+    const res = await http.post('/prompt-templates/optimize', {
+      prompt: editForm.content,
+      name: editForm.name,
+      description: editForm.category ? `模板分类：${editForm.category}` : '',
+      instruction: optimizeInstruction.value,
+      style: optimizeStyle.value
+    }, { timeout: 120000 }) as any
+    optimizeResult.value = res.optimizedPrompt || ''
+    optimizeUsage.value = res.usage || null
+    optimizeModel.value = res.modelName || ''
+    ElMessage.success('优化完成，请确认后应用')
+  } finally {
+    optimizing.value = false
+  }
+}
+
+function applyOptimized(mode: 'replace' | 'append') {
+  if (!optimizeResult.value) return
+  editForm.content = mode === 'replace'
+    ? optimizeResult.value
+    : (editForm.content ? editForm.content + '\n\n' + optimizeResult.value : optimizeResult.value)
+  optimizeVisible.value = false
+  ElMessage.success(mode === 'replace' ? '已替换模板内容（尚未保存）' : '已追加到模板内容末尾（尚未保存）')
 }
 
 async function save() {
@@ -153,4 +240,11 @@ async function remove(row: any) {
 .spacer { flex: 1; }
 .var-tag { margin-right: 4px; }
 .muted { color: #c0c4cc; font-size: 12px; }
+.content-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.opt-origin { border: 1px solid #ebeef5; border-radius: 6px; padding: 8px 10px; background: #fafafa; }
+.opt-origin-text { white-space: pre-wrap; font-size: 12px; max-height: 130px; overflow-y: auto; color: #606266; }
+.opt-label { font-size: 12px; color: #909399; margin-bottom: 4px; }
+.opt-result { margin-top: 12px; border-top: 1px dashed #ebeef5; padding-top: 10px; }
+.mb8 { margin-bottom: 8px; }
+.mt8 { margin-top: 8px; }
 </style>

@@ -1,0 +1,319 @@
+package com.platform.capability.runtime;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.platform.common.exception.BusinessException;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * 技能脚本执行：Python / JavaScript 进程级隔离（临时目录、超时、输出上限）。
+ * 参数通过 SKILL_ARGS 环境变量与 stdin 传入，脚本内可直接使用 params/args；stdout 即工具结果。
+ * 注意：这是进程级限制而非容器级沙箱，生产环境建议接入独立隔离执行器。
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class ScriptRunnerService {
+
+    private final ObjectMapper objectMapper;
+
+    @Value("${skill.script.enabled:true}")
+    private boolean enabled;
+
+    @Value("${skill.script.python-command:python3}")
+    private String pythonCommand;
+
+    @Value("${skill.script.node-command:node}")
+    private String nodeCommand;
+
+    @Value("${skill.script.max-output-bytes:65536}")
+    private int maxOutputBytes;
+
+    @Value("${skill.script.max-code-length:50000}")
+    private int maxCodeLength;
+
+    public record Result(String output, String stderr, int exitCode, long durationMs, boolean truncated) {
+    }
+
+    private record Capped(String text, boolean truncated) {
+    }
+
+    public Result run(String language, String code, Map<String, Object> args, int timeoutMs) {
+        if (!enabled) throw new BusinessException(403, "技能脚本执行未启用（SKILL_SCRIPT_ENABLED=false）");
+        String lang = normalizeLanguage(language);
+        if (code == null || code.isBlank()) throw new BusinessException(400, "脚本代码不能为空");
+        if (code.length() > maxCodeLength) {
+            throw new BusinessException(400, "脚本代码过长（上限 " + maxCodeLength + " 字符）");
+        }
+        int timeout = Math.max(500, Math.min(timeoutMs <= 0 ? 5000 : timeoutMs, 60000));
+        String argsJson;
+        try {
+            argsJson = objectMapper.writeValueAsString(args == null ? Map.of() : args);
+        } catch (Exception e) {
+            throw new BusinessException(400, "脚本参数不是合法 JSON");
+        }
+
+        Path dir = null;
+        long start = System.currentTimeMillis();
+        try {
+            dir = Files.createTempDirectory("skill-script-");
+            Path file = dir.resolve("PYTHON".equals(lang) ? "main.py" : "main.js");
+            Files.writeString(file, prelude(lang) + code, StandardCharsets.UTF_8);
+            String executable = "PYTHON".equals(lang)
+                    ? resolveExecutable(pythonCommand, "python3")
+                    : resolveExecutable(nodeCommand, "node");
+            List<String> command = "PYTHON".equals(lang)
+                    ? List.of(executable, "-u", file.toString())
+                    : List.of(executable, file.toString());
+            ProcessBuilder pb = new ProcessBuilder(command).directory(dir.toFile());
+            pb.environment().clear();
+            String path = System.getenv().getOrDefault("PATH", "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin");
+            pb.environment().put("PATH", path);
+            pb.environment().put("HOME", dir.toString());
+            pb.environment().put("TMPDIR", dir.toString());
+            pb.environment().put("TEMP", dir.toString());
+            pb.environment().put("TMP", dir.toString());
+            pb.environment().put("LANG", "en_US.UTF-8");
+            pb.environment().put("LC_ALL", "en_US.UTF-8");
+            pb.environment().put("SKILL_ARGS", argsJson);
+            if ("PYTHON".equals(lang)) {
+                pb.environment().put("PYTHONIOENCODING", "UTF-8");
+                pb.environment().put("PYTHONUNBUFFERED", "1");
+                pb.environment().put("PYTHONDONTWRITEBYTECODE", "1");
+            }
+            Process process = pb.start();
+            try (var stdin = process.getOutputStream()) {
+                stdin.write(argsJson.getBytes(StandardCharsets.UTF_8));
+            }
+
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            Future<Capped> stdoutFuture = pool.submit(() -> readCapped(process.getInputStream(), maxOutputBytes));
+            Future<Capped> stderrFuture = pool.submit(() -> readCapped(process.getErrorStream(), 4000));
+            boolean finished;
+            try {
+                finished = process.waitFor(timeout, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                process.destroyForcibly();
+                throw new BusinessException(500, "脚本执行被中断");
+            }
+            if (!finished) {
+                process.destroyForcibly();
+                process.waitFor(2, TimeUnit.SECONDS);
+                pool.shutdownNow();
+                throw new BusinessException(504, "脚本执行超时（" + timeout + "ms）");
+            }
+            Capped stdout = stdoutFuture.get(3, TimeUnit.SECONDS);
+            Capped stderr = stderrFuture.get(3, TimeUnit.SECONDS);
+            pool.shutdownNow();
+            long duration = System.currentTimeMillis() - start;
+            String output = stdout.text().strip();
+            String err = stderr.text().strip();
+            if (stdout.truncated()) output = output + "\n…（输出已截断）";
+            if (process.exitValue() != 0) {
+                String detail = !err.isBlank() ? err : (!output.isBlank() ? output : "无错误输出");
+                throw new BusinessException(500, "脚本执行失败（exit " + process.exitValue() + "）："
+                        + truncate(detail, 1200));
+            }
+            return new Result(output, err, process.exitValue(), duration, stdout.truncated());
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("技能脚本执行异常：{}", e.getMessage());
+            throw new BusinessException(500, "脚本执行失败：" + rootMessage(e));
+        } finally {
+            if (dir != null) deleteRecursively(dir);
+        }
+    }
+
+    /** 根据技能参数定义生成工具 inputSchema。 */
+    public String inputSchema(Object params) {
+        Map<String, Object> props = new LinkedHashMap<>();
+        List<String> required = new ArrayList<>();
+        for (Map<String, Object> def : paramDefs(params)) {
+            String name = str(def.get("key"));
+            if (name == null || name.isBlank()) name = str(def.get("name"));
+            if (name == null || name.isBlank()) continue;
+            Map<String, Object> prop = new LinkedHashMap<>();
+            String type = str(def.get("type"));
+            prop.put("type", type == null || type.isBlank() ? "string" : type);
+            if (def.get("description") != null) prop.put("description", def.get("description"));
+            if (def.get("defaultValue") != null) prop.put("default", def.get("defaultValue"));
+            props.put(name, prop);
+            if (Boolean.TRUE.equals(def.get("required")) || "true".equals(String.valueOf(def.get("required")))) {
+                required.add(name);
+            }
+        }
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        schema.put("properties", props);
+        if (!required.isEmpty()) schema.put("required", required);
+        try {
+            return objectMapper.writeValueAsString(schema);
+        } catch (Exception e) {
+            return "{\"type\":\"object\",\"properties\":{}}";
+        }
+    }
+
+    /** 把技能参数默认值合并进调用参数（LLM 未传时使用默认值）。 */
+    public Map<String, Object> withDefaults(Object params, Map<String, Object> args) {
+        Map<String, Object> merged = new LinkedHashMap<>();
+        for (Map<String, Object> def : paramDefs(params)) {
+            String key = str(def.get("key"));
+            if (key == null || key.isBlank()) key = str(def.get("name"));
+            if (key != null && def.get("defaultValue") != null) merged.put(key, def.get("defaultValue"));
+        }
+        if (args != null) merged.putAll(args);
+        return merged;
+    }
+
+    public boolean enabled() {
+        return enabled;
+    }
+
+    private List<Map<String, Object>> paramDefs(Object params) {
+        Object parsed = params;
+        if (params instanceof String s) {
+            if (s.isBlank()) return List.of();
+            try {
+                parsed = objectMapper.readValue(s, Object.class);
+            } catch (Exception e) {
+                return List.of();
+            }
+        }
+        if (!(parsed instanceof List<?> list)) return List.of();
+        List<Map<String, Object>> defs = new ArrayList<>();
+        for (Object o : list) {
+            if (o instanceof Map<?, ?> m) {
+                Map<String, Object> def = new LinkedHashMap<>();
+                m.forEach((k, v) -> def.put(String.valueOf(k), v));
+                defs.add(def);
+            }
+        }
+        return defs;
+    }
+
+    private String normalizeLanguage(String language) {
+        String lang = language == null ? "" : language.trim().toUpperCase(Locale.ROOT);
+        if (lang.isBlank() || "NONE".equals(lang)) throw new BusinessException(400, "请选择脚本语言");
+        if (!List.of("PYTHON", "JAVASCRIPT", "JS").contains(lang)) {
+            throw new BusinessException(400, "不支持的脚本语言：" + language);
+        }
+        return "JS".equals(lang) ? "JAVASCRIPT" : lang;
+    }
+
+    private String prelude(String lang) {
+        if ("PYTHON".equals(lang)) {
+            return "import os, json\n"
+                    + "params = json.loads(os.environ.get(\"SKILL_ARGS\") or \"{}\")\n"
+                    + "args = params\n";
+        }
+        return "const params = JSON.parse(process.env.SKILL_ARGS || \"{}\");\n"
+                + "const args = params;\n";
+    }
+
+    private String resolveExecutable(String configured, String name) {
+        String resolved = findExecutable(configured);
+        if (resolved != null) return resolved;
+        resolved = findExecutable(name);
+        if (resolved != null) return resolved;
+        if ("node".equals(name)) {
+            File home = new File(System.getProperty("user.home", ""), "tools");
+            File[] dirs = home.listFiles();
+            if (dirs != null) {
+                for (File d : dirs) {
+                    if (d.isDirectory() && d.getName().startsWith("node-")) {
+                        File node = new File(d, "bin/node");
+                        if (node.canExecute()) return node.getAbsolutePath();
+                    }
+                }
+            }
+            for (String candidate : List.of("/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node")) {
+                if (new File(candidate).canExecute()) return candidate;
+            }
+        } else {
+            for (String candidate : List.of("/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3")) {
+                if (new File(candidate).canExecute()) return candidate;
+            }
+        }
+        throw new BusinessException(500, "未找到脚本运行环境（" + name + "），请配置 skill.script 命令");
+    }
+
+    private String findExecutable(String command) {
+        if (command == null || command.isBlank()) return null;
+        File direct = new File(command);
+        if (direct.isAbsolute()) return direct.canExecute() ? direct.getAbsolutePath() : null;
+        String path = System.getenv().getOrDefault("PATH", "");
+        for (String dir : path.split(File.pathSeparator)) {
+            if (dir.isBlank()) continue;
+            File f = new File(dir, command);
+            if (f.canExecute()) return f.getAbsolutePath();
+        }
+        return null;
+    }
+
+    private Capped readCapped(InputStream in, int cap) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int total = 0;
+        boolean truncated = false;
+        try {
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                if (total < cap) {
+                    int take = Math.min(n, cap - total);
+                    out.write(buf, 0, take);
+                    total += take;
+                    if (take < n) truncated = true;
+                } else {
+                    truncated = true;
+                }
+            }
+        } catch (Exception e) {
+            // 进程被超时终止时流会关闭，忽略读取异常
+        }
+        return new Capped(out.toString(StandardCharsets.UTF_8), truncated);
+    }
+
+    private void deleteRecursively(Path dir) {
+        try (var paths = Files.walk(dir)) {
+            paths.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                try { Files.deleteIfExists(p); } catch (Exception ignored) { }
+            });
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String rootMessage(Throwable e) {
+        Throwable t = e;
+        while (t.getCause() != null) t = t.getCause();
+        return t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
+    }
+
+    private String truncate(String text, int max) {
+        if (text == null) return "";
+        return text.length() <= max ? text : text.substring(0, max) + "…";
+    }
+
+    private String str(Object o) {
+        return o == null ? null : String.valueOf(o);
+    }
+}

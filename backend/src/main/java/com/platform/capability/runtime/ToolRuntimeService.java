@@ -98,6 +98,7 @@ public class ToolRuntimeService {
     private final CryptoService cryptoService;
     private final ChatModel chatModel;
     private final EmbeddingService embeddingService;
+    private final ScriptRunnerService scriptRunner;
     private final VectorRepository vectorRepository;
     private final KnowledgePermissionService permissionService;
     private final ObjectMapper objectMapper;
@@ -145,6 +146,9 @@ public class ToolRuntimeService {
             if (skill.getPrompt() != null && !skill.getPrompt().isBlank()) {
                 skillPrompt.append("\n\n【技能：").append(skill.getName()).append("】\n")
                         .append(applyVariables(skill.getPrompt(), skill.getParams(), variables));
+            }
+            if (hasTools && hasScript(skill)) {
+                addSkillScript(callbacks, names, skill, collector);
             }
             for (SkillDependency dep : skillDepMapper.selectBySkill(skillId)) {
                 if ("KNOWLEDGE_BASE".equals(dep.getDepType())) {
@@ -222,6 +226,59 @@ public class ToolRuntimeService {
             }
         });
         callbacks.removeIf(java.util.Objects::isNull);
+    }
+
+    private boolean hasScript(SkillRegistry skill) {
+        return ("PYTHON".equals(skill.getScriptLanguage()) || "JAVASCRIPT".equals(skill.getScriptLanguage()))
+                && skill.getScriptCode() != null && !skill.getScriptCode().isBlank();
+    }
+
+    /** 技能脚本注册为工具，模型可像普通工具一样调用。 */
+    private void addSkillScript(List<ToolCallback> callbacks, Set<String> names,
+                                SkillRegistry skill, ToolCallCollector collector) {
+        String toolName = "skill_" + skill.getId();
+        if (!toolName.matches("[a-zA-Z0-9_-]{1,64}") || !names.add(toolName)) return;
+        String schema = scriptRunner.inputSchema(skill.getParams());
+        int timeout = skill.getScriptTimeoutMs() == null ? 5000 : skill.getScriptTimeoutMs();
+        String description = (skill.getDescription() == null || skill.getDescription().isBlank()
+                ? "执行技能「" + skill.getName() + "」的脚本逻辑。"
+                : skill.getDescription() + "（技能「" + skill.getName() + "」脚本工具）");
+        callbacks.add(new ToolCallback() {
+            @Override
+            public ToolDefinition getToolDefinition() {
+                return ToolDefinition.builder()
+                        .name(toolName)
+                        .description(description)
+                        .inputSchema(schema)
+                        .build();
+            }
+
+            @Override
+            public String call(String toolInput) {
+                long start = System.currentTimeMillis();
+                String status = "SUCCESS";
+                String output;
+                try {
+                    Map<String, Object> args = scriptRunner.withDefaults(skill.getParams(), args(toolInput));
+                    ScriptRunnerService.Result result = scriptRunner.run(skill.getScriptLanguage(),
+                            skill.getScriptCode(), args, timeout);
+                    output = result.output().isBlank() ? "脚本执行完成（无输出）" : result.output();
+                    if (!result.stderr().isBlank()) {
+                        output = output + "\n[stderr] " + result.stderr();
+                    }
+                } catch (Exception e) {
+                    status = "ERROR";
+                    output = "技能脚本执行失败：" + rootMessage(e);
+                }
+                String modelOutput = limitModelOutput(output);
+                long end = System.currentTimeMillis();
+                collector.add(new ToolCallEvent(toolName, skill.getName(), "SKILL",
+                        null, null, status, end - start,
+                        truncate(toolInput, 4000), truncate(output, MAX_TOOL_EVENT_OUTPUT),
+                        0, 0, start, end));
+                return modelOutput;
+            }
+        });
     }
 
     /** 数据库绑定（agentId 非空）或调试配置中的数组。 */

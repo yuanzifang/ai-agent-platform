@@ -51,6 +51,7 @@ public class SkillService {
     private final ChatService chatService;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
+    private final com.platform.capability.runtime.ScriptRunnerService scriptRunner;
 
     public Map<String, Object> list(String keyword, String category, String type) {
         Long tenantId = TenantContext.getTenantId();
@@ -60,7 +61,9 @@ public class SkillService {
                     && !contains(s.getName(), keyword) && !contains(s.getDescription(), keyword)) continue;
             if (category != null && !category.isBlank() && !category.equals(s.getCategory())) continue;
             if (type != null && !type.isBlank() && !type.equalsIgnoreCase(s.getSkillType())) continue;
-            list.add(view(s, true));
+            Map<String, Object> v = view(s, true);
+            v.remove("scriptCode"); // 列表不返回脚本正文，详情/编辑再取
+            list.add(v);
         }
         return Map.of("list", list, "total", list.size());
     }
@@ -89,6 +92,7 @@ public class SkillService {
         s.setSkillType("CUSTOM");
         s.setPrompt(str(req.get("prompt")));
         s.setParams(json(req.getOrDefault("params", List.of())));
+        applyScriptFields(s, req, true);
         s.setStatus("ENABLED");
         s.setIsBuiltin(0);
         s.setTenantId(tenantId);
@@ -118,6 +122,7 @@ public class SkillService {
         if (req.containsKey("tags")) s.setTags(json(req.get("tags")));
         if (req.containsKey("prompt")) s.setPrompt(str(req.get("prompt")));
         if (req.containsKey("params")) s.setParams(json(req.getOrDefault("params", List.of())));
+        applyScriptFields(s, req, false);
         if (req.containsKey("status")) {
             String status = str(req.get("status"));
             if (!List.of("ENABLED", "DISABLED").contains(status)) throw new BusinessException(400, "非法状态");
@@ -196,6 +201,9 @@ public class SkillService {
         s.setTags(json(snap.get("tags")));
         s.setPrompt(str(snap.get("prompt")));
         s.setParams(json(snap.getOrDefault("params", List.of())));
+        s.setScriptLanguage(snap.get("scriptLanguage") == null ? "NONE" : str(snap.get("scriptLanguage")));
+        s.setScriptCode(str(snap.get("scriptCode")));
+        s.setScriptTimeoutMs(toInt(snap.get("scriptTimeoutMs"), 5000));
         s.setUpdatedAt(LocalDateTime.now());
         skillMapper.updateById(s);
         if (snap.get("dependencies") instanceof List<?> deps) {
@@ -216,22 +224,85 @@ public class SkillService {
                                     JwtPrincipal principal) {
         SkillRegistry s = visible(id);
         Map<String, Object> config = new LinkedHashMap<>();
-        config.put("systemPrompt", s.getPrompt() == null ? "" : s.getPrompt());
+        // 通过 skills 引用走完整装配：提示词、脚本工具、依赖工具/知识库
+        config.put("systemPrompt", "");
         config.put("variables", fromJsonValue(s.getParams()));
         config.put("agentCapabilities", Map.of("functionCall", true));
-        config.put("tools", dependencies(id).stream()
-                .filter(d -> "TOOL".equals(d.get("depType")))
-                .map(d -> Map.of("toolId", d.get("depId"), "enabled", true)).toList());
-        config.put("knowledgeBases", dependencies(id).stream()
-                .filter(d -> "KNOWLEDGE_BASE".equals(d.get("depType")))
-                .map(d -> Map.of("knowledgeBaseId", d.get("depId"), "enabled", true)).toList());
+        config.put("skills", List.of(Map.of("skillId", id, "enabled", true)));
         ModelEntity model = modelMapper.findDefaultChat(TenantContext.getTenantId());
         config.put("modelConfig", Map.of("modelName", model == null ? "deepseek-flash" : model.getModelName(),
                 "temperature", 0.3));
         return chatService.debugChat(config, input == null ? "你好" : input, viewer, principal);
     }
 
+    /** 脚本直跑测试：使用当前编辑中的代码，不需要先保存。 */
+    public Map<String, Object> testScript(Map<String, Object> req) {
+        Object argsObj = req.get("args");
+        Map<String, Object> args = new LinkedHashMap<>();
+        if (argsObj instanceof Map<?, ?> m) {
+            for (Map.Entry<?, ?> e : m.entrySet()) {
+                args.put(String.valueOf(e.getKey()), e.getValue());
+            }
+        } else if (argsObj instanceof String text && !text.isBlank()) {
+            try {
+                args = fromJsonMap(text);
+            } catch (Exception e) {
+                throw new BusinessException(400, "脚本参数不是合法 JSON");
+            }
+        }
+        Map<String, Object> merged = scriptRunner.withDefaults(req.get("params"), args);
+        var result = scriptRunner.run(str(req.get("scriptLanguage")), str(req.get("scriptCode")),
+                merged, toInt(req.get("scriptTimeoutMs"), 5000));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("output", result.output());
+        out.put("stderr", result.stderr());
+        out.put("exitCode", result.exitCode());
+        out.put("durationMs", result.durationMs());
+        out.put("truncated", result.truncated());
+        return out;
+    }
+
     // ---------- helpers ----------
+
+    private void applyScriptFields(SkillRegistry s, Map<String, Object> req, boolean creating) {
+        if (creating || req.containsKey("scriptLanguage")) {
+            String lang = str(req.get("scriptLanguage"));
+            lang = lang == null || lang.isBlank() ? "NONE" : lang.trim().toUpperCase();
+            if ("JS".equals(lang)) lang = "JAVASCRIPT";
+            if (!List.of("NONE", "PYTHON", "JAVASCRIPT").contains(lang)) {
+                throw new BusinessException(400, "不支持的脚本语言：" + req.get("scriptLanguage"));
+            }
+            s.setScriptLanguage(lang);
+        }
+        if (creating || req.containsKey("scriptCode")) {
+            s.setScriptCode(str(req.get("scriptCode")));
+        }
+        if (creating || req.containsKey("scriptTimeoutMs")) {
+            s.setScriptTimeoutMs(Math.max(500, Math.min(toInt(req.get("scriptTimeoutMs"), 5000), 60000)));
+        }
+        String lang = s.getScriptLanguage();
+        boolean scriptOn = "PYTHON".equals(lang) || "JAVASCRIPT".equals(lang);
+        if (scriptOn && (s.getScriptCode() == null || s.getScriptCode().isBlank())) {
+            throw new BusinessException(400, "启用脚本时脚本代码不能为空");
+        }
+        if (s.getScriptCode() != null && s.getScriptCode().length() > 50000) {
+            throw new BusinessException(400, "脚本代码过长（上限 50000 字符）");
+        }
+        if (s.getScriptTimeoutMs() == null) s.setScriptTimeoutMs(5000);
+    }
+
+    private boolean hasScript(SkillRegistry s) {
+        return ("PYTHON".equals(s.getScriptLanguage()) || "JAVASCRIPT".equals(s.getScriptLanguage()))
+                && s.getScriptCode() != null && !s.getScriptCode().isBlank();
+    }
+
+    private int toInt(Object o, int defaultValue) {
+        if (o instanceof Number n) return n.intValue();
+        if (o instanceof String s && !s.isBlank()) {
+            try { return Integer.parseInt(s.trim()); } catch (NumberFormatException ignored) { }
+        }
+        return defaultValue;
+    }
 
     private SkillRegistry visible(Long id) {
         SkillRegistry s = skillMapper.findVisible(id, TenantContext.getTenantId());
@@ -265,6 +336,10 @@ public class SkillService {
         m.put("skillType", s.getSkillType());
         m.put("prompt", s.getPrompt());
         m.put("params", fromJsonValue(s.getParams()));
+        m.put("scriptLanguage", s.getScriptLanguage() == null ? "NONE" : s.getScriptLanguage());
+        m.put("scriptCode", s.getScriptCode());
+        m.put("scriptTimeoutMs", s.getScriptTimeoutMs() == null ? 5000 : s.getScriptTimeoutMs());
+        m.put("hasScript", hasScript(s));
         m.put("status", s.getStatus());
         m.put("isBuiltin", s.getIsBuiltin() != null && s.getIsBuiltin() == 1);
         m.put("createdAt", s.getCreatedAt());
@@ -328,6 +403,9 @@ public class SkillService {
         snap.put("tags", fromJsonValue(s.getTags()));
         snap.put("prompt", s.getPrompt());
         snap.put("params", fromJsonValue(s.getParams()));
+        snap.put("scriptLanguage", s.getScriptLanguage() == null ? "NONE" : s.getScriptLanguage());
+        snap.put("scriptCode", s.getScriptCode());
+        snap.put("scriptTimeoutMs", s.getScriptTimeoutMs() == null ? 5000 : s.getScriptTimeoutMs());
         snap.put("dependencies", dependencies(s.getId()));
         return snap;
     }

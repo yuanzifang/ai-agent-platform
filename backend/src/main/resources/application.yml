@@ -78,6 +78,15 @@ embedding:
   model: nomic-embed-text
   dimensions: 768
 
+skill:
+  script:
+    # 技能脚本执行（Python/JavaScript）；生产建议接入容器级隔离执行器
+    enabled: ${SKILL_SCRIPT_ENABLED:true}
+    python-command: ${SKILL_SCRIPT_PYTHON:python3}
+    node-command: ${SKILL_SCRIPT_NODE:node}
+    max-output-bytes: ${SKILL_SCRIPT_MAX_OUTPUT:65536}
+    max-code-length: ${SKILL_SCRIPT_MAX_CODE:50000}
+
 knowledge:
   parse:
     # 解析失败手动重试上限（需求 3.6.3(2)，默认 3 次，超限需人工介入）

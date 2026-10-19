@@ -27,6 +27,9 @@
         <template #default="{ row }">
           {{ row.name }}
           <el-tag v-if="row.isBuiltin" size="small" type="info">内置</el-tag>
+          <el-tag v-if="row.hasScript" size="small" type="warning" class="ml8">
+            {{ row.scriptLanguage === 'PYTHON' ? 'Python 脚本' : 'JS 脚本' }}
+          </el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="category" label="分类" width="90" />
@@ -57,7 +60,7 @@
     </el-table>
 
     <!-- 新建/编辑 -->
-    <el-dialog v-model="editVisible" :title="editForm.id ? '编辑技能' : '新建技能'" width="620px">
+    <el-dialog v-model="editVisible" :title="editForm.id ? '编辑技能' : '新建技能'" width="780px">
       <el-form label-width="90px">
         <el-form-item label="名称" required>
           <el-input v-model="editForm.name" maxlength="128" />
@@ -77,8 +80,39 @@
         </el-form-item>
         <el-form-item label="参数定义">
           <el-input v-model="editForm.params" type="textarea" :rows="3"
-                    placeholder='JSON 数组，如 [{"key":"lang","defaultValue":"英文"}]' />
+                    placeholder='JSON 数组，如 [{"key":"lang","type":"string","defaultValue":"英文"}]' />
         </el-form-item>
+        <el-form-item label="脚本">
+          <el-select v-model="editForm.scriptLanguage" style="width: 200px">
+            <el-option label="不启用" value="NONE" />
+            <el-option label="Python 3" value="PYTHON" />
+            <el-option label="JavaScript (Node)" value="JAVASCRIPT" />
+          </el-select>
+          <span class="hint">启用后作为工具 skill_&lt;id&gt; 供 Agent 调用；stdout 即结果</span>
+        </el-form-item>
+        <template v-if="editForm.scriptLanguage !== 'NONE'">
+          <el-alert type="warning" :closable="false" show-icon class="mb12"
+                    title="脚本在服务器本机进程执行（有超时/输出上限），请只运行可信代码；生产环境建议使用隔离执行器。" />
+          <el-form-item label="脚本代码">
+            <el-input v-model="editForm.scriptCode" type="textarea" :rows="10" class="code-area"
+                      :placeholder="scriptPlaceholder" />
+          </el-form-item>
+          <el-form-item label="执行超时">
+            <el-input-number v-model="editForm.scriptTimeoutMs" :min="500" :max="60000" :step="500" />
+            <span class="hint">ms；脚本内用 params 读取参数，print(结果) 输出</span>
+          </el-form-item>
+          <el-form-item label="脚本测试">
+            <div class="script-test">
+              <el-input v-model="scriptArgs" type="textarea" :rows="2"
+                        placeholder='测试参数 JSON，如 {"text":"hello"}' />
+              <div class="mt8">
+                <el-button type="primary" plain :loading="scriptTesting" @click="testScript">运行脚本</el-button>
+                <span class="hint">只执行脚本，不调用模型，不需要先保存</span>
+              </div>
+              <pre v-if="scriptOutput" class="script-output">{{ scriptOutput }}</pre>
+            </div>
+          </el-form-item>
+        </template>
         <el-form-item label="依赖工具">
           <el-select v-model="editForm.toolIds" multiple filterable style="width: 100%"
                      placeholder="可选：该技能自动启用的工具">
@@ -162,8 +196,16 @@ const editVisible = ref(false)
 const saving = ref(false)
 const editForm = reactive({
   id: 0, name: '', description: '', category: '', tags: '',
-  prompt: '', params: '[]', toolIds: [] as number[], kbIds: [] as number[]
+  prompt: '', params: '[]',
+  scriptLanguage: 'NONE', scriptCode: '', scriptTimeoutMs: 5000,
+  toolIds: [] as number[], kbIds: [] as number[]
 })
+const scriptArgs = ref('{}')
+const scriptOutput = ref('')
+const scriptTesting = ref(false)
+const scriptPlaceholder = computed(() => editForm.scriptLanguage === 'PYTHON'
+  ? '# 可用 params（或 args）读取调用参数，print 输出结果\nresult = params.get("a", 0) + params.get("b", 0)\nprint(result)'
+  : '// 可用 params（或 args）读取调用参数，console.log 输出结果\nconsole.log(Number(params.a || 0) + Number(params.b || 0));')
 
 const testVisible = ref(false)
 const testing = ref(false)
@@ -215,8 +257,11 @@ function depText(deps?: any[]) {
 function openCreate() {
   Object.assign(editForm, {
     id: 0, name: '', description: '', category: '', tags: '', prompt: '', params: '[]',
+    scriptLanguage: 'NONE', scriptCode: '', scriptTimeoutMs: 5000,
     toolIds: [], kbIds: []
   })
+  scriptArgs.value = '{}'
+  scriptOutput.value = ''
   editVisible.value = true
 }
 
@@ -231,10 +276,39 @@ async function openEdit(row: any) {
     tags: (detail.tags || []).join(','),
     prompt: detail.prompt || '',
     params: JSON.stringify(detail.params || [], null, 2),
+    scriptLanguage: detail.scriptLanguage || 'NONE',
+    scriptCode: detail.scriptCode || '',
+    scriptTimeoutMs: detail.scriptTimeoutMs || 5000,
     toolIds: deps.filter(d => d.depType === 'TOOL').map(d => d.depId),
     kbIds: deps.filter(d => d.depType === 'KNOWLEDGE_BASE').map(d => d.depId)
   })
+  scriptArgs.value = '{}'
+  scriptOutput.value = ''
   editVisible.value = true
+}
+
+async function testScript() {
+  if (!editForm.scriptCode.trim()) { ElMessage.warning('请先填写脚本代码'); return }
+  let args: any = {}
+  if (scriptArgs.value.trim()) {
+    try { args = JSON.parse(scriptArgs.value) } catch { ElMessage.error('测试参数不是合法 JSON'); return }
+  }
+  scriptTesting.value = true
+  scriptOutput.value = ''
+  try {
+    const res = await http.post('/skills/script/test', {
+      scriptLanguage: editForm.scriptLanguage,
+      scriptCode: editForm.scriptCode,
+      scriptTimeoutMs: editForm.scriptTimeoutMs,
+      params: editForm.params,
+      args
+    }) as any
+    scriptOutput.value = `输出（${res.durationMs}ms）\n${res.output || '（无输出）'}`
+      + (res.stderr ? `\n[stderr]\n${res.stderr}` : '')
+      + (res.truncated ? '\n…（输出已截断）' : '')
+  } finally {
+    scriptTesting.value = false
+  }
 }
 
 function parseJson(text: string, label: string) {
@@ -251,6 +325,9 @@ async function save() {
   if (!editForm.name.trim()) { ElMessage.warning('名称必填'); return }
   const params = parseJson(editForm.params, '参数定义')
   if (params === undefined) return
+  if (editForm.scriptLanguage !== 'NONE' && !editForm.scriptCode.trim()) {
+    ElMessage.warning('启用脚本时请填写脚本代码'); return
+  }
   saving.value = true
   try {
     const payload = {
@@ -260,6 +337,9 @@ async function save() {
       tags: editForm.tags.split(/[,，]/).map(t => t.trim()).filter(Boolean),
       prompt: editForm.prompt,
       params: params || [],
+      scriptLanguage: editForm.scriptLanguage,
+      scriptCode: editForm.scriptCode,
+      scriptTimeoutMs: editForm.scriptTimeoutMs,
       toolIds: editForm.toolIds,
       knowledgeBaseIds: editForm.kbIds
     }
@@ -341,4 +421,23 @@ async function remove(row: any) {
 .test-label { font-size: 12px; color: #909399; margin-bottom: 4px; }
 .test-output { white-space: pre-wrap; font-size: 13px; line-height: 1.6; }
 .test-tool { font-size: 12px; color: #606266; }
+.ml8 { margin-left: 8px; }
+.code-area :deep(textarea) {
+  font-family: Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.script-test { width: 100%; }
+.script-output {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 220px;
+  overflow: auto;
+}
 </style>

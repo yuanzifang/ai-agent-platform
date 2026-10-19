@@ -19,11 +19,31 @@ import java.util.Map;
 public class PromptTemplateController {
 
     private final PromptTemplateService service;
+    private final com.platform.agent.service.PromptOptimizeService promptOptimizeService;
 
     @GetMapping
     public ApiResponse<Map<String, Object>> list(@RequestParam(required = false) String keyword,
                                                  @RequestParam(required = false) String category) {
         return ApiResponse.ok(service.list(keyword, category));
+    }
+
+    public record OptimizeRequest(String prompt, String name, String description,
+                                  String modelName, String instruction, String style) {
+    }
+
+    /** Prompt 模板 AI 优化：结果只返回给前端，需手动应用/保存。 */
+    @PostMapping("/optimize")
+    @PreAuthorize("hasAuthority('prompt:manage')")
+    public ApiResponse<Map<String, Object>> optimize(@RequestBody OptimizeRequest req,
+                                                     @AuthenticationPrincipal JwtPrincipal principal) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("prompt", req.prompt());
+        body.put("name", req.name());
+        body.put("description", req.description());
+        body.put("modelName", req.modelName());
+        body.put("instruction", req.instruction());
+        body.put("style", req.style());
+        return ApiResponse.ok(promptOptimizeService.optimize(body, principal));
     }
 
     @GetMapping("/{id}")
