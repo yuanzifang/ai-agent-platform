@@ -430,6 +430,7 @@
       </div>
       <div class="tab-actions">
         <el-button type="primary" size="small" @click="openKeyCreate">创建 API Key</el-button>
+        <el-button size="small" :loading="widgetCreating" @click="createWidgetKey">生成网页挂件</el-button>
         <span class="hint">每个 Agent 最多 10 个；0 表示不限制</span>
       </div>
       <el-table :data="apiKeys" size="small">
@@ -460,6 +461,15 @@
       </el-table>
       <el-empty v-if="apiKeys.length === 0" description="暂无 API Key" :image-size="50" />
 
+      <div v-if="widgetSnippet" class="created-key">
+        <div class="ck-title">网页挂件嵌入代码（Key 仅显示一次，请立即保存）</div>
+        <el-input :model-value="widgetSnippet" type="textarea" :rows="3" readonly />
+        <div class="mt8">
+          <el-button size="small" type="primary" @click="copyWidget">复制嵌入代码</el-button>
+          <el-button size="small" @click="previewWidget">预览挂件</el-button>
+        </div>
+      </div>
+
       <div v-if="createdKey" class="created-key">
         <div class="ck-title">API Key 已创建（仅显示一次，请立即保存）</div>
         <div class="ck-row">
@@ -478,6 +488,7 @@
           <el-select v-model="keyForm.channel" style="width: 180px">
             <el-option label="API" value="API" />
             <el-option label="Web" value="WEB" />
+            <el-option label="网页挂件" value="WIDGET" />
             <el-option label="第三方集成" value="THIRD_PARTY" />
           </el-select>
         </el-form-item>
@@ -659,6 +670,9 @@ const resultsTitle = ref('')
 const integrationVisible = ref(false)
 const apiKeys = ref<any[]>([])
 const createdKey = ref('')
+const widgetSnippet = ref('')
+const widgetKey = ref('')
+const widgetCreating = ref(false)
 const keyCreateVisible = ref(false)
 const keySaving = ref(false)
 const keyForm = reactive({ name: '', channel: 'API', dailyLimit: 0, minuteLimit: 0 })
@@ -941,6 +955,8 @@ async function removeSchedule(row: any) {
 async function openIntegration() {
   integratedAgentId.value = agentId
   createdKey.value = ''
+  widgetSnippet.value = ''
+  widgetKey.value = ''
   await loadApiKeys()
   integrationVisible.value = true
 }
@@ -969,6 +985,35 @@ async function createKey() {
   } finally {
     keySaving.value = false
   }
+}
+
+async function createWidgetKey() {
+  widgetCreating.value = true
+  try {
+    const res = await http.post(`/agent/${agentId}/api-keys`, {
+      name: '网页挂件', channel: 'WIDGET', dailyLimit: 0, minuteLimit: 60
+    }) as any
+    widgetKey.value = res.apiKey
+    const src = `${location.origin}/widget?key=${encodeURIComponent(res.apiKey)}`
+    widgetSnippet.value = `<iframe src="${src}" title="AI 助手" style="width:100%;height:640px;border:0;border-radius:12px"></iframe>`
+    ElMessage.success('网页挂件已生成，请复制嵌入代码')
+    await loadApiKeys()
+  } finally {
+    widgetCreating.value = false
+  }
+}
+
+async function copyWidget() {
+  try {
+    await navigator.clipboard.writeText(widgetSnippet.value)
+    ElMessage.success('已复制嵌入代码')
+  } catch {
+    ElMessage.warning('复制失败，请手动选择')
+  }
+}
+
+function previewWidget() {
+  if (widgetKey.value) window.open(`/widget?key=${encodeURIComponent(widgetKey.value)}`, '_blank')
 }
 
 async function copyKey() {

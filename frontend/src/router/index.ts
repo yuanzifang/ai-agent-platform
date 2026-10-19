@@ -5,6 +5,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', component: () => import('../views/LoginView.vue') },
+    { path: '/widget', component: () => import('../views/WidgetView.vue') },
     { path: '/share/:token', component: () => import('../views/ShareView.vue') },
     { path: '/sso/callback', component: () => import('../views/SsoCallbackView.vue') },
     { path: '/reset-password', component: () => import('../views/ResetPasswordView.vue') },
@@ -46,7 +47,7 @@ router.beforeEach((to) => {
   const user = useUserStore()
   // 公开路由：登录、SSO 回调、会话分享
   if (to.path === '/login' || to.path === '/sso/callback' || to.path === '/reset-password'
-      || to.path.startsWith('/share/')) return
+      || to.path === '/widget' || to.path.startsWith('/share/')) return
   if (!user.accessToken) {
     return '/login'
   }

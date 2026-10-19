@@ -223,7 +223,7 @@ public class ApiKeyService {
 
     private String normalizeChannel(Object raw) {
         String channel = raw == null ? "API" : String.valueOf(raw).toUpperCase(Locale.ROOT);
-        if (!List.of("WEB", "API", "THIRD_PARTY").contains(channel)) {
+        if (!List.of("WEB", "API", "WIDGET", "THIRD_PARTY").contains(channel)) {
             throw new BusinessException(400, "调用渠道仅支持 WEB/API/THIRD_PARTY");
         }
         return channel;

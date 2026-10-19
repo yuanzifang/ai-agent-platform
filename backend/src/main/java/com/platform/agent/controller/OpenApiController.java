@@ -46,6 +46,27 @@ public class OpenApiController {
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
 
+    /** 网页挂件初始化：返回 Agent 展示信息（API Key 鉴权）。 */
+    @GetMapping("/agent/info")
+    public com.platform.common.response.ApiResponse<Map<String, Object>> agentInfo(
+            @RequestHeader(value = "X-Api-Key", required = false) String xApiKey,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        IntegrationApiKey key = apiKeyService.authenticate(extractKey(xApiKey, authorization));
+        AgentRegistry agent = TenantContext.runWith(key.getTenantId(),
+                () -> agentMapper.selectById(key.getAgentId()));
+        if (agent == null || !"PUBLISHED".equals(agent.getStatus())) {
+            throw new BusinessException(403, "Agent 未发布，无法使用挂件");
+        }
+        Map<String, Object> info = new LinkedHashMap<>();
+        info.put("agentId", agent.getId());
+        info.put("name", applyVars(agent.getName(), agent.getVariables()));
+        info.put("description", applyVars(agent.getDescription(), agent.getVariables()));
+        info.put("openingStatement", applyVars(agent.getOpeningStatement(), agent.getVariables()));
+        info.put("avatarUrl", agent.getAvatarUrl());
+        info.put("category", agent.getCategory());
+        return com.platform.common.response.ApiResponse.ok(info);
+    }
+
     @PostMapping(value = "/chat/completions",
             produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_EVENT_STREAM_VALUE})
     public Object chatCompletions(
@@ -372,6 +393,25 @@ public class OpenApiController {
                 return String.valueOf(m.get("content"));
             }
             return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private String applyVars(String text, String variablesJson) {
+        if (text == null || variablesJson == null || variablesJson.isBlank()) return text;
+        try {
+            List<Map<String, Object>> vars = objectMapper.readValue(variablesJson, List.class);
+            String result = text;
+            for (Map<String, Object> v : vars) {
+                Object key = v.get("key");
+                Object def = v.get("defaultValue");
+                if (key != null && def != null) {
+                    result = result.replace("{{" + key + "}}", String.valueOf(def));
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            return text;
         }
     }
 
