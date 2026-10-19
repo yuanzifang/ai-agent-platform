@@ -10,11 +10,12 @@
       <el-button v-if="detail.canEdit" @click="openEdit">编辑</el-button>
       <el-button v-if="detail.canEdit" @click="openPermission">权限设置</el-button>
       <el-upload v-if="detail.canEdit" :show-file-list="false" :before-upload="upload" :disabled="uploading"
-                 accept=".md,.txt,.docx,.pdf">
+                 accept=".md,.txt,.docx,.pdf,.xlsx,.xls,.pptx,.html,.htm,.csv,.json">
         <el-button type="primary" :loading="uploading">
           {{ uploading ? '上传中…' : '上传文档' }}
         </el-button>
       </el-upload>
+      <el-button v-if="detail.canEdit" @click="urlVisible = true">URL 导入</el-button>
       <el-button v-if="detail.canEdit" type="danger" plain @click="removeKb">删除</el-button>
     </div>
 
@@ -99,6 +100,19 @@
     </el-dialog>
 
     <!-- 权限设置（需求 3.6.3(5)：只有我 / 所有团队成员 / 部分团队成员） -->
+    <el-dialog v-model="urlVisible" title="从 URL 导入" width="540px">
+      <el-form label-width="70px">
+        <el-form-item label="URL" required>
+          <el-input v-model="urlForm.url" placeholder="https://example.com/manual.html" />
+        </el-form-item>
+      </el-form>
+      <div class="hint">支持网页/PDF/文本/JSON/CSV；生产建议 TOOL_ALLOW_PRIVATE=false，防止抓取内网地址。</div>
+      <template #footer>
+        <el-button @click="urlVisible = false">取消</el-button>
+        <el-button type="primary" :loading="urlImporting" @click="importUrl">导入</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="permVisible" title="权限设置" width="620px">
       <el-form label-width="90px">
         <el-form-item label="可见范围">
@@ -158,6 +172,9 @@ const detail = reactive<Record<string, any>>({
 })
 const documents = ref<any[]>([])
 const uploading = ref(false)
+const urlVisible = ref(false)
+const urlImporting = ref(false)
+const urlForm = reactive({ url: '' })
 const searching = ref(false)
 const searched = ref(false)
 const results = ref<any[]>([])
@@ -292,6 +309,21 @@ async function upload(file: File) {
     uploading.value = false
   }
   return false // 阻止 el-upload 默认行为
+}
+
+async function importUrl() {
+  if (!urlForm.url.trim()) { ElMessage.warning('请输入 URL'); return }
+  urlImporting.value = true
+  try {
+    await http.post(`/knowledge-base/${kbId}/documents/url`, { url: urlForm.url.trim() })
+    ElMessage.success('已提交抓取，后台解析分段中…')
+    urlVisible.value = false
+    urlForm.url = ''
+    await loadDocs()
+    pollDocs()
+  } finally {
+    urlImporting.value = false
+  }
 }
 
 async function toggleChunks(row: any) {

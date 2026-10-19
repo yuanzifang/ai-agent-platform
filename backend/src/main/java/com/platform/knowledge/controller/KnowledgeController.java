@@ -125,6 +125,17 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.callback(id, req.objectName(), viewer(principal)));
     }
 
+    public record UrlImportRequest(@NotBlank String url) {
+    }
+
+    /** URL 导入（网页/PDF/文本），复用对象存储 + 异步解析。 */
+    @PostMapping("/{id}/documents/url")
+    public ApiResponse<Map<String, Object>> importUrl(@PathVariable Long id,
+                                                      @Valid @RequestBody UrlImportRequest req,
+                                                      @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(knowledgeService.importUrl(id, req.url(), viewer(principal)));
+    }
+
     @GetMapping("/{id}/documents")
     public ApiResponse<List<KnowledgeDocument>> documents(@PathVariable Long id,
                                                           @AuthenticationPrincipal JwtPrincipal principal) {

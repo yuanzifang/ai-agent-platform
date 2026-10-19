@@ -13,6 +13,7 @@ import com.platform.billing.service.QuotaService;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
+import com.platform.common.security.NetworkPolicyService;
 import com.platform.knowledge.entity.KnowledgeBase;
 import com.platform.knowledge.entity.KnowledgeChunk;
 import com.platform.knowledge.entity.KnowledgeDocument;
@@ -31,6 +32,11 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -61,6 +67,7 @@ public class KnowledgeService {
     private final AgentKnowledgeBaseMapper agentKbMapper;
     private final AgentRegistryMapper agentRegistryMapper;
     private final AuditService auditService;
+    private final NetworkPolicyService networkPolicy;
 
     /** 解析失败重试上限（需求 3.6.3(2)：默认 3 次，超限后需人工介入）。 */
     @Value("${knowledge.parse.max-retries:3}")
@@ -69,6 +76,10 @@ public class KnowledgeService {
     /** 自动重试次数（指数退避），失败后才置 FAILED，用户仍可手动重试。 */
     @Value("${knowledge.parse.auto-retries:2}")
     private int autoParseRetries;
+
+    /** URL 导入最大响应体（默认 5MB）。 */
+    @Value("${knowledge.import.max-bytes:5242880}")
+    private int importMaxBytes;
 
     /** 文档解析专用线程池（架构 2.3）；队列满时 CallerRuns 保证不丢任务。 */
     @Resource(name = "documentParseExecutor")
@@ -335,6 +346,112 @@ public class KnowledgeService {
 
         triggerParse(tenantId, doc.getId());
         return Map.of("documentId", doc.getId(), "status", doc.getStatus());
+    }
+
+    /** URL 导入：抓取网页/PDF/文本并存入对象存储，复用回调登记与异步解析。 */
+    public Map<String, Object> importUrl(Long kbId, String rawUrl, KnowledgePermissionService.Viewer viewer) {
+        permissionService.requireEdit(kbId, viewer);
+        if (rawUrl == null || rawUrl.isBlank()) throw new BusinessException(400, "URL 不能为空");
+        String url = rawUrl.trim();
+        networkPolicy.validateHttpUrl(url, "URL");
+        Fetched fetched;
+        try {
+            fetched = fetch(url, 0);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(502, "URL 抓取失败：" + rootMessage(e));
+        }
+        if (fetched.bytes.length > importMaxBytes) {
+            throw new BusinessException(413, "URL 内容超过 " + (importMaxBytes / 1024 / 1024) + "MB 限制");
+        }
+        quotaService.checkStorage(fetched.bytes.length);
+        Long tenantId = TenantContext.getTenantId();
+        String fileName = fileNameFor(fetched.finalUrl, fetched.contentType);
+        String objectName = tenantId + "/knowledge/" + kbId + "/"
+                + UUID.randomUUID().toString().replace("-", "").substring(0, 12) + "/" + fileName;
+        storage.put(objectName, fetched.bytes, fetched.contentType);
+        Map<String, Object> result = new LinkedHashMap<>(callback(kbId, objectName, viewer));
+        result.put("sourceUrl", fetched.finalUrl);
+        result.put("fileName", fileName);
+        auditService.record(viewer.userId(), "kb.document.url_import", "knowledge_document",
+                String.valueOf(result.get("documentId")), "SUCCESS",
+                Map.of("kbId", kbId, "url", fetched.finalUrl, "fileName", fileName));
+        return result;
+    }
+
+    private record Fetched(byte[] bytes, String contentType, String finalUrl) {
+    }
+
+    private Fetched fetch(String url, int depth) throws Exception {
+        if (depth > 3) throw new BusinessException(400, "URL 重定向次数过多");
+        networkPolicy.validateHttpUrl(url, "URL");
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(20))
+                .header("User-Agent", "AI-Agent-Platform/1.0")
+                .header("Accept", "text/html,text/plain,application/pdf,application/json,text/csv;q=0.9,*/*;q=0.1")
+                .GET().build();
+        HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        int status = response.statusCode();
+        if (status >= 300 && status < 400) {
+            String location = response.headers().firstValue("location").orElse(null);
+            if (location == null || location.isBlank()) {
+                throw new BusinessException(502, "URL 返回重定向但缺少 Location");
+            }
+            String next = URI.create(url).resolve(location).toString();
+            return fetch(next, depth + 1);
+        }
+        if (status < 200 || status >= 300) {
+            throw new BusinessException(502, "URL 抓取失败：HTTP " + status);
+        }
+        long contentLength = response.headers().firstValueAsLong("content-length").orElse(-1);
+        if (contentLength > importMaxBytes) {
+            throw new BusinessException(413, "URL 内容超过 " + (importMaxBytes / 1024 / 1024) + "MB 限制");
+        }
+        String contentType = response.headers().firstValue("content-type")
+                .orElse("text/html").toLowerCase().split(";")[0].trim();
+        if (!(contentType.startsWith("text/") || contentType.equals("application/pdf")
+                || contentType.equals("application/json")
+                || contentType.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document"))) {
+            throw new BusinessException(400, "URL 内容类型不支持：" + contentType);
+        }
+        return new Fetched(response.body(), contentType, url);
+    }
+
+    private String fileNameFor(String url, String contentType) {
+        String name = "url-import";
+        try {
+            String path = URI.create(url).getPath();
+            if (path != null && !path.isBlank()) {
+                String last = path.substring(path.lastIndexOf('/') + 1);
+                if (!last.isBlank()) name = last;
+            }
+        } catch (Exception ignored) {
+        }
+        name = name.replaceAll("[^a-zA-Z0-9._-]", "_");
+        if (name.length() > 80) name = name.substring(name.length() - 80);
+        String lower = name.toLowerCase();
+        boolean hasKnownExt = lower.matches(".*\\.(html?|pdf|txt|md|csv|json|docx)$");
+        if (hasKnownExt) return name;
+        String ext = switch (contentType) {
+            case "application/pdf" -> ".pdf";
+            case "application/json" -> ".json";
+            case "text/csv" -> ".csv";
+            case "text/markdown" -> ".md";
+            case "text/html" -> ".html";
+            default -> ".txt";
+        };
+        return name + ext;
+    }
+
+    private String rootMessage(Throwable e) {
+        Throwable t = e;
+        while (t.getCause() != null) t = t.getCause();
+        return t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
     }
 
     /** 异步触发解析（专用线程池 + 还原租户上下文）。 */
