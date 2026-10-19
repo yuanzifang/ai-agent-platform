@@ -122,6 +122,14 @@ class OpenAiHandler(BaseHTTPRequestHandler):
         LAST_OPENAI.clear()
         LAST_OPENAI.update(body)
         answer = answer_for(body)
+        last_user = ""
+        for m in body.get("messages") or []:
+            if m.get("role") == "user":
+                c = m.get("content")
+                last_user = c if isinstance(c, str) else str(c)
+        slow = "长回答" in last_user
+        if slow:
+            answer = "长回答：" + "这是模拟流式内容。 " * 40
         if isinstance(answer, dict) and answer.get("tool_call"):
             return self._json(200, tool_call_payload(body, answer["tool_call"]))
         if body.get("stream"):
@@ -140,6 +148,8 @@ class OpenAiHandler(BaseHTTPRequestHandler):
                          "choices": [{"index": 0, "delta": {"content": c}, "finish_reason": None}]}
                 self.wfile.write(f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode())
                 self.wfile.flush()
+                if slow:
+                    time.sleep(0.2)
             done = {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 0,
                     "model": body.get("model", "mock-model"),
                     "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],

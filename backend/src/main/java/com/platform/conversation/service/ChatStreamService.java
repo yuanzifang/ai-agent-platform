@@ -47,7 +47,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 正式对话执行（需求文档 3.4 / 7.4）：发布版本快照加载、记忆滚动窗口、RAG、
@@ -77,10 +76,9 @@ public class ChatStreamService {
     private final ModerationService moderationService;
     private final TraceService traceService;
     private final ObjectMapper objectMapper;
+    private final StreamRegistryService streamRegistry;
 
     private static final int MEMORY_WINDOW = 10;
-    /** conversationId → 进行中的流（停止/断开时 dispose 并落 STOPPED）。 */
-    private static final Map<Long, Disposable> ACTIVE = new ConcurrentHashMap<>();
 
     public record SendRequest(String message, Boolean stream, Map<String, Object> variables, List<Long> attachmentIds) {
     }
@@ -183,13 +181,10 @@ public class ChatStreamService {
                 new com.platform.capability.runtime.TraceStepCollector(), null);
     }
 
-    /** 停止生成（幂等）：断开进行中的流并落 STOPPED。 */
+    /** 停止生成（幂等）：本实例直接 dispose，其他实例广播 Redis 停止信号。 */
     public void stop(Long conversationId, Long messageId, JwtPrincipal principal) {
         conversationService.owned(conversationId, principal);
-        Disposable d = ACTIVE.remove(conversationId);
-        if (d != null && !d.isDisposed()) {
-            d.dispose(); // doOnCancel 负责落库 STOPPED
-        }
+        streamRegistry.stop(conversationId);
     }
 
     // ---------- 生成主流程 ----------
@@ -300,7 +295,7 @@ public class ChatStreamService {
                 },
                 err -> {
                     log.error("对话流式失败 conversation={}：{}", conv.getId(), err.getMessage());
-                    ACTIVE.remove(conv.getId());
+                    streamRegistry.unregister(conv.getId());
                     TenantContext.run(tenantId, () -> {
                         Message ai = newMessage(conv, traceId, parentMessageId, regenerated);
                         ai.setContent(acc.toString());
@@ -317,7 +312,7 @@ public class ChatStreamService {
                     out.complete();
                 },
                 () -> {
-                    ACTIVE.remove(conv.getId());
+                    streamRegistry.unregister(conv.getId());
                     if (tokens[0] == 0 && tokens[1] == 0) {
                         tokens[0] = estimateTokens(userMsg.getContent() + finalSystemPrompt);
                         tokens[1] = estimateTokens(acc.toString());
@@ -328,7 +323,7 @@ public class ChatStreamService {
 
         // 停止/断开：取消上游，落 STOPPED（幂等保护）
         Runnable cancel = () -> {
-            if (ACTIVE.remove(conv.getId()) != null) {
+            if (streamRegistry.unregister(conv.getId())) {
                 if (tokens[0] == 0 && tokens[1] == 0) {
                     tokens[0] = estimateTokens(userMsg.getContent());
                     tokens[1] = estimateTokens(acc.toString());
@@ -357,7 +352,7 @@ public class ChatStreamService {
         emitter.onTimeout(() -> { disposable.dispose(); cancel.run(); });
         emitter.onError(t -> { disposable.dispose(); cancel.run(); });
 
-        ACTIVE.put(conv.getId(), new Disposable() {
+        streamRegistry.register(conv.getId(), new Disposable() {
             @Override public void dispose() { disposable.dispose(); cancel.run(); }
             @Override public boolean isDisposed() { return disposable.isDisposed(); }
         });
