@@ -100,7 +100,7 @@ pgvector:
   password: ${PG_PASSWORD:}
 
 asr:
-  enabled: true                    # 本地 Qwen3-ASR（OpenAI 兼容协议，start-asr.sh 启动）
+  enabled: ${ASR_ENABLED:true}     # 本地 Qwen3-ASR（OpenAI 兼容协议，start-asr.sh 启动）
   type: local
   endpoint: ${ASR_ENDPOINT:http://127.0.0.1:8000}
   api-key: ${ASR_API_KEY:local}

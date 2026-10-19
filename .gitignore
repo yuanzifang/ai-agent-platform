@@ -13,6 +13,7 @@ frontend/dist/
 
 # 本地环境与密钥
 .env
+.env.docker
 *.local
 application-local.yml
 

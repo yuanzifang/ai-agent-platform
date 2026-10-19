@@ -53,6 +53,46 @@ cd backend && mvn spring-boot:run
 cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
 
+## 服务器部署（Docker Compose）
+
+前置：Docker Engine / Docker Desktop + Compose v2。
+
+```bash
+# 一键生成 .env.docker（强随机密码）、构建并启动
+scripts/docker-up.sh
+
+# 或手动
+cp .env.docker.example .env.docker
+# 编辑 .env.docker：至少填写 DEEPSEEK_API_KEY
+docker compose --env-file .env.docker up -d --build
+docker compose --env-file .env.docker exec ollama ollama pull nomic-embed-text
+```
+
+启动后：
+
+- 前端：`http://<服务器IP>:80`
+- 管理员：`admin / <PLATFORM_ADMIN_PASSWORD>`（在 `.env.docker` 中）
+- MinIO 控制台：`http://<服务器IP>:9001`
+- 后端 8080、MySQL、Redis、PgVector 默认只在内网，不直接暴露
+- 数据卷：`mysql-data / redis-data / pgvector-data / minio-data / ollama-data`
+
+常用命令：
+
+```bash
+docker compose --env-file .env.docker ps
+docker compose --env-file .env.docker logs -f backend
+scripts/docker-down.sh             # 停止，保留数据
+scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
+```
+
+生产建议：
+
+- 只开放 80/443；MinIO 控制台 9001 仅内网访问
+- 前面再加 HTTPS/负载均衡；SSE 需关闭代理缓冲（Nginx 配置已设置）
+- `TOOL_ALLOW_PRIVATE=false`，需要访问内网工具时用 `TOOL_ALLOWED_HOSTS` 白名单
+- 定期备份 MySQL/PgVector/MinIO 数据卷
+- 当前 Compose 为单机部署；K8s/Helm 多实例部署为后续项
+
 ## 里程碑
 
 M1 平台基座（当前）→ M2 模型与 Agent → M3 知识库 → M4 会话对话 → M5 可观测 → M6 安全合规验收。
