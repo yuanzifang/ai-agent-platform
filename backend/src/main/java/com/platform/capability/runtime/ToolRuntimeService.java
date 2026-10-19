@@ -26,9 +26,7 @@ import com.platform.capability.mapper.SkillRegistryMapper;
 import com.platform.capability.mapper.ToolRegistryMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.security.CryptoService;
-import com.platform.knowledge.service.EmbeddingService;
 import com.platform.knowledge.service.KnowledgePermissionService;
-import com.platform.knowledge.service.VectorRepository;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.entity.AgentUserGrant;
 import com.platform.system.mapper.AgentUserGrantMapper;
@@ -96,9 +94,8 @@ public class ToolRuntimeService {
     private final com.platform.agent.service.ContextWindowService contextWindow;
     private final CryptoService cryptoService;
     private final com.platform.model.service.ChatModelRouter chatModelRouter;
-    private final EmbeddingService embeddingService;
+    private final com.platform.knowledge.service.HybridRetrievalService hybridRetrieval;
     private final ScriptRunnerService scriptRunner;
-    private final VectorRepository vectorRepository;
     private final KnowledgePermissionService permissionService;
     private final ObjectMapper objectMapper;
 
@@ -775,8 +772,7 @@ public class ToolRuntimeService {
             int topK = toInt(rc.get("topK"), 5);
             double threshold = toDouble(rc.get("scoreThreshold"), 0.5);
             try {
-                float[] vector = embeddingService.embedOne(query);
-                for (Map<String, Object> hit : vectorRepository.search(tenantId, vector, kbId, topK, threshold)) {
+                for (Map<String, Object> hit : hybridRetrieval.search(tenantId, query, kbId, topK, threshold).hits()) {
                     ctx.append("\n---\n").append(hit.get("content"));
                 }
             } catch (Exception e) {

@@ -154,7 +154,7 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.chunks(id, docId, page, pageSize, viewer(principal)));
     }
 
-    public record SearchRequest(@NotBlank String query, Integer topK, Double scoreThreshold) {
+    public record SearchRequest(@NotBlank String query, Integer topK, Double scoreThreshold, String mode) {
     }
 
     @PostMapping("/{id}/search")
@@ -162,6 +162,6 @@ public class KnowledgeController {
                                                          @Valid @RequestBody SearchRequest req,
                                                          @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(knowledgeService.search(id, req.query(), req.topK(), req.scoreThreshold(),
-                viewer(principal)));
+                req.mode(), viewer(principal)));
     }
 }

@@ -62,6 +62,11 @@
         <div class="sec-title">检索测试</div>
         <el-input v-model="search.query" placeholder="输入查询文本，验证召回效果" @keydown.enter="doSearch" />
         <div class="params">
+          <el-select v-model="search.mode" size="small" style="width: 100px">
+            <el-option label="混合" value="hybrid" />
+            <el-option label="向量" value="vector" />
+            <el-option label="关键字" value="keyword" />
+          </el-select>
           topK <el-input-number v-model="search.topK" :min="1" :max="20" size="small" />
           阈值 <el-input-number v-model="search.scoreThreshold" :min="0" :max="1" :step="0.05" size="small" />
           <el-button size="small" type="primary" :loading="searching" @click="doSearch">检索</el-button>
@@ -156,7 +161,7 @@ const uploading = ref(false)
 const searching = ref(false)
 const searched = ref(false)
 const results = ref<any[]>([])
-const search = reactive({ query: '', topK: 5, scoreThreshold: 0.5 })
+const search = reactive({ query: '', topK: 5, scoreThreshold: 0.5, mode: 'hybrid' })
 const chunks = reactive<{ docId: number | null; docName: string; list: any[]; total: number }>({
   docId: null, docName: '', list: [], total: 0
 })
@@ -305,7 +310,7 @@ async function doSearch() {
   searched.value = true
   try {
     results.value = await http.post(`/knowledge-base/${kbId}/search`, {
-      query: search.query, topK: search.topK, scoreThreshold: search.scoreThreshold
+      query: search.query, topK: search.topK, scoreThreshold: search.scoreThreshold, mode: search.mode
     }) as any
   } finally {
     searching.value = false

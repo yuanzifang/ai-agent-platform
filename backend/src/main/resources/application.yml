@@ -94,6 +94,12 @@ skill:
     max-output-bytes: ${SKILL_SCRIPT_MAX_OUTPUT:65536}
     max-code-length: ${SKILL_SCRIPT_MAX_CODE:50000}
 
+retrieval:
+  hybrid:
+    # 向量 + MySQL ngram 全文检索的 RRF 融合；关闭后回到纯向量
+    enabled: ${RETRIEVAL_HYBRID_ENABLED:true}
+    keyword-weight: ${RETRIEVAL_KEYWORD_WEIGHT:0.35}
+
 knowledge:
   parse:
     # 解析失败手动重试上限（需求 3.6.3(2)，默认 3 次，超限需人工介入）

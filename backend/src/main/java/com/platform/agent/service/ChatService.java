@@ -7,9 +7,7 @@ import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.capability.runtime.ToolCallCollector;
 import com.platform.capability.runtime.ToolRuntimeService;
 import com.platform.common.context.TenantContext;
-import com.platform.knowledge.service.EmbeddingService;
 import com.platform.knowledge.service.KnowledgePermissionService;
-import com.platform.knowledge.service.VectorRepository;
 import com.platform.security.JwtPrincipal;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,8 +37,7 @@ public class ChatService {
     private final BillingUsageMapper billingMapper;
     private final PricingService pricingService;
     private final QuotaService quotaService;
-    private final EmbeddingService embeddingService;
-    private final VectorRepository vectorRepository;
+    private final com.platform.knowledge.service.HybridRetrievalService hybridRetrieval;
     private final KnowledgePermissionService permissionService;
     private final ToolRuntimeService toolRuntime;
     private final ContextWindowService contextWindow;
@@ -157,15 +154,15 @@ public class ChatService {
             int topK = toInt(rc.get("topK"), 5);
             double threshold = toDoubleOrDefault(rc.get("scoreThreshold"), 0.5);
 
-            long embedStart = System.currentTimeMillis();
-            float[] queryVector = embeddingService.embedOne(message);
-            long searchStart = System.currentTimeMillis();
-            List<Map<String, Object>> hits = vectorRepository.search(tenantId, queryVector, kbId, topK, threshold);
+            var retrieved = hybridRetrieval.search(tenantId, message, kbId, topK, threshold, rc);
+            List<Map<String, Object>> hits = retrieved.hits();
             long stepEnd = System.currentTimeMillis();
             if (steps != null) {
                 steps.add("retrieval", "kb-" + kbId, "SUCCESS", stepStart, stepEnd,
                         Map.of("topK", topK, "scoreThreshold", threshold, "hits", hits.size(),
-                                "embedMs", searchStart - embedStart, "searchMs", stepEnd - searchStart));
+                                "mode", retrieved.mode(), "vectorHits", retrieved.vectorHits(),
+                                "keywordHits", retrieved.keywordHits(),
+                                "embedMs", retrieved.embedMs(), "searchMs", retrieved.searchMs()));
             }
             for (Map<String, Object> hit : hits) {
                 context.append("\n---\n").append(hit.get("content"));

@@ -97,6 +97,12 @@
               <div class="kb-name">{{ kb.name }}</div>
               <el-tag v-if="kb.missing" size="small" type="danger">已失效</el-tag>
               <div class="kb-params" v-if="kb.enabled">
+                模式
+                <el-select v-model="kb.mode" size="small" style="width: 100px">
+                  <el-option label="混合" value="hybrid" />
+                  <el-option label="向量" value="vector" />
+                  <el-option label="关键字" value="keyword" />
+                </el-select>
                 topK <el-input-number v-model="kb.topK" :min="1" :max="20" size="small" />
                 阈值 <el-input-number v-model="kb.scoreThreshold" :min="0" :max="1" :step="0.05" size="small" />
               </div>
@@ -621,7 +627,7 @@ const form = reactive({
 const tagsStr = ref('')
 const enabledKbCount = computed(() => kbRows.value.filter(k => k.enabled).length)
 
-interface KbRow { knowledgeBaseId: number; name: string; enabled: boolean; topK: number; scoreThreshold: number; missing?: boolean }
+interface KbRow { knowledgeBaseId: number; name: string; enabled: boolean; topK: number; scoreThreshold: number; mode: string; missing?: boolean }
 interface RefRow { id: number; name: string; description?: string; type?: string; isBuiltin?: boolean; enabled: boolean; missing?: boolean }
 type RefType = 'skill' | 'tool' | 'sub'
 
@@ -736,7 +742,7 @@ onMounted(async () => {
     return {
       knowledgeBaseId: kb.id, name: kb.name,
       enabled: b ? b.enabled !== false : false,
-      topK: rc.topK ?? 5, scoreThreshold: rc.scoreThreshold ?? 0.5
+      topK: rc.topK ?? 5, scoreThreshold: rc.scoreThreshold ?? 0.5, mode: rc.mode || 'hybrid'
     }
   })
   buildRefRows('skill', detail.skills, skillCatalog.value, skillRows)
@@ -749,7 +755,7 @@ onMounted(async () => {
     if (!visibleIds.has(b.knowledgeBaseId)) {
       kbRows.value.push({
         knowledgeBaseId: b.knowledgeBaseId, name: `已失效（KB #${b.knowledgeBaseId}）`,
-        enabled: false, topK: 5, scoreThreshold: 0.5, missing: true
+        enabled: false, topK: 5, scoreThreshold: 0.5, mode: 'hybrid', missing: true
       })
     }
   }
@@ -1103,7 +1109,7 @@ function buildPayload() {
     visibility: form.visibility,
     knowledgeBases: kbRows.value.filter(k => k.enabled).map(k => ({
       knowledgeBaseId: k.knowledgeBaseId, enabled: true,
-      retrievalConfig: { topK: k.topK, scoreThreshold: k.scoreThreshold }
+      retrievalConfig: { topK: k.topK, scoreThreshold: k.scoreThreshold, mode: k.mode }
     })),
     skills: skillRows.value.filter(r => !r.missing).map(r => ({ skillId: r.id, enabled: r.enabled })),
     tools: toolRows.value.filter(r => !r.missing).map(r => ({ toolId: r.id, enabled: r.enabled })),

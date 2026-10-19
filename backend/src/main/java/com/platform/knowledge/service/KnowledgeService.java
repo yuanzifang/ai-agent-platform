@@ -53,6 +53,7 @@ public class KnowledgeService {
     private final StorageService storage;
     private final EmbeddingService embeddingService;
     private final VectorRepository vectorRepository;
+    private final HybridRetrievalService hybridRetrieval;
     private final DocumentParser parser;
     private final ObjectMapper objectMapper;
     private final KnowledgePermissionService permissionService;
@@ -429,22 +430,14 @@ public class KnowledgeService {
 
     /** 检索测试（需求文档 3.6(4)）：query 嵌入 → PgVector topK + 阈值过滤；需可见权限。 */
     public List<Map<String, Object>> search(Long kbId, String query, Integer topK, Double threshold,
-                                            KnowledgePermissionService.Viewer viewer) {
+                                            String mode, KnowledgePermissionService.Viewer viewer) {
         permissionService.requireView(kbId, viewer);
         Long tenantId = TenantContext.getTenantId();
-        float[] queryVector = embeddingService.embedOne(query);
-        List<Map<String, Object>> hits = vectorRepository.search(tenantId, queryVector, kbId,
+        Map<String, Object> retrievalConfig = mode == null || mode.isBlank()
+                ? Map.of() : Map.of("mode", mode);
+        return hybridRetrieval.search(tenantId, query, kbId,
                 topK == null ? 5 : topK,
-                threshold == null ? 0.5 : threshold);
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (Map<String, Object> hit : hits) {
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("content", hit.get("content"));
-            item.put("score", hit.get("score"));
-            item.put("metadata", hit.get("metadata"));
-            result.add(item);
-        }
-        return result;
+                threshold == null ? 0.5 : threshold, retrievalConfig).hits();
     }
 
     /** 文档分段浏览（架构 4.8 KnowledgeDetail/ChunkPanel 数据源）；需可见权限。 */
