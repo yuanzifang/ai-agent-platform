@@ -18,6 +18,7 @@ public class WorkflowApproval {
     private String nodeId;
     private String title;
     private String requiredRole;
+    private java.time.LocalDateTime expireAt;
     private String payload;
     private String status;
     private Long decidedBy;

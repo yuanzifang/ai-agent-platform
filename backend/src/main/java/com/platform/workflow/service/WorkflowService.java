@@ -247,6 +247,15 @@ public class WorkflowService {
             throw new BusinessException(404, "审批任务不存在");
         }
         if (!"PENDING".equals(approval.getStatus())) throw new BusinessException(409, "该审批已处理");
+        WorkflowRun run = runMapper.selectById(approval.getRunId());
+        if (run == null) throw new BusinessException(404, "运行记录不存在");
+        if (run.getUserId() != null && run.getUserId().equals(principal.userId()) && !principal.platformAdmin()) {
+            throw new BusinessException(403, "不能审批自己发起的工作流运行，请由其他有权限成员处理");
+        }
+        if (approval.getExpireAt() != null && approval.getExpireAt().isBefore(LocalDateTime.now())) {
+            expireOne(approval);
+            throw new BusinessException(409, "该审批已超时，运行已终止");
+        }
         String requiredRole = approval.getRequiredRole();
         if (requiredRole != null && !requiredRole.isBlank()
                 && !principal.platformAdmin()
@@ -262,8 +271,6 @@ public class WorkflowService {
                 .set(WorkflowApproval::getDecidedAt, LocalDateTime.now())
                 .set(WorkflowApproval::getComment, comment));
         if (updated == 0) throw new BusinessException(409, "该审批已处理");
-        WorkflowRun run = runMapper.selectById(approval.getRunId());
-        if (run == null) throw new BusinessException(404, "运行记录不存在");
         if (!"WAITING_APPROVAL".equals(run.getStatus())) {
             throw new BusinessException(409, "运行状态不是待审批");
         }
@@ -398,6 +405,10 @@ public class WorkflowService {
                     approval.setTitle(approvalTitle);
                     String requiredRole = str(node.get("requiredRole"));
                     approval.setRequiredRole(requiredRole);
+                    int timeoutMinutes = toInt(node.get("timeoutMinutes"));
+                    if (timeoutMinutes > 0) {
+                        approval.setExpireAt(LocalDateTime.now().plusMinutes(timeoutMinutes));
+                    }
                     approval.setPayload(truncate(output, 20000));
                     approval.setStatus("PENDING");
                     approval.setCreatedAt(LocalDateTime.now());
@@ -521,6 +532,8 @@ public class WorkflowService {
             throw new BusinessException(400, "PARALLEL 节点没有分支");
         }
         String joinId = str(node.get("joinNode"));
+        String strategy = str(node.getOrDefault("strategy", "ALL_OR_NOTHING"));
+        if (strategy == null || strategy.isBlank()) strategy = "ALL_OR_NOTHING";
         List<CompletableFuture<BranchResult>> futures = new ArrayList<>();
         for (Object o : list) {
             String start = str(o);
@@ -529,12 +542,24 @@ public class WorkflowService {
         }
         StringBuilder merged = new StringBuilder("【并行分支结果】\n");
         long in = 0, out = 0;
+        int failed = 0;
         for (int i = 0; i < futures.size(); i++) {
-            BranchResult br = futures.get(i).join();
-            merged.append("\n[分支 ").append(i + 1).append("]\n")
-                    .append(br.output() == null ? "" : br.output()).append("\n");
-            in += br.inputTokens();
-            out += br.outputTokens();
+            merged.append("\n[分支 ").append(i + 1).append("]\n");
+            try {
+                BranchResult br = futures.get(i).join();
+                merged.append(br.output() == null ? "" : br.output()).append("\n");
+                in += br.inputTokens();
+                out += br.outputTokens();
+            } catch (Exception e) {
+                failed++;
+                if ("ALL_OR_NOTHING".equalsIgnoreCase(strategy)) {
+                    throw new BusinessException(500, "并行分支执行失败：" + rootMessage(e));
+                }
+                merged.append("[分支失败] ").append(rootMessage(e)).append("\n");
+            }
+        }
+        if (failed > 0 && failed == futures.size()) {
+            throw new BusinessException(500, "并行分支全部失败");
         }
         return new ParallelResult(merged.toString(), in, out);
     }
@@ -712,6 +737,7 @@ public class WorkflowService {
             m.put("nodeId", a.getNodeId());
             m.put("title", a.getTitle());
             m.put("requiredRole", a.getRequiredRole());
+            m.put("expireAt", a.getExpireAt());
             m.put("payload", a.getPayload());
             m.put("status", a.getStatus());
             m.put("comment", a.getComment());
@@ -865,6 +891,57 @@ public class WorkflowService {
             case "lengthGt" -> value.length() > toInt(expected);
             default -> value.contains(expected);
         };
+    }
+
+    /** 审批超时扫描（调度器/手动触发）。 */
+    public int scanExpiredApprovals() {
+        List<WorkflowApproval> expired = approvalMapper.findExpired(LocalDateTime.now(), 100);
+        int count = 0;
+        for (WorkflowApproval a : expired) {
+            try {
+                boolean ok = TenantContext.runWith(a.getTenantId(), () -> expireOne(a));
+                if (ok) count++;
+            } catch (Exception e) {
+                log.warn("审批超时处理失败 approval={}：{}", a.getId(), e.getMessage());
+            }
+        }
+        return count;
+    }
+
+    private boolean expireOne(WorkflowApproval approval) {
+        int updated = approvalMapper.update(null, new LambdaUpdateWrapper<WorkflowApproval>()
+                .eq(WorkflowApproval::getId, approval.getId())
+                .eq(WorkflowApproval::getStatus, "PENDING")
+                .set(WorkflowApproval::getStatus, "EXPIRED")
+                .set(WorkflowApproval::getDecidedAt, LocalDateTime.now())
+                .set(WorkflowApproval::getComment, "审批超时自动关闭"));
+        if (updated == 0) return false;
+        WorkflowRun run = runMapper.selectById(approval.getRunId());
+        if (run != null && "WAITING_APPROVAL".equals(run.getStatus())) {
+            run.setStatus("FAILED");
+            run.setErrorMessage("审批超时未处理：" + approval.getTitle());
+            run.setUpdatedAt(LocalDateTime.now());
+            runMapper.updateById(run);
+            WorkflowNodeRun nodeRun = nodeRunMapper.selectOne(new LambdaQueryWrapper<WorkflowNodeRun>()
+                    .eq(WorkflowNodeRun::getRunId, run.getId())
+                    .eq(WorkflowNodeRun::getNodeId, approval.getNodeId())
+                    .orderByDesc(WorkflowNodeRun::getId).last("LIMIT 1"));
+            if (nodeRun != null) {
+                nodeRun.setStatus("EXPIRED");
+                nodeRun.setEndedAt(LocalDateTime.now());
+                nodeRun.setOutputText("TIMEOUT");
+                nodeRunMapper.updateById(nodeRun);
+            }
+            notificationService.notify(run.getTenantId(),
+                    run.getUserId() == null ? List.of() : List.of(run.getUserId()),
+                    "workflow_result", "审批超时：" + approval.getTitle(),
+                    "工作流 " + run.getId() + " 因审批超时已终止",
+                    "/agent/edit/" + run.getAgentId());
+        }
+        auditService.record(approval.getDecidedBy() == null ? 0L : approval.getDecidedBy(),
+                "workflow.timeout", "workflow_approval", String.valueOf(approval.getId()),
+                "SUCCESS", Map.of("runId", approval.getRunId()));
+        return true;
     }
 
     private void fail(WorkflowRun run, String error) {

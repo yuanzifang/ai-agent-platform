@@ -698,6 +698,10 @@
                   <el-option v-for="o in workflowForm.nodes.filter((x: any) => x.type === 'JOIN')"
                              :key="o.id" :value="o.id" :label="'JOIN · ' + o.name" />
                 </el-select>
+                <el-select v-model="n.strategy" style="width: 170px">
+                  <el-option label="任一失败即终止" value="ALL_OR_NOTHING" />
+                  <el-option label="尽力执行（跳过失败）" value="BEST_EFFORT" />
+                </el-select>
               </div>
             </template>
             <template v-else-if="n.type === 'JOIN'">
@@ -711,6 +715,9 @@
                   <el-option label="ADMIN" value="ADMIN" />
                   <el-option label="EDITOR" value="EDITOR" />
                 </el-select>
+                超时(分钟)
+                <el-input-number v-model="n.timeoutMinutes" :min="0" :max="10080" size="small" />
+                <span class="hint">0=不限</span>
               </div>
             </template>
             <template v-else>
@@ -1518,7 +1525,7 @@ function compareVersion(row: any) {
   const curMap = new Map(current.map((n: any) => [n.id, n]))
   const fields = ['type', 'name', 'prompt', 'modelName', 'agentId', 'toolId', 'argsTemplate',
     'knowledgeBaseId', 'mode', 'topK', 'queryTemplate', 'conditionType', 'conditionValue',
-    'trueNext', 'falseNext', 'next', 'title', 'requiredRole', 'branches', 'joinNode']
+    'trueNext', 'falseNext', 'next', 'title', 'requiredRole', 'timeoutMinutes', 'branches', 'joinNode', 'strategy']
   const rows: any[] = []
   for (const n of current) {
     const old = oldMap.get(n.id)
@@ -1550,8 +1557,8 @@ function addWorkflowNode() {
   if (wfAddType.value === 'LLM') node.prompt = ''
   if (wfAddType.value === 'TOOL') node.argsTemplate = '{}'
   if (wfAddType.value === 'KNOWLEDGE') { node.mode = 'hybrid'; node.topK = 5; node.queryTemplate = '' }
-  if (wfAddType.value === 'APPROVAL') node.requiredRole = ''
-  if (wfAddType.value === 'PARALLEL') { node.branches = []; node.joinNode = ''; node.next = '' }
+  if (wfAddType.value === 'APPROVAL') { node.requiredRole = ''; node.timeoutMinutes = 0 }
+  if (wfAddType.value === 'PARALLEL') { node.branches = []; node.joinNode = ''; node.next = ''; node.strategy = 'ALL_OR_NOTHING' }
   if (wfAddType.value === 'JOIN') node.next = 'end'
   if (wfAddType.value === 'CONDITION') {
     node.conditionType = 'contains'

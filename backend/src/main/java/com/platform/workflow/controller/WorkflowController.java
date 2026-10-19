@@ -100,6 +100,13 @@ public class WorkflowController {
         return ApiResponse.ok(workflowService.approvals(status, page, pageSize));
     }
 
+    /** 手动触发审批超时扫描（运维/测试）。 */
+    @PostMapping("/workflow/approvals/expire-scan")
+    @PreAuthorize("hasAuthority('agent:edit')")
+    public ApiResponse<Map<String, Object>> expireScan() {
+        return ApiResponse.ok(Map.of("expired", workflowService.scanExpiredApprovals()));
+    }
+
     public record DecideRequest(boolean approve, String comment) {
     }
 

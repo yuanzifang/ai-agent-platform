@@ -8,6 +8,7 @@
         <el-option label="待审批" value="PENDING" />
         <el-option label="已通过" value="APPROVED" />
         <el-option label="已拒绝" value="REJECTED" />
+        <el-option label="已超时" value="EXPIRED" />
         <el-option label="全部" value="ALL" />
       </el-select>
       <el-button @click="load(true)">刷新</el-button>
@@ -30,6 +31,9 @@
       </el-table-column>
       <el-table-column label="提交时间" width="170">
         <template #default="{ row }">{{ fmt(row.createdAt) }}</template>
+      </el-table-column>
+      <el-table-column label="超时时间" width="170">
+        <template #default="{ row }">{{ fmt(row.expireAt) }}</template>
       </el-table-column>
       <el-table-column label="处理人/意见" min-width="160">
         <template #default="{ row }">{{ row.comment || '-' }}</template>
@@ -157,7 +161,7 @@ async function viewRun(row: any) {
 }
 
 function statusText(s: string) {
-  return ({ PENDING: '待审批', APPROVED: '已通过', REJECTED: '已拒绝' } as any)[s] || s
+  return ({ PENDING: '待审批', APPROVED: '已通过', REJECTED: '已拒绝', EXPIRED: '已超时' } as any)[s] || s
 }
 
 function statusType(s: string) {
