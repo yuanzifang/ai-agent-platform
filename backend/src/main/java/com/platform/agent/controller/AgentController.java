@@ -27,6 +27,7 @@ public class AgentController {
 
     private final AgentService agentService;
     private final ChatService chatService;
+    private final com.platform.agent.service.PromptOptimizeService promptOptimizeService;
 
     @GetMapping
     public ApiResponse<Map<String, Object>> list(@RequestParam(required = false) String keyword,
@@ -117,6 +118,25 @@ public class AgentController {
         return ApiResponse.ok(chatService.debugChat(req.config(), req.message(),
                 com.platform.knowledge.service.KnowledgePermissionService.Viewer.of(
                         principal.userId(), principal.roles()), principal));
+    }
+
+    public record PromptOptimizeRequest(@NotBlank String prompt, String name, String description,
+                                        String modelName, String instruction, String style) {
+    }
+
+    /** AI 提示词优化（Agent 编辑页）：只返回优化结果，不自动保存；计入智能生成用量。 */
+    @PostMapping("/prompt/optimize")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('agent:edit')")
+    public ApiResponse<Map<String, Object>> optimizePrompt(@RequestBody @jakarta.validation.Valid PromptOptimizeRequest req,
+                                                           @AuthenticationPrincipal JwtPrincipal principal) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("prompt", req.prompt());
+        body.put("name", req.name());
+        body.put("description", req.description());
+        body.put("modelName", req.modelName());
+        body.put("instruction", req.instruction());
+        body.put("style", req.style());
+        return ApiResponse.ok(promptOptimizeService.optimize(body, principal));
     }
 
     public record DebugChatRequest(Map<String, Object> config, @NotBlank String message) {

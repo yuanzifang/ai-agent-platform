@@ -55,6 +55,7 @@
             <template #title><span class="p-title">提示词</span><span class="req">*</span></template>
             <div class="prompt-actions">
               <el-button size="small" @click="openTemplatePicker">从模板插入</el-button>
+              <el-button size="small" type="primary" plain @click="openOptimize">AI 优化提示词</el-button>
               <span class="hint">插入后仍可编辑；双花括号变量由「占位变量」面板统一替换</span>
             </div>
             <el-input v-model="form.systemPrompt" type="textarea" :rows="8"
@@ -486,6 +487,44 @@
       </template>
     </el-dialog>
 
+    <!-- AI 提示词优化 -->
+    <el-dialog v-model="optimizeVisible" title="AI 优化提示词" width="760px">
+      <div class="hint mb8">保留双花括号变量与业务意图；优化结果需手动应用，不会自动保存。</div>
+      <el-form label-width="90px">
+        <el-form-item label="优化方向">
+          <el-select v-model="optimizeStyle" clearable placeholder="可选" style="width: 200px">
+            <el-option label="结构化" value="结构化、分点清晰" />
+            <el-option label="更简洁" value="精简冗余，保持信息完整" />
+            <el-option label="更专业" value="更专业严谨，适合企业场景" />
+            <el-option label="客服语气" value="礼貌、先结论后步骤的客服语气" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="额外要求">
+          <el-input v-model="optimizeInstruction" type="textarea" :rows="2"
+                    placeholder="如：补充拒答边界；保留原有变量；不要改变语言" />
+        </el-form-item>
+      </el-form>
+      <div class="opt-origin">
+        <div class="opt-label">当前提示词（{{ (form.systemPrompt || '').length }} 字）</div>
+        <div class="opt-origin-text">{{ form.systemPrompt || '（空）' }}</div>
+      </div>
+      <div class="mt8">
+        <el-button type="primary" :loading="optimizing" @click="runOptimize">开始优化</el-button>
+        <span v-if="optimizeUsage" class="hint">
+          {{ optimizeModel }} · 输入 {{ optimizeUsage.inputTokens }} / 输出 {{ optimizeUsage.outputTokens }} tokens
+        </span>
+      </div>
+      <div v-if="optimizeResult" class="opt-result">
+        <div class="opt-label">优化结果（{{ optimizeResult.length }} 字）</div>
+        <el-input v-model="optimizeResult" type="textarea" :rows="10" />
+        <div class="mt8">
+          <el-button type="primary" @click="applyOptimized('replace')">替换原提示词</el-button>
+          <el-button @click="applyOptimized('append')">追加到末尾</el-button>
+          <el-button @click="optimizeResult = ''">清除结果</el-button>
+        </div>
+      </div>
+    </el-dialog>
+
     <!-- Prompt 模板插入 -->
     <el-dialog v-model="templateVisible" title="从 Prompt 模板插入" width="640px">
       <el-select v-model="templateId" filterable style="width: 100%" placeholder="选择模板">
@@ -603,6 +642,13 @@ const createdKey = ref('')
 const keyCreateVisible = ref(false)
 const keySaving = ref(false)
 const keyForm = reactive({ name: '', channel: 'API', dailyLimit: 0, minuteLimit: 0 })
+const optimizeVisible = ref(false)
+const optimizing = ref(false)
+const optimizeStyle = ref('')
+const optimizeInstruction = ref('')
+const optimizeResult = ref('')
+const optimizeUsage = ref<any>(null)
+const optimizeModel = ref('')
 const promptTemplates = ref<any[]>([])
 const templateVisible = ref(false)
 const templateId = ref(0)
@@ -937,6 +983,46 @@ function modelLabel(m: any) {
   return c > 0 ? `${name}（${c >= 1048576 ? (c / 1048576) + 'M' : (c / 1024) + 'K'} 上下文）` : name
 }
 
+function openOptimize() {
+  if (!form.systemPrompt || !form.systemPrompt.trim()) {
+    ElMessage.warning('请先填写提示词'); return
+  }
+  optimizeResult.value = ''
+  optimizeUsage.value = null
+  optimizeInstruction.value = ''
+  optimizeVisible.value = true
+}
+
+async function runOptimize() {
+  if (!form.systemPrompt.trim()) { ElMessage.warning('请先填写提示词'); return }
+  optimizing.value = true
+  try {
+    const res = await http.post('/agent/prompt/optimize', {
+      prompt: form.systemPrompt,
+      name: form.name,
+      description: form.description,
+      modelName: form.modelName,
+      instruction: optimizeInstruction.value,
+      style: optimizeStyle.value
+    }, { timeout: 120000 }) as any
+    optimizeResult.value = res.optimizedPrompt || ''
+    optimizeUsage.value = res.usage || null
+    optimizeModel.value = res.modelName || ''
+    ElMessage.success('优化完成，请确认后应用')
+  } finally {
+    optimizing.value = false
+  }
+}
+
+function applyOptimized(mode: 'replace' | 'append') {
+  if (!optimizeResult.value) return
+  form.systemPrompt = mode === 'replace'
+    ? optimizeResult.value
+    : (form.systemPrompt ? form.systemPrompt + '\n\n' + optimizeResult.value : optimizeResult.value)
+  optimizeVisible.value = false
+  ElMessage.success(mode === 'replace' ? '已替换提示词（尚未保存）' : '已追加到提示词末尾（尚未保存）')
+}
+
 function openTemplatePicker() {
   templateId.value = 0
   templateVisible.value = true
@@ -1207,6 +1293,11 @@ function clip(text: string, n: number) {
   margin-bottom: 8px;
 }
 .tpl-preview { margin-top: 12px; }
+.opt-origin { border: 1px solid #ebeef5; border-radius: 6px; padding: 8px 10px; background: #fafafa; }
+.opt-origin-text { white-space: pre-wrap; font-size: 12px; max-height: 120px; overflow-y: auto; color: #606266; }
+.opt-label { font-size: 12px; color: #909399; margin-bottom: 4px; }
+.opt-result { margin-top: 12px; border-top: 1px dashed #ebeef5; padding-top: 10px; }
+.mb8 { margin-bottom: 8px; }
 .tpl-vars { font-size: 12px; color: #909399; margin-bottom: 6px; }
 .tpl-content {
   white-space: pre-wrap;
