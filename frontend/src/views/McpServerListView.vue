@@ -2,7 +2,7 @@
   <div class="page">
     <div class="toolbar">
       <span class="title">MCP Server</span>
-      <span class="sub">接入 MCP 服务，发现并同步工具；同步后的工具可在 Agent 中绑定</span>
+      <span class="sub">添加 MCP 服务 → 点击「验证」检测连通性 → 同步工具；同步后的工具可在 Agent 中绑定</span>
       <div class="spacer" />
       <el-button @click="load">刷新</el-button>
       <el-button type="primary" :disabled="!canManage" @click="openCreate">添加 MCP Server</el-button>
