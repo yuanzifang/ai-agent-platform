@@ -36,7 +36,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/invitations/accept", "/api/v1/auth/mfa/verify",
                                 "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password",
                                 "/api/v1/share/**", "/api/v1/open/**", "/api/v1/auth/sso/**",
-                                "/actuator/health/**").permitAll()
+                                // 仅容器内网供 Prometheus 抓取；Nginx 不反代该路径
+                                "/actuator/health/**", "/actuator/prometheus").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint((req, res, ex) -> {
                     res.setStatus(401);

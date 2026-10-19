@@ -85,6 +85,14 @@ scripts/docker-down.sh             # 停止，保留数据
 scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 ```
 
+可观测性：
+
+- Prometheus：`http://127.0.0.1:9090`（默认只绑定本机，远程用 SSH 隧道或改 `PROMETHEUS_BIND`）
+- Grafana：`http://127.0.0.1:3000`，账号 `admin / <GRAFANA_ADMIN_PASSWORD>`
+- 已预置 `AI Agent Platform Overview` 仪表盘（请求速率、5xx、P95、JVM 内存、CPU）
+- 后端指标端点 `/actuator/prometheus` 仅容器内网供 Prometheus 抓取，Nginx 不反代
+- 需要远程访问时把 `PROMETHEUS_BIND/GRAFANA_BIND` 改为 `0.0.0.0`，并只对可信网段开放端口
+
 生产建议：
 
 - 只开放 80/443；MinIO 控制台 9001 仅内网访问

@@ -13,6 +13,10 @@ import com.platform.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -36,38 +40,57 @@ public class AuditService {
     private final AuditLoginMapper auditLoginMapper;
     private final SysTenantMapper tenantMapper;
     private final ObjectMapper objectMapper;
+    private final PlatformTransactionManager txManager;
 
-    /** 串行写入（单实例开发环境；多实例需分布式锁），保证哈希链不分叉。 */
-    public synchronized void record(Long userId, String opType, String objectType, String objectId,
-                                    String result, Map<String, Object> detail) {
+    /**
+     * 租户行锁（SELECT ... FOR UPDATE）保证多实例串行写链；锁随外层业务事务提交/回滚释放。
+     * 没有外层事务时使用独立事务，确保锁和插入在同一事务内。
+     */
+    public void record(Long userId, String opType, String objectType, String objectId,
+                       String result, Map<String, Object> detail) {
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null) return;
         try {
-            Long tenantId = TenantContext.getTenantId();
-            if (tenantId == null) return;
-            AuditOperation last = auditOperationMapper.selectOne(
-                    new LambdaQueryWrapper<AuditOperation>()
-                            .eq(AuditOperation::getTenantId, tenantId)
-                            .orderByDesc(AuditOperation::getId)
-                            .last("LIMIT 1"));
-            String prevHash = last == null ? "GENESIS" : last.getPrevHash();
-            LocalDateTime created = LocalDateTime.now().withNano(0);
-
-            AuditOperation op = new AuditOperation();
-            op.setTenantId(tenantId);
-            op.setUserId(userId);
-            op.setOpType(opType);
-            op.setObjectType(objectType);
-            op.setObjectId(objectId);
-            op.setOpResult(result);
-            op.setIp(currentIp());
-            op.setHashVersion(2);
-            op.setDetail(detail == null ? null : objectMapper.writeValueAsString(detail));
-            op.setPrevHash(sha256(prevHash + "|" + opType + "|" + objectType + "|"
-                    + objectId + "|" + result + "|" + created));
-            op.setCreatedAt(created);
-            auditOperationMapper.insert(op);
+            if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                insertAudit(tenantId, userId, opType, objectType, objectId, result, detail);
+            } else {
+                TransactionTemplate tx = new TransactionTemplate(txManager);
+                tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+                tx.executeWithoutResult(status -> {
+                    try {
+                        insertAudit(tenantId, userId, opType, objectType, objectId, result, detail);
+                    } catch (Exception e) {
+                        throw new IllegalStateException(e);
+                    }
+                });
+            }
         } catch (Exception e) {
             log.warn("操作审计写入失败 op={}: {}", opType, e.getMessage());
         }
+    }
+
+    private void insertAudit(Long tenantId, Long userId, String opType, String objectType,
+                             String objectId, String result, Map<String, Object> detail) throws Exception {
+        // 先锁租户行，再读链尾（FOR UPDATE 读取最新已提交版本，避免 REPEATABLE READ 快照过期）
+        auditOperationMapper.lockTenant(tenantId);
+        AuditOperation last = auditOperationMapper.lockLast(tenantId);
+        String prevHash = last == null ? "GENESIS" : last.getPrevHash();
+        LocalDateTime created = LocalDateTime.now().withNano(0);
+
+        AuditOperation op = new AuditOperation();
+        op.setTenantId(tenantId);
+        op.setUserId(userId);
+        op.setOpType(opType);
+        op.setObjectType(objectType);
+        op.setObjectId(objectId);
+        op.setOpResult(result);
+        op.setIp(currentIp());
+        op.setHashVersion(2);
+        op.setDetail(detail == null ? null : objectMapper.writeValueAsString(detail));
+        op.setPrevHash(sha256(prevHash + "|" + opType + "|" + objectType + "|"
+                + objectId + "|" + result + "|" + created));
+        op.setCreatedAt(created);
+        auditOperationMapper.insert(op);
     }
 
     public Map<String, Object> operations(long page, long pageSize, String opType) {

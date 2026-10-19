@@ -28,6 +28,7 @@ replacements['JWT_SECRET'] = secrets.token_hex(32)
 replacements['AES_KEY'] = secrets.token_hex(32)
 # 满足常见密码策略：大小写 + 数字 + 特殊字符
 replacements['PLATFORM_ADMIN_PASSWORD'] = 'Aa1!' + secrets.token_hex(12)
+replacements['GRAFANA_ADMIN_PASSWORD'] = 'Aa1!' + secrets.token_hex(12)
 lines = []
 for line in src.splitlines():
     key = line.split('=', 1)[0] if '=' in line else ''
@@ -61,10 +62,13 @@ docker compose --env-file "$ENV_FILE" exec -T ollama ollama pull nomic-embed-tex
   || echo "  ⚠ 模型拉取失败，请稍后手动执行：docker compose --env-file .env.docker exec ollama ollama pull nomic-embed-text"
 
 ADMIN_PASSWORD="$(grep -E '^PLATFORM_ADMIN_PASSWORD=' "$ENV_FILE" | tail -1 | cut -d= -f2-)"
+GRAFANA_PASSWORD="$(grep -E '^GRAFANA_ADMIN_PASSWORD=' "$ENV_FILE" | tail -1 | cut -d= -f2-)"
 echo
 echo "✔ 前端：      http://localhost:${HTTP_PORT}"
 echo "✔ 后端健康：  http://localhost:${HTTP_PORT}/api/actuator/health（经前端代理，默认不直接暴露 8080）"
 echo "✔ MinIO 控制台：http://localhost:$(grep -E '^MINIO_CONSOLE_PORT=' "$ENV_FILE" | tail -1 | cut -d= -f2 || echo 9001)"
+echo "✔ Prometheus： http://localhost:$(grep -E '^PROMETHEUS_PORT=' "$ENV_FILE" | tail -1 | cut -d= -f2 || echo 9090)"
+echo "✔ Grafana：    http://localhost:$(grep -E '^GRAFANA_PORT=' "$ENV_FILE" | tail -1 | cut -d= -f2 || echo 3000)  admin / ${GRAFANA_PASSWORD}"
 echo "✔ 平台管理员：admin / ${ADMIN_PASSWORD}"
 echo
 echo "查看状态：docker compose --env-file .env.docker ps"
