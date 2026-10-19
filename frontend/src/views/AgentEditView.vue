@@ -644,6 +644,29 @@
               </el-select>
               <el-input v-model="n.prompt" type="textarea" :rows="2" placeholder="附加提示词（可选）" class="mt8" />
             </template>
+            <template v-else-if="n.type === 'TOOL'">
+              <el-select v-model="n.toolId" filterable placeholder="选择工具" style="width: 260px">
+                <el-option v-for="t in toolCatalog" :key="t.id" :value="t.id"
+                           :label="t.name + (t.toolType === 'MCP' ? '（MCP）' : '')" />
+              </el-select>
+              <el-input v-model="n.argsTemplate" type="textarea" :rows="2" class="mt8"
+                        placeholder='参数 JSON，支持 {{input}} / {{last}}，如 {"expression":"{{last}}"}' />
+            </template>
+            <template v-else-if="n.type === 'KNOWLEDGE'">
+              <div class="wf-line">
+                <el-select v-model="n.knowledgeBaseId" filterable placeholder="选择知识库" style="width: 240px">
+                  <el-option v-for="k in kbRows" :key="k.knowledgeBaseId" :value="k.knowledgeBaseId" :label="k.name" />
+                </el-select>
+                <el-select v-model="n.mode" style="width: 110px">
+                  <el-option label="混合" value="hybrid" />
+                  <el-option label="向量" value="vector" />
+                  <el-option label="关键字" value="keyword" />
+                </el-select>
+                topK <el-input-number v-model="n.topK" :min="1" :max="20" size="small" />
+              </div>
+              <el-input v-model="n.queryTemplate" class="mt8"
+                        placeholder="查询语句（留空用运行输入），支持 {{input}} / {{last}}" />
+            </template>
             <template v-else-if="n.type === 'CONDITION'">
               <div class="wf-line">
                 <el-select v-model="n.conditionType" style="width: 130px">
@@ -656,7 +679,14 @@
               </div>
             </template>
             <template v-else-if="n.type === 'APPROVAL'">
-              <el-input v-model="n.title" placeholder="审批标题" style="width: 320px" />
+              <div class="wf-line">
+                <el-input v-model="n.title" placeholder="审批标题" style="width: 300px" />
+                <el-select v-model="n.requiredRole" clearable placeholder="审批角色（可选）" style="width: 180px">
+                  <el-option label="OWNER" value="OWNER" />
+                  <el-option label="ADMIN" value="ADMIN" />
+                  <el-option label="EDITOR" value="EDITOR" />
+                </el-select>
+              </div>
             </template>
             <template v-else>
               <span class="hint">开始 / 结束节点无需配置</span>
@@ -817,6 +847,8 @@ const wfAddType = ref('LLM')
 const wfTypes = [
   { label: 'LLM 生成', value: 'LLM' },
   { label: 'Agent 调用', value: 'AGENT' },
+  { label: '工具调用', value: 'TOOL' },
+  { label: '知识库检索', value: 'KNOWLEDGE' },
   { label: '条件分支', value: 'CONDITION' },
   { label: '人工审批', value: 'APPROVAL' }
 ]
@@ -1272,7 +1304,7 @@ async function openWorkflow() {
 }
 
 function wfTypeText(type: string) {
-  return ({ START: '开始', END: '结束', LLM: 'LLM 生成', AGENT: 'Agent 调用', CONDITION: '条件分支', APPROVAL: '人工审批' } as any)[type] || type
+  return ({ START: '开始', END: '结束', LLM: 'LLM 生成', AGENT: 'Agent 调用', TOOL: '工具调用', KNOWLEDGE: '知识库检索', CONDITION: '条件分支', APPROVAL: '人工审批' } as any)[type] || type
 }
 
 function wfTagType(type: string) {
@@ -1288,6 +1320,9 @@ function addWorkflowNode() {
   const node: any = { id, type: wfAddType.value, name: wfTypeText(wfAddType.value), next: 'end' }
   if (wfAddType.value === 'APPROVAL') node.title = '人工审批'
   if (wfAddType.value === 'LLM') node.prompt = ''
+  if (wfAddType.value === 'TOOL') node.argsTemplate = '{}'
+  if (wfAddType.value === 'KNOWLEDGE') { node.mode = 'hybrid'; node.topK = 5; node.queryTemplate = '' }
+  if (wfAddType.value === 'APPROVAL') node.requiredRole = ''
   if (wfAddType.value === 'CONDITION') {
     node.conditionType = 'contains'
     node.conditionValue = ''

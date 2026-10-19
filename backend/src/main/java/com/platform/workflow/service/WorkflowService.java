@@ -12,6 +12,8 @@ import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.billing.service.PricingService;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
+import com.platform.knowledge.service.HybridRetrievalService;
+import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.model.service.ChatModelRouter;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.service.AuditService;
@@ -59,6 +61,9 @@ public class WorkflowService {
     private final BillingUsageMapper billingMapper;
     private final PricingService pricingService;
     private final AuditService auditService;
+    private final com.platform.capability.runtime.ToolRuntimeService toolRuntime;
+    private final HybridRetrievalService hybridRetrieval;
+    private final KnowledgePermissionService permissionService;
     private final ObjectMapper objectMapper;
 
     private static final int MAX_STEPS = 50;
@@ -165,6 +170,13 @@ public class WorkflowService {
             throw new BusinessException(404, "审批任务不存在");
         }
         if (!"PENDING".equals(approval.getStatus())) throw new BusinessException(409, "该审批已处理");
+        String requiredRole = approval.getRequiredRole();
+        if (requiredRole != null && !requiredRole.isBlank()
+                && !principal.platformAdmin()
+                && !principal.roles().contains("OWNER")
+                && !principal.roles().contains(requiredRole)) {
+            throw new BusinessException(403, "需要 " + requiredRole + " 角色才能处理该审批");
+        }
         int updated = approvalMapper.update(null, new LambdaUpdateWrapper<WorkflowApproval>()
                 .eq(WorkflowApproval::getId, approvalId)
                 .eq(WorkflowApproval::getStatus, "PENDING")
@@ -269,6 +281,12 @@ public class WorkflowService {
                     run.setInputTokens(nz(run.getInputTokens()) + result.inputTokens());
                     run.setOutputTokens(nz(run.getOutputTokens()) + result.outputTokens());
                     next = str(node.get("next"));
+                } else if ("TOOL".equals(type)) {
+                    output = callTool(node, run, lastOutput);
+                    next = str(node.get("next"));
+                } else if ("KNOWLEDGE".equals(type)) {
+                    output = retrieveKnowledge(node, run, lastOutput, principal);
+                    next = str(node.get("next"));
                 } else if ("CONDITION".equals(type)) {
                     boolean matched = evaluate(node, lastOutput == null ? run.getInputText() : lastOutput);
                     output = matched ? "true" : "false";
@@ -281,6 +299,7 @@ public class WorkflowService {
                     approval.setTenantId(run.getTenantId());
                     approval.setNodeId(nodeId);
                     approval.setTitle(str(node.getOrDefault("title", name)));
+                    approval.setRequiredRole(str(node.get("requiredRole")));
                     approval.setPayload(truncate(output, 20000));
                     approval.setStatus("PENDING");
                     approval.setCreatedAt(LocalDateTime.now());
@@ -381,6 +400,44 @@ public class WorkflowService {
     private record NodeResult(String output, long inputTokens, long outputTokens) {
     }
 
+    private String callTool(Map<String, Object> node, WorkflowRun run, String lastOutput) {
+        Long toolId = toLong(node.get("toolId"));
+        if (toolId == null) throw new BusinessException(400, "TOOL 节点未选择工具");
+        String args = str(node.get("argsTemplate"));
+        if (args == null || args.isBlank()) args = "{}";
+        args = args.replace("{{input}}", run.getInputText())
+                .replace("{{last}}", lastOutput == null ? "" : lastOutput);
+        Map<String, Object> result = toolRuntime.executeToolForWorkflow(run.getAgentId(), toolId, args);
+        return str(result.get("output"));
+    }
+
+    private String retrieveKnowledge(Map<String, Object> node, WorkflowRun run,
+                                     String lastOutput, JwtPrincipal principal) {
+        Long kbId = toLong(node.get("knowledgeBaseId"));
+        if (kbId == null) throw new BusinessException(400, "KNOWLEDGE 节点未选择知识库");
+        var viewer = KnowledgePermissionService.Viewer.of(principal.userId(), principal.roles());
+        if (permissionService.findVisible(kbId, viewer) == null) {
+            throw new BusinessException(403, "无权访问知识库 #" + kbId);
+        }
+        String query = str(node.get("queryTemplate"));
+        if (query == null || query.isBlank()) query = run.getInputText();
+        query = query.replace("{{input}}", run.getInputText())
+                .replace("{{last}}", lastOutput == null ? "" : lastOutput);
+        int topK = toInt(node.get("topK"));
+        if (topK <= 0) topK = 5;
+        double threshold = toDouble(node.get("scoreThreshold"), 0.5);
+        String mode = str(node.get("mode"));
+        Map<String, Object> cfg = mode == null || mode.isBlank() ? Map.of() : Map.of("mode", mode);
+        var result = hybridRetrieval.search(run.getTenantId(), query, kbId, topK, threshold, cfg);
+        if (result.hits().isEmpty()) return "（知识库未检索到相关内容）";
+        StringBuilder sb = new StringBuilder("【知识库检索结果】\n");
+        int index = 1;
+        for (Map<String, Object> hit : result.hits()) {
+            sb.append("\n--- [" + index++ + "] ---\n").append(str(hit.get("content")));
+        }
+        return sb.toString();
+    }
+
     private void recordUsage(WorkflowRun run, String modelName, long in, long out) {
         try {
             BillingUsage u = new BillingUsage();
@@ -447,6 +504,7 @@ public class WorkflowService {
             m.put("agentName", agent == null ? "Agent #" + a.getAgentId() : agent.getName());
             m.put("nodeId", a.getNodeId());
             m.put("title", a.getTitle());
+            m.put("requiredRole", a.getRequiredRole());
             m.put("payload", a.getPayload());
             m.put("status", a.getStatus());
             m.put("comment", a.getComment());
@@ -511,7 +569,7 @@ public class WorkflowService {
             if (id == null || id.isBlank()) throw new BusinessException(400, "节点 id 不能为空");
             if (nodes.containsKey(id)) throw new BusinessException(400, "节点 id 重复：" + id);
             String t = type == null ? "" : type.toUpperCase();
-            if (!List.of("START", "LLM", "AGENT", "CONDITION", "APPROVAL", "END").contains(t)) {
+            if (!List.of("START", "LLM", "AGENT", "TOOL", "KNOWLEDGE", "CONDITION", "APPROVAL", "END").contains(t)) {
                 throw new BusinessException(400, "不支持的节点类型：" + type);
             }
             if ("START".equals(t)) hasStart = true;
@@ -531,6 +589,12 @@ public class WorkflowService {
             }
             if ("AGENT".equals(type) && node.get("agentId") == null) {
                 throw new BusinessException(400, "AGENT 节点必须选择 Agent");
+            }
+            if ("TOOL".equals(type) && node.get("toolId") == null) {
+                throw new BusinessException(400, "TOOL 节点必须选择工具");
+            }
+            if ("KNOWLEDGE".equals(type) && node.get("knowledgeBaseId") == null) {
+                throw new BusinessException(400, "KNOWLEDGE 节点必须选择知识库");
             }
         }
     }
@@ -652,6 +716,14 @@ public class WorkflowService {
             try { return Integer.parseInt(s.trim()); } catch (NumberFormatException ignored) { }
         }
         return 0;
+    }
+
+    private double toDouble(Object o, double def) {
+        if (o instanceof Number n) return n.doubleValue();
+        if (o instanceof String s && !s.isBlank()) {
+            try { return Double.parseDouble(s.trim()); } catch (NumberFormatException ignored) { }
+        }
+        return def;
     }
 
     private Long toLong(Object o) {

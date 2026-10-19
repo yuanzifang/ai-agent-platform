@@ -17,6 +17,9 @@
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column prop="agentName" label="Agent" width="150" />
       <el-table-column prop="title" label="审批事项" width="180" />
+      <el-table-column label="审批角色" width="100">
+        <template #default="{ row }">{{ row.requiredRole || '不限' }}</template>
+      </el-table-column>
       <el-table-column label="待审内容" min-width="260" show-overflow-tooltip>
         <template #default="{ row }">{{ row.payload || row.runInput || '-' }}</template>
       </el-table-column>

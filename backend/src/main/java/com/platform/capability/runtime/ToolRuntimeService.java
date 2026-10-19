@@ -316,6 +316,27 @@ public class ToolRuntimeService {
         return value instanceof List<?> list ? List.copyOf(list) : List.of();
     }
 
+    /** 工作流工具节点：按 Agent 解析凭证后执行一次工具。 */
+    public Map<String, Object> executeToolForWorkflow(Long agentId, Long toolId, String argsJson) {
+        ToolRegistry tool = toolMapper.findVisible(toolId, TenantContext.getTenantId());
+        if (tool == null || !"ENABLED".equals(tool.getStatus())) {
+            throw new IllegalArgumentException("工具不存在或未启用");
+        }
+        ToolCallCollector collector = new ToolCallCollector();
+        ToolCallback callback = switch (tool.getToolType() == null ? "API" : tool.getToolType()) {
+            case "BUILTIN" -> builtinCallback(tool, collector);
+            case "API" -> apiCallback(tool, collector, agentId);
+            case "MCP" -> mcpCallback(tool, collector);
+            default -> null;
+        };
+        if (callback == null) throw new IllegalArgumentException("暂不支持该工具类型");
+        long start = System.currentTimeMillis();
+        String output = callback.call(argsJson == null || argsJson.isBlank() ? "{}" : argsJson);
+        return Map.of("output", output == null ? "" : output,
+                "latencyMs", System.currentTimeMillis() - start,
+                "toolCalls", collector.events());
+    }
+
     /** 管理页工具测试：直接执行一次（不写 Trace、不经过 LLM）。 */
     public Map<String, Object> testTool(ToolRegistry tool, String argsJson) {
         ToolCallCollector collector = new ToolCallCollector();

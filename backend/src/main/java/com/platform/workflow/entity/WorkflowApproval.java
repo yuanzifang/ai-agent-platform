@@ -17,6 +17,7 @@ public class WorkflowApproval {
     private Long tenantId;
     private String nodeId;
     private String title;
+    private String requiredRole;
     private String payload;
     private String status;
     private Long decidedBy;
