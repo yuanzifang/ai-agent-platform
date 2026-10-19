@@ -10,6 +10,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -40,6 +41,26 @@ public class WorkflowController {
                         "status", req.status() == null ? "ENABLED" : req.status(),
                         "definition", req.definition() == null ? Map.of() : req.definition()),
                 principal));
+    }
+
+    @PostMapping("/agent/{agentId}/workflow/publish")
+    @PreAuthorize("hasAuthority('agent:edit')")
+    public ApiResponse<Map<String, Object>> publish(@PathVariable Long agentId,
+                                                    @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(workflowService.publish(agentId, principal));
+    }
+
+    @GetMapping("/agent/{agentId}/workflow/versions")
+    public ApiResponse<List<com.platform.workflow.entity.AgentWorkflowVersion>> versions(@PathVariable Long agentId) {
+        return ApiResponse.ok(workflowService.versions(agentId));
+    }
+
+    @PostMapping("/agent/{agentId}/workflow/versions/{version}/rollback")
+    @PreAuthorize("hasAuthority('agent:edit')")
+    public ApiResponse<Map<String, Object>> rollback(@PathVariable Long agentId,
+                                                     @PathVariable String version,
+                                                     @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(workflowService.rollback(agentId, version, principal));
     }
 
     @DeleteMapping("/agent/{agentId}/workflow")

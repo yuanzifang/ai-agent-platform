@@ -18,6 +18,7 @@ import com.platform.model.service.ChatModelRouter;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.service.AuditService;
 import com.platform.workflow.entity.AgentWorkflow;
+import com.platform.workflow.entity.AgentWorkflowVersion;
 import com.platform.workflow.entity.WorkflowApproval;
 import com.platform.workflow.entity.WorkflowNodeRun;
 import com.platform.workflow.entity.WorkflowRun;
@@ -55,6 +56,7 @@ public class WorkflowService {
     private final WorkflowRunMapper runMapper;
     private final WorkflowNodeRunMapper nodeRunMapper;
     private final WorkflowApprovalMapper approvalMapper;
+    private final com.platform.workflow.mapper.AgentWorkflowVersionMapper versionMapper;
     private final AgentRegistryMapper agentMapper;
     private final ChatModelRouter modelRouter;
     private final com.platform.agent.service.ContextWindowService contextWindow;
@@ -77,6 +79,8 @@ public class WorkflowService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("configured", wf != null);
         m.put("agentId", agentId);
+        m.put("published", false);
+        m.put("hasUnpublishedChanges", false);
         m.put("agentName", agent.getName());
         if (wf == null) {
             m.put("name", agent.getName() + " 工作流");
@@ -87,6 +91,10 @@ public class WorkflowService {
             m.put("name", wf.getName());
             m.put("status", wf.getStatus());
             m.put("definition", parse(wf.getDefinition()));
+            m.put("published", wf.getPublishedDefinition() != null);
+            m.put("publishedVersion", wf.getPublishedVersion());
+            m.put("hasUnpublishedChanges", wf.getPublishedDefinition() != null
+                    && !wf.getPublishedDefinition().equals(wf.getDefinition()));
             m.put("updatedAt", wf.getUpdatedAt());
         }
         return m;
@@ -124,8 +132,73 @@ public class WorkflowService {
         return get(agentId);
     }
 
+    /** 发布当前草稿为不可变版本；运行始终优先使用已发布定义。 */
+    public Map<String, Object> publish(Long agentId, JwtPrincipal principal) {
+        AgentRegistry agent = requireAgent(agentId);
+        AgentWorkflow wf = workflowMapper.selectOne(new LambdaQueryWrapper<AgentWorkflow>()
+                .eq(AgentWorkflow::getAgentId, agentId).last("LIMIT 1"));
+        if (wf == null) throw new BusinessException(400, "该 Agent 尚未配置工作流");
+        validate(parse(wf.getDefinition()));
+        long count = versionMapper.selectCount(new LambdaQueryWrapper<AgentWorkflowVersion>()
+                .eq(AgentWorkflowVersion::getWorkflowId, wf.getId()));
+        String version = "V" + (count + 1);
+        AgentWorkflowVersion v = new AgentWorkflowVersion();
+        v.setWorkflowId(wf.getId());
+        v.setTenantId(wf.getTenantId());
+        v.setVersion(version);
+        v.setName(wf.getName());
+        v.setDefinition(wf.getDefinition());
+        v.setCreatedBy(principal.userId());
+        v.setCreatedAt(LocalDateTime.now());
+        versionMapper.insert(v);
+        wf.setPublishedVersion(version);
+        wf.setPublishedDefinition(wf.getDefinition());
+        wf.setUpdatedAt(LocalDateTime.now());
+        workflowMapper.updateById(wf);
+        auditService.record(principal.userId(), "workflow.publish", "agent_workflow",
+                String.valueOf(agentId), "SUCCESS", Map.of("version", version));
+        return Map.of("version", version, "name", wf.getName());
+    }
+
+    public List<AgentWorkflowVersion> versions(Long agentId) {
+        requireAgent(agentId);
+        AgentWorkflow wf = workflowMapper.selectOne(new LambdaQueryWrapper<AgentWorkflow>()
+                .eq(AgentWorkflow::getAgentId, agentId).last("LIMIT 1"));
+        if (wf == null) return List.of();
+        return versionMapper.selectList(new LambdaQueryWrapper<AgentWorkflowVersion>()
+                .eq(AgentWorkflowVersion::getWorkflowId, wf.getId())
+                .orderByDesc(AgentWorkflowVersion::getId));
+    }
+
+    /** 回滚到历史版本：恢复草稿并发布为新版本（保留历史链）。 */
+    public Map<String, Object> rollback(Long agentId, String version, JwtPrincipal principal) {
+        AgentWorkflow wf = workflowMapper.selectOne(new LambdaQueryWrapper<AgentWorkflow>()
+                .eq(AgentWorkflow::getAgentId, agentId).last("LIMIT 1"));
+        if (wf == null) throw new BusinessException(400, "该 Agent 尚未配置工作流");
+        AgentWorkflowVersion target = versionMapper.selectOne(new LambdaQueryWrapper<AgentWorkflowVersion>()
+                .eq(AgentWorkflowVersion::getWorkflowId, wf.getId())
+                .eq(AgentWorkflowVersion::getVersion, version)
+                .last("LIMIT 1"));
+        if (target == null) throw new BusinessException(404, "工作流版本不存在");
+        wf.setName(target.getName());
+        wf.setDefinition(target.getDefinition());
+        wf.setUpdatedAt(LocalDateTime.now());
+        workflowMapper.updateById(wf);
+        Map<String, Object> result = publish(agentId, principal);
+        auditService.record(principal.userId(), "workflow.rollback", "agent_workflow",
+                String.valueOf(agentId), "SUCCESS", Map.of("from", version,
+                        "newVersion", String.valueOf(result.get("version"))));
+        return result;
+    }
+
     public void delete(Long agentId, JwtPrincipal principal) {
         requireAgent(agentId);
+        AgentWorkflow wf = workflowMapper.selectOne(new LambdaQueryWrapper<AgentWorkflow>()
+                .eq(AgentWorkflow::getAgentId, agentId).last("LIMIT 1"));
+        if (wf != null) {
+            versionMapper.delete(new LambdaQueryWrapper<AgentWorkflowVersion>()
+                    .eq(AgentWorkflowVersion::getWorkflowId, wf.getId()));
+        }
         workflowMapper.delete(new LambdaQueryWrapper<AgentWorkflow>().eq(AgentWorkflow::getAgentId, agentId));
         auditService.record(principal.userId(), "workflow.delete", "agent_workflow",
                 String.valueOf(agentId), "SUCCESS", Map.of());
@@ -141,13 +214,14 @@ public class WorkflowService {
                 .eq(AgentWorkflow::getAgentId, agentId).last("LIMIT 1"));
         if (wf == null) throw new BusinessException(400, "该 Agent 尚未配置工作流");
         if (!"ENABLED".equals(wf.getStatus())) throw new BusinessException(400, "工作流已停用");
-        validate(parse(wf.getDefinition()));
+        String runDefinition = wf.getPublishedDefinition() != null ? wf.getPublishedDefinition() : wf.getDefinition();
+        validate(parse(runDefinition));
 
         WorkflowRun run = new WorkflowRun();
         run.setWorkflowId(wf.getId());
         run.setAgentId(agentId);
         run.setTenantId(wf.getTenantId());
-        run.setDefinition(wf.getDefinition());
+        run.setDefinition(runDefinition);
         run.setInputText(input.trim());
         run.setOutputText(input.trim());
         run.setContextJson(json(Map.of("outputs", List.of())));

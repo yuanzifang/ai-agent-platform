@@ -17,6 +17,8 @@ public class AgentWorkflow {
     private String name;
     private String definition;
     private String status;
+    private String publishedVersion;
+    private String publishedDefinition;
     private Long createdBy;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

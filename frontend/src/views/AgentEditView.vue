@@ -613,12 +613,17 @@
           <el-option label="启用" value="ENABLED" />
           <el-option label="停用" value="DISABLED" />
         </el-select>
+        <el-tag v-if="workflowPublishedVersion" type="success" size="small">已发布 {{ workflowPublishedVersion }}</el-tag>
+        <el-tag v-else type="info" size="small">未发布</el-tag>
+        <el-tag v-if="workflowHasUnpublishedChanges" type="warning" size="small">有未发布修改</el-tag>
         <el-select v-model="wfAddType" style="width: 130px">
           <el-option v-for="t in wfTypes" :key="t.value" :label="t.label" :value="t.value" />
         </el-select>
         <el-button @click="addWorkflowNode">添加节点</el-button>
         <el-button @click="rewireWorkflow">整理连线</el-button>
-        <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow">保存</el-button>
+        <el-button @click="openWorkflowVersions">版本</el-button>
+        <el-button type="success" :loading="workflowPublishing" @click="publishWorkflow">发布</el-button>
+        <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow">保存草稿</el-button>
       </div>
 
       <div class="wf-flow">
@@ -718,6 +723,7 @@
 
       <el-divider content-position="left">运行测试</el-divider>
       <el-input v-model="workflowRunInput" type="textarea" :rows="2" placeholder="输入测试内容" />
+      <div class="hint mt8">运行优先使用已发布版本；未发布时使用当前草稿。</div>
       <div class="mt8">
         <el-button type="primary" :loading="workflowRunning" @click="runWorkflow">运行</el-button>
         <el-link v-if="workflowRunResult?.status === 'WAITING_APPROVAL'" type="warning"
@@ -739,6 +745,21 @@
         <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow">保存工作流</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="wfVersionsVisible" title="工作流版本" size="480px">
+      <el-table :data="wfVersions" size="small" empty-text="暂无已发布版本">
+        <el-table-column prop="version" label="版本" width="80" />
+        <el-table-column prop="name" label="名称" min-width="140" />
+        <el-table-column label="发布时间" width="170">
+          <template #default="{ row }">{{ String(row.createdAt || '').replace('T',' ').slice(0,19) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="90">
+          <template #default="{ row }">
+            <el-button size="small" text type="primary" @click="rollbackWorkflow(row.version)">回滚</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-drawer>
 
     <!-- 版本抽屉 -->
     <el-drawer v-model="versionsVisible" title="版本历史" size="420px">
@@ -855,6 +876,11 @@ const wfTypes = [
 const workflowForm = reactive({ name: '', status: 'ENABLED', nodes: [] as any[] })
 const workflowRunInput = ref('')
 const workflowRunResult = ref<any>(null)
+const workflowPublishedVersion = ref('')
+const workflowHasUnpublishedChanges = ref(false)
+const workflowPublishing = ref(false)
+const wfVersionsVisible = ref(false)
+const wfVersions = ref<any[]>([])
 
 const enabledSkillCount = computed(() => skillRows.value.filter(r => r.enabled && !r.missing).length)
 const enabledToolCount = computed(() => toolRows.value.filter(r => r.enabled && !r.missing).length)
@@ -1291,6 +1317,8 @@ async function openWorkflow() {
   workflowConfigured.value = !!data?.configured
   workflowForm.name = data?.name || `${form.name} 工作流`
   workflowForm.status = data?.status || 'ENABLED'
+  workflowPublishedVersion.value = data?.publishedVersion || ''
+  workflowHasUnpublishedChanges.value = !!data?.hasUnpublishedChanges
   workflowForm.nodes = (data?.definition?.nodes || []).map((n: any) => ({ ...n }))
   if (!workflowForm.nodes.length) {
     workflowForm.nodes = [
@@ -1372,16 +1400,54 @@ async function saveWorkflow() {
   }
   workflowSaving.value = true
   try {
-    const data = await http.put(`/agent/${agentId}/workflow`, {
+    await http.put(`/agent/${agentId}/workflow`, {
       name: workflowForm.name,
       status: workflowForm.status,
       definition: { nodes: workflowForm.nodes }
-    }) as any
+    })
     workflowConfigured.value = true
-    ElMessage.success('工作流已保存')
+    const fresh = await http.get(`/agent/${agentId}/workflow`) as any
+    workflowPublishedVersion.value = fresh?.publishedVersion || ''
+    workflowHasUnpublishedChanges.value = !!fresh?.hasUnpublishedChanges
+    ElMessage.success('工作流草稿已保存')
+    return true
   } finally {
     workflowSaving.value = false
   }
+  return false
+}
+
+async function publishWorkflow() {
+  workflowPublishing.value = true
+  try {
+    const saved = await saveWorkflow()
+    if (!saved) return
+    const res = await http.post(`/agent/${agentId}/workflow/publish`) as any
+    workflowPublishedVersion.value = res.version
+    workflowHasUnpublishedChanges.value = false
+    ElMessage.success(`已发布 ${res.version}`)
+  } finally {
+    workflowPublishing.value = false
+  }
+}
+
+async function openWorkflowVersions() {
+  wfVersions.value = await http.get(`/agent/${agentId}/workflow/versions`) as any
+  wfVersionsVisible.value = true
+}
+
+async function rollbackWorkflow(version: string) {
+  await ElMessageBox.confirm(`回滚到 ${version} 将恢复其内容并发布为新版本，继续？`, '回滚工作流',
+    { type: 'warning', confirmButtonText: '回滚', cancelButtonText: '取消' })
+  const res = await http.post(`/agent/${agentId}/workflow/versions/${version}/rollback`) as any
+  ElMessage.success(`已回滚并发布 ${res.version}`)
+  wfVersionsVisible.value = false
+  const data = await http.get(`/agent/${agentId}/workflow`) as any
+  workflowForm.name = data.name
+  workflowForm.status = data.status
+  workflowForm.nodes = (data.definition?.nodes || []).map((n: any) => ({ ...n }))
+  workflowPublishedVersion.value = data.publishedVersion || ''
+  workflowHasUnpublishedChanges.value = !!data.hasUnpublishedChanges
 }
 
 async function runWorkflow() {
