@@ -57,11 +57,18 @@ MCP Server 列表新增「能力」按钮（需 `tool:manage`）：
 
 ## 4. 分页与大小边界
 
-当前实现只解析首屏 `resources/prompts` 列表，不处理 `nextCursor`；大资源没有强制大小上限。生产接入大目录/大文件前应补：
+已实现的保护：
 
-- `nextCursor` 分页
-- 资源响应大小上限（例如 1MB）与二进制安全下载
+- `tools/list`、`resources/list`、`resources/templates/list`、`prompts/list` 均处理 `nextCursor`；
+- 最多 20 页 / 每类 2000 条，重复 cursor 直接拒绝；
+- `resources/read` 与 `prompts/get` 单次内容默认上限 **1MB**，通过 `mcp.resource.max-bytes` 配置；
+- 超限/重复 cursor/分页过多返回业务错误，不静默截断。
+
+仍未实现：
+
+- 二进制资源的安全下载/落盘（当前直接返回 MCP `blob` base64）
 - 资源订阅/变更通知（`resources/list_changed`）
+- 流式/超大资源分段
 
 ## 5. tools/list_changed 现状
 
@@ -81,10 +88,11 @@ MCP Server 列表新增「能力」按钮（需 `tool:manage`）：
 - `resources/read` 返回 `resource:mock://docs/readme`；
 - `prompts/get` 返回 `prompt:hello`；
 - Mock 会话复用仍成立（initialize 只发生一次）；
-- 完整 E2E **28/28**，后端单测 **48/48**，前端 `vue-tsc`/`vite build`、`helm lint` 通过。
+- 新增 `/mcp-paged` 两页工具测试：`echo-page1` + `nextCursor` → `echo-page2`，共 2 条；
+- 完整 E2E **29/29**（API 25 + UI 4），后端单测 **48/48**，前端 `vue-tsc`/`vite build`、`helm lint` 通过。
 
 未验证：
 
 - 真实第三方 MCP Server 的 resources/prompts 兼容性（无凭据/网络条件）。
-- 分页、二进制资源、资源订阅、`tools/list_changed` 热更新。
+- 二进制资源安全下载、资源订阅、`tools/list_changed` 热更新。
 - Compose/Helm 未实跑。

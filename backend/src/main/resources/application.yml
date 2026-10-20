@@ -181,6 +181,11 @@ otel:
   endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}
   service-name: ${OTEL_SERVICE_NAME:ai-agent-platform}
 
+mcp:
+  resource:
+    # resources/read / prompts/get 单次返回上限（字节/字符近似）
+    max-bytes: ${MCP_RESOURCE_MAX_BYTES:1048576}
+
 audit:
   # 审计保留：旧月分区先归档并写租户链锚点，再 DROP；手动触发走平台管理员接口
   archive:

@@ -2,12 +2,14 @@ package com.platform.agent.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.platform.agent.entity.McpServer;
 import com.platform.common.security.CryptoService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
@@ -60,6 +62,8 @@ public class McpClientService {
     private static final int READ_RETRIES = 2;
     private static final Duration HTTP_SESSION_TTL = Duration.ofMinutes(10);
     private static final Duration STDIO_IDLE = Duration.ofMinutes(10);
+    private static final int MAX_LIST_PAGES = 20;
+    private static final int MAX_LIST_ITEMS = 2000;
     private static final int MAX_STDIO_ARGS = 64;
     private static final int MAX_ARG_LENGTH = 4096;
     private static final int MAX_ENV_VALUE = 8192;
@@ -81,6 +85,10 @@ public class McpClientService {
             .followRedirects(HttpClient.Redirect.NEVER)
             .build();
     private final McpOAuthService oauthService;
+
+    /** 单次 resources/read 返回的总字节上限，防止恶意/异常大资源耗尽内存。 */
+    @Value("${mcp.resource.max-bytes:1048576}")
+    private int maxResourceBytes;
 
     private final Map<Long, CachedHttpSession> httpSessions = new ConcurrentHashMap<>();
     private final Map<Long, StdioSession> stdioSessions = new ConcurrentHashMap<>();
@@ -136,50 +144,71 @@ public class McpClientService {
     // ---------- 对外入口 ----------
 
     public List<McpTool> listTools(McpServer server) {
-        Exception last = null;
-        for (int attempt = 0; attempt <= READ_RETRIES; attempt++) {
-            try {
-                JsonNode result = rpc(server, "tools/list", objectMapper.createObjectNode(), TIMEOUT, () -> false);
-                return parseTools(result);
-            } catch (Exception e) {
-                last = e;
-                log.warn("MCP tools/list 失败（第 {} 次）server={}：{}", attempt + 1, server.getId(), rootMessage(e));
-                backoff(attempt);
-            }
+        List<McpTool> all = new ArrayList<>();
+        String cursor = null;
+        Set<String> seen = new java.util.HashSet<>();
+        for (int page = 0; page < MAX_LIST_PAGES; page++) {
+            ObjectNode params = objectMapper.createObjectNode();
+            if (cursor != null) params.put("cursor", cursor);
+            JsonNode result = rpcWithRetry(server, "tools/list", params, TIMEOUT);
+            parseTools(result, all);
+            cursor = nextCursor(result);
+            if (cursor == null) return all;
+            if (!seen.add(cursor)) throw new IllegalStateException("MCP tools/list 返回重复 cursor：" + cursor);
         }
-        throw new IllegalStateException(rootMessage(last));
+        throw new IllegalStateException("MCP tools/list 分页超过 " + MAX_LIST_PAGES + " 页");
     }
 
     /** MCP resources/list（无资源能力的 Server 会返回 method not found，由调用方降级为空）。 */
     public List<McpResource> listResources(McpServer server) {
-        JsonNode result = rpcSafe(server, "resources/list", objectMapper.createObjectNode(), TIMEOUT, () -> false);
         List<McpResource> rows = new ArrayList<>();
-        JsonNode arr = result.path("resources");
-        if (arr.isArray()) {
-            for (JsonNode r : arr) {
-                String uri = r.path("uri").asText("");
-                if (uri.isBlank()) continue;
-                rows.add(new McpResource(uri, r.path("name").asText(uri),
-                        r.path("description").asText(""), r.path("mimeType").asText(null),
-                        r.has("size") && r.get("size").canConvertToLong() ? r.get("size").asLong() : null));
+        String cursor = null;
+        Set<String> seen = new java.util.HashSet<>();
+        for (int page = 0; page < MAX_LIST_PAGES; page++) {
+            ObjectNode params = objectMapper.createObjectNode();
+            if (cursor != null) params.put("cursor", cursor);
+            JsonNode result = rpcSafe(server, "resources/list", params, TIMEOUT, () -> false);
+            JsonNode arr = result.path("resources");
+            if (arr.isArray()) {
+                for (JsonNode r : arr) {
+                    String uri = r.path("uri").asText("");
+                    if (uri.isBlank()) continue;
+                    rows.add(new McpResource(uri, r.path("name").asText(uri),
+                            r.path("description").asText(""), r.path("mimeType").asText(null),
+                            r.has("size") && r.get("size").canConvertToLong() ? r.get("size").asLong() : null));
+                    if (rows.size() > MAX_LIST_ITEMS) throw new IllegalStateException("MCP resources 超过 " + MAX_LIST_ITEMS + " 条");
+                }
             }
+            cursor = nextCursor(result);
+            if (cursor == null) return rows;
+            if (!seen.add(cursor)) throw new IllegalStateException("MCP resources/list 返回重复 cursor：" + cursor);
         }
-        return rows;
+        throw new IllegalStateException("MCP resources/list 分页超过 " + MAX_LIST_PAGES + " 页");
     }
 
     public List<McpResourceTemplate> listResourceTemplates(McpServer server) {
-        JsonNode result = rpcSafe(server, "resources/templates/list", objectMapper.createObjectNode(), TIMEOUT, () -> false);
         List<McpResourceTemplate> rows = new ArrayList<>();
-        JsonNode arr = result.path("resourceTemplates");
-        if (arr.isArray()) {
-            for (JsonNode r : arr) {
-                String uri = r.path("uriTemplate").asText("");
-                if (uri.isBlank()) continue;
-                rows.add(new McpResourceTemplate(uri, r.path("name").asText(uri),
-                        r.path("description").asText(""), r.path("mimeType").asText(null)));
+        String cursor = null;
+        Set<String> seen = new java.util.HashSet<>();
+        for (int page = 0; page < MAX_LIST_PAGES; page++) {
+            ObjectNode params = objectMapper.createObjectNode();
+            if (cursor != null) params.put("cursor", cursor);
+            JsonNode result = rpcSafe(server, "resources/templates/list", params, TIMEOUT, () -> false);
+            JsonNode arr = result.path("resourceTemplates");
+            if (arr.isArray()) {
+                for (JsonNode r : arr) {
+                    String uri = r.path("uriTemplate").asText("");
+                    if (uri.isBlank()) continue;
+                    rows.add(new McpResourceTemplate(uri, r.path("name").asText(uri),
+                            r.path("description").asText(""), r.path("mimeType").asText(null)));
+                    if (rows.size() > MAX_LIST_ITEMS) throw new IllegalStateException("MCP resourceTemplates 超过 " + MAX_LIST_ITEMS + " 条");
+                }
             }
+            cursor = nextCursor(result);
+            if (cursor == null) return rows;
+            if (!seen.add(cursor)) throw new IllegalStateException("MCP templates/list 返回重复 cursor：" + cursor);
         }
-        return rows;
+        throw new IllegalStateException("MCP templates/list 分页超过 " + MAX_LIST_PAGES + " 页");
     }
 
     public List<McpResourceContent> readResource(McpServer server, String uri) {
@@ -193,23 +222,34 @@ public class McpClientService {
                         c.path("blob").asText(null)));
             }
         }
+        checkResourceSize(rows);
         return rows;
     }
 
     public List<McpPrompt> listPrompts(McpServer server) {
-        JsonNode result = rpcSafe(server, "prompts/list", objectMapper.createObjectNode(), TIMEOUT, () -> false);
         List<McpPrompt> rows = new ArrayList<>();
-        JsonNode arr = result.path("prompts");
-        if (arr.isArray()) {
-            for (JsonNode p : arr) {
-                String name = p.path("name").asText("");
-                if (name.isBlank()) continue;
-                JsonNode args = p.get("arguments");
-                rows.add(new McpPrompt(name, p.path("description").asText(""),
-                        args == null ? null : args.toString()));
+        String cursor = null;
+        Set<String> seen = new java.util.HashSet<>();
+        for (int page = 0; page < MAX_LIST_PAGES; page++) {
+            ObjectNode params = objectMapper.createObjectNode();
+            if (cursor != null) params.put("cursor", cursor);
+            JsonNode result = rpcSafe(server, "prompts/list", params, TIMEOUT, () -> false);
+            JsonNode arr = result.path("prompts");
+            if (arr.isArray()) {
+                for (JsonNode p : arr) {
+                    String name = p.path("name").asText("");
+                    if (name.isBlank()) continue;
+                    JsonNode args = p.get("arguments");
+                    rows.add(new McpPrompt(name, p.path("description").asText(""),
+                            args == null ? null : args.toString()));
+                    if (rows.size() > MAX_LIST_ITEMS) throw new IllegalStateException("MCP prompts 超过 " + MAX_LIST_ITEMS + " 条");
+                }
             }
+            cursor = nextCursor(result);
+            if (cursor == null) return rows;
+            if (!seen.add(cursor)) throw new IllegalStateException("MCP prompts/list 返回重复 cursor：" + cursor);
         }
-        return rows;
+        throw new IllegalStateException("MCP prompts/list 分页超过 " + MAX_LIST_PAGES + " 页");
     }
 
     public McpPromptResult getPrompt(McpServer server, String name, Map<String, Object> arguments) {
@@ -218,8 +258,12 @@ public class McpClientService {
         if (arguments != null) params.put("arguments", arguments);
         JsonNode result = rpcSafe(server, "prompts/get", params, CALL_TIMEOUT, () -> false);
         JsonNode messages = result.get("messages");
-        return new McpPromptResult(result.path("description").asText(null),
-                messages == null ? null : messages.toString());
+        String messagesJson = messages == null ? null : messages.toString();
+        int limit = Math.max(1024, maxResourceBytes);
+        if (messagesJson != null && messagesJson.length() > limit) {
+            throw new IllegalStateException("MCP prompt 结果超过上限 " + limit + " 字符");
+        }
+        return new McpPromptResult(result.path("description").asText(null), messagesJson);
     }
 
     public McpCallResult callTool(McpServer server, String toolName, Map<String, Object> arguments) {
@@ -939,8 +983,40 @@ public class McpClientService {
         }
     }
 
-    private List<McpTool> parseTools(JsonNode result) {
-        List<McpTool> tools = new ArrayList<>();
+    private String nextCursor(JsonNode result) {
+        JsonNode cursor = result.get("nextCursor");
+        if (cursor == null || cursor.isNull()) return null;
+        String value = cursor.asText("");
+        return value.isBlank() ? null : value;
+    }
+
+    private JsonNode rpcWithRetry(McpServer server, String method, Object params, Duration timeout) {
+        Exception last = null;
+        for (int attempt = 0; attempt <= READ_RETRIES; attempt++) {
+            try {
+                return rpc(server, method, params, timeout, () -> false);
+            } catch (Exception e) {
+                last = e;
+                log.warn("MCP {} 失败（第 {} 次）server={}：{}", method, attempt + 1, server.getId(), rootMessage(e));
+                backoff(attempt);
+            }
+        }
+        throw new IllegalStateException(rootMessage(last));
+    }
+
+    private void checkResourceSize(List<McpResourceContent> contents) {
+        long bytes = 0;
+        for (McpResourceContent c : contents) {
+            if (c.text() != null) bytes += c.text().getBytes(StandardCharsets.UTF_8).length;
+            if (c.blob() != null) bytes += c.blob().length();
+        }
+        int limit = Math.max(1024, maxResourceBytes);
+        if (bytes > limit) {
+            throw new IllegalStateException("MCP resource 内容超过上限 " + limit + " bytes（实际 " + bytes + "）");
+        }
+    }
+
+    private List<McpTool> parseTools(JsonNode result, List<McpTool> tools) {
         JsonNode arr = result.path("tools");
         if (arr.isArray()) {
             for (JsonNode t : arr) {
@@ -953,6 +1029,9 @@ public class McpClientService {
                         schema == null ? null : schema.toString(),
                         outputSchema == null ? null : outputSchema.toString(),
                         annotations == null ? null : annotations.toString()));
+                if (tools.size() > MAX_LIST_ITEMS) {
+                    throw new IllegalStateException("MCP tools 超过 " + MAX_LIST_ITEMS + " 条");
+                }
             }
         }
         return tools;

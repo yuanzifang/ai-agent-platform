@@ -297,8 +297,22 @@ class McpHandler(BaseHTTPRequestHandler):
     def _origin(self):
         return "http://" + self.headers.get("Host", "127.0.0.1:18093")
 
-    def _mcp_tools(self, rid):
+    def _mcp_tools(self, rid, params=None):
         McpHandler.stats["toolsList"] += 1
+        # /mcp-paged 专门用于验证 nextCursor 分页
+        if self.path.startswith("/mcp-paged"):
+            cursor = (params or {}).get("cursor")
+            if not cursor:
+                return self._json(200, {"jsonrpc": "2.0", "id": rid, "result": {
+                    "tools": [{"name": "echo-page1", "description": "第一页",
+                               "inputSchema": {"type": "object"}}],
+                    "nextCursor": "page2"}})
+            if cursor == "page2":
+                return self._json(200, {"jsonrpc": "2.0", "id": rid, "result": {
+                    "tools": [{"name": "echo-page2", "description": "第二页",
+                               "inputSchema": {"type": "object"}}]}})
+            return self._json(200, {"jsonrpc": "2.0", "id": rid,
+                                    "error": {"code": -32602, "message": "bad cursor"}})
         return self._json(200, {"jsonrpc": "2.0", "id": rid, "result": {"tools": [{
             "name": "echo", "description": "回显输入",
             "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
@@ -326,7 +340,7 @@ class McpHandler(BaseHTTPRequestHandler):
         if method == "notifications/initialized":
             return self._json(200, {})
         if method == "tools/list":
-            return self._mcp_tools(rid)
+            return self._mcp_tools(rid, body.get("params") or {})
         if method == "tools/call":
             McpHandler.stats["toolsCall"] += 1
             args = (body.get("params") or {}).get("arguments") or {}
@@ -446,7 +460,7 @@ class McpHandler(BaseHTTPRequestHandler):
                 McpHandler.stats["refresh"] += 1
                 return self._json(200, self._issue_tokens(3600))
             return self._json(400, {"error": "unsupported_grant_type"})
-        if path in ("/mcp", "/mcp-oauth"):
+        if path in ("/mcp", "/mcp-oauth", "/mcp-paged"):
             if path == "/mcp-oauth":
                 auth = self.headers.get("Authorization", "")
                 if not auth.startswith("Bearer ") or auth[7:] not in McpHandler.tokens:

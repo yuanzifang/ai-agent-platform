@@ -313,6 +313,26 @@ test('MCP HTTP：会话复用与 2025-03-26 能力', async ({ request }) => {
   }
 })
 
+test('MCP 工具分页', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const created = await request.post(`${P}/mcp-servers`, {
+    headers: auth(token!),
+    data: { name: `E2E MCP 分页-${Date.now()}`, transport: 'HTTP', endpoint: `${MCP_MOCK}/mcp-paged` }
+  })
+  const createdBody = await created.json()
+  expect(createdBody.code, JSON.stringify(createdBody)).toBe(0)
+  const serverId = createdBody.data.id
+  try {
+    const discover = await request.get(`${P}/mcp-servers/${serverId}/discover`, { headers: auth(token!) })
+    const body = await discover.json()
+    expect(body.code, JSON.stringify(body)).toBe(0)
+    expect(body.data.tools.map((t: any) => t.name)).toEqual(['echo-page1', 'echo-page2'])
+  } finally {
+    await request.delete(`${P}/mcp-servers/${serverId}`, { headers: auth(token!) })
+  }
+})
+
 test('MCP OAuth 2.1：PKCE 授权与自动刷新', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()
