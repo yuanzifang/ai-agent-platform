@@ -98,8 +98,17 @@ scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 - 只开放 80/443；MinIO 控制台 9001 仅内网访问
 - 前面再加 HTTPS/负载均衡；SSE 需关闭代理缓冲（Nginx 配置已设置）
 - `TOOL_ALLOW_PRIVATE=false`，需要访问内网工具时用 `TOOL_ALLOWED_HOSTS` 白名单
-- 定期备份 MySQL/PgVector/MinIO 数据卷
+- 定期备份 MySQL/PgVector/MinIO 数据卷，并定期做恢复演练
 - 当前 Compose 为单机部署；K8s/Helm 多实例部署为后续项
+
+## 备份与恢复
+
+```bash
+./scripts/backup.sh                 # MySQL + PgVector + MinIO 全量备份
+./scripts/restore-drill.sh          # 自动恢复演练（临时库/临时 bucket，不碰生产）
+```
+
+备份产物包含 `manifest.json` 和 `SHA256SUMS`，默认落在 `backups/`（已 gitignore）。详细配置、定时任务、生产恢复步骤与边界见 [`docs/备份与恢复.md`](docs/备份与恢复.md)。
 
 ## Kubernetes / Helm
 

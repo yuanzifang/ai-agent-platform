@@ -22,3 +22,6 @@ application-local.yml
 # 日志
 logs/
 *.log
+
+# 备份产物（含用户数据，禁止提交）
+backups/
