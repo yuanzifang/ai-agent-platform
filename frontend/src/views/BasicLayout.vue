@@ -3,6 +3,11 @@
     <el-header class="header">
       <div class="brand" @click="$router.push('/agents')">AI Agent 平台</div>
       <div class="spacer" />
+      <el-tooltip :content="dark ? '切换浅色模式' : '切换深色模式'">
+        <el-button text circle class="theme-btn" aria-label="切换主题" @click="toggleDark">
+          <el-icon size="18"><Sunny v-if="dark" /><Moon v-else /></el-icon>
+        </el-button>
+      </el-tooltip>
       <el-popover placement="bottom-end" :width="380" trigger="click" @show="loadNotifications">
         <template #reference>
           <span class="bell">
@@ -167,16 +172,27 @@ import { useUserStore } from '../stores/user'
 import http from '../api/http'
 import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
   UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp, DocumentCopy, Grid, Star, Link, Money,
-  Checked, Bell } from '@element-plus/icons-vue'
+  Checked, Bell, Moon, Sunny } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
 const userName = computed(() => userStore.userInfo?.displayName || '用户')
 const notifications = ref<any[]>([])
 const unreadCount = ref(0)
+const dark = ref(localStorage.getItem('theme') === 'dark')
 let notifTimer: any = null
 
+function applyTheme() {
+  document.documentElement.classList.toggle('dark', dark.value)
+}
+function toggleDark() {
+  dark.value = !dark.value
+  localStorage.setItem('theme', dark.value ? 'dark' : 'light')
+  applyTheme()
+}
+
 onMounted(() => {
+  applyTheme()
   if (userStore.accessToken) fetchUnread()
   notifTimer = setInterval(() => { if (userStore.accessToken) fetchUnread() }, 30000)
 })

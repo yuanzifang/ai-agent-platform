@@ -6,7 +6,19 @@
       <div class="session-list">
         <div v-for="s in sessions" :key="s.id" class="session-item"
              :class="{ active: s.id === conversationId }" @click="openConversation(s.id)">
-          <div class="s-title">{{ s.title || '新会话' }}</div>
+          <div class="s-row">
+            <span v-if="s.pinned" class="s-pin">📌</span>
+            <div class="s-title">{{ s.title || '新会话' }}</div>
+            <el-dropdown trigger="click" @command="(cmd: string) => sessionCommand(cmd, s)" @click.stop>
+              <span class="s-more" @click.stop>⋯</span>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="rename">重命名</el-dropdown-item>
+                  <el-dropdown-item command="pin">{{ s.pinned ? '取消置顶' : '置顶' }}</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
           <div class="s-sub">{{ formatTime(s.lastActiveAt) }}</div>
         </div>
         <el-empty v-if="sessions.length === 0" description="暂无会话" :image-size="60" />
@@ -14,15 +26,24 @@
     </div>
 
     <!-- 右侧：消息区 -->
-    <div class="chat-main">
+    <div class="chat-main" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false"
+         @drop.prevent="onDrop">
+      <div v-if="dragging" class="drop-mask">松开以上传附件</div>
       <div class="chat-head">
         <span class="agent-name">{{ agentName }}</span>
         <el-button size="small" :disabled="messages.length === 0" @click="share">分享</el-button>
       </div>
 
       <div class="messages" ref="msgBox">
-        <div v-if="openingStatement && messages.length === 0" class="msg assistant">
-          <div class="bubble"><MarkdownContent :content="openingStatement" /></div>
+        <div v-if="openingStatement && messages.length === 0" class="opening">
+          <div class="msg assistant">
+            <div class="bubble"><MarkdownContent :content="openingStatement" /></div>
+          </div>
+          <div class="suggestions">
+            <span class="suggestions-label">猜你想问</span>
+            <el-button v-for="q in suggestedQuestions" :key="q" size="small" round
+                       :disabled="streaming" @click="askSuggestion(q)">{{ q }}</el-button>
+          </div>
         </div>
         <div v-for="m in messages" :key="m.id ?? 'pending'" class="msg" :class="m.role.toLowerCase()">
           <div class="bubble">
@@ -54,15 +75,24 @@
               <el-collapse>
                 <el-collapse-item :title="`引用来源 ${m.citations?.length ?? 0} 条`">
                   <div v-for="(c, i) in m.citations" :key="i" class="citation">
-                    <span class="score">{{ (c.score * 100).toFixed(0) }}%</span>
-                    <span class="c-text">{{ clip(c.content, 80) }}</span>
+                    <div class="c-head">
+                      <span class="score">{{ (c.score * 100).toFixed(0) }}%</span>
+                      <span class="c-doc">{{ c.documentName || c.knowledgeBaseName || '知识片段' }}</span>
+                      <el-button v-if="c.knowledgeBaseId" text size="small"
+                                 @click="openCitation(c)">查看原文</el-button>
+                    </div>
+                    <div class="c-text">{{ c.content }}</div>
                   </div>
                 </el-collapse-item>
               </el-collapse>
             </div>
+            <div v-if="m.role === 'USER' && !m.streaming" class="msg-ops user-ops">
+              <el-button size="small" text @click="editResend(m)">编辑重发</el-button>
+            </div>
             <div v-if="m.role === 'ASSISTANT' && m.id && !m.streaming" class="msg-ops">
               <el-button size="small" text :type="m.feedback === 'UP' ? 'primary' : ''" @click="feedback(m, 'UP')">👍</el-button>
               <el-button size="small" text :type="m.feedback === 'DOWN' ? 'danger' : ''" @click="feedback(m, 'DOWN')">👎</el-button>
+              <el-button size="small" text @click="copyMessage(m)">复制</el-button>
               <el-button v-if="isLastAssistant(m)" size="small" text @click="regenerate(m)">重新生成</el-button>
             </div>
           </div>
@@ -72,12 +102,15 @@
       <div class="input-bar">
         <div v-if="attachments.length" class="attach-chips">
           <el-tag v-for="(a, i) in attachments" :key="a.attachmentId" closable @close="attachments.splice(i, 1)">
-            📎 {{ a.fileName }}
+            <img v-if="a.previewUrl" :src="a.previewUrl" class="attach-preview" alt="" />
+            <span v-else>📎</span> {{ a.fileName }}
           </el-tag>
         </div>
         <div class="input-row">
-          <el-button circle :type="recording ? 'danger' : ''" :title="recording ? '松开结束' : '按住说话'"
-                     @mousedown="startRecord" @mouseup="stopRecord" @mouseleave="recording && stopRecord()">
+          <el-button circle :type="recording ? (recordCancel ? 'info' : 'danger') : ''"
+                     :title="recording ? '松开结束，移出按钮取消' : '按住说话'"
+                     @mousedown="startRecord($event)" @mouseup="stopRecord($event)"
+                     @mouseleave="recording && stopRecord($event)">
             <el-icon><Microphone /></el-icon>
           </el-button>
           <label class="attach-btn" title="附件">
@@ -85,13 +118,33 @@
             <input type="file" hidden @change="uploadAttachment" />
           </label>
           <el-input v-model="input" type="textarea" :rows="2" resize="none" placeholder="输入消息，Enter 发送（Shift+Enter 换行）"
-                    @keydown.enter.exact.prevent="send" :disabled="streaming" />
+                    @keydown.enter.exact.prevent="send" @paste="onPaste" :disabled="streaming" />
           <el-button v-if="streaming" type="warning" @click="stopGen">停止</el-button>
           <el-button v-else type="primary" :disabled="!input.trim() || !conversationId" @click="send">发送</el-button>
         </div>
-        <div v-if="recording" class="recording-tip">录音中…松开鼠标结束并转文字</div>
+        <div v-if="recording" class="recording-bar" :class="{ cancel: recordCancel }">
+          <div class="wave">
+            <span v-for="(h, i) in volumeBars" :key="i" :style="{ height: h + 'px' }" />
+          </div>
+          <span>{{ recordCancel ? '松开取消录音' : '录音中…松开转文字（移出按钮取消）' }}</span>
+        </div>
       </div>
     </div>
+
+    <el-dialog v-model="variablesVisible" title="填写对话变量" width="520px">
+      <div class="hint mb8">该 Agent 配置了必填变量，填写后开始对话。</div>
+      <el-form label-width="130px">
+        <el-form-item v-for="def in variableDefs" :key="def.key" :required="def.required === true || String(def.required) === 'true'"
+                      :label="variableLabel(def)">
+          <el-input v-model="variableValues[def.key]"
+                    :placeholder="def.description || def.defaultValue || ''" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="variablesVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmVariables">开始对话</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="shareVisible" title="分享只读链接" width="480px">
       <el-input :model-value="shareUrl" readonly>
@@ -105,22 +158,23 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Microphone, Paperclip } from '@element-plus/icons-vue'
 import http from '../api/http'
 import MarkdownContent from '../components/MarkdownContent.vue'
 import { useUserStore } from '../stores/user'
 
-interface SessionItem { id: number; agentId: number; agentName: string; title: string; lastActiveAt: string }
+interface SessionItem { id: number; agentId: number; agentName: string; title: string; lastActiveAt: string; pinned?: boolean }
 interface ChatMessage {
   id?: number; role: string; content: string; status?: string; feedback?: string | null
   citations?: any[]; tools?: any[]; streaming?: boolean; attachments?: any[]
 }
-interface Attachment { attachmentId: number; fileName: string }
+interface Attachment { attachmentId: number; fileName: string; previewUrl?: string }
 
 const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
 const agentId = Number(route.params.agentId)
 const agentName = ref('')
@@ -136,17 +190,46 @@ const recording = ref(false)
 const shareVisible = ref(false)
 const shareUrl = ref('')
 const msgBox = ref<HTMLElement>()
+const variableDefs = ref<any[]>([])
+const variableValues = ref<Record<string, string>>({})
+const variablesVisible = ref(false)
+const pendingSend = ref<{ text: string } | null>(null)
+const dragging = ref(false)
+const volumeBars = ref<number[]>(Array.from({ length: 18 }, () => 3))
+const recordCancel = ref(false)
 let recorder: MediaRecorder | null = null
 let audioChunks: Blob[] = []
 let aborter: AbortController | null = null
+let recordStartX = 0
+let recordStartY = 0
+let audioContext: AudioContext | null = null
+let rafId = 0
+
+const suggestedQuestions = computed(() => {
+  const text = openingStatement.value || ''
+  const questions = (text.match(/[^。！？!?\n]{6,60}[？?]/g) || []).map(s => s.trim())
+  if (questions.length) return questions.slice(0, 3)
+  return [`${agentName.value}能做什么？`, '给我一个使用示例', '使用前需要注意什么？']
+})
+
+watch(input, (value) => {
+  if (conversationId.value) localStorage.setItem(`chat:draft:${conversationId.value}`, value)
+})
 
 onMounted(async () => {
+  window.addEventListener('mousemove', onRecordMove)
   const agents = await http.get('/agent', { params: { pageSize: 100 } }) as any
   const agent = (agents.list || []).find((a: any) => a.id === agentId)
   agentName.value = agent?.name || '对话'
   // 能力配置：关闭流式输出时走非流式 JSON
   const detail = await http.get(`/agent/${agentId}`) as any
   agentStreamEnabled.value = detail?.agentCapabilities?.streamOutput !== false
+  variableDefs.value = Array.isArray(detail?.variables) ? detail.variables : []
+  for (const def of variableDefs.value) {
+    if (def?.key && def.defaultValue != null && variableValues.value[def.key] == null) {
+      variableValues.value[def.key] = String(def.defaultValue)
+    }
+  }
   await loadSessions()
   if (sessions.value.length > 0) {
     await openConversation(sessions.value.find(s => s.agentId === agentId)?.id ?? sessions.value[0].id)
@@ -154,6 +237,12 @@ onMounted(async () => {
     // 新 Agent 首次进入：自动创建会话，避免输入框/发送按钮不可用
     await newConversation()
   }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('mousemove', onRecordMove)
+  cancelAnimationFrame(rafId)
+  if (audioContext) audioContext.close().catch(() => {})
 })
 
 async function loadSessions() {
@@ -170,27 +259,94 @@ async function newConversation() {
 async function openConversation(id: number) {
   if (streaming.value) stopGen()
   conversationId.value = id
+  // 恢复草稿时不要覆盖用户已开始输入的内容
+  const draft = localStorage.getItem(`chat:draft:${id}`) || ''
+  if (!input.value) input.value = draft
+  attachments.value = []
+  messages.value = []
   const detail = await http.get(`/conversations/${id}`) as any
   openingStatement.value = detail.openingStatement || ''
-  messages.value = (detail.messages || []).map((m: any) => ({
-    id: m.id, role: m.role, content: m.content, status: m.status,
-    feedback: m.feedback, citations: [], attachments: m.attachments || []
-  }))
+  // 加载期间用户可能已发送消息：本地已有消息时不覆盖（避免清掉流式回答）
+  if (messages.value.length === 0) {
+    messages.value = (detail.messages || []).map((m: any) => ({
+      id: m.id, role: m.role, content: m.content, status: m.status,
+      feedback: m.feedback, citations: [], attachments: m.attachments || []
+    }))
+  }
   scrollToBottom()
+}
+
+function requiredVariableMissing(def: any): boolean {
+  const required = def?.required === true || String(def?.required) === 'true'
+  if (!required || !def?.key) return false
+  const value = variableValues.value[def.key] ?? def.defaultValue
+  return value == null || String(value).trim() === ''
+}
+
+function missingVariables(): any[] {
+  return variableDefs.value.filter(requiredVariableMissing)
+}
+
+function variableLabel(def: any): string {
+  return def?.label || def?.name || def?.key || ''
 }
 
 async function send() {
   const text = input.value.trim()
   if (!text || !conversationId.value || streaming.value) return
+  if (missingVariables().length) {
+    pendingSend.value = { text }
+    variablesVisible.value = true
+    return
+  }
+  await doSend(text)
+}
+
+async function doSend(text: string) {
+  if (!conversationId.value) return
   input.value = ''
+  localStorage.removeItem(`chat:draft:${conversationId.value}`)
   const attachmentIds = attachments.value.map(a => a.attachmentId)
   attachments.value = []
   messages.value.push({ role: 'USER', content: text })
   const pending: ChatMessage = { role: 'ASSISTANT', content: '', streaming: true, citations: [] }
   messages.value.push(pending)
   await streamCall(`/conversations/${conversationId.value}/messages`, {
-    message: text, stream: agentStreamEnabled.value, attachmentIds
+    message: text, stream: agentStreamEnabled.value, attachmentIds,
+    variables: { ...variableValues.value }
   }, pending)
+}
+
+function confirmVariables() {
+  const missing = missingVariables()
+  if (missing.length) {
+    ElMessage.warning(`请填写必填变量：${missing.map(variableLabel).join('、')}`)
+    return
+  }
+  const payload = pendingSend.value
+  pendingSend.value = null
+  variablesVisible.value = false
+  if (payload) doSend(payload.text)
+}
+
+async function editResend(m: ChatMessage) {
+  try {
+    const { value } = await ElMessageBox.prompt('编辑后将在新会话中发送（保留原对话，形成分支）',
+      '编辑重发', { inputValue: m.content, confirmButtonText: '发送', cancelButtonText: '取消' })
+    if (!value?.trim()) return
+    const data = await http.post('/conversations', {
+      agentId, title: `分支：${value.trim().slice(0, 30)}`
+    }) as any
+    await loadSessions()
+    await openConversation(data.id)
+    await doSend(value.trim())
+  } catch { /* 取消 */ }
+}
+
+function askSuggestion(question: string) {
+  if (streaming.value) return
+  input.value = question
+  send()
 }
 
 async function regenerate(m: ChatMessage) {
@@ -229,6 +385,7 @@ async function streamCall(url: string, body: any, pending: ChatMessage) {
     const reader = resp.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    let receivedDone = false
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
@@ -242,13 +399,17 @@ async function streamCall(url: string, body: any, pending: ChatMessage) {
           else if (line.startsWith('data:')) data += line.slice(5).trim()
         }
         if (!data) continue
+        if (event === 'done') receivedDone = true
         handleEvent(event, JSON.parse(data), pending)
       }
     }
+    if (!receivedDone && !aborter?.signal.aborted) {
+      await recoverStream()
+    }
   } catch (e: any) {
     if (e.name !== 'AbortError') {
-      ElMessage.error(e.message || '发送失败')
-      pending.content = pending.content || '（生成失败）'
+      ElMessage.warning('连接中断，正在恢复已生成内容…')
+      await recoverStream()
     }
   } finally {
     pending.streaming = false
@@ -315,6 +476,63 @@ function toolStatusClass(status?: string) {
   return 'success'
 }
 
+/** 断线恢复：后端在客户端断开时会把已生成内容落 STOPPED，这里重新拉取持久化消息。 */
+async function recoverStream() {
+  if (!conversationId.value) return
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 600 + attempt * 600))
+    try {
+      const detail = await http.get(`/conversations/${conversationId.value}`) as any
+      const rows = detail.messages || []
+      const hasAssistant = rows.some((m: any) => m.role === 'ASSISTANT')
+      if (hasAssistant) {
+        messages.value = rows.map((m: any) => ({
+          id: m.id, role: m.role, content: m.content, status: m.status,
+          feedback: m.feedback, citations: [], attachments: m.attachments || []
+        }))
+        ElMessage.info('连接中断，已恢复已生成内容')
+        await loadSessions()
+        scrollToBottom()
+        return
+      }
+    } catch (e: any) {
+      console.warn('断线恢复失败', e?.message)
+    }
+  }
+  ElMessage.error('连接中断，请重新发送或刷新页面')
+}
+
+async function copyMessage(m: ChatMessage) {
+  try {
+    await navigator.clipboard.writeText(m.content || '')
+    ElMessage.success('已复制')
+  } catch {
+    ElMessage.error('复制失败')
+  }
+}
+
+function openCitation(c: any) {
+  if (!c?.knowledgeBaseId) return
+  router.push({ path: `/knowledge/${c.knowledgeBaseId}`,
+    query: { doc: c.documentId || '', chunk: c.chunkId || '' } })
+}
+
+async function sessionCommand(command: string, session: SessionItem) {
+  if (command === 'rename') {
+    try {
+      const { value } = await ElMessageBox.prompt('输入新的会话名称', '重命名会话',
+        { inputValue: session.title, confirmButtonText: '保存', cancelButtonText: '取消' })
+      if (!value?.trim()) return
+      await http.put(`/conversations/${session.id}`, { title: value.trim() })
+      await loadSessions()
+      ElMessage.success('已重命名')
+    } catch { /* 取消 */ }
+  } else if (command === 'pin') {
+    await http.put(`/conversations/${session.id}`, { pinned: !session.pinned })
+    await loadSessions()
+  }
+}
+
 async function stopGen() {
   aborter?.abort()
   const last = [...messages.value].reverse().find(m => m.role === 'ASSISTANT' && m.streaming)
@@ -343,22 +561,56 @@ function copyShare() {
   ElMessage.success('已复制')
 }
 
-async function uploadAttachment(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
+async function uploadFile(file: File) {
   if (!file || !conversationId.value) return
+  if (file.size > 20 * 1024 * 1024) {
+    ElMessage.warning('附件不能超过 20MB')
+    return
+  }
   const fd = new FormData()
   fd.append('file', file)
   const data = await http.post(`/conversations/${conversationId.value}/attachments`, fd, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }) as any
-  attachments.value.push({ attachmentId: data.attachmentId, fileName: data.fileName })
+  const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined
+  attachments.value.push({ attachmentId: data.attachmentId, fileName: data.fileName, previewUrl })
   ElMessage.success(`附件已上传：${data.fileName}`)
-  ;(e.target as HTMLInputElement).value = ''
+}
+
+async function uploadAttachment(e: Event) {
+  const inputEl = e.target as HTMLInputElement
+  const file = inputEl.files?.[0]
+  if (file) await uploadFile(file)
+  inputEl.value = ''
+}
+
+function onDrop(e: DragEvent) {
+  dragging.value = false
+  const files = e.dataTransfer?.files
+  if (!files?.length) return
+  for (const file of Array.from(files)) uploadFile(file)
+}
+
+function onPaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (const item of Array.from(items)) {
+    if (!item.type.startsWith('image/')) continue
+    const file = item.getAsFile()
+    if (file) {
+      e.preventDefault()
+      uploadFile(file)
+      break
+    }
+  }
 }
 
 // ---------- 录音转文字（本地 Qwen3-ASR） ----------
-async function startRecord() {
+async function startRecord(event: MouseEvent) {
   if (recording.value || streaming.value) return
+  recordStartX = event.clientX
+  recordStartY = event.clientY
+  recordCancel.value = false
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
@@ -366,17 +618,47 @@ async function startRecord() {
     recorder.ondataavailable = (e) => audioChunks.push(e.data)
     recorder.onstop = async () => {
       stream.getTracks().forEach(t => t.stop())
+      cancelAnimationFrame(rafId)
+      if (audioContext) { audioContext.close().catch(() => {}); audioContext = null }
+      volumeBars.value = Array.from({ length: 18 }, () => 3)
+      if (recordCancel.value) {
+        audioChunks = []
+        ElMessage.info('已取消录音')
+        return
+      }
       await transcribe()
+    }
+    // 音量波形
+    audioContext = new AudioContext()
+    const source = audioContext.createMediaStreamSource(stream)
+    const analyser = audioContext.createAnalyser()
+    analyser.fftSize = 64
+    source.connect(analyser)
+    const data = new Uint8Array(analyser.frequencyBinCount)
+    const tick = () => {
+      if (!recording.value) return
+      analyser.getByteFrequencyData(data)
+      volumeBars.value = Array.from({ length: 18 },
+        (_, i) => 3 + Math.round((data[i + 2] || 0) / 255 * 22))
+      rafId = requestAnimationFrame(tick)
     }
     recorder.start()
     recording.value = true
+    tick()
   } catch {
     ElMessage.error('无法访问麦克风，请检查浏览器权限')
   }
 }
 
-async function stopRecord() {
+function onRecordMove(event: MouseEvent) {
+  if (!recording.value) return
+  const distance = Math.hypot(event.clientX - recordStartX, event.clientY - recordStartY)
+  recordCancel.value = distance > 80
+}
+
+async function stopRecord(event?: MouseEvent) {
   if (!recording.value || !recorder) return
+  if (event) onRecordMove(event)
   recording.value = false
   recorder.stop()
 }
@@ -476,11 +758,16 @@ function clip(text: string, n: number) {
 .session-item.active {
   background: #ecf5ff;
 }
+.s-row { display: flex; align-items: center; gap: 4px; }
+.s-pin { font-size: 11px; flex-shrink: 0; }
+.s-more {
+  margin-left: auto; color: #909399; cursor: pointer; padding: 0 2px;
+  opacity: 0; transition: opacity .15s; flex-shrink: 0;
+}
+.session-item:hover .s-more { opacity: 1; }
 .s-title {
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 13px; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .s-sub {
   font-size: 12px;
@@ -564,15 +851,28 @@ function clip(text: string, n: number) {
   font-size: 12px;
   color: #909399;
 }
-.citation {
-  display: flex;
-  gap: 8px;
-  padding: 2px 0;
+.citation { padding: 6px 0; border-bottom: 1px dashed #ebeef5; }
+.citation:last-child { border-bottom: 0; }
+.c-head { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+.score { color: #409eff; flex-shrink: 0; }
+.c-doc {
+  color: #606266; font-weight: 500; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; max-width: 60%;
 }
-.score {
-  color: #409eff;
-  flex-shrink: 0;
+.c-text { color: #909399; line-height: 1.55; white-space: pre-wrap; }
+.suggestions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 10px 0 0 6px;
 }
+.suggestions-label { font-size: 12px; color: #909399; }
+.drop-mask {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px dashed #409eff; border-radius: 8px;
+  background: rgba(64, 158, 255, .08); color: #409eff; font-size: 16px;
+}
+.chat-main { position: relative; }
+.attach-preview { width: 18px; height: 18px; object-fit: cover; border-radius: 3px; vertical-align: middle; }
 .msg-ops {
   margin-top: 6px;
   display: flex;
@@ -607,11 +907,19 @@ function clip(text: string, n: number) {
   cursor: pointer;
   flex-shrink: 0;
 }
-.recording-tip {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #f56c6c;
+.recording-bar {
+  margin-top: 8px; display: flex; align-items: center; gap: 10px;
+  font-size: 12px; color: #f56c6c;
 }
+.recording-bar.cancel { color: #909399; }
+.wave { display: flex; align-items: center; gap: 2px; height: 26px; }
+.wave span {
+  width: 3px; min-height: 3px; border-radius: 2px; background: #f56c6c;
+  transition: height .05s linear;
+}
+.recording-bar.cancel .wave span { background: #c0c4cc; }
+.msg.user .msg-ops { justify-content: flex-end; }
+.msg.user .msg-ops .el-button { color: rgba(255, 255, 255, .9); }
 .share-tip {
   margin-top: 8px;
   font-size: 12px;

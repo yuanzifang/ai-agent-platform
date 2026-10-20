@@ -37,6 +37,11 @@ async function cleanupSkill(request: APIRequestContext, token: string | null, na
 test('登录与能力入口可见', async ({ page }) => {
   await login(page)
 
+  await page.getByRole('button', { name: '切换主题' }).click()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await page.getByRole('button', { name: '切换主题' }).click()
+  await expect(page.locator('html')).not.toHaveClass(/dark/)
+
   await page.goto('/tools')
   await expect(page.getByRole('button', { name: '新建 API 工具' })).toBeVisible()
   await expect(page.getByRole('button', { name: '添加 MCP Server' })).toBeVisible()
@@ -152,6 +157,47 @@ test('Markdown 渲染与工具步骤卡片', async ({ page, request }) => {
     await expect(step).toBeVisible({ timeout: 30_000 })
     await expect(step.locator('.tool-meta')).toContainText('完成', { timeout: 30_000 })
     await expect(page.locator('.markdown-body').last()).toContainText('36', { timeout: 30_000 })
+  } finally {
+    await request.delete(`/api/v1/agent/${agentId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+  }
+})
+
+test('变量弹窗与开场推荐问题', async ({ page, request }) => {
+  await login(page)
+  const token = await tokenOf(page)
+  const name = `E2E 变量-${Date.now()}`
+  const created = await request.post('/api/v1/agent', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      name,
+      systemPrompt: '你是订单助手。',
+      openingStatement: '你好！我可以帮你查询订单状态。你想查哪个订单？',
+      variables: [{ key: 'orderNo', label: '订单号', required: true, defaultValue: '' }],
+      modelConfig: { modelName: 'deepseek-flash' },
+      visibility: 'PRIVATE'
+    }
+  })
+  const createdBody = await created.json()
+  expect(createdBody.code, JSON.stringify(createdBody)).toBe(0)
+  const agentId = createdBody.data.id as number
+  try {
+    await request.post(`/api/v1/agent/${agentId}/publish`, {
+      headers: { Authorization: `Bearer ${token}` }, data: { force: true }
+    })
+    await page.goto(`/chat/${agentId}`)
+    const suggestion = page.locator('.suggestions button').first()
+    await expect(suggestion).toBeVisible({ timeout: 20_000 })
+    await suggestion.click()
+
+    const dialog = page.locator('.el-dialog:visible').filter({
+      has: page.locator('.el-dialog__title', { hasText: '填写对话变量' })
+    })
+    await expect(dialog).toBeVisible()
+    await dialog.locator('.el-form-item', { hasText: '订单号' }).locator('input').fill('A100')
+    await dialog.getByRole('button', { name: '开始对话' }).click()
+    await expect(page.locator('.markdown-body').last()).toContainText('模拟回答', { timeout: 30_000 })
   } finally {
     await request.delete(`/api/v1/agent/${agentId}`, {
       headers: { Authorization: `Bearer ${token}` }

@@ -58,6 +58,7 @@ public class ConversationService {
                         .eq(Conversation::getUserId, principal.userId())
                         .ne(Conversation::getStatus, "DELETED")
                         .like(keyword != null && !keyword.isBlank(), Conversation::getTitle, keyword)
+                        .orderByDesc(Conversation::getPinned)
                         .orderByDesc(Conversation::getLastActiveAt));
         Map<Long, String> agentNames = agentMapper.selectBatchIds(
                         result.getRecords().stream().map(Conversation::getAgentId).distinct().toList())
@@ -69,6 +70,7 @@ public class ConversationService {
             m.put("agentId", c.getAgentId());
             m.put("agentName", agentNames.getOrDefault(c.getAgentId(), ""));
             m.put("title", c.getTitle());
+            m.put("pinned", c.getPinned() != null && c.getPinned() == 1);
             m.put("lastActiveAt", c.getLastActiveAt());
             return m;
         }).toList();
@@ -202,6 +204,24 @@ public class ConversationService {
         conversationMapper.updateById(patch);
         auditService.record(principal.userId(), "conversation.delete", "conversation",
                 String.valueOf(id), "SUCCESS", Map.of());
+    }
+
+    /** 会话重命名 / 置顶。 */
+    public void update(Long id, String title, Boolean pinned, JwtPrincipal principal) {
+        owned(id, principal);
+        Conversation patch = new Conversation();
+        patch.setId(id);
+        if (title != null) {
+            String value = title.trim();
+            if (value.isEmpty()) throw new BusinessException(400, "会话标题不能为空");
+            if (value.length() > 128) value = value.substring(0, 128);
+            patch.setTitle(value);
+        }
+        if (pinned != null) patch.setPinned(pinned ? 1 : 0);
+        conversationMapper.updateById(patch);
+        auditService.record(principal.userId(), "conversation.update", "conversation",
+                String.valueOf(id), "SUCCESS",
+                Map.of("title", title == null ? "" : title, "pinned", pinned == null ? "" : pinned));
     }
 
     public void touch(Long id) {

@@ -14,3 +14,41 @@ body {
     "Microsoft YaHei", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+/* 手动暗色模式（顶栏切换；不跟随系统，避免意外黑屏） */
+html.dark body {
+  background-color: #141414;
+  color: var(--el-text-color-primary);
+  color-scheme: dark;
+}
+html.dark .layout,
+html.dark .header,
+html.dark .aside,
+html.dark .page,
+html.dark .chat-main,
+html.dark .sessions {
+  background: var(--el-bg-color) !important;
+  border-color: var(--el-border-color) !important;
+  color: var(--el-text-color-primary);
+}
+html.dark .header { border-bottom: 1px solid var(--el-border-color) !important; }
+html.dark .bubble {
+  background: var(--el-fill-color-light) !important;
+  color: var(--el-text-color-primary) !important;
+}
+html.dark .session-item:hover { background: var(--el-fill-color-light) !important; }
+html.dark .session-item.active { background: var(--el-color-primary-light-9) !important; }
+html.dark .tool-step {
+  background: var(--el-fill-color-light) !important;
+  border-color: var(--el-border-color) !important;
+}
+html.dark .markdown-body .code-head { background: var(--el-fill-color) !important; }
+html.dark .markdown-body pre { background: var(--el-bg-color) !important; }
+html.dark .markdown-body th { background: var(--el-fill-color) !important; }
+html.dark .markdown-body td,
+html.dark .markdown-body th { border-color: var(--el-border-color) !important; }
+html.dark .markdown-body blockquote {
+  background: var(--el-fill-color-light) !important;
+  border-color: var(--el-border-color) !important;
+}
+.theme-btn { margin-right: 8px; }

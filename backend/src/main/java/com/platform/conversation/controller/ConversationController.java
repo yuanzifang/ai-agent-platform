@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -60,6 +61,14 @@ public class ConversationController {
     public ApiResponse<Void> delete(@PathVariable Long id,
                                     @AuthenticationPrincipal JwtPrincipal principal) {
         conversationService.delete(id, principal);
+        return ApiResponse.ok();
+    }
+
+    @PutMapping("/{id}")
+    public ApiResponse<Void> update(@PathVariable Long id,
+                                    @RequestBody UpdateRequest req,
+                                    @AuthenticationPrincipal JwtPrincipal principal) {
+        conversationService.update(id, req.title(), req.pinned(), principal);
         return ApiResponse.ok();
     }
 
@@ -122,6 +131,9 @@ public class ConversationController {
     }
 
     public record CreateRequest(@NotNull Long agentId, String title) {
+    }
+
+    public record UpdateRequest(String title, Boolean pinned) {
     }
 
     public record SendRequest(@NotBlank String message, Boolean stream,

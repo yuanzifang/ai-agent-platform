@@ -464,3 +464,36 @@ test('MCP stdio：本地进程接入与命令防护', async ({ request }) => {
     if (serverId) await request.delete(`${P}/mcp-servers/${serverId}`, { headers: auth(token!) })
   }
 })
+
+test('会话重命名与置顶', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E会话整理-${Date.now()}`)
+  let conversationId: number | null = null
+  try {
+    await publishAgent(request, token!, agentId)
+    const convRes = await request.post(`${P}/conversations`, {
+      headers: auth(token!), data: { agentId, title: '原会话名' }
+    })
+    const convBody = await convRes.json()
+    expect(convBody.code, JSON.stringify(convBody)).toBe(0)
+    conversationId = convBody.data.id
+
+    const update = await request.put(`${P}/conversations/${conversationId}`, {
+      headers: auth(token!), data: { title: '置顶会话', pinned: true }
+    })
+    expect((await update.json()).code).toBe(0)
+
+    const list = await request.get(`${P}/conversations`, {
+      headers: auth(token!), params: { pageSize: 50 }
+    })
+    const row = (await list.json()).data.list.find((c: any) => c.id === conversationId)
+    expect(row.title).toBe('置顶会话')
+    expect(row.pinned).toBe(true)
+  } finally {
+    if (conversationId) {
+      await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
+    }
+    await deleteAgent(request, token!, agentId)
+  }
+})

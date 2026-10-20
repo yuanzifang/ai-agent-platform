@@ -16,6 +16,7 @@ public class Conversation {
     private Long agentId;
     private Long userId;
     private String title;
+    private Integer pinned;
     private String source;
     /** 外部集成 endUserId（需求 7.1，按最终用户统计）。 */
     private String externalUserId;

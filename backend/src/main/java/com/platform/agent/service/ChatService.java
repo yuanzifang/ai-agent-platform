@@ -41,6 +41,9 @@ public class ChatService {
     private final KnowledgePermissionService permissionService;
     private final ToolRuntimeService toolRuntime;
     private final ContextWindowService contextWindow;
+    private final com.platform.knowledge.mapper.KnowledgeDocumentMapper documentMapper;
+    private final com.platform.knowledge.mapper.KnowledgeBaseMapper knowledgeBaseMapper;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     @SuppressWarnings("unchecked")
     public Map<String, Object> debugChat(Map<String, Object> config, String message,
@@ -157,6 +160,7 @@ public class ChatService {
 
             var retrieved = hybridRetrieval.search(tenantId, message, kbId, topK, threshold, rc);
             List<Map<String, Object>> hits = retrieved.hits();
+            com.platform.knowledge.entity.KnowledgeBase kb = knowledgeBaseMapper.selectById(kbId);
             long stepEnd = System.currentTimeMillis();
             if (steps != null) {
                 steps.add("retrieval", "kb-" + kbId, "SUCCESS", stepStart, stepEnd,
@@ -171,6 +175,16 @@ public class ChatService {
                 citation.put("content", hit.get("content"));
                 citation.put("score", hit.get("score"));
                 citation.put("metadata", hit.get("metadata"));
+                // 引用下钻：文档名 + 知识库 + 分段位置
+                Map<String, Object> meta = metadataMap(hit.get("metadata"));
+                Long docId = toLong(meta.get("document_id"));
+                var doc = docId == null ? null : documentMapper.selectById(docId);
+                citation.put("knowledgeBaseId", kbId);
+                citation.put("knowledgeBaseName", kb == null ? null : kb.getName());
+                citation.put("documentId", docId);
+                citation.put("documentName", doc == null ? null : doc.getFileName());
+                citation.put("chunkId", toLong(meta.get("chunk_id")));
+                citation.put("chunkIndex", toLong(meta.get("chunk_index")));
                 citations.add(citation);
             }
         }
@@ -178,6 +192,19 @@ public class ChatService {
         String rag = "以下是知识库检索到的参考资料，回答时优先依据这些内容：\n" + context;
         return systemPrompt == null || systemPrompt.isBlank()
                 ? rag : systemPrompt + "\n\n" + rag;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> metadataMap(Object metadata) {
+        if (metadata instanceof Map<?, ?> m) return new LinkedHashMap<>((Map<String, Object>) m);
+        if (metadata instanceof String text && !text.isBlank()) {
+            try {
+                return objectMapper.readValue(text, Map.class);
+            } catch (Exception e) {
+                log.debug("引用 metadata 解析失败：{}", e.getMessage());
+            }
+        }
+        return Map.of();
     }
 
     private void recordUsage(Long agentId, String source, String modelName,
