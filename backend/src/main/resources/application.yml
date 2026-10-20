@@ -149,6 +149,11 @@ spring.servlet.multipart:
   max-request-size: 12MB
 
 storage:
+  # 大表月分区自动补齐（V48 创建初始分区；只补未来，不自动删历史）
+  partition:
+    enabled: ${PARTITION_MAINTENANCE_ENABLED:true}
+    months-ahead: ${PARTITION_MONTHS_AHEAD:3}
+    cron: ${PARTITION_MAINTENANCE_CRON:0 20 2 * * *}
   type: minio
   minio:
     endpoint: ${MINIO_ENDPOINT:http://localhost:9000}

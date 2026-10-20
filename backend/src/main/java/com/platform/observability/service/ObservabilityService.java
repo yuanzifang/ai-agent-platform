@@ -156,8 +156,9 @@ public class ObservabilityService {
 
     /** Trace 详情：字段全集 + Span 树（需求 7.3 /observability/traces/{traceId}）。 */
     public Map<String, Object> traceDetail(String traceId) {
+        // 分区后 trace_id 唯一键降为普通索引；由应用生成保证唯一，这里兜底取一条
         AgentTrace t = traceMapper.selectOne(new LambdaQueryWrapper<AgentTrace>()
-                .eq(AgentTrace::getTraceId, traceId));
+                .eq(AgentTrace::getTraceId, traceId).last("LIMIT 1"));
         if (t == null) throw new BusinessException(404, "Trace 不存在");
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("traceId", t.getTraceId());
