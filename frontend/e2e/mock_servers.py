@@ -125,6 +125,8 @@ class OpenAiHandler(BaseHTTPRequestHandler):
             return self._json(404, {"error": "not found"})
         body = json.loads(read_body(self) or b"{}")
         print(f"[openai] {self.path} keys={list(body.keys())} tools={len(body.get('tools') or [])}", flush=True)
+        if str(body.get("model", "")).startswith("broken-model"):
+            return self._json(500, {"error": {"message": "mock primary model failure"}})
         LAST_OPENAI.clear()
         LAST_OPENAI.update(body)
         answer = answer_for(body)
@@ -406,6 +408,62 @@ def _s256(verifier):
     return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
 
+class AnthropicHandler(BaseHTTPRequestHandler):
+    """Anthropic 原生协议 Mock：POST /v1/messages + GET /v1/models。"""
+
+    def _json(self, code, obj):
+        data = json.dumps(obj, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        if self.path == "/v1/models":
+            return self._json(200, {"data": [{"id": "claude-mock", "display_name": "Claude Mock"}],
+                                    "has_more": False})
+        self._json(404, {"error": {"message": "not found"}})
+
+    def do_POST(self):
+        if self.path != "/v1/messages":
+            return self._json(404, {"error": {"message": "not found"}})
+        body = json.loads(read_body(self) or b"{}")
+        stream = bool(body.get("stream"))
+        text = "Anthropic OK"
+        if stream:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            events = [
+                ("message_start", {"type": "message_start", "message": {
+                    "id": "msg_mock", "type": "message", "role": "assistant", "model": body.get("model"),
+                    "content": [], "stop_reason": None, "usage": {"input_tokens": 100, "output_tokens": 0}}}),
+                ("content_block_start", {"type": "content_block_start", "index": 0,
+                                         "content_block": {"type": "text", "text": ""}}),
+                ("content_block_delta", {"type": "content_block_delta", "index": 0,
+                                         "delta": {"type": "text_delta", "text": text}}),
+                ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+                ("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn"},
+                                   "usage": {"output_tokens": 5}}),
+                ("message_stop", {"type": "message_stop"}),
+            ]
+            for name, data in events:
+                self.wfile.write(f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode())
+                self.wfile.flush()
+            return
+        self._json(200, {
+            "id": "msg_mock", "type": "message", "role": "assistant",
+            "model": body.get("model", "claude-mock"),
+            "content": [{"type": "text", "text": text}],
+            "stop_reason": "end_turn", "stop_sequence": None,
+            "usage": {"input_tokens": 100, "output_tokens": 5}
+        })
+
+    def log_message(self, *args):
+        pass
+
+
 def serve(port, handler):
     ThreadingHTTPServer(("127.0.0.1", port), handler).serve_forever()
 
@@ -414,4 +472,5 @@ if __name__ == "__main__":
     threading.Thread(target=serve, args=(18080, OpenAiHandler), daemon=True).start()
     threading.Thread(target=serve, args=(11434, OllamaHandler), daemon=True).start()
     threading.Thread(target=serve, args=(18093, McpHandler), daemon=True).start()
+    threading.Thread(target=serve, args=(18095, AnthropicHandler), daemon=True).start()
     serve(18092, CaptureHandler)

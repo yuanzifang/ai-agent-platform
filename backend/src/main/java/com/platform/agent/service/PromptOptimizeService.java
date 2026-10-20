@@ -64,7 +64,8 @@ public class PromptOptimizeService {
         quotaService.checkTokensToday(Math.max(300, prompt.length() / 2 + 400));
         String system = contextWindow.fitPrompt(modelName, SYSTEM, user.toString());
 
-        OpenAiChatOptions options = OpenAiChatOptions.builder().model(modelName).temperature(0.3).build();
+        org.springframework.ai.chat.prompt.ChatOptions options =
+                chatModelRouter.options(modelName, 0.3, java.util.List.of());
         long start = System.currentTimeMillis();
         var response = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options)
                 .system(system).user(user.toString()).call().chatResponse();

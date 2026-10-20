@@ -6,6 +6,7 @@ import com.platform.knowledge.mapper.KnowledgeChunkMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -34,6 +35,9 @@ public class HybridRetrievalService {
 
     @Value("${retrieval.hybrid.keyword-weight:0.35}")
     private double defaultKeywordWeight;
+
+    @Autowired(required = false)
+    private RerankService rerankService;
 
     public record Result(List<Map<String, Object>> hits, int vectorHits, int keywordHits,
                          long embedMs, long searchMs, String mode) {
@@ -147,7 +151,7 @@ public class HybridRetrievalService {
             }
         }
 
-        List<Map<String, Object>> result = merged.values().stream()
+        List<Map<String, Object>> result = new ArrayList<>(merged.values().stream()
                 .filter(c -> c.content != null && !c.content.isBlank())
                 .sorted(Comparator.comparingDouble((Candidate c) -> c.score).reversed())
                 .limit(limit)
@@ -157,10 +161,48 @@ public class HybridRetrievalService {
                     m.put("score", c.score);
                     m.put("metadata", c.metadata);
                     return m;
-                }).toList();
-        log.debug("混合检索 kb={} mode={} vector={} keyword={} merged={}",
-                kbId, mode, vectorHits.size(), keywordHits.size(), result.size());
+                }).toList());
+        enrichNeighbors(kbId, result);
+        boolean rerank = rerankService != null && rerankService.enabled()
+                && !"false".equalsIgnoreCase(String.valueOf(retrievalConfig.getOrDefault("rerank", "true")));
+        if (rerank) {
+            result = new ArrayList<>(rerankService.rerank(q, result, limit));
+        }
+        log.debug("混合检索 kb={} mode={} vector={} keyword={} merged={} rerank={}",
+                kbId, mode, vectorHits.size(), keywordHits.size(), result.size(), rerank);
         return new Result(result, vectorHits.size(), keywordHits.size(), embedMs, searchMs, mode);
+    }
+
+    /** 父子分块的轻量近似：把命中 chunk 的相邻 chunk 合并为 parentContent 注入上下文。 */
+    private void enrichNeighbors(Long kbId, List<Map<String, Object>> hits) {
+        for (Map<String, Object> hit : hits) {
+            try {
+                Map<?, ?> meta = hit.get("metadata") instanceof String text && !text.isBlank()
+                        ? objectMapper.readValue(text, Map.class) : Map.of();
+                Object docIdObj = meta.get("document_id");
+                Object idxObj = meta.get("chunk_index");
+                if (docIdObj == null || idxObj == null) continue;
+                Long docId = Long.valueOf(String.valueOf(docIdObj));
+                int idx = Integer.parseInt(String.valueOf(idxObj));
+                List<com.platform.knowledge.entity.KnowledgeChunk> neighbors =
+                        chunkMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.platform.knowledge.entity.KnowledgeChunk>()
+                                .eq(com.platform.knowledge.entity.KnowledgeChunk::getKnowledgeBaseId, kbId)
+                                .eq(com.platform.knowledge.entity.KnowledgeChunk::getDocumentId, docId)
+                                .between(com.platform.knowledge.entity.KnowledgeChunk::getChunkIndex,
+                                        Math.max(0, idx - 1), idx + 1)
+                                .orderByAsc(com.platform.knowledge.entity.KnowledgeChunk::getChunkIndex));
+                if (neighbors.size() > 1) {
+                    StringBuilder parent = new StringBuilder();
+                    for (com.platform.knowledge.entity.KnowledgeChunk c : neighbors) {
+                        if (parent.length() > 0) parent.append('\n');
+                        parent.append(c.getContent());
+                    }
+                    hit.put("parentContent", parent.toString());
+                }
+            } catch (Exception e) {
+                log.debug("父子上下文扩展失败：{}", e.getMessage());
+            }
+        }
     }
 
     private void normalizeKeyword(Map<String, Candidate> merged) {

@@ -471,7 +471,7 @@ public class EvalService {
                 评分维度：是否切题、是否诚实（不编造）、是否简洁。输出严格 JSON：{"score": 0到1, "reason": "20字内"}
                 """.formatted(question, answer);
         var resp = ChatClient.create(chatModelRouter.resolve(judgeModel)).prompt()
-                .options(OpenAiChatOptions.builder().model(judgeModel).build())
+                .options(chatModelRouter.options(judgeModel, null, java.util.List.of()))
                 .system("你是评测裁判，只输出 JSON。")
                 .user(prompt).call().chatResponse();
         String text = resp.getResult().getOutput().getText();
@@ -730,7 +730,7 @@ public class EvalService {
         String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-flash"));
 
         var spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt()
-                .options(OpenAiChatOptions.builder().model(modelName).build());
+                .options(chatModelRouter.options(modelName, null, java.util.List.of()));
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
         var agentResp = spec.user(item.getQuestion()).call().chatResponse();
         String answer = agentResp.getResult().getOutput().getText();

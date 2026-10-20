@@ -681,3 +681,134 @@ test('写工具默认阻断与显式允许', async ({ request }) => {
     await request.delete(`${P}/tools/${toolId}`, { headers: auth(token!) })
   }
 })
+
+test('模型失败自动切换备用', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const providers = await (await request.get(`${P}/provider`, { headers: auth(token!) })).json()
+  const deepseek = (providers.data || []).find((p: any) => p.providerType === 'DEEPSEEK')
+  expect(deepseek, '需要内置 DeepSeek Provider').toBeTruthy()
+
+  const brokenModel = `broken-model-${Date.now()}`
+  const modelRes = await request.post(`${P}/provider/${deepseek.id}/models`, {
+    headers: auth(token!),
+    data: { modelName: brokenModel, displayName: 'E2E失败模型', purpose: 'CHAT', contextWindow: 8192 }
+  })
+  const modelBody = await modelRes.json()
+  expect(modelBody.code, JSON.stringify(modelBody)).toBe(0)
+  const modelId = modelBody.data.id as number
+
+  const agentRes = await request.post(`${P}/agent`, {
+    headers: auth(token!),
+    data: {
+      name: `E2E 降级-${Date.now()}`,
+      systemPrompt: '你是测试助手。',
+      modelConfig: { modelName: brokenModel, fallbackModelName: 'deepseek-flash', temperature: 0.2 },
+      visibility: 'PRIVATE'
+    }
+  })
+  const agentBody = await agentRes.json()
+  expect(agentBody.code, JSON.stringify(agentBody)).toBe(0)
+  const agentId = agentBody.data.id as number
+  let conversationId: number | null = null
+  try {
+    await request.post(`${P}/agent/${agentId}/publish`, {
+      headers: auth(token!), data: { force: true }
+    })
+    const conv = await request.post(`${P}/conversations`, {
+      headers: auth(token!), data: { agentId, title: '模型降级' }
+    })
+    conversationId = (await conv.json()).data.id
+    const sent = await request.post(`${P}/conversations/${conversationId}/messages`, {
+      headers: auth(token!),
+      data: { message: '只回答OK', stream: false },
+      timeout: 120_000
+    })
+    const body = await sent.json()
+    expect(body.code, JSON.stringify(body)).toBe(0)
+    expect(String(body.data.answer)).toContain('OK')
+  } finally {
+    if (conversationId) {
+      await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
+    }
+    await deleteAgent(request, token!, agentId)
+    if (modelId) {
+      await request.put(`${P}/models/${modelId}`, {
+        headers: auth(token!), data: { status: 'DISABLED' }
+      })
+    }
+  }
+})
+
+test('Anthropic 原生协议', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const providerName = `E2E Anthropic-${Date.now()}`
+  const created = await request.post(`${P}/provider`, {
+    headers: auth(token!),
+    data: {
+      name: providerName, providerType: 'ANTHROPIC',
+      baseUrl: 'http://127.0.0.1:18095', apiKey: 'sk-ant-mock', timeoutMs: 15000
+    }
+  })
+  const createdBody = await created.json()
+  expect(createdBody.code, JSON.stringify(createdBody)).toBe(0)
+  const providerId = createdBody.data.id as number
+
+  const tested = await (await request.post(`${P}/provider/${providerId}/test`, {
+    headers: auth(token!)
+  })).json()
+  expect(tested.data.success, JSON.stringify(tested.data)).toBe(true)
+
+  const synced = await (await request.post(`${P}/provider/${providerId}/models/sync`, {
+    headers: auth(token!)
+  })).json()
+  expect(synced.code, JSON.stringify(synced)).toBe(0)
+
+  const models = await (await request.get(`${P}/provider/models`, { headers: auth(token!) })).json()
+  const model = (models.data || []).find((m: any) =>
+    m.providerId === providerId && m.modelName === 'claude-mock')
+  expect(model, '应同步出 claude-mock').toBeTruthy()
+  await request.put(`${P}/models/${model.modelId}`, {
+    headers: auth(token!), data: { status: 'ENABLED' }
+  })
+
+  const agentRes = await request.post(`${P}/agent`, {
+    headers: auth(token!),
+    data: {
+      name: `E2E Anthropic Agent-${Date.now()}`,
+      systemPrompt: '你是测试助手。',
+      modelConfig: { modelName: 'claude-mock', temperature: 0.2 },
+      visibility: 'PRIVATE'
+    }
+  })
+  const agentBody = await agentRes.json()
+  expect(agentBody.code, JSON.stringify(agentBody)).toBe(0)
+  const agentId = agentBody.data.id as number
+  let conversationId: number | null = null
+  try {
+    await request.post(`${P}/agent/${agentId}/publish`, {
+      headers: auth(token!), data: { force: true }
+    })
+    const conv = await request.post(`${P}/conversations`, {
+      headers: auth(token!), data: { agentId, title: 'Anthropic 原生' }
+    })
+    conversationId = (await conv.json()).data.id
+    const sent = await request.post(`${P}/conversations/${conversationId}/messages`, {
+      headers: auth(token!),
+      data: { message: '只回答OK', stream: false },
+      timeout: 60_000
+    })
+    const body = await sent.json()
+    expect(body.code, JSON.stringify(body)).toBe(0)
+    expect(String(body.data.answer)).toContain('Anthropic OK')
+  } finally {
+    if (conversationId) {
+      await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
+    }
+    await deleteAgent(request, token!, agentId)
+    await request.put(`${P}/models/${model.modelId}`, {
+      headers: auth(token!), data: { status: 'DISABLED' }
+    })
+  }
+})

@@ -604,7 +604,7 @@ public class WorkflowService {
         String fitted = contextWindow.fitPrompt(modelName, system.toString(), run.getInputText());
         long start = System.currentTimeMillis();
         ChatResponse response = ChatClient.create(modelRouter.resolve(modelName)).prompt()
-                .options(OpenAiChatOptions.builder().model(modelName).temperature(0.3).build())
+                .options(modelRouter.options(modelName, 0.3, java.util.List.of()))
                 .system(fitted)
                 .user(run.getInputText())
                 .call().chatResponse();

@@ -92,19 +92,25 @@ public class ChatService {
         }
 
         String modelName = String.valueOf(modelConfig.getOrDefault("modelName", "deepseek-flash"));
+        String fallbackModel = String.valueOf(modelConfig.getOrDefault("fallbackModelName", ""));
         Double temperature = toDouble(modelConfig.get("temperature"));
-
-        OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(modelName);
-        if (temperature != null) options.temperature(temperature);
         systemPrompt = contextWindow.fitPrompt(modelName, systemPrompt, message);
-        if (!runtime.callbacks().isEmpty()) options.toolCallbacks(runtime.callbacks());
 
-        var spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options.build());
-        if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
-        if (!runtime.callbacks().isEmpty()) spec = spec.toolCallbacks(runtime.callbacks());
-
+        String usedModel = modelName;
         long start = System.currentTimeMillis();
-        var chatResponse = spec.user(message).call().chatResponse();
+        org.springframework.ai.chat.model.ChatResponse chatResponse;
+        try {
+            chatResponse = debugSpec(modelName, systemPrompt, message, runtime.callbacks(), temperature).call().chatResponse();
+        } catch (Exception e) {
+            if (fallbackModel.isBlank() || fallbackModel.equals(modelName)
+                    || !chatModelRouter.isFallbackable(e)) {
+                throw e;
+            }
+            log.warn("调试对话模型失败，切换备用 {} -> {}：{}", modelName, fallbackModel, e.getMessage());
+            usedModel = fallbackModel;
+            chatResponse = debugSpec(fallbackModel, systemPrompt, message,
+                    runtime.callbacks(), temperature).call().chatResponse();
+        }
         String answer = chatResponse.getResult().getOutput().getText();
         Usage usage = chatResponse.getMetadata().getUsage();
 
@@ -112,7 +118,7 @@ public class ChatService {
         long inputTokens = metrics.inputTokens();
         long outputTokens = metrics.outputTokens();
 
-        recordUsage(null, "debug", modelName, inputTokens, outputTokens,
+        recordUsage(null, "debug", usedModel, inputTokens, outputTokens,
                 metrics.cachedInputTokens(), metrics.cacheWriteTokens(), metrics.reasoningTokens());
         log.info("debug chat: model={} in={} out={} latency={}ms citations={}",
                 modelName, inputTokens, outputTokens, System.currentTimeMillis() - start, citations.size());
@@ -127,6 +133,18 @@ public class ChatService {
         result.put("citations", citations);
         result.put("toolCalls", collector.events());
         return result;
+    }
+
+    private ChatClient.ChatClientRequestSpec debugSpec(String model, String systemPrompt, String message,
+                                                        java.util.List<org.springframework.ai.tool.ToolCallback> callbacks,
+                                                        Double temperature) {
+        org.springframework.ai.chat.prompt.ChatOptions options =
+                chatModelRouter.options(model, temperature, callbacks);
+        ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModelRouter.resolve(model))
+                .prompt().options(options);
+        if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
+        if (callbacks != null && !callbacks.isEmpty()) spec = spec.toolCallbacks(callbacks);
+        return spec.user(message);
     }
 
     /** 知识库检索并拼接参考资料（topK 默认 5、阈值默认 0.5，需求文档 3.1.3(7)）；调试与正式对话共用。 */
@@ -175,7 +193,9 @@ public class ChatService {
                                 "embedMs", retrieved.embedMs(), "searchMs", retrieved.searchMs()));
             }
             for (Map<String, Object> hit : hits) {
-                context.append("\n---\n").append(hit.get("content"));
+                Object contextText = hit.get("parentContent") != null
+                        ? hit.get("parentContent") : hit.get("content");
+                context.append("\n---\n").append(contextText);
                 Map<String, Object> citation = new LinkedHashMap<>();
                 citation.put("content", hit.get("content"));
                 citation.put("score", hit.get("score"));

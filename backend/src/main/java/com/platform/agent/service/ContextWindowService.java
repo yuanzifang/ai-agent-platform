@@ -163,7 +163,8 @@ public class ContextWindowService {
                 text.append(role).append("：").append(m.getText()).append('\n');
             }
             String source = truncateChars(text.toString(), Math.max(maxTokens * 3, 400));
-            OpenAiChatOptions options = OpenAiChatOptions.builder().model(modelName).temperature(0.2).build();
+            org.springframework.ai.chat.prompt.ChatOptions options =
+                    chatModelRouter.options(modelName, 0.2, java.util.List.of());
             var response = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options)
                     .system("你是对话压缩器。把以下历史对话压缩成简洁要点，保留事实、数字、结论和未完成事项；"
                             + "不超过 " + Math.max(maxTokens, 80) + " 字，不要添加新信息。")

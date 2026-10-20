@@ -38,6 +38,8 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.Disposable;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import reactor.core.publisher.Flux;
 
 import java.time.LocalDate;
@@ -264,15 +266,16 @@ public class ChatStreamService {
         Map<String, Object> modelConfig = config.get("modelConfig") instanceof Map<?, ?> m
                 ? (Map<String, Object>) m : Map.of();
         String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-chat"));
-        OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(modelName);
-        Object temperature = modelConfig.get("temperature");
-        if (temperature instanceof Number n) options.temperature(n.doubleValue());
+        String fallbackModel = str(modelConfig.get("fallbackModelName"));
+        Double temperature = modelConfig.get("temperature") instanceof Number n ? n.doubleValue() : null;
 
         // 上下文窗口适配：超限时截断系统提示 + 历史摘要压缩
         com.platform.agent.service.ContextWindowService.Fitted fitted =
                 contextWindow.fit(modelName, systemPrompt, userMsgWithAttachments, history);
         systemPrompt = fitted.systemPrompt();
         history = fitted.history();
+        final String fallbackSystemPrompt = systemPrompt;
+        final List<org.springframework.ai.chat.messages.Message> fallbackHistory = history;
 
         StringBuilder acc = new StringBuilder();
         final String finalSystemPrompt = systemPrompt;
@@ -281,12 +284,29 @@ public class ChatStreamService {
         long[] lastLiveWrite = {0};
         liveState.start(conv.getId(), traceId);
 
-        if (!runtime.callbacks().isEmpty()) options.toolCallbacks(runtime.callbacks());
-        ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options.build());
-        if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
-        if (!runtime.callbacks().isEmpty()) spec = spec.toolCallbacks(runtime.callbacks());
-        spec = spec.messages(history).user(userMsgWithAttachments);
-        Flux<org.springframework.ai.chat.model.ChatResponse> flux = spec.stream().chatResponse();
+        ChatClient.ChatClientRequestSpec spec = buildSpec(modelName, systemPrompt, history,
+                userMsgWithAttachments, runtime.callbacks(), temperature);
+        AtomicBoolean emitted = new AtomicBoolean(false);
+        AtomicReference<String> usedModel = new AtomicReference<>(modelName);
+        Flux<org.springframework.ai.chat.model.ChatResponse> flux = spec.stream().chatResponse()
+                .doOnNext(resp -> {
+                    String d = resp.getResult() == null ? null : resp.getResult().getOutput().getText();
+                    if (d != null && !d.isEmpty()) emitted.set(true);
+                })
+                .onErrorResume(err -> {
+                    if (emitted.get() || fallbackModel == null || fallbackModel.isBlank()
+                            || fallbackModel.equals(modelName) || !chatModelRouter.isFallbackable(err)) {
+                        return Flux.error(err);
+                    }
+                    long fallbackStart = System.currentTimeMillis();
+                    log.warn("模型失败，切换备用模型 {} -> {}：{}", modelName, fallbackModel, err.getMessage());
+                    steps.add("chain", "model-fallback", "SUCCESS", fallbackStart, System.currentTimeMillis(),
+                            Map.of("from", modelName, "to", fallbackModel,
+                                    "error", err.getMessage() == null ? "" : err.getMessage()));
+                    usedModel.set(fallbackModel);
+                    return buildSpec(fallbackModel, fallbackSystemPrompt, fallbackHistory, userMsgWithAttachments,
+                            runtime.callbacks(), temperature).stream().chatResponse();
+                });
 
         Runnable persist = () -> TenantContext.run(tenantId, () -> {
             Message ai = newMessage(conv, traceId, parentMessageId, regenerated);
@@ -296,7 +316,7 @@ public class ChatStreamService {
             long persistStart = System.currentTimeMillis();
             messageMapper.insert(ai);
             conversationService.touch(conv.getId());
-            recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1],
+            recordUsage(tenantId, conv.getAgentId(), usedModel.get(), tokens[0], tokens[1],
                     usageExtras[0], usageExtras[1], usageExtras[2], source);
             liveState.finish(conv.getId(), traceId, acc.toString(), "SUCCESS", ai.getId(),
                     tokens[0], tokens[1], citations);
@@ -305,7 +325,7 @@ public class ChatStreamService {
                     java.util.Map.of("messageId", ai.getId()));
             traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                     conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
-                    modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
+                    usedModel.get(), tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
                     citations.size(),
                     traceExtra(source, version, userMsg.getContent(), acc.toString(), null),
                     collector.events(), steps.steps());
@@ -353,7 +373,7 @@ public class ChatStreamService {
                                 ai.setTokens((int) (tokens[0] + tokens[1]));
                                 messageMapper.insert(ai);
                                 conversationService.touch(conv.getId());
-                                recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1],
+                                recordUsage(tenantId, conv.getAgentId(), usedModel.get(), tokens[0], tokens[1],
                                         usageExtras[0], usageExtras[1], usageExtras[2], source);
                                 liveState.finish(conv.getId(), traceId, acc.toString(), "STOPPED", ai.getId(),
                                         tokens[0], tokens[1], citations);
@@ -383,7 +403,7 @@ public class ChatStreamService {
                                 tokens[0], tokens[1], citations);
                         traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                                 conv.getAgentId(), conv.getUserId(), agent.getName(), "ERROR",
-                                modelName, 0, tokens[1], System.currentTimeMillis() - startedAt,
+                                usedModel.get(), 0, tokens[1], System.currentTimeMillis() - startedAt,
                                 citations.size(),
                                 traceExtra(source, version, userMsg.getContent(), acc.toString(),
                                         err.getMessage()), collector.events());
@@ -416,7 +436,7 @@ public class ChatStreamService {
                     ai.setTokens((int) (tokens[0] + tokens[1]));
                     messageMapper.insert(ai);
                     conversationService.touch(conv.getId());
-                    recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1],
+                    recordUsage(tenantId, conv.getAgentId(), usedModel.get(), tokens[0], tokens[1],
                             usageExtras[0], usageExtras[1], usageExtras[2], source);
                     liveState.finish(conv.getId(), traceId, acc.toString(), "STOPPED", ai.getId(),
                             tokens[0], tokens[1], citations);
@@ -487,19 +507,32 @@ public class ChatStreamService {
                 java.util.Map.of("messages", history.size()));
         Map<String, Object> modelConfig = asMap(config.get("modelConfig"));
         String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-chat"));
-        OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(modelName);
-        if (modelConfig.get("temperature") instanceof Number n) options.temperature(n.doubleValue());
+        String fallbackModel = str(modelConfig.get("fallbackModelName"));
+        Double temperature = modelConfig.get("temperature") instanceof Number n ? n.doubleValue() : null;
 
         com.platform.agent.service.ContextWindowService.Fitted fitted =
                 contextWindow.fit(modelName, systemPrompt, userMsgWithAttachments, history);
         systemPrompt = fitted.systemPrompt();
         history = fitted.history();
 
-        if (!runtime.callbacks().isEmpty()) options.toolCallbacks(runtime.callbacks());
-        ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options.build());
-        if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
-        if (!runtime.callbacks().isEmpty()) spec = spec.toolCallbacks(runtime.callbacks());
-        var resp = spec.messages(history).user(userMsgWithAttachments).call().chatResponse();
+        String usedModel = modelName;
+        org.springframework.ai.chat.model.ChatResponse resp;
+        try {
+            resp = buildSpec(modelName, systemPrompt, history, userMsgWithAttachments,
+                    runtime.callbacks(), temperature).call().chatResponse();
+        } catch (Exception e) {
+            if (fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(modelName)
+                    || !chatModelRouter.isFallbackable(e)) {
+                throw e;
+            }
+            log.warn("模型失败，切换备用模型 {} -> {}：{}", modelName, fallbackModel, e.getMessage());
+            steps.add("chain", "model-fallback", "SUCCESS", System.currentTimeMillis(), System.currentTimeMillis(),
+                    java.util.Map.of("from", modelName, "to", fallbackModel,
+                            "error", e.getMessage() == null ? "" : e.getMessage()));
+            usedModel = fallbackModel;
+            resp = buildSpec(fallbackModel, systemPrompt, history, userMsgWithAttachments,
+                    runtime.callbacks(), temperature).call().chatResponse();
+        }
         String answer = resp.getResult().getOutput().getText();
         var usage = resp.getMetadata().getUsage();
         var metrics = com.platform.model.service.UsageMetrics.of(usage);
@@ -513,13 +546,13 @@ public class ChatStreamService {
         long persistStart = System.currentTimeMillis();
         messageMapper.insert(ai);
         conversationService.touch(conv.getId());
-        recordUsage(tenantId, conv.getAgentId(), modelName, in, out,
+        recordUsage(tenantId, conv.getAgentId(), usedModel, in, out,
                 metrics.cachedInputTokens(), metrics.cacheWriteTokens(), metrics.reasoningTokens(), source);
         steps.add("chain", "persist", "SUCCESS", persistStart, System.currentTimeMillis(),
                 java.util.Map.of("messageId", ai.getId()));
         traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                 conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
-                modelName, in, out, System.currentTimeMillis() - startedAt, citations.size(),
+                usedModel, in, out, System.currentTimeMillis() - startedAt, citations.size(),
                 traceExtra(source, version, userMsg.getContent(), answer, null), collector.events(),
                 steps.steps());
 
@@ -546,6 +579,20 @@ public class ChatStreamService {
     }
 
     /** Web 端 SSE 输出。 */
+    private ChatClient.ChatClientRequestSpec buildSpec(String model, String systemPrompt,
+                                                       List<org.springframework.ai.chat.messages.Message> history,
+                                                       String userMessage,
+                                                       List<org.springframework.ai.tool.ToolCallback> callbacks,
+                                                       Double temperature) {
+        org.springframework.ai.chat.prompt.ChatOptions options =
+                chatModelRouter.options(model, temperature, callbacks);
+        ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModelRouter.resolve(model))
+                .prompt().options(options);
+        if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
+        if (callbacks != null && !callbacks.isEmpty()) spec = spec.toolCallbacks(callbacks);
+        return spec.messages(history).user(userMessage);
+    }
+
     /** 断线续传：按已收到的字符 offset 回放 Redis 快照并持续推送，直到生成结束。 */
     public SseEmitter resume(Long conversationId, int offset, JwtPrincipal principal) {
         conversationService.owned(conversationId, principal);

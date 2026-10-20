@@ -46,6 +46,14 @@
                              :label="modelLabel(m)" />
                 </el-select>
               </el-form-item>
+              <el-form-item label="备用模型">
+                <el-select v-model="form.fallbackModelName" clearable placeholder="不启用（失败直接报错）"
+                           style="width: 320px">
+                  <el-option v-for="m in models.filter(x => x.modelName !== form.modelName)"
+                             :key="m.modelName" :value="m.modelName" :label="modelLabel(m)" />
+                </el-select>
+                <span class="hint">主模型 402/429/5xx/超时自动切换，切换记录在 Trace</span>
+              </el-form-item>
               <el-form-item label="温度">
                 <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" style="width: 320px" />
               </el-form-item>
@@ -996,7 +1004,7 @@ const saving = ref(false)
 const form = reactive({
   status: 'DRAFT', updatedAt: '',
   name: '', description: '', category: '', visibility: 'TENANT', listed: true,
-  modelName: '', temperature: 0.7,
+  modelName: '', fallbackModelName: '', temperature: 0.7,
   systemPrompt: '', openingStatement: '',
   capabilities: { streamOutput: true, functionCall: false, multimodal: false },
   memory: { enabled: true, windowSize: 10 },
@@ -1147,6 +1155,7 @@ onMounted(async () => {
   tagsStr.value = ((detail.tags as string[]) || []).join(',')
   const mc = detail.modelConfig || {}
   form.modelName = mc.modelName || ''
+  form.fallbackModelName = mc.fallbackModelName || ''
   form.temperature = mc.temperature ?? 0.7
   form.systemPrompt = detail.systemPrompt || ''
   form.openingStatement = detail.openingStatement || ''
@@ -1994,7 +2003,8 @@ function buildPayload() {
     openingStatement: form.openingStatement,
     agentCapabilities: { ...form.capabilities },
     memoryConfig: { ...form.memory },
-    modelConfig: { modelName: form.modelName, temperature: form.temperature },
+    modelConfig: { modelName: form.modelName, fallbackModelName: form.fallbackModelName || null,
+      temperature: form.temperature },
     variables: form.variables.filter(v => v.key),
     visibility: form.visibility,
     knowledgeBases: kbRows.value.filter(k => k.enabled).map(k => ({

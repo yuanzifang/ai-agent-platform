@@ -842,12 +842,12 @@ public class ToolRuntimeService {
 
         Map<String, Object> modelConfig = asMap(cfg.get("modelConfig"));
         String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-flash"));
-        OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(modelName);
-        if (modelConfig.get("temperature") instanceof Number n) options.temperature(n.doubleValue());
+        Double temperature = modelConfig.get("temperature") instanceof Number n ? n.doubleValue() : null;
         prompt = contextWindow.fitPrompt(modelName, prompt, task);
-        if (!subTools.callbacks().isEmpty()) options.toolCallbacks(subTools.callbacks());
+        org.springframework.ai.chat.prompt.ChatOptions options =
+                chatModelRouter.options(modelName, temperature, subTools.callbacks());
 
-        var spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options.build());
+        var spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options);
         if (prompt != null && !prompt.isBlank()) spec = spec.system(prompt);
         if (!subTools.callbacks().isEmpty()) spec = spec.toolCallbacks(subTools.callbacks());
         var resp = spec.user(task).call().chatResponse();

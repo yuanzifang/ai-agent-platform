@@ -100,6 +100,13 @@ skill:
     max-code-length: ${SKILL_SCRIPT_MAX_CODE:50000}
 
 retrieval:
+  rerank:
+    # 通用 rerank HTTP（Jina/Cohere/BGE）。未配置时保持混合检索原顺序
+    enabled: ${RERANK_ENABLED:false}
+    endpoint: ${RERANK_ENDPOINT:}
+    api-key: ${RERANK_API_KEY:}
+    model: ${RERANK_MODEL:}
+    top-n: ${RERANK_TOP_N:5}
   hybrid:
     # 向量 + MySQL ngram 全文检索的 RRF 融合；关闭后回到纯向量
     enabled: ${RETRIEVAL_HYBRID_ENABLED:true}

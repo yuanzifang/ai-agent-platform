@@ -39,7 +39,11 @@ public class ProviderService {
     private RestClient client(Provider p, Duration timeout) {
         RestClient.Builder builder = RestClient.builder().baseUrl(p.getBaseUrl());
         String key = resolveApiKey(p);
-        if (key != null && !key.isBlank()) {
+        String type = p.getProviderType() == null ? "" : p.getProviderType().toUpperCase(Locale.ROOT);
+        if ("ANTHROPIC".equals(type)) {
+            if (key != null && !key.isBlank()) builder.defaultHeader("x-api-key", key);
+            builder.defaultHeader("anthropic-version", "2023-06-01");
+        } else if (key != null && !key.isBlank()) {
             builder.defaultHeader("Authorization", "Bearer " + key);
         }
         return builder.build();
@@ -70,6 +74,7 @@ public class ProviderService {
             case "ZHIPU", "GLM" -> "ZHIPU_API_KEY";
             case "MOONSHOT" -> "MOONSHOT_API_KEY";
             case "VOLC" -> "VOLC_API_KEY";
+            case "ANTHROPIC" -> "ANTHROPIC_API_KEY";
             default -> null;
         };
         String key = envName == null ? null : env.getProperty(envName);
@@ -79,6 +84,11 @@ public class ProviderService {
                     + (envName == null ? "" : "（" + envName + "）"));
         }
         return key;
+    }
+
+    private String modelsPath(Provider p) {
+        String type = p.getProviderType() == null ? "" : p.getProviderType().toUpperCase(Locale.ROOT);
+        return "ANTHROPIC".equals(type) ? "/v1/models" : "/models";
     }
 
     public void saveCredential(Long providerId, String apiKey) {
@@ -140,7 +150,7 @@ public class ProviderService {
         if (p == null) throw new BusinessException(404, "Provider 不存在");
         long start = System.currentTimeMillis();
         try {
-            var resp = client(p, Duration.ofSeconds(15)).get().uri("/models")
+            var resp = client(p, Duration.ofSeconds(15)).get().uri(modelsPath(p))
                     .retrieve().body(Map.class);
             long n = resp != null && resp.get("data") instanceof List<?> l ? l.size() : 0;
             return Map.of("success", true, "latencyMs", System.currentTimeMillis() - start,
@@ -159,7 +169,7 @@ public class ProviderService {
         if (p == null) throw new BusinessException(404, "Provider 不存在");
         Map<String, Object> body;
         try {
-            body = client(p, Duration.ofSeconds(30)).get().uri("/models")
+            body = client(p, Duration.ofSeconds(30)).get().uri(modelsPath(p))
                     .retrieve().body(Map.class);
         } catch (BusinessException e) {
             throw e;
