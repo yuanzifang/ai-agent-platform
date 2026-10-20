@@ -36,6 +36,7 @@
           <el-button size="small" text :loading="testingId === row.id" :disabled="!canManage"
                      @click="test(row)">验证</el-button>
           <el-button v-if="canManage" size="small" text type="primary" @click="openSync(row)">同步工具</el-button>
+          <el-button v-if="canManage" size="small" text @click="openCapabilities(row)">能力</el-button>
           <el-button size="small" text @click="openTools(row)">已同步</el-button>
           <el-button v-if="canManage" size="small" text @click="openEdit(row)">编辑</el-button>
           <el-button v-if="canManage" size="small" text type="danger" @click="remove(row)">删除</el-button>
@@ -169,6 +170,53 @@
       </el-table>
       <el-empty v-if="!tools.length" description="暂无已同步工具，请先同步" :image-size="60" />
     </el-drawer>
+
+    <!-- MCP 资源 / 提示词发现（不落库，只读） -->
+    <el-drawer v-model="capsVisible" :title="`MCP 能力：${capsServerName}`" size="680px">
+      <div v-loading="capsLoading">
+        <el-alert v-if="capsWarnings.length" type="warning" :closable="false" show-icon class="mb12"
+                  :title="capsWarnings.join('；')" />
+        <el-tabs v-model="capsTab">
+          <el-tab-pane :label="`工具 (${caps.tools.length})`" name="tools">
+            <el-table :data="caps.tools" size="small" max-height="420">
+              <el-table-column prop="name" label="名称" width="180" />
+              <el-table-column prop="description" label="描述" show-overflow-tooltip />
+            </el-table>
+          </el-tab-pane>
+          <el-tab-pane :label="`资源 (${caps.resources.length})`" name="resources">
+            <el-table :data="caps.resources" size="small" max-height="340">
+              <el-table-column prop="name" label="名称" width="150" />
+              <el-table-column prop="uri" label="URI" min-width="220" show-overflow-tooltip />
+              <el-table-column prop="mimeType" label="类型" width="120" />
+              <el-table-column label="操作" width="80">
+                <template #default="{ row }">
+                  <el-button size="small" text type="primary" @click="readResource(row)">读取</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div v-if="caps.resourceTemplates.length" class="mt8">
+              <div class="hint">资源模板</div>
+              <el-table :data="caps.resourceTemplates" size="small" max-height="140">
+                <el-table-column prop="name" label="名称" width="150" />
+                <el-table-column prop="uriTemplate" label="URI 模板" show-overflow-tooltip />
+              </el-table>
+            </div>
+          </el-tab-pane>
+          <el-tab-pane :label="`提示词 (${caps.prompts.length})`" name="prompts">
+            <el-table :data="caps.prompts" size="small" max-height="420">
+              <el-table-column prop="name" label="名称" width="180" />
+              <el-table-column prop="description" label="描述" show-overflow-tooltip />
+            </el-table>
+            <div class="hint mt8">提示词参数/渲染由调用方通过后端 prompts/get 接口使用。</div>
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+    </el-drawer>
+
+    <el-dialog v-model="resourceVisible" :title="`资源内容：${resourceName}`" width="680px">
+      <pre class="resource-pre">{{ resourceText }}</pre>
+      <template #footer><el-button @click="resourceVisible = false">关闭</el-button></template>
+    </el-dialog>
   </div>
 </template>
 
@@ -231,6 +279,50 @@ const checkAll = ref(true)
 const toolsVisible = ref(false)
 const tools = ref<any[]>([])
 const toolsServerName = ref('')
+
+const capsVisible = ref(false)
+const capsLoading = ref(false)
+const capsServerId = ref(0)
+const capsServerName = ref('')
+const capsTab = ref('tools')
+const capsWarnings = ref<string[]>([])
+const caps = ref<any>({ tools: [], resources: [], resourceTemplates: [], prompts: [] })
+const resourceVisible = ref(false)
+const resourceText = ref('')
+const resourceName = ref('')
+
+async function openCapabilities(row: any) {
+  capsServerId.value = row.id
+  capsServerName.value = row.name
+  capsVisible.value = true
+  capsLoading.value = true
+  capsTab.value = 'tools'
+  try {
+    const res = await http.get(`/mcp-servers/${row.id}/discover`) as any
+    caps.value = {
+      tools: res.tools || [], resources: res.resources || [],
+      resourceTemplates: res.resourceTemplates || [], prompts: res.prompts || []
+    }
+    capsWarnings.value = res.warnings || []
+  } catch (e: any) {
+    caps.value = { tools: [], resources: [], resourceTemplates: [], prompts: [] }
+    capsWarnings.value = [e?.response?.data?.message || '能力发现失败']
+  } finally {
+    capsLoading.value = false
+  }
+}
+
+async function readResource(row: any) {
+  try {
+    const res = await http.get(`/mcp-servers/${capsServerId.value}/resources/read`,
+      { params: { uri: row.uri } }) as any
+    resourceName.value = row.name || row.uri
+    resourceText.value = (res.contents || []).map((c: any) => c.text || c.blob || '').join('\n')
+    resourceVisible.value = true
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '读取资源失败')
+  }
+}
 
 onMounted(async () => {
   await load()
@@ -476,4 +568,5 @@ function fmt(v?: string) {
 .preset-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .mb8 { margin-bottom: 8px; }
 .oauth-box { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.resource-pre { white-space: pre-wrap; word-break: break-all; max-height: 420px; overflow: auto; background: var(--el-fill-color-light); padding: 12px; border-radius: 4px; }
 </style>

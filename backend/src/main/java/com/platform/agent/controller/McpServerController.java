@@ -67,6 +67,23 @@ public class McpServerController {
         return ApiResponse.ok(service.discover(id));
     }
 
+    @GetMapping("/{id}/resources/read")
+    @PreAuthorize("hasAuthority('tool:manage')")
+    public ApiResponse<Map<String, Object>> readResource(@PathVariable Long id,
+                                                        @RequestParam String uri) {
+        return ApiResponse.ok(service.readResource(id, uri));
+    }
+
+    public record PromptRequest(String name, Map<String, Object> arguments) {
+    }
+
+    @PostMapping("/{id}/prompts/get")
+    @PreAuthorize("hasAuthority('tool:manage')")
+    public ApiResponse<Map<String, Object>> getPrompt(@PathVariable Long id,
+                                                      @RequestBody PromptRequest req) {
+        return ApiResponse.ok(service.getPrompt(id, req.name(), req.arguments()));
+    }
+
     public record SyncRequest(List<String> toolNames) {
     }
 

@@ -188,10 +188,95 @@ public class McpServerService {
                 m.put("annotations", parseJson(t.annotations()));
                 rows.add(m);
             }
-            return Map.of("tools", rows, "total", rows.size());
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("tools", rows);
+            result.put("total", rows.size());
+
+            // resources/prompts 是可选能力；老 Server 返回 method not found 时降级为空，不影响工具发现
+            List<String> warnings = new ArrayList<>();
+            try {
+                List<Map<String, Object>> resources = new ArrayList<>();
+                for (McpClientService.McpResource r : client.listResources(s)) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("uri", r.uri());
+                    m.put("name", r.name());
+                    m.put("description", r.description());
+                    m.put("mimeType", r.mimeType());
+                    m.put("size", r.size());
+                    resources.add(m);
+                }
+                result.put("resources", resources);
+
+                List<Map<String, Object>> templates = new ArrayList<>();
+                for (McpClientService.McpResourceTemplate t : client.listResourceTemplates(s)) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("uriTemplate", t.uriTemplate());
+                    m.put("name", t.name());
+                    m.put("description", t.description());
+                    m.put("mimeType", t.mimeType());
+                    templates.add(m);
+                }
+                result.put("resourceTemplates", templates);
+            } catch (Exception e) {
+                result.put("resources", List.of());
+                result.put("resourceTemplates", List.of());
+                warnings.add("resources: " + rootMessage(e));
+            }
+            try {
+                List<Map<String, Object>> prompts = new ArrayList<>();
+                for (McpClientService.McpPrompt p : client.listPrompts(s)) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("name", p.name());
+                    m.put("description", p.description());
+                    m.put("arguments", parseJson(p.argumentsJson()));
+                    prompts.add(m);
+                }
+                result.put("prompts", prompts);
+            } catch (Exception e) {
+                result.put("prompts", List.of());
+                warnings.add("prompts: " + rootMessage(e));
+            }
+            result.put("warnings", warnings);
+            return result;
         } catch (Exception e) {
             updateHealth(s, "OFFLINE");
             throw new BusinessException(400, "工具发现失败：" + rootMessage(e));
+        }
+    }
+
+    /** 读取 MCP resource（内容是不受信数据，由前端/调用方决定如何展示）。 */
+    public Map<String, Object> readResource(Long id, String uri) {
+        McpServer s = visible(id);
+        if (uri == null || uri.isBlank()) throw new BusinessException(400, "resource uri 不能为空");
+        try {
+            List<Map<String, Object>> contents = new ArrayList<>();
+            for (McpClientService.McpResourceContent c : client.readResource(s, uri.trim())) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("uri", c.uri());
+                m.put("mimeType", c.mimeType());
+                m.put("text", c.text());
+                m.put("blob", c.blob());
+                contents.add(m);
+            }
+            return Map.of("uri", uri.trim(), "contents", contents);
+        } catch (Exception e) {
+            throw new BusinessException(400, "读取 resource 失败：" + rootMessage(e));
+        }
+    }
+
+    /** 获取 MCP prompt 渲染结果。 */
+    public Map<String, Object> getPrompt(Long id, String name, Map<String, Object> arguments) {
+        McpServer s = visible(id);
+        if (name == null || name.isBlank()) throw new BusinessException(400, "prompt name 不能为空");
+        try {
+            McpClientService.McpPromptResult result = client.getPrompt(s, name.trim(), arguments);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("name", name.trim());
+            m.put("description", result.description());
+            m.put("messages", parseJson(result.messagesJson()));
+            return m;
+        } catch (Exception e) {
+            throw new BusinessException(400, "获取 prompt 失败：" + rootMessage(e));
         }
     }
 

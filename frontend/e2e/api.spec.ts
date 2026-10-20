@@ -279,6 +279,23 @@ test('MCP HTTP：会话复用与 2025-03-26 能力', async ({ request }) => {
     expect(discovered.code).toBe(0)
     expect(discovered.data.tools.length).toBeGreaterThan(0)
     expect(JSON.stringify(discovered.data.tools[0].annotations)).toContain('readOnlyHint')
+    expect(discovered.data.resources.length).toBeGreaterThan(0)
+    expect(discovered.data.resourceTemplates.length).toBeGreaterThan(0)
+    expect(discovered.data.prompts.length).toBeGreaterThan(0)
+
+    const resource = await request.get(`${P}/mcp-servers/${serverId}/resources/read`, {
+      headers: auth(token!), params: { uri: 'mock://docs/readme' }
+    })
+    const resourceBody = await resource.json()
+    expect(resourceBody.code, JSON.stringify(resourceBody)).toBe(0)
+    expect(String(resourceBody.data.contents[0].text)).toContain('resource:mock://docs/readme')
+
+    const prompt = await request.post(`${P}/mcp-servers/${serverId}/prompts/get`, {
+      headers: auth(token!), data: { name: 'summarize', arguments: { text: 'hello' } }
+    })
+    const promptBody = await prompt.json()
+    expect(promptBody.code, JSON.stringify(promptBody)).toBe(0)
+    expect(JSON.stringify(promptBody.data.messages)).toContain('prompt:hello')
 
     const sync = await request.post(`${P}/mcp-servers/${serverId}/sync`, {
       headers: auth(token!), data: {}

@@ -103,6 +103,21 @@ public class McpClientService {
         }
     }
 
+    public record McpResource(String uri, String name, String description, String mimeType, Long size) {
+    }
+
+    public record McpResourceTemplate(String uriTemplate, String name, String description, String mimeType) {
+    }
+
+    public record McpResourceContent(String uri, String mimeType, String text, String blob) {
+    }
+
+    public record McpPrompt(String name, String description, String argumentsJson) {
+    }
+
+    public record McpPromptResult(String description, String messagesJson) {
+    }
+
     private record CachedHttpSession(String sessionId, long expiresAt) {
     }
 
@@ -135,6 +150,78 @@ public class McpClientService {
         throw new IllegalStateException(rootMessage(last));
     }
 
+    /** MCP resources/list（无资源能力的 Server 会返回 method not found，由调用方降级为空）。 */
+    public List<McpResource> listResources(McpServer server) {
+        JsonNode result = rpcSafe(server, "resources/list", objectMapper.createObjectNode(), TIMEOUT, () -> false);
+        List<McpResource> rows = new ArrayList<>();
+        JsonNode arr = result.path("resources");
+        if (arr.isArray()) {
+            for (JsonNode r : arr) {
+                String uri = r.path("uri").asText("");
+                if (uri.isBlank()) continue;
+                rows.add(new McpResource(uri, r.path("name").asText(uri),
+                        r.path("description").asText(""), r.path("mimeType").asText(null),
+                        r.has("size") && r.get("size").canConvertToLong() ? r.get("size").asLong() : null));
+            }
+        }
+        return rows;
+    }
+
+    public List<McpResourceTemplate> listResourceTemplates(McpServer server) {
+        JsonNode result = rpcSafe(server, "resources/templates/list", objectMapper.createObjectNode(), TIMEOUT, () -> false);
+        List<McpResourceTemplate> rows = new ArrayList<>();
+        JsonNode arr = result.path("resourceTemplates");
+        if (arr.isArray()) {
+            for (JsonNode r : arr) {
+                String uri = r.path("uriTemplate").asText("");
+                if (uri.isBlank()) continue;
+                rows.add(new McpResourceTemplate(uri, r.path("name").asText(uri),
+                        r.path("description").asText(""), r.path("mimeType").asText(null)));
+            }
+        }
+        return rows;
+    }
+
+    public List<McpResourceContent> readResource(McpServer server, String uri) {
+        JsonNode result = rpcSafe(server, "resources/read", Map.of("uri", uri), CALL_TIMEOUT, () -> false);
+        List<McpResourceContent> rows = new ArrayList<>();
+        JsonNode arr = result.path("contents");
+        if (arr.isArray()) {
+            for (JsonNode c : arr) {
+                rows.add(new McpResourceContent(c.path("uri").asText(uri),
+                        c.path("mimeType").asText(null), c.path("text").asText(null),
+                        c.path("blob").asText(null)));
+            }
+        }
+        return rows;
+    }
+
+    public List<McpPrompt> listPrompts(McpServer server) {
+        JsonNode result = rpcSafe(server, "prompts/list", objectMapper.createObjectNode(), TIMEOUT, () -> false);
+        List<McpPrompt> rows = new ArrayList<>();
+        JsonNode arr = result.path("prompts");
+        if (arr.isArray()) {
+            for (JsonNode p : arr) {
+                String name = p.path("name").asText("");
+                if (name.isBlank()) continue;
+                JsonNode args = p.get("arguments");
+                rows.add(new McpPrompt(name, p.path("description").asText(""),
+                        args == null ? null : args.toString()));
+            }
+        }
+        return rows;
+    }
+
+    public McpPromptResult getPrompt(McpServer server, String name, Map<String, Object> arguments) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("name", name);
+        if (arguments != null) params.put("arguments", arguments);
+        JsonNode result = rpcSafe(server, "prompts/get", params, CALL_TIMEOUT, () -> false);
+        JsonNode messages = result.get("messages");
+        return new McpPromptResult(result.path("description").asText(null),
+                messages == null ? null : messages.toString());
+    }
+
     public McpCallResult callTool(McpServer server, String toolName, Map<String, Object> arguments) {
         return callTool(server, toolName, arguments, () -> false);
     }
@@ -163,6 +250,15 @@ public class McpClientService {
             }
         }
         throw new IllegalStateException(rootMessage(last));
+    }
+
+    private JsonNode rpcSafe(McpServer server, String method, Object params, Duration timeout,
+                             BooleanSupplier cancelled) {
+        try {
+            return rpc(server, method, params, timeout, cancelled);
+        } catch (Exception e) {
+            throw new IllegalStateException(rootMessage(e));
+        }
     }
 
     private JsonNode rpc(McpServer server, String method, Object params, Duration timeout,

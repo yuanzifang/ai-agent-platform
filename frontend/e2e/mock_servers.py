@@ -281,6 +281,7 @@ class McpHandler(BaseHTTPRequestHandler):
     tokens = set()
     refresh_tokens = set()
     stats = {"initialize": 0, "toolsList": 0, "toolsCall": 0,
+             "resourcesList": 0, "resourcesRead": 0, "promptsList": 0, "promptsGet": 0,
              "register": 0, "authorize": 0, "token": 0, "refresh": 0}
 
     def _json(self, code, obj, headers=None):
@@ -314,7 +315,9 @@ class McpHandler(BaseHTTPRequestHandler):
             McpHandler.sessions.add(sid)
             return self._json(200, {
                 "jsonrpc": "2.0", "id": rid,
-                "result": {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}},
+                "result": {"protocolVersion": "2025-03-26",
+                           "capabilities": {"tools": {}, "resources": {"listChanged": False},
+                                            "prompts": {"listChanged": False}},
                            "serverInfo": {"name": "mcp-mock", "version": "1.0"}}
             }, headers={"Mcp-Session-Id": sid})
         sid = self.headers.get("Mcp-Session-Id")
@@ -331,6 +334,39 @@ class McpHandler(BaseHTTPRequestHandler):
             return self._json(200, {"jsonrpc": "2.0", "id": rid, "result": {
                 "content": [{"type": "text", "text": "echo: " + text}],
                 "structuredContent": {"echo": text}
+            }})
+        if method == "resources/list":
+            McpHandler.stats["resourcesList"] += 1
+            return self._json(200, {"jsonrpc": "2.0", "id": rid, "result": {"resources": [{
+                "uri": "mock://docs/readme", "name": "readme",
+                "description": "Mock 文档", "mimeType": "text/plain", "size": 18
+            }]}})
+        if method == "resources/templates/list":
+            return self._json(200, {"jsonrpc": "2.0", "id": rid, "result": {
+                "resourceTemplates": [{"uriTemplate": "mock://docs/{id}", "name": "doc",
+                                       "description": "Mock 模板", "mimeType": "text/plain"}]
+            }})
+        if method == "resources/read":
+            McpHandler.stats["resourcesRead"] += 1
+            uri = str((body.get("params") or {}).get("uri", ""))
+            return self._json(200, {"jsonrpc": "2.0", "id": rid, "result": {
+                "contents": [{"uri": uri, "mimeType": "text/plain",
+                              "text": "resource:" + uri}]
+            }})
+        if method == "prompts/list":
+            McpHandler.stats["promptsList"] += 1
+            return self._json(200, {"jsonrpc": "2.0", "id": rid, "result": {
+                "prompts": [{"name": "summarize", "description": "Mock 提示词",
+                             "arguments": [{"name": "text", "description": "待总结内容",
+                                            "required": True}]}]
+            }})
+        if method == "prompts/get":
+            McpHandler.stats["promptsGet"] += 1
+            args = (body.get("params") or {}).get("arguments") or {}
+            return self._json(200, {"jsonrpc": "2.0", "id": rid, "result": {
+                "description": "Mock 提示词结果",
+                "messages": [{"role": "user", "content": {
+                    "type": "text", "text": "prompt:" + str(args.get("text", ""))}}]
             }})
         self._json(200, {"jsonrpc": "2.0", "id": rid,
                          "error": {"code": -32601, "message": "method not found"}})

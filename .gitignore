@@ -25,3 +25,7 @@ logs/
 
 # 备份产物（含用户数据，禁止提交）
 backups/
+
+# Python 测试/脚本缓存
+__pycache__/
+*.pyc
