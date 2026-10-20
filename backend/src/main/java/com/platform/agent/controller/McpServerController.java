@@ -4,10 +4,12 @@ import com.platform.agent.service.McpServerService;
 import com.platform.common.response.ApiResponse;
 import com.platform.security.JwtPrincipal;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
@@ -84,5 +86,37 @@ public class McpServerController {
     @GetMapping("/{id}/references")
     public ApiResponse<Map<String, Object>> references(@PathVariable Long id) {
         return ApiResponse.ok(service.references(id));
+    }
+
+    // ---------- OAuth 2.1 ----------
+
+    @PostMapping("/{id}/oauth/authorize")
+    @PreAuthorize("hasAuthority('tool:manage')")
+    public ApiResponse<Map<String, Object>> oauthAuthorize(@PathVariable Long id,
+                                                           @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(service.oauthAuthorize(id, principal));
+    }
+
+    /** OAuth 回调由浏览器直接跳转（无 JWT），用一次性 state 防伪。 */
+    @GetMapping("/oauth/callback")
+    public ResponseEntity<Void> oauthCallback(@RequestParam(required = false) String code,
+                                              @RequestParam(required = false) String state,
+                                              @RequestParam(required = false) String error,
+                                              @RequestParam(name = "error_description", required = false) String errorDescription) {
+        String target = service.oauthCallback(code, state, error, errorDescription);
+        return ResponseEntity.status(302).location(URI.create(target)).build();
+    }
+
+    @GetMapping("/{id}/oauth/status")
+    public ApiResponse<Map<String, Object>> oauthStatus(@PathVariable Long id) {
+        return ApiResponse.ok(service.oauthStatus(id));
+    }
+
+    @PostMapping("/{id}/oauth/disconnect")
+    @PreAuthorize("hasAuthority('tool:manage')")
+    public ApiResponse<Void> oauthDisconnect(@PathVariable Long id,
+                                             @AuthenticationPrincipal JwtPrincipal principal) {
+        service.oauthDisconnect(id, principal);
+        return ApiResponse.ok();
     }
 }

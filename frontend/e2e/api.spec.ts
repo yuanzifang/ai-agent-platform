@@ -272,6 +272,73 @@ test('MCP HTTP：会话复用与 2025-03-26 能力', async ({ request }) => {
   }
 })
 
+test('MCP OAuth 2.1：PKCE 授权与自动刷新', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const statsBefore = await (await request.get(`${MCP_MOCK}/stats`)).json()
+  let serverId: number | null = null
+  try {
+    const create = await request.post(`${P}/mcp-servers`, {
+      headers: auth(token!),
+      data: {
+        name: `E2E MCP OAuth-${Date.now()}`, transport: 'HTTP',
+        endpoint: `${MCP_MOCK}/mcp-oauth`, authType: 'OAUTH'
+      }
+    })
+    const created = await create.json()
+    expect(created.code, JSON.stringify(created)).toBe(0)
+    serverId = created.data.id
+
+    const authorize = await request.post(`${P}/mcp-servers/${serverId}/oauth/authorize`, {
+      headers: auth(token!)
+    })
+    const authBody = await authorize.json()
+    expect(authBody.code, JSON.stringify(authBody)).toBe(0)
+    expect(String(authBody.data.authorizeUrl)).toContain('code_challenge_method=S256')
+
+    // 模拟浏览器授权：授权端点 302 回后端 callback；callback 再 302 回前端
+    const authorizeRes = await request.get(authBody.data.authorizeUrl, { maxRedirects: 0 })
+    expect(authorizeRes.status()).toBe(302)
+    const callbackUrl = authorizeRes.headers()['location']
+    expect(callbackUrl).toContain('/api/v1/mcp-servers/oauth/callback')
+    const callbackRes = await request.get(callbackUrl, { maxRedirects: 0 })
+    expect(callbackRes.status()).toBe(302)
+    expect(callbackRes.headers()['location']).toContain('oauth=success')
+
+    // state 一次性：重放同一回调应失败
+    const replay = await request.get(callbackUrl, { maxRedirects: 0 })
+    expect(replay.status()).toBe(302)
+    expect(replay.headers()['location']).toContain('oauth=error')
+
+    const statusRes = await request.get(`${P}/mcp-servers/${serverId}/oauth/status`, { headers: auth(token!) })
+    const status = (await statusRes.json()).data
+    expect(status.connected).toBe(true)
+    expect(status.refreshable).toBe(true)
+
+    // 授权码 token 故意 3 秒过期（后端提前 60s 刷新），首次调用自动 refresh 后成功
+    const testRes = await request.post(`${P}/mcp-servers/${serverId}/test`, { headers: auth(token!) })
+    const tested = await testRes.json()
+    expect(tested.code).toBe(0)
+    expect(tested.data.success, JSON.stringify(tested.data)).toBe(true)
+
+    const statsAfter = await (await request.get(`${MCP_MOCK}/stats`)).json()
+    expect(statsAfter.register - statsBefore.register).toBe(1)
+    expect(statsAfter.authorize - statsBefore.authorize).toBe(1)
+    expect(statsAfter.refresh - statsBefore.refresh).toBeGreaterThanOrEqual(1)
+
+    const disconnect = await request.post(`${P}/mcp-servers/${serverId}/oauth/disconnect`, {
+      headers: auth(token!)
+    })
+    expect((await disconnect.json()).code).toBe(0)
+    const status2 = (await (await request.get(`${P}/mcp-servers/${serverId}/oauth/status`, {
+      headers: auth(token!)
+    })).json()).data
+    expect(status2.connected).toBe(false)
+  } finally {
+    if (serverId) await request.delete(`${P}/mcp-servers/${serverId}`, { headers: auth(token!) })
+  }
+})
+
 test('MCP stdio：本地进程接入与命令防护', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()

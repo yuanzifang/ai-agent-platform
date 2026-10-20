@@ -103,9 +103,26 @@
                         placeholder="密钥（****** 表示不修改）" />
             </el-form-item>
           </template>
-          <el-form-item v-if="editForm.authType === 'BEARER' || editForm.authType === 'OAUTH'" label="Token">
+          <el-form-item v-if="editForm.authType === 'BEARER'" label="Token">
             <el-input v-model="editForm.authToken" type="password" show-password
                       placeholder="Token（****** 表示不修改）" />
+          </el-form-item>
+          <el-form-item v-if="editForm.authType === 'OAUTH'" label="OAuth 2.1">
+            <div class="oauth-box">
+              <template v-if="oauthStatus?.connected">
+                <el-tag size="small" type="success">已授权</el-tag>
+                <span class="hint" v-if="oauthStatus?.expiresAt">
+                  到期：{{ new Date(oauthStatus.expiresAt).toLocaleString() }}
+                </span>
+                <el-tag v-if="oauthStatus?.refreshable" size="small" type="info">可自动刷新</el-tag>
+              </template>
+              <el-tag v-else size="small" type="info">未授权</el-tag>
+              <el-button size="small" type="primary" :loading="oauthLoading" @click="startOAuth">
+                {{ oauthStatus?.connected ? '重新授权' : 'OAuth 授权' }}
+              </el-button>
+              <el-button size="small" v-if="oauthStatus?.connected" @click="disconnectOAuth">断开</el-button>
+            </div>
+            <div class="hint">PKCE + 动态客户端注册 + 自动刷新；点击授权会打开浏览器完成登录（先保存当前配置）。</div>
           </el-form-item>
         </template>
         <el-form-item label="提示">
@@ -176,6 +193,8 @@ const testingId = ref(0)
 
 const editVisible = ref(false)
 const saving = ref(false)
+const oauthStatus = ref<any>(null)
+const oauthLoading = ref(false)
 const editForm = reactive({
   id: 0, name: '', endpoint: '', transport: 'HTTP', headersText: '{}', authType: 'NONE',
   authHeader: 'X-API-Key', authValue: '', authToken: '',
@@ -215,6 +234,22 @@ const toolsServerName = ref('')
 
 onMounted(async () => {
   await load()
+  if (route.query.oauth) {
+    const status = String(route.query.oauth)
+    const sid = Number(route.query.serverId)
+    if (status === 'success') {
+      ElMessage.success('OAuth 授权成功')
+      const row = list.value.find((r: any) => r.id === sid)
+      if (row) await openEdit(row)
+    } else {
+      ElMessage.error('OAuth 授权失败：' + (route.query.message || '未知错误'))
+    }
+    const query = { ...route.query }
+    delete query.oauth
+    delete query.serverId
+    delete query.message
+    await router.replace({ query })
+  }
   if (route.query.create === '1') {
     if (canManage.value) openCreate()
     else ElMessage.warning('当前账号无添加 MCP Server 权限')
@@ -254,12 +289,14 @@ function openCreate() {
     authHeader: 'X-API-Key', authValue: '', authToken: '',
     command: '', argsText: '[]', envText: ''
   })
+  oauthStatus.value = null
   editVisible.value = true
 }
 
 async function openEdit(row: any) {
   const detail = await http.get(`/mcp-servers/${row.id}`) as any
   const auth = detail.auth || {}
+  oauthStatus.value = detail.oauth || null
   Object.assign(editForm, {
     id: detail.id,
     name: detail.name || '',
@@ -277,22 +314,22 @@ async function openEdit(row: any) {
   editVisible.value = true
 }
 
-async function save() {
-  if (!editForm.name.trim()) { ElMessage.warning('名称必填'); return }
+async function save(silent = false): Promise<boolean> {
+  if (!editForm.name.trim()) { ElMessage.warning('名称必填'); return false }
   if (editForm.transport === 'STDIO') {
-    if (!editForm.command.trim()) { ElMessage.warning('STDIO 需要填写启动命令'); return }
+    if (!editForm.command.trim()) { ElMessage.warning('STDIO 需要填写启动命令'); return false }
   } else if (!editForm.endpoint.trim()) {
-    ElMessage.warning('地址必填'); return
+    ElMessage.warning('地址必填'); return false
   }
   saving.value = true
   try {
     const payload: any = { name: editForm.name.trim(), transport: editForm.transport }
     if (editForm.transport === 'STDIO') {
       let args: any
-      try { args = JSON.parse(editForm.argsText || '[]') } catch { ElMessage.error('启动参数不是合法 JSON 数组'); return }
-      if (!Array.isArray(args)) { ElMessage.error('启动参数需为 JSON 数组'); return }
+      try { args = JSON.parse(editForm.argsText || '[]') } catch { ElMessage.error('启动参数不是合法 JSON 数组'); return false }
+      if (!Array.isArray(args)) { ElMessage.error('启动参数需为 JSON 数组'); return false }
       let env: any
-      try { env = JSON.parse(editForm.envText || '{}') } catch { ElMessage.error('环境变量不是合法 JSON 对象'); return }
+      try { env = JSON.parse(editForm.envText || '{}') } catch { ElMessage.error('环境变量不是合法 JSON 对象'); return false }
       payload.command = editForm.command.trim()
       payload.args = args
       if (Object.keys(env).length) payload.env = env
@@ -301,24 +338,59 @@ async function save() {
       if (editForm.authType === 'API_KEY') {
         auth.header = editForm.authHeader || 'X-API-Key'
         auth.value = editForm.authValue
-      } else if (editForm.authType === 'BEARER' || editForm.authType === 'OAUTH') {
+      } else if (editForm.authType === 'BEARER') {
         auth.token = editForm.authToken
       }
       let headers: any = {}
-      try { headers = JSON.parse(editForm.headersText || '{}') } catch { ElMessage.error('自定义请求头不是合法 JSON'); return }
+      try { headers = JSON.parse(editForm.headersText || '{}') } catch { ElMessage.error('自定义请求头不是合法 JSON'); return false }
       payload.endpoint = editForm.endpoint.trim()
       payload.customHeaders = headers
       payload.authType = editForm.authType
       payload.auth = auth
     }
-    if (editForm.id) await http.put(`/mcp-servers/${editForm.id}`, payload)
-    else await http.post('/mcp-servers', payload)
-    ElMessage.success('已保存')
-    editVisible.value = false
+    if (editForm.id) {
+      await http.put(`/mcp-servers/${editForm.id}`, payload)
+    } else {
+      const res = await http.post('/mcp-servers', payload) as any
+      if (res?.id) editForm.id = res.id
+    }
+    if (!silent) {
+      ElMessage.success('已保存')
+      editVisible.value = false
+    }
     await load()
+    return true
   } finally {
     saving.value = false
   }
+}
+
+async function startOAuth() {
+  // 先同步打开窗口（保留用户手势，避免异步后被浏览器拦截）
+  const popup = window.open('about:blank', 'mcp-oauth', 'width=620,height=760')
+  oauthLoading.value = true
+  try {
+    const saved = await save(true)
+    if (!saved) { popup?.close(); return }
+    const res = await http.post(`/mcp-servers/${editForm.id}/oauth/authorize`) as any
+    if (popup && !popup.closed) popup.location.href = res.authorizeUrl
+    else window.location.href = res.authorizeUrl
+    ElMessage.info('已打开授权窗口，完成后回到本页查看状态')
+  } catch (e: any) {
+    popup?.close()
+    ElMessage.error(e?.response?.data?.message || e?.message || 'OAuth 授权发起失败')
+  } finally {
+    oauthLoading.value = false
+  }
+}
+
+async function disconnectOAuth() {
+  try {
+    await ElMessageBox.confirm('断开后需要重新授权才能调用该 MCP Server，确认继续？', '断开 OAuth')
+  } catch { return }
+  await http.post(`/mcp-servers/${editForm.id}/oauth/disconnect`)
+  oauthStatus.value = { connected: false }
+  ElMessage.success('已断开 OAuth 授权')
 }
 
 async function test(row: any) {
@@ -403,4 +475,5 @@ function fmt(v?: string) {
 .mb12 { margin-bottom: 12px; }
 .preset-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .mb8 { margin-bottom: 8px; }
+.oauth-box { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 </style>

@@ -4,9 +4,12 @@
 供 E2E 在没有真实模型/嵌入/渠道/MCP 时跑通核心链路；仅用于测试环境。
 MCP Mock 强制 Mcp-Session-Id 会话（未携带返回 404），用于验证会话复用。
 """
+import base64
+import hashlib
 import json
 import threading
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CAPTURED = []
@@ -218,10 +221,18 @@ class CaptureHandler(BaseHTTPRequestHandler):
 
 
 class McpHandler(BaseHTTPRequestHandler):
-    """Streamable HTTP MCP Mock：initialize 返回 Mcp-Session-Id，其余方法必须携带有效会话。"""
+    """MCP Mock：Streamable HTTP（/mcp）+ OAuth 2.1 保护端点（/mcp-oauth）+ 授权服务器。
+
+    /mcp 强制 Mcp-Session-Id 会话（未携带 404）；/mcp-oauth 额外要求 Bearer access token。
+    授权码 token 的 expires_in=3，用于验证后端“临期自动刷新”；刷新后的 token expires_in=3600。
+    """
 
     sessions = set()
-    stats = {"initialize": 0, "toolsList": 0, "toolsCall": 0}
+    codes = {}
+    tokens = set()
+    refresh_tokens = set()
+    stats = {"initialize": 0, "toolsList": 0, "toolsCall": 0,
+             "register": 0, "authorize": 0, "token": 0, "refresh": 0}
 
     def _json(self, code, obj, headers=None):
         data = json.dumps(obj, ensure_ascii=False).encode()
@@ -233,15 +244,19 @@ class McpHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def do_GET(self):
-        if self.path == "/stats":
-            body = dict(McpHandler.stats)
-            body["activeSessions"] = len(McpHandler.sessions)
-            return self._json(200, body)
-        self._json(404, {"error": "not found"})
+    def _origin(self):
+        return "http://" + self.headers.get("Host", "127.0.0.1:18093")
 
-    def do_POST(self):
-        body = json.loads(read_body(self) or b"{}")
+    def _mcp_tools(self, rid):
+        McpHandler.stats["toolsList"] += 1
+        return self._json(200, {"jsonrpc": "2.0", "id": rid, "result": {"tools": [{
+            "name": "echo", "description": "回显输入",
+            "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+            "outputSchema": {"type": "object", "properties": {"echo": {"type": "string"}}},
+            "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
+        }]}})
+
+    def _handle_mcp(self, body):
         method = body.get("method", "")
         rid = body.get("id")
         if method == "initialize":
@@ -259,13 +274,7 @@ class McpHandler(BaseHTTPRequestHandler):
         if method == "notifications/initialized":
             return self._json(200, {})
         if method == "tools/list":
-            McpHandler.stats["toolsList"] += 1
-            return self._json(200, {"jsonrpc": "2.0", "id": rid, "result": {"tools": [{
-                "name": "echo", "description": "回显输入",
-                "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
-                "outputSchema": {"type": "object", "properties": {"echo": {"type": "string"}}},
-                "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
-            }]}})
+            return self._mcp_tools(rid)
         if method == "tools/call":
             McpHandler.stats["toolsCall"] += 1
             args = (body.get("params") or {}).get("arguments") or {}
@@ -277,8 +286,99 @@ class McpHandler(BaseHTTPRequestHandler):
         self._json(200, {"jsonrpc": "2.0", "id": rid,
                          "error": {"code": -32601, "message": "method not found"}})
 
+    def _issue_tokens(self, expires_in):
+        McpHandler.stats["token"] += 1
+        at = f"at-{McpHandler.stats['token']}"
+        rt = f"rt-{McpHandler.stats['token']}"
+        McpHandler.tokens.add(at)
+        McpHandler.refresh_tokens.add(rt)
+        return {"access_token": at, "refresh_token": rt, "token_type": "Bearer",
+                "expires_in": expires_in, "scope": "mcp"}
+
+    def do_GET(self):
+        path = self.path.split("?", 1)[0]
+        if path == "/stats":
+            body = dict(McpHandler.stats)
+            body["activeSessions"] = len(McpHandler.sessions)
+            body["activeTokens"] = len(McpHandler.tokens)
+            return self._json(200, body)
+        if path in ("/.well-known/oauth-protected-resource",
+                    "/.well-known/oauth-protected-resource/mcp-oauth"):
+            return self._json(200, {
+                "resource": self._origin() + "/mcp-oauth",
+                "authorization_servers": [self._origin()]})
+        if path == "/.well-known/oauth-authorization-server":
+            return self._json(200, {
+                "issuer": self._origin(),
+                "authorization_endpoint": self._origin() + "/oauth/authorize",
+                "token_endpoint": self._origin() + "/oauth/token",
+                "registration_endpoint": self._origin() + "/oauth/register",
+                "code_challenge_methods_supported": ["S256"],
+                "token_endpoint_auth_methods_supported": ["none"],
+                "scopes_supported": ["mcp"]})
+        if path == "/oauth/authorize":
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            redirect = (q.get("redirect_uri") or [""])[0]
+            if not redirect or (q.get("response_type") or [""])[0] != "code":
+                return self._json(400, {"error": "invalid_request"})
+            McpHandler.stats["authorize"] += 1
+            code = f"code-{McpHandler.stats['authorize']}"
+            McpHandler.codes[code] = {
+                "challenge": (q.get("code_challenge") or [""])[0],
+                "redirect": redirect,
+            }
+            location = redirect + ("&" if "?" in redirect else "?") + urllib.parse.urlencode({
+                "code": code, "state": (q.get("state") or [""])[0]})
+            self.send_response(302)
+            self.send_header("Location", location)
+            self.end_headers()
+            return
+        self._json(404, {"error": "not found"})
+
+    def do_POST(self):
+        path = self.path.split("?", 1)[0]
+        raw = read_body(self)
+        if path == "/oauth/register":
+            McpHandler.stats["register"] += 1
+            return self._json(200, {"client_id": "mock-oauth-client",
+                                    "token_endpoint_auth_method": "none"})
+        if path == "/oauth/token":
+            form = urllib.parse.parse_qs(raw.decode() or "")
+            grant = (form.get("grant_type") or [""])[0]
+            if grant == "authorization_code":
+                code = (form.get("code") or [""])[0]
+                entry = McpHandler.codes.pop(code, None)
+                verifier = (form.get("code_verifier") or [""])[0]
+                if entry is None or _s256(verifier) != entry["challenge"] \
+                        or (form.get("redirect_uri") or [""])[0] != entry["redirect"]:
+                    return self._json(400, {"error": "invalid_grant"})
+                return self._json(200, self._issue_tokens(3))
+            if grant == "refresh_token":
+                rt = (form.get("refresh_token") or [""])[0]
+                if rt not in McpHandler.refresh_tokens:
+                    return self._json(400, {"error": "invalid_grant"})
+                McpHandler.refresh_tokens.discard(rt)
+                McpHandler.stats["refresh"] += 1
+                return self._json(200, self._issue_tokens(3600))
+            return self._json(400, {"error": "unsupported_grant_type"})
+        if path in ("/mcp", "/mcp-oauth"):
+            if path == "/mcp-oauth":
+                auth = self.headers.get("Authorization", "")
+                if not auth.startswith("Bearer ") or auth[7:] not in McpHandler.tokens:
+                    return self._json(401, {"error": "invalid_token"}, headers={
+                        "WWW-Authenticate": 'Bearer resource_metadata="'
+                        + self._origin() + '/.well-known/oauth-protected-resource/mcp-oauth"'})
+            body = json.loads(raw or b"{}")
+            return self._handle_mcp(body)
+        self._json(404, {"error": "not found"})
+
     def log_message(self, *args):
         pass
+
+
+def _s256(verifier):
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
 
 def serve(port, handler):

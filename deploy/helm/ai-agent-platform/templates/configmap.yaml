@@ -19,6 +19,8 @@ data:
   DEEPSEEK_BASE_URL: {{ .Values.config.deepseekBaseUrl | quote }}
   TOOL_ALLOW_PRIVATE: {{ .Values.config.toolAllowPrivate | quote }}
   TOOL_ALLOWED_HOSTS: {{ .Values.config.toolAllowedHosts | quote }}
+  APP_PUBLIC_BASE: {{ .Values.config.publicBase | quote }}
+  APP_FRONTEND_BASE: {{ .Values.config.frontendBase | quote }}
   RATE_LIMIT_PER_MINUTE: {{ .Values.config.rateLimitPerMinute | quote }}
   SKILL_SCRIPT_ENABLED: {{ .Values.config.skillScriptEnabled | quote }}
   ASR_ENABLED: {{ .Values.config.asrEnabled | quote }}

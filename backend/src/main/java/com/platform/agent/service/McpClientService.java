@@ -73,6 +73,7 @@ public class McpClientService {
 
     private final CryptoService cryptoService;
     private final ObjectMapper objectMapper;
+    private final McpOAuthService oauthService;
 
     private final Map<Long, CachedHttpSession> httpSessions = new ConcurrentHashMap<>();
     private final Map<Long, StdioSession> stdioSessions = new ConcurrentHashMap<>();
@@ -172,6 +173,12 @@ public class McpClientService {
                 last = e;
                 log.info("MCP HTTP 会话失效，重新 initialize：server={}", server.getId());
                 invalidateHttpSession(server.getId());
+            } catch (UnauthorizedException e) {
+                last = e;
+                if (!"OAUTH".equalsIgnoreCase(server.getAuthType())) throw e;
+                log.info("MCP OAuth 401，强制刷新 token 后重试：server={}", server.getId());
+                oauthService.forceRefresh(server);
+                invalidateHttpSession(server.getId());
             }
         }
         throw last;
@@ -240,6 +247,9 @@ public class McpClientService {
         if (sessionId != null && !sessionId.isBlank()) builder.header("Mcp-Session-Id", sessionId);
         HttpClient client = HttpClient.newBuilder().connectTimeout(TIMEOUT).build();
         HttpResponse<String> resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() == 401) {
+            throw new UnauthorizedException("HTTP 401：" + truncate(respBody(resp), 200));
+        }
         if (resp.statusCode() == 404) {
             throw new SessionExpiredException("HTTP 404（会话可能已过期）");
         }
@@ -278,6 +288,16 @@ public class McpClientService {
         SessionExpiredException(String message) {
             super(message);
         }
+    }
+
+    private static final class UnauthorizedException extends Exception {
+        UnauthorizedException(String message) {
+            super(message);
+        }
+    }
+
+    private String respBody(HttpResponse<String> resp) {
+        return resp.body() == null ? "" : resp.body();
     }
 
     // ---------- SSE 传输 ----------
@@ -798,7 +818,8 @@ public class McpClientService {
         switch (type) {
             case "API_KEY" -> builder.header(
                     str(auth.getOrDefault("header", "X-API-Key")), str(auth.get("value")));
-            case "BEARER", "OAUTH" -> builder.header("Authorization", "Bearer " + str(auth.get("token")));
+            case "OAUTH" -> builder.header("Authorization", "Bearer " + oauthService.accessToken(server));
+            case "BEARER" -> builder.header("Authorization", "Bearer " + str(auth.get("token")));
             case "BASIC" -> {
                 String raw = str(auth.getOrDefault("username", "")) + ":" + str(auth.getOrDefault("password", ""));
                 builder.header("Authorization", "Basic "

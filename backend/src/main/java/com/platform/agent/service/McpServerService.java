@@ -54,6 +54,7 @@ public class McpServerService {
 
     private final McpServerMapper serverMapper;
     private final McpClientService client;
+    private final McpOAuthService oauthService;
     private final ToolRegistryMapper toolMapper;
     private final ToolVersionMapper toolVersionMapper;
     private final AgentToolBindingMapper bindingMapper;
@@ -318,6 +319,27 @@ public class McpServerService {
                 "SUCCESS", Map.of("name", s.getName(), "tools", tools.size()));
     }
 
+    // ---------- OAuth 2.1 ----------
+
+    public Map<String, Object> oauthAuthorize(Long id, JwtPrincipal principal) {
+        return oauthService.authorizeUrl(visible(id), principal);
+    }
+
+    public String oauthCallback(String code, String state, String error, String errorDescription) {
+        return oauthService.callback(code, state, error, errorDescription);
+    }
+
+    public Map<String, Object> oauthStatus(Long id) {
+        return oauthService.status(visible(id));
+    }
+
+    public void oauthDisconnect(Long id, JwtPrincipal principal) {
+        McpServer s = visible(id);
+        oauthService.disconnect(s);
+        auditService.record(principal.userId(), "mcp_server.oauth.disconnect", "mcp_server",
+                String.valueOf(id), "SUCCESS", Map.of("name", s.getName()));
+    }
+
     // ---------- helpers ----------
 
     private McpServer visible(Long id) {
@@ -493,19 +515,22 @@ public class McpServerService {
         return type;
     }
 
-    /** 加密鉴权配置；更新时脱敏占位/空值沿用旧密钥。 */
+    /** 加密鉴权配置；更新时脱敏占位/空值沿用旧密钥。OAuth 额外保留 client/token 字段并允许先不授权。 */
     private String encryptAuth(String authType, Map<String, Object> incoming, String existingEncrypted) {
         if ("NONE".equals(authType)) return null;
-        Map<String, Object> auth = new LinkedHashMap<>(incoming);
-        Map<String, Object> old = Map.of();
-        if (existingEncrypted != null && !existingEncrypted.isBlank()) {
-            try {
-                String plain = cryptoService.decrypt(existingEncrypted);
-                if (plain != null && !plain.isBlank()) old = objectMapper.readValue(plain, Map.class);
-            } catch (Exception ignored) {
-                // 旧密钥无法解密时按新配置处理
+        Map<String, Object> old = decryptMap(existingEncrypted);
+        if ("OAUTH".equals(authType)) {
+            Map<String, Object> merged = new LinkedHashMap<>(old);
+            for (Map.Entry<String, Object> e : incoming.entrySet()) {
+                String key = e.getKey();
+                Object value = e.getValue();
+                if (key == null || value == null) continue;
+                if (MASK.equals(String.valueOf(value)) && old.containsKey(key)) continue;
+                merged.put(key, value);
             }
+            return merged.isEmpty() ? null : cryptoService.encrypt(json(merged));
         }
+        Map<String, Object> auth = new LinkedHashMap<>(incoming);
         for (String key : List.of("value", "token", "password")) {
             Object v = auth.get(key);
             if ((v == null || String.valueOf(v).isBlank() || MASK.equals(String.valueOf(v)))
@@ -516,7 +541,7 @@ public class McpServerService {
         if ("API_KEY".equals(authType) && (auth.get("header") == null || String.valueOf(auth.get("header")).isBlank())) {
             auth.put("header", "X-API-Key");
         }
-        if (List.of("API_KEY", "BEARER", "OAUTH").contains(authType)) {
+        if (List.of("API_KEY", "BEARER").contains(authType)) {
             String secret = "API_KEY".equals(authType) ? str(auth.get("value")) : str(auth.get("token"));
             if (secret == null || secret.isBlank()) throw new BusinessException(400, "请填写鉴权密钥");
         }
@@ -529,7 +554,8 @@ public class McpServerService {
         try {
             Map<String, Object> auth = objectMapper.readValue(cryptoService.decrypt(s.getEncryptedAuth()), Map.class);
             Map<String, Object> masked = new LinkedHashMap<>(auth);
-            for (String key : List.of("value", "token", "password")) {
+            for (String key : List.of("value", "token", "password", "access_token",
+                    "refresh_token", "client_secret")) {
                 if (masked.get(key) != null && !String.valueOf(masked.get(key)).isBlank()) masked.put(key, MASK);
             }
             masked.put("type", s.getAuthType());
@@ -550,6 +576,7 @@ public class McpServerService {
         m.put("envKeys", new ArrayList<>(decryptMap(s.getEnvEncrypted()).keySet()));
         m.put("authType", s.getAuthType());
         m.put("auth", maskedAuth(s));
+        m.put("oauth", oauthService.status(s));
         m.put("customHeaders", fromJsonMap(s.getCustomHeaders()));
         m.put("status", s.getStatus());
         m.put("healthStatus", s.getHealthStatus());

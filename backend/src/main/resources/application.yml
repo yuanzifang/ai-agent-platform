@@ -144,5 +144,7 @@ billing:
 app:
   # SSO 回调地址默认前端地址（/sso/callback）
   frontend-base: ${APP_FRONTEND_BASE:http://localhost:5173}
+  # 后端对外地址（OAuth 2.1 回调）
+  public-base: ${APP_PUBLIC_BASE:http://localhost:8080}
   mail:
     from: ${SMTP_FROM:no-reply@ai-agent.local}

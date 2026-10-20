@@ -93,6 +93,9 @@ config:
   deepseekBaseUrl: https://api.deepseek.com
   toolAllowPrivate: "false"
   toolAllowedHosts: ""
+  # 生产必须改为对外域名（OAuth 回调 / 前端跳转）
+  publicBase: "http://localhost:8080"
+  frontendBase: "http://localhost:5173"
   rateLimitPerMinute: "60"
   skillScriptEnabled: "true"
   asrEnabled: "false"
