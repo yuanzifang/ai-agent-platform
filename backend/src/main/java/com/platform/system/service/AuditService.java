@@ -6,8 +6,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.platform.common.context.TenantContext;
 import com.platform.system.entity.AuditLogin;
 import com.platform.system.entity.AuditOperation;
+import com.platform.system.mapper.AuditChainCheckpointMapper;
 import com.platform.system.mapper.AuditLoginMapper;
 import com.platform.system.mapper.SysTenantMapper;
+import com.platform.system.entity.AuditChainCheckpoint;
 import com.platform.system.entity.SysTenant;
 import com.platform.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
@@ -24,8 +26,10 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 操作审计（需求 3.17/架构 8.4）：append-only + 哈希链（prev_hash = H(前条 hash ∥ 本条内容)）。
@@ -37,6 +41,7 @@ import java.util.Map;
 public class AuditService {
 
     private final com.platform.system.mapper.AuditOperationMapper auditOperationMapper;
+    private final AuditChainCheckpointMapper auditCheckpointMapper;
     private final AuditLoginMapper auditLoginMapper;
     private final SysTenantMapper tenantMapper;
     private final ObjectMapper objectMapper;
@@ -74,7 +79,14 @@ public class AuditService {
         // 先锁租户行，再读链尾（FOR UPDATE 读取最新已提交版本，避免 REPEATABLE READ 快照过期）
         auditOperationMapper.lockTenant(tenantId);
         AuditOperation last = auditOperationMapper.lockLast(tenantId);
-        String prevHash = last == null ? "GENESIS" : last.getPrevHash();
+        String prevHash;
+        if (last != null) {
+            prevHash = last.getPrevHash();
+        } else {
+            // 旧分区被归档/裁剪后，不能从 GENESIS 重新起链；从最新有效锚点继续
+            List<AuditChainCheckpoint> checkpoints = auditCheckpointMapper.listByTenant(tenantId);
+            prevHash = checkpoints.isEmpty() ? "GENESIS" : checkpoints.get(0).getLastRemovedHash();
+        }
         LocalDateTime created = LocalDateTime.now().withNano(0);
 
         AuditOperation op = new AuditOperation();
@@ -127,7 +139,17 @@ public class AuditService {
         List<AuditOperation> rows = auditOperationMapper.selectList(new LambdaQueryWrapper<AuditOperation>()
                 .eq(AuditOperation::getTenantId, tenantId)
                 .orderByAsc(AuditOperation::getId));
+        // 选择“对应分区已经不存在”的最新锚点；若 DROP 失败分区仍存在，则自动退回上一条锚点。
+        Set<String> activePartitions = new HashSet<>(auditCheckpointMapper.activeAuditPartitions());
+        String anchorPartition = null;
         String prev = "GENESIS";
+        for (AuditChainCheckpoint cp : auditCheckpointMapper.listByTenant(tenantId)) {
+            if (!activePartitions.contains(cp.getPartitionName())) {
+                prev = cp.getLastRemovedHash();
+                anchorPartition = cp.getPartitionName();
+                break;
+            }
+        }
         long checked = 0;
         long skippedLegacy = 0;
         Long brokenAtId = null;
@@ -154,6 +176,7 @@ public class AuditService {
         result.put("total", rows.size());
         result.put("checked", checked);
         result.put("skippedLegacy", skippedLegacy);
+        result.put("anchorPartition", anchorPartition);
         result.put("brokenAtId", brokenAtId);
         result.put("brokenAtTime", brokenAtTime);
         result.put("message", brokenAtId == null

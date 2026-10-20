@@ -2,6 +2,7 @@ package com.platform.system.controller;
 
 import com.platform.common.response.ApiResponse;
 import com.platform.security.JwtPrincipal;
+import com.platform.observability.service.AuditArchiveService;
 import com.platform.observability.service.MessageArchiveService;
 import com.platform.system.service.AuditService;
 import com.platform.system.service.PlatformAdminService;
@@ -29,6 +30,7 @@ public class PlatformAdminController {
 
     private final PlatformAdminService platformAdminService;
     private final MessageArchiveService messageArchiveService;
+    private final AuditArchiveService auditArchiveService;
     private final AuditService auditService;
 
     @GetMapping("/tenants")
@@ -59,6 +61,16 @@ public class PlatformAdminController {
         platformAdminService.requirePlatformAdmin(principal);
         Map<String, Object> result = messageArchiveService.archiveExpired();
         auditService.record(principal.userId(), "message.archive", "message_archive", "expired",
+                Boolean.TRUE.equals(result.get("skipped")) ? "SKIPPED" : "SUCCESS", result);
+        return ApiResponse.ok(result);
+    }
+
+    /** 手动执行审计过期归档（平台管理员；日常由 AuditArchiveService 定时任务执行）。 */
+    @PostMapping("/maintenance/audit-archive")
+    public ApiResponse<Map<String, Object>> archiveAudits(@AuthenticationPrincipal JwtPrincipal principal) {
+        platformAdminService.requirePlatformAdmin(principal);
+        Map<String, Object> result = auditArchiveService.archiveExpired();
+        auditService.record(principal.userId(), "audit.archive", "audit_operation", "expired",
                 Boolean.TRUE.equals(result.get("skipped")) ? "SKIPPED" : "SUCCESS", result);
         return ApiResponse.ok(result);
     }

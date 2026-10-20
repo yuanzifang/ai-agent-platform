@@ -181,6 +181,13 @@ otel:
   endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}
   service-name: ${OTEL_SERVICE_NAME:ai-agent-platform}
 
+audit:
+  # 审计保留：旧月分区先归档并写租户链锚点，再 DROP；手动触发走平台管理员接口
+  archive:
+    enabled: ${AUDIT_ARCHIVE_ENABLED:true}
+    retention-days: ${AUDIT_RETENTION_DAYS:180}
+    cron: ${AUDIT_ARCHIVE_CRON:0 10 4 * * *}
+
 message:
   # 消息过期归档：整月分区先归档再 DROP；手动触发走平台管理员接口
   archive:
