@@ -110,7 +110,7 @@ scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 
 备份产物包含 `manifest.json` 和 `SHA256SUMS`，默认落在 `backups/`（已 gitignore）。详细配置、定时任务、生产恢复步骤与边界见 [`docs/备份与恢复.md`](docs/备份与恢复.md)。
 
-大表分区与未来分区自动补齐见 [`docs/大表分区.md`](docs/大表分区.md)；V48 覆盖消息、会话、Trace、Span、审计和系统日志。
+大表分区与未来分区自动补齐见 [`docs/大表分区.md`](docs/大表分区.md)；V48 覆盖消息、会话、Trace、Span、审计和系统日志。 消息 90 天归档见 [`docs/消息归档.md`](docs/消息归档.md)；平台管理员可手动触发归档，默认每日 03:40 执行。
 
 ## Kubernetes / Helm
 

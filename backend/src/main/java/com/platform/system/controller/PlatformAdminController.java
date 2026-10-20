@@ -2,6 +2,8 @@ package com.platform.system.controller;
 
 import com.platform.common.response.ApiResponse;
 import com.platform.security.JwtPrincipal;
+import com.platform.observability.service.MessageArchiveService;
+import com.platform.system.service.AuditService;
 import com.platform.system.service.PlatformAdminService;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,8 @@ import java.util.Map;
 public class PlatformAdminController {
 
     private final PlatformAdminService platformAdminService;
+    private final MessageArchiveService messageArchiveService;
+    private final AuditService auditService;
 
     @GetMapping("/tenants")
     public ApiResponse<List<Map<String, Object>>> tenants(@AuthenticationPrincipal JwtPrincipal principal) {
@@ -47,6 +51,16 @@ public class PlatformAdminController {
         platformAdminService.requirePlatformAdmin(principal);
         platformAdminService.updateStatus(id, req.status(), principal.userId());
         return ApiResponse.ok();
+    }
+
+    /** 手动执行消息过期归档（平台管理员；日常由 MessageArchiveService 定时任务执行）。 */
+    @PostMapping("/maintenance/message-archive")
+    public ApiResponse<Map<String, Object>> archiveMessages(@AuthenticationPrincipal JwtPrincipal principal) {
+        platformAdminService.requirePlatformAdmin(principal);
+        Map<String, Object> result = messageArchiveService.archiveExpired();
+        auditService.record(principal.userId(), "message.archive", "message_archive", "expired",
+                Boolean.TRUE.equals(result.get("skipped")) ? "SKIPPED" : "SUCCESS", result);
+        return ApiResponse.ok(result);
     }
 
     public record CreateTenantRequest(@NotBlank String tenantKey, @NotBlank String name,
