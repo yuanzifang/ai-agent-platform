@@ -497,3 +497,94 @@ test('会话重命名与置顶', async ({ request }) => {
     await deleteAgent(request, token!, agentId)
   }
 })
+
+test('SSE 断线续传', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  // 不绑定工具，避免 Mock 走 tool_calls；"长回答" 触发慢速流
+  const agentRes = await request.post(`${P}/agent`, {
+    headers: auth(token!),
+    data: {
+      name: `E2E 续传-${Date.now()}`,
+      systemPrompt: '你是测试助手。',
+      modelConfig: { modelName: 'deepseek-flash' },
+      visibility: 'PRIVATE'
+    }
+  })
+  const agentBody = await agentRes.json()
+  expect(agentBody.code, JSON.stringify(agentBody)).toBe(0)
+  const agentId = agentBody.data.id as number
+  let conversationId: number | null = null
+  try {
+    await request.post(`${P}/agent/${agentId}/publish`, {
+      headers: auth(token!), data: { force: true }
+    })
+    const convRes = await request.post(`${P}/conversations`, {
+      headers: auth(token!), data: { agentId, title: 'SSE 续传' }
+    })
+    conversationId = (await convRes.json()).data.id
+
+    const controller = new AbortController()
+    const resp = await fetch(`${BACKEND}${P}/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      headers: { ...auth(token!), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '长回答测试', stream: true }),
+      signal: controller.signal
+    })
+    expect(resp.status).toBe(200)
+    const reader = resp.body!.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let received = ''
+    while (received.length < 40) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const blocks = buffer.split('\n\n')
+      buffer = blocks.pop() || ''
+      for (const block of blocks) {
+        const event = (block.match(/event:(.*)/) || [])[1]?.trim()
+        const data = (block.match(/data:(.*)/) || [])[1]?.trim()
+        if (event === 'delta' && data) received += JSON.parse(data).content
+      }
+    }
+    controller.abort()
+    expect(received.length).toBeGreaterThan(0)
+
+    await new Promise(resolve => setTimeout(resolve, 500))
+    const resume = await fetch(
+      `${BACKEND}${P}/conversations/${conversationId}/resume?offset=${received.length}`,
+      { headers: auth(token!) })
+    expect(resume.status).toBe(200)
+    const rreader = resume.body!.getReader()
+    let rbuffer = ''
+    let rest = ''
+    let doneStatus: string | null = null
+    while (true) {
+      const { done, value } = await rreader.read()
+      if (done) break
+      rbuffer += decoder.decode(value, { stream: true })
+      const blocks = rbuffer.split('\n\n')
+      rbuffer = blocks.pop() || ''
+      for (const block of blocks) {
+        const event = (block.match(/event:(.*)/) || [])[1]?.trim()
+        const data = (block.match(/data:(.*)/) || [])[1]?.trim()
+        if (event === 'delta' && data) rest += JSON.parse(data).content
+        if (event === 'done' && data) doneStatus = JSON.parse(data).status
+      }
+    }
+    expect(rest.length, '断线后应继续收到增量').toBeGreaterThan(0)
+    expect(doneStatus).toBe('SUCCESS')
+
+    const detail = await request.get(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
+    const messages = (await detail.json()).data.messages || []
+    const assistant = messages.filter((m: any) => m.role === 'ASSISTANT').pop()
+    expect(assistant?.status).toBe('SUCCESS')
+    expect(String(assistant?.content).length).toBe(received.length + rest.length)
+  } finally {
+    if (conversationId) {
+      await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
+    }
+    await deleteAgent(request, token!, agentId)
+  }
+})

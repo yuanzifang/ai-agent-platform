@@ -77,6 +77,9 @@ public class ChatStreamService {
     private final TraceService traceService;
     private final ObjectMapper objectMapper;
     private final StreamRegistryService streamRegistry;
+    private final ChatLiveStateService liveState;
+    @org.springframework.beans.factory.annotation.Qualifier("llmTaskExecutor")
+    private final org.springframework.core.task.TaskExecutor resumeExecutor;
 
     private static final int MEMORY_WINDOW = 10;
 
@@ -262,6 +265,8 @@ public class ChatStreamService {
         StringBuilder acc = new StringBuilder();
         final String finalSystemPrompt = systemPrompt;
         long[] tokens = {0, 0};
+        long[] lastLiveWrite = {0};
+        liveState.start(conv.getId(), traceId);
 
         if (!runtime.callbacks().isEmpty()) options.toolCallbacks(runtime.callbacks());
         ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt().options(options.build());
@@ -279,6 +284,8 @@ public class ChatStreamService {
             messageMapper.insert(ai);
             conversationService.touch(conv.getId());
             recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1], source);
+            liveState.finish(conv.getId(), traceId, acc.toString(), "SUCCESS", ai.getId(),
+                    tokens[0], tokens[1], citations);
             moderationService.moderate("OUT", acc.toString(), conv.getId(), ai.getId());
             steps.add("chain", "persist", "SUCCESS", persistStart, System.currentTimeMillis(),
                     java.util.Map.of("messageId", ai.getId()));
@@ -300,6 +307,11 @@ public class ChatStreamService {
                     if (delta != null && !delta.isEmpty()) {
                         acc.append(delta);
                         out.event("delta", Map.of("content", delta));
+                        long now = System.currentTimeMillis();
+                        if (now - lastLiveWrite[0] > 200) {
+                            liveState.running(conv.getId(), traceId, acc.toString(), tokens[0], tokens[1]);
+                            lastLiveWrite[0] = now;
+                        }
                     }
                     if (resp.getMetadata() != null && resp.getMetadata().getUsage() != null) {
                         var u = resp.getMetadata().getUsage();
@@ -325,6 +337,8 @@ public class ChatStreamService {
                                 messageMapper.insert(ai);
                                 conversationService.touch(conv.getId());
                                 recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1], source);
+                                liveState.finish(conv.getId(), traceId, acc.toString(), "STOPPED", ai.getId(),
+                                        tokens[0], tokens[1], citations);
                                 traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                                         conv.getAgentId(), conv.getUserId(), agent.getName(), "STOPPED",
                                         modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
@@ -347,6 +361,8 @@ public class ChatStreamService {
                         ai.setContent(acc.toString());
                         ai.setStatus("ERROR");
                         messageMapper.insert(ai);
+                        liveState.finish(conv.getId(), traceId, acc.toString(), "ERROR", ai.getId(),
+                                tokens[0], tokens[1], citations);
                         traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                                 conv.getAgentId(), conv.getUserId(), agent.getName(), "ERROR",
                                 modelName, 0, tokens[1], System.currentTimeMillis() - startedAt,
@@ -383,6 +399,8 @@ public class ChatStreamService {
                     messageMapper.insert(ai);
                     conversationService.touch(conv.getId());
                     recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1], source);
+                    liveState.finish(conv.getId(), traceId, acc.toString(), "STOPPED", ai.getId(),
+                            tokens[0], tokens[1], citations);
                     traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                             conv.getAgentId(), conv.getUserId(), agent.getName(), "STOPPED",
                             modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
@@ -395,9 +413,11 @@ public class ChatStreamService {
                 out.complete();
             }
         };
+        // 生成与 HTTP 连接解耦：客户端断开不取消生成，内容写入 Redis 快照供 resume 续传；
+        // 用户显式「停止生成」走 StreamRegistry.stop → dispose/cancel。
         emitter.onCompletion(() -> { });
-        emitter.onTimeout(() -> { disposable.dispose(); cancel.run(); });
-        emitter.onError(t -> { disposable.dispose(); cancel.run(); });
+        emitter.onTimeout(() -> log.warn("SSE 超时（生成继续，可 resume）：conversation={}", conv.getId()));
+        emitter.onError(t -> log.info("SSE 客户端断开（生成继续，可 resume）：conversation={} {}", conv.getId(), t.getMessage()));
 
         streamRegistry.register(conv.getId(), new Disposable() {
             @Override public void dispose() { disposable.dispose(); cancel.run(); }
@@ -504,6 +524,74 @@ public class ChatStreamService {
     }
 
     /** Web 端 SSE 输出。 */
+    /** 断线续传：按已收到的字符 offset 回放 Redis 快照并持续推送，直到生成结束。 */
+    public SseEmitter resume(Long conversationId, int offset, JwtPrincipal principal) {
+        conversationService.owned(conversationId, principal);
+        SseEmitter emitter = new SseEmitter(300_000L);
+        int start = Math.max(0, offset);
+        resumeExecutor.execute(() -> {
+            long deadline = System.currentTimeMillis() + 300_000;
+            long missingSince = System.currentTimeMillis();
+            int cursor = start;
+            boolean metaSent = false;
+            try {
+                while (System.currentTimeMillis() < deadline) {
+                    ChatLiveStateService.LiveState state = liveState.get(conversationId);
+                    if (state == null) {
+                        if (System.currentTimeMillis() - missingSince > 5000) {
+                            Map<String, Object> done = new LinkedHashMap<>();
+                            done.put("status", "UNKNOWN");
+                            sendOrThrow(emitter, "done", done);
+                            emitter.complete();
+                            return;
+                        }
+                        Thread.sleep(250);
+                        continue;
+                    }
+                    if (!metaSent) {
+                        Map<String, Object> meta = new LinkedHashMap<>();
+                        meta.put("conversationId", conversationId);
+                        meta.put("traceId", state.traceId());
+                        meta.put("resumed", true);
+                        sendOrThrow(emitter, "meta", meta);
+                        metaSent = true;
+                    }
+                    String content = state.content() == null ? "" : state.content();
+                    int safeCursor = Math.min(cursor, content.length());
+                    if (content.length() > safeCursor) {
+                        sendOrThrow(emitter, "delta", Map.of("content", content.substring(safeCursor)));
+                        cursor = content.length();
+                    }
+                    if (!"RUNNING".equals(state.status())) {
+                        Map<String, Object> done = new LinkedHashMap<>();
+                        done.put("traceId", state.traceId());
+                        done.put("status", state.status());
+                        done.put("messageId", state.messageId());
+                        done.put("usage", Map.of("inputTokens", state.inputTokens(),
+                                "outputTokens", state.outputTokens()));
+                        sendOrThrow(emitter, "done", done);
+                        emitter.complete();
+                        return;
+                    }
+                    Thread.sleep(250);
+                }
+                emitter.complete();
+            } catch (Exception e) {
+                log.debug("续传结束 conversation={}：{}", conversationId, e.getMessage());
+                try {
+                    emitter.complete();
+                } catch (Exception ignored) {
+                }
+            }
+        });
+        return emitter;
+    }
+
+    private void sendOrThrow(SseEmitter emitter, String event, Object data) throws Exception {
+        emitter.send(SseEmitter.event().name(event)
+                .data(objectMapper.writeValueAsString(data)));
+    }
+
     private final class SseStreamSink implements StreamSink {
         private final SseEmitter emitter;
 
@@ -518,7 +606,11 @@ public class ChatStreamService {
 
         @Override
         public void complete() {
-            emitter.complete();
+            try {
+                emitter.complete();
+            } catch (Exception e) {
+                log.debug("SSE complete 失败（客户端可能已断开）：{}", e.getMessage());
+            }
         }
 
         @Override

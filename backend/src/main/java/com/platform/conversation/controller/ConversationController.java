@@ -82,6 +82,14 @@ public class ConversationController {
         return result instanceof SseEmitter ? result : ApiResponse.ok(result);
     }
 
+    /** 断线续传：offset 为客户端已收到的字符数，返回剩余增量直到 done。 */
+    @GetMapping(value = "/{id}/resume", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter resume(@PathVariable Long id,
+                             @RequestParam(defaultValue = "0") int offset,
+                             @AuthenticationPrincipal JwtPrincipal principal) {
+        return chatStreamService.resume(id, offset, principal);
+    }
+
     @PostMapping("/{id}/attachments")
     public ApiResponse<Map<String, Object>> uploadAttachment(@PathVariable Long id,
                                                              @RequestPart("file") MultipartFile file,

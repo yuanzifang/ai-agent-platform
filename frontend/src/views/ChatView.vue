@@ -170,6 +170,7 @@ interface SessionItem { id: number; agentId: number; agentName: string; title: s
 interface ChatMessage {
   id?: number; role: string; content: string; status?: string; feedback?: string | null
   citations?: any[]; tools?: any[]; streaming?: boolean; attachments?: any[]
+  traceId?: string
 }
 interface Attachment { attachmentId: number; fileName: string; previewUrl?: string }
 
@@ -202,6 +203,7 @@ let audioChunks: Blob[] = []
 let aborter: AbortController | null = null
 let recordStartX = 0
 let recordStartY = 0
+let userStopped = false
 let audioContext: AudioContext | null = null
 let rafId = 0
 
@@ -359,6 +361,7 @@ async function regenerate(m: ChatMessage) {
 /** SSE：fetch POST + 手动解析 event 流（EventSource 不支持 POST/鉴权头）。 */
 async function streamCall(url: string, body: any, pending: ChatMessage) {
   streaming.value = true
+  userStopped = false
   aborter = new AbortController()
   try {
     const resp = await fetch('/api/v1' + url, {
@@ -403,13 +406,15 @@ async function streamCall(url: string, body: any, pending: ChatMessage) {
         handleEvent(event, JSON.parse(data), pending)
       }
     }
-    if (!receivedDone && !aborter?.signal.aborted) {
-      await recoverStream()
+    if (!receivedDone && !aborter?.signal.aborted && !userStopped) {
+      const resumed = await resumeStream(pending)
+      if (!resumed) await recoverStream()
     }
   } catch (e: any) {
-    if (e.name !== 'AbortError') {
-      ElMessage.warning('连接中断，正在恢复已生成内容…')
-      await recoverStream()
+    if (e.name !== 'AbortError' && !userStopped) {
+      ElMessage.warning('连接中断，正在续传…')
+      const resumed = await resumeStream(pending)
+      if (!resumed) await recoverStream()
     }
   } finally {
     pending.streaming = false
@@ -432,6 +437,8 @@ function handleEvent(event: string, data: any, pending: ChatMessage) {
     scrollToBottom()
   } else if (event === 'moderation') {
     ElMessage.warning(data.tip || '内容审核提示')
+  } else if (event === 'meta') {
+    if (data.traceId) pending.traceId = data.traceId
   } else if (event === 'usage') {
     // usage 汇总在 done 里，这里忽略
   } else if (event === 'done') {
@@ -476,7 +483,46 @@ function toolStatusClass(status?: string) {
   return 'success'
 }
 
-/** 断线恢复：后端在客户端断开时会把已生成内容落 STOPPED，这里重新拉取持久化消息。 */
+/** 真正续传：按已收到的字符 offset 拉取 Redis 快照的剩余增量，直到 done。 */
+async function resumeStream(pending: ChatMessage): Promise<boolean> {
+  if (!conversationId.value) return false
+  aborter = new AbortController()
+  try {
+    const offset = (pending.content || '').length
+    const resp = await fetch(`/api/v1/conversations/${conversationId.value}/resume?offset=${offset}`, {
+      headers: { Authorization: `Bearer ${userStore.accessToken}` },
+      signal: aborter.signal
+    })
+    if (!resp.ok || !resp.body) return false
+    const reader = resp.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let gotDone = false
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const blocks = buffer.split('\n\n')
+      buffer = blocks.pop() || ''
+      for (const block of blocks) {
+        let event = 'message', data = ''
+        for (const line of block.split('\n')) {
+          if (line.startsWith('event:')) event = line.slice(6).trim()
+          else if (line.startsWith('data:')) data += line.slice(5).trim()
+        }
+        if (!data) continue
+        if (event === 'done') gotDone = true
+        handleEvent(event, JSON.parse(data), pending)
+      }
+    }
+    return gotDone
+  } catch (e: any) {
+    if (e.name !== 'AbortError') console.warn('续传失败', e?.message)
+    return false
+  }
+}
+
+/** 兜底恢复：续传不可用时重新拉取已持久化消息。 */
 async function recoverStream() {
   if (!conversationId.value) return
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -534,6 +580,7 @@ async function sessionCommand(command: string, session: SessionItem) {
 }
 
 async function stopGen() {
+  userStopped = true
   aborter?.abort()
   const last = [...messages.value].reverse().find(m => m.role === 'ASSISTANT' && m.streaming)
   if (conversationId.value && last?.id) {
