@@ -82,6 +82,10 @@
             <el-form label-width="90px">
               <el-form-item label="流式输出"><el-switch v-model="form.capabilities.streamOutput" /></el-form-item>
               <el-form-item label="函数调用"><el-switch v-model="form.capabilities.functionCall" /></el-form-item>
+              <el-form-item label="自我纠正">
+                <el-switch v-model="form.capabilities.selfCorrection" />
+                <span class="hint">生成后由审查模型校验，低分时自动修订（会增加一次模型调用）</span>
+              </el-form-item>
               <el-form-item label="多模态输入"><el-switch v-model="form.capabilities.multimodal" /></el-form-item>
             </el-form>
           </el-collapse-item>
@@ -1039,7 +1043,7 @@ const form = reactive({
   name: '', description: '', category: '', visibility: 'TENANT', listed: true,
   modelName: '', fallbackModelName: '', temperature: 0.7,
   systemPrompt: '', openingStatement: '',
-  capabilities: { streamOutput: true, functionCall: false, multimodal: false },
+  capabilities: { streamOutput: true, functionCall: false, multimodal: false, selfCorrection: false },
   memory: { enabled: true, windowSize: 10 },
   variables: [] as VariableRow[]
 })
@@ -1194,7 +1198,8 @@ onMounted(async () => {
   form.systemPrompt = detail.systemPrompt || ''
   form.openingStatement = detail.openingStatement || ''
   const caps = detail.agentCapabilities || {}
-  form.capabilities = { streamOutput: caps.streamOutput !== false, functionCall: !!caps.functionCall, multimodal: !!caps.multimodal }
+  form.capabilities = { streamOutput: caps.streamOutput !== false, functionCall: !!caps.functionCall,
+    multimodal: !!caps.multimodal, selfCorrection: !!caps.selfCorrection }
   const mem = detail.memoryConfig || {}
   form.memory = { enabled: mem.enabled !== false, windowSize: mem.windowSize ?? 10 }
   form.variables = ((detail.variables as any[]) || []).map(v => ({

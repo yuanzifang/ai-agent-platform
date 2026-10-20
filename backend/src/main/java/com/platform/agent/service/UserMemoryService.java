@@ -93,14 +93,56 @@ public class UserMemoryService {
                 .orderByDesc(UserMemory::getUpdatedAt)
                 .last("LIMIT " + CONTEXT_LIMIT));
         StringBuilder sb = new StringBuilder();
-        for (UserMemory m : rows) {
-            if (m.getContent() == null || m.getContent().isBlank()) continue;
-            String line = "- " + m.getContent().trim();
-            if (sb.length() + line.length() > 2000) break;
-            if (sb.length() > 0) sb.append('\n');
-            sb.append(line);
-        }
+        appendGroup(sb, "用户画像", rows, "PROFILE");
+        appendGroup(sb, "用户偏好", rows, "PREFERENCE");
+        appendGroup(sb, "其他稳定事实", rows, "FACT");
         return sb.toString();
+    }
+
+    private void appendGroup(StringBuilder sb, String title, List<UserMemory> rows, String category) {
+        List<String> lines = new ArrayList<>();
+        for (UserMemory m : rows) {
+            if (!category.equals(m.getCategory())) continue;
+            if (m.getContent() == null || m.getContent().isBlank()) continue;
+            lines.add("- " + m.getContent().trim());
+        }
+        if (lines.isEmpty()) return;
+        String header = "【" + title + "】\n";
+        if (sb.length() + header.length() > 2000) return;
+        sb.append(header);
+        for (String line : lines) {
+            if (sb.length() + line.length() + 1 > 2000) return;
+            sb.append(line).append('\n');
+        }
+    }
+
+    /** 用户画像视图：按类别聚合 + 自动生成统计。 */
+    public Map<String, Object> profile(JwtPrincipal principal) {
+        List<UserMemory> rows = memoryMapper.selectList(new LambdaQueryWrapper<UserMemory>()
+                .eq(UserMemory::getTenantId, principal.tenantId())
+                .eq(UserMemory::getUserId, principal.userId())
+                .eq(UserMemory::getStatus, "ACTIVE")
+                .orderByDesc(UserMemory::getUpdatedAt));
+        Map<String, List<String>> categories = new LinkedHashMap<>();
+        categories.put("PROFILE", new ArrayList<>());
+        categories.put("PREFERENCE", new ArrayList<>());
+        categories.put("FACT", new ArrayList<>());
+        int auto = 0;
+        List<String> summaryParts = new ArrayList<>();
+        for (UserMemory m : rows) {
+            String category = categories.containsKey(m.getCategory()) ? m.getCategory() : "FACT";
+            categories.get(category).add(m.getContent());
+            if ("AUTO".equalsIgnoreCase(m.getSource())) auto++;
+            if (summaryParts.size() < 5 && List.of("PROFILE", "PREFERENCE").contains(category)) {
+                summaryParts.add(m.getContent());
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("summary", summaryParts.isEmpty() ? "" : String.join("；", summaryParts));
+        result.put("categories", categories);
+        result.put("total", rows.size());
+        result.put("autoCount", auto);
+        return result;
     }
 
     private UserMemory owned(Long id, JwtPrincipal principal) {

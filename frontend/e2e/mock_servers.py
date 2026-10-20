@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CAPTURED = []
 LAST_OPENAI = {}
+LAST_CHAT = {}
 
 
 def answer_for(body):
@@ -40,6 +41,14 @@ def answer_for(body):
         return {"tool_call": name}
     if "只回答OK" in system or "只回答OK" in last_user:
         return "OK"
+    if "质量审查" in system:
+        return json.dumps({"score": 0.2, "issues": "信息不完整", "revised": "这是纠正后的答案。"},
+                          ensure_ascii=False)
+    if "记忆抽取" in system:
+        if "请记住" in last_user:
+            return json.dumps({"memories": [{"content": "用户是测试工程师", "category": "PROFILE"}]},
+                              ensure_ascii=False)
+        return json.dumps({"memories": []}, ensure_ascii=False)
     if "流式审核" in last_user:
         return "这是正常的流式内容。" * 10 + "赌博内容"
     if "触发审核" in last_user:
@@ -120,6 +129,8 @@ class OpenAiHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/last":
             return self._json(200, LAST_OPENAI)
+        if self.path == "/last-chat":
+            return self._json(200, LAST_CHAT)
         if self.path.endswith("/models"):
             return self._json(200, {"data": [{"id": "mock-model", "name": "Mock Model"}]})
         self._json(404, {"error": "not found"})
@@ -133,6 +144,11 @@ class OpenAiHandler(BaseHTTPRequestHandler):
             return self._json(500, {"error": {"message": "mock primary model failure"}})
         LAST_OPENAI.clear()
         LAST_OPENAI.update(body)
+        system_text = " ".join(str(m.get("content") or "") for m in body.get("messages") or []
+                               if m.get("role") == "system")
+        if "质量审查" not in system_text and "记忆抽取" not in system_text:
+            LAST_CHAT.clear()
+            LAST_CHAT.update(body)
         answer = answer_for(body)
         last_user = ""
         for m in body.get("messages") or []:

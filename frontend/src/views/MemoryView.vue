@@ -10,6 +10,14 @@
       <el-button type="primary" @click="openCreate">新增记忆</el-button>
     </div>
 
+    <div v-if="profile" class="profile-card">
+      <div class="profile-title">用户画像</div>
+      <div class="profile-summary">{{ profile.summary || '暂无画像，聊天后会自动生成，也可手动添加' }}</div>
+      <div class="profile-stats">
+        共 {{ profile.total }} 条 · 自动生成 {{ profile.autoCount }} 条
+      </div>
+    </div>
+
     <el-empty v-if="!loading && rows.length === 0" description="还没有长期记忆。可记录称呼、偏好、长期目标等事实。" />
     <div v-else v-loading="loading" class="memory-list">
       <div v-for="m in rows" :key="m.id" class="memory-card">
@@ -17,6 +25,7 @@
           <div class="memory-content">{{ m.content }}</div>
           <div class="memory-meta">
             <el-tag size="small" effect="plain">{{ categoryText(m.category) }}</el-tag>
+            <el-tag v-if="m.source === 'AUTO'" size="small" type="success" effect="plain">自动</el-tag>
             <span>{{ m.agentId ? `仅 Agent #${m.agentId}` : '全部 Agent' }}</span>
             <span>更新 {{ fmt(m.updatedAt) }}</span>
           </div>
@@ -62,6 +71,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 
 const rows = ref<any[]>([])
+const profile = ref<any>(null)
 const agents = ref<any[]>([])
 const loading = ref(false)
 const saving = ref(false)
@@ -78,8 +88,12 @@ onMounted(async () => {
 async function load() {
   loading.value = true
   try {
-    const data = await http.get('/memories', { params: { keyword: keyword.value || undefined } }) as any
+    const [data, profileData] = await Promise.all([
+      http.get('/memories', { params: { keyword: keyword.value || undefined } }),
+      http.get('/memories/profile')
+    ]) as any[]
     rows.value = data.list || []
+    profile.value = profileData
   } finally {
     loading.value = false
   }
@@ -137,6 +151,13 @@ function fmt(value?: string) {
 .title { font-weight: 600; font-size: 15px; }
 .sub { color: #909399; font-size: 12px; margin-left: 8px; }
 .spacer { flex: 1; }
+.profile-card {
+  border: 1px solid #e4e7ed; border-radius: 6px; padding: 10px 12px;
+  margin-bottom: 12px; background: #fafbfc;
+}
+.profile-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.profile-summary { font-size: 14px; line-height: 1.6; }
+.profile-stats { font-size: 12px; color: #909399; margin-top: 4px; }
 .memory-list { display: flex; flex-direction: column; gap: 8px; }
 .memory-card {
   display: flex; align-items: flex-start; gap: 12px;

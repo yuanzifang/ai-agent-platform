@@ -82,6 +82,8 @@ public class ChatStreamService {
     private final StreamRegistryService streamRegistry;
     private final ChatLiveStateService liveState;
     private final com.platform.agent.service.UserMemoryService userMemoryService;
+    private final SelfCorrectionService selfCorrectionService;
+    private final MemoryExtractionService memoryExtractionService;
     @Value("${moderation.stream.buffer-chars:40}")
     private int streamModerateChars;
     @org.springframework.beans.factory.annotation.Qualifier("llmTaskExecutor")
@@ -277,6 +279,7 @@ public class ChatStreamService {
         String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-chat"));
         String fallbackModel = str(modelConfig.get("fallbackModelName"));
         Double temperature = modelConfig.get("temperature") instanceof Number n ? n.doubleValue() : null;
+        boolean selfCorrection = selfCorrectionEnabled(config);
 
         // 上下文窗口适配：超限时截断系统提示 + 历史摘要压缩
         com.platform.agent.service.ContextWindowService.Fitted fitted =
@@ -320,6 +323,28 @@ public class ChatStreamService {
                 });
 
         Runnable persist = () -> TenantContext.run(tenantId, () -> {
+            if (!outputBlocked[0] && selfCorrection) {
+                long reviewStart = System.currentTimeMillis();
+                SelfCorrectionService.ReviewResult review = selfCorrectionService.review(
+                        usedModel.get(), userMsg.getContent(), acc.toString());
+                if (review != null) {
+                    if (review.inputTokens() > 0 || review.outputTokens() > 0) {
+                        recordUsage(tenantId, conv.getAgentId(), usedModel.get(),
+                                review.inputTokens(), review.outputTokens(), 0, 0, 0, "self-correction");
+                    }
+                    if (review.revised() != null && !review.revised().isBlank()
+                            && !review.revised().equals(acc.toString())) {
+                        acc.setLength(0);
+                        acc.append(review.revised());
+                        out.event("revision", Map.of("content", review.revised(),
+                                "issues", review.issues() == null ? "" : review.issues()));
+                    }
+                    steps.add("chain", "self-correction", "SUCCESS", reviewStart,
+                            System.currentTimeMillis(),
+                            Map.of("score", review.score(),
+                                    "revised", !review.revised().equals(userMsg.getContent())));
+                }
+            }
             Message ai = newMessage(conv, traceId, parentMessageId, regenerated);
             ai.setContent(outputBlocked[0] ? "【内容已按安全策略拦截】" : acc.toString());
             ai.setStatus(outputBlocked[0] ? "BLOCKED" : "SUCCESS");
@@ -327,6 +352,10 @@ public class ChatStreamService {
             long persistStart = System.currentTimeMillis();
             messageMapper.insert(ai);
             conversationService.touch(conv.getId());
+            if ("chat".equals(source)) {
+                memoryExtractionService.extractAsync(tenantId, conv.getUserId(), conv.getAgentId(),
+                        usedModel.get(), userMsg.getContent(), ai.getContent());
+            }
             recordUsage(tenantId, conv.getAgentId(), usedModel.get(), tokens[0], tokens[1],
                     usageExtras[0], usageExtras[1], usageExtras[2], source);
             liveState.finish(conv.getId(), traceId, ai.getContent(), ai.getStatus(), ai.getId(),
@@ -558,6 +587,7 @@ public class ChatStreamService {
         String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-chat"));
         String fallbackModel = str(modelConfig.get("fallbackModelName"));
         Double temperature = modelConfig.get("temperature") instanceof Number n ? n.doubleValue() : null;
+        boolean selfCorrection = selfCorrectionEnabled(config);
 
         com.platform.agent.service.ContextWindowService.Fitted fitted =
                 contextWindow.fit(modelName, systemPrompt, userMsgWithAttachments, history);
@@ -587,6 +617,22 @@ public class ChatStreamService {
         var metrics = com.platform.model.service.UsageMetrics.of(usage);
         long in = metrics.inputTokens();
         long out = metrics.outputTokens();
+        if (selfCorrectionEnabled(config)) {
+            long reviewStart = System.currentTimeMillis();
+            SelfCorrectionService.ReviewResult review = selfCorrectionService.review(
+                    usedModel, userMsg.getContent(), answer == null ? "" : answer);
+            if (review != null) {
+                if (review.revised() != null && !review.revised().isBlank()) answer = review.revised();
+                if (review.inputTokens() > 0 || review.outputTokens() > 0) {
+                    recordUsage(tenantId, conv.getAgentId(), usedModel,
+                            review.inputTokens(), review.outputTokens(), 0, 0, 0, "self-correction");
+                }
+                steps.add("chain", "self-correction", "SUCCESS", reviewStart,
+                        System.currentTimeMillis(),
+                        Map.of("score", review.score(),
+                                "revised", !review.revised().equals(userMsg.getContent())));
+            }
+        }
 
         List<ModerationService.Hit> outHits = moderationService.moderate("OUT",
                 answer == null ? "" : answer, conv.getId(), null);
@@ -598,6 +644,10 @@ public class ChatStreamService {
         long persistStart = System.currentTimeMillis();
         messageMapper.insert(ai);
         conversationService.touch(conv.getId());
+        if ("chat".equals(source)) {
+            memoryExtractionService.extractAsync(tenantId, conv.getUserId(), conv.getAgentId(),
+                    usedModel, userMsg.getContent(), ai.getContent());
+        }
         recordUsage(tenantId, conv.getAgentId(), usedModel, in, out,
                 metrics.cachedInputTokens(), metrics.cacheWriteTokens(), metrics.reasoningTokens(), source);
         steps.add("chain", "persist", "SUCCESS", persistStart, System.currentTimeMillis(),
@@ -910,6 +960,12 @@ public class ChatStreamService {
     }
 
     @SuppressWarnings("unchecked")
+    private boolean selfCorrectionEnabled(Map<String, Object> config) {
+        Map<String, Object> caps = asMap(config == null ? null : config.get("agentCapabilities"));
+        return Boolean.TRUE.equals(caps.get("selfCorrection"))
+                || "true".equals(String.valueOf(caps.get("selfCorrection")));
+    }
+
     private Map<String, Object> asMap(Object o) {
         return o instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
     }

@@ -1005,7 +1005,7 @@ test('长期记忆注入与编辑', async ({ request }) => {
     await request.post(`${P}/conversations/${conversationId}/messages`, {
       headers: auth(token!), data: { message: '只回答OK', stream: false }, timeout: 60_000
     })
-    const last = await (await request.get(`${OPENAI_MOCK}/last`)).json()
+    const last = await (await request.get(`${OPENAI_MOCK}/last-chat`)).json()
     const systemText = (last.messages || [])
       .filter((m: any) => m.role === 'system')
       .map((m: any) => typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
@@ -1059,5 +1059,82 @@ test('知识库按库选择 embedding 模型', async ({ request }) => {
     expect(detail2.data.embeddingModel).toBe('nomic-embed-text')
   } finally {
     await request.delete(`${P}/knowledge-base/${kbId}?force=true`, { headers: auth(token!) })
+  }
+})
+
+test('自我纠正机制', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentRes = await request.post(`${P}/agent`, {
+    headers: auth(token!),
+    data: {
+      name: `E2E 自纠正-${Date.now()}`,
+      systemPrompt: '你是测试助手。',
+      modelConfig: { modelName: 'deepseek-flash' },
+      agentCapabilities: { selfCorrection: true },
+      visibility: 'PRIVATE'
+    }
+  })
+  const agentBody = await agentRes.json()
+  expect(agentBody.code, JSON.stringify(agentBody)).toBe(0)
+  const agentId = agentBody.data.id as number
+  let conversationId: number | null = null
+  try {
+    await request.post(`${P}/agent/${agentId}/publish`, {
+      headers: auth(token!), data: { force: true }
+    })
+    const conv = await request.post(`${P}/conversations`, {
+      headers: auth(token!), data: { agentId, title: '自我纠正' }
+    })
+    conversationId = (await conv.json()).data.id
+    const sent = await request.post(`${P}/conversations/${conversationId}/messages`, {
+      headers: auth(token!),
+      data: { message: '请介绍你自己', stream: false },
+      timeout: 60_000
+    })
+    const body = await sent.json()
+    expect(body.code, JSON.stringify(body)).toBe(0)
+    expect(String(body.data.answer)).toContain('纠正后的答案')
+  } finally {
+    if (conversationId) {
+      await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
+    }
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
+test('长期记忆自动生成与用户画像', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E 自动记忆-${Date.now()}`)
+  let conversationId: number | null = null
+  let memoryId: number | null = null
+  try {
+    await publishAgent(request, token!, agentId)
+    const conv = await request.post(`${P}/conversations`, {
+      headers: auth(token!), data: { agentId, title: '自动记忆' }
+    })
+    conversationId = (await conv.json()).data.id
+    await request.post(`${P}/conversations/${conversationId}/messages`, {
+      headers: auth(token!), data: { message: '我是测试工程师，请记住', stream: false },
+      timeout: 60_000
+    })
+    for (let i = 0; i < 20; i++) {
+      await new Promise(resolve => setTimeout(resolve, 300))
+      const list = await (await request.get(`${P}/memories`, { headers: auth(token!) })).json()
+      const auto = (list.data.list || []).find((m: any) =>
+        m.source === 'AUTO' && String(m.content).includes('测试工程师'))
+      if (auto) { memoryId = auto.id; break }
+    }
+    expect(memoryId, '应自动生成长期记忆').toBeTruthy()
+    const profile = await (await request.get(`${P}/memories/profile`, { headers: auth(token!) })).json()
+    expect(profile.data.autoCount).toBeGreaterThan(0)
+    expect(String(profile.data.summary)).toContain('测试工程师')
+  } finally {
+    if (conversationId) {
+      await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
+    }
+    if (memoryId) await request.delete(`${P}/memories/${memoryId}`, { headers: auth(token!) })
+    await deleteAgent(request, token!, agentId)
   }
 })
