@@ -118,6 +118,13 @@ knowledge:
     max-retries: ${KNOWLEDGE_PARSE_MAX_RETRIES:3}
     # 自动重试次数（指数退避 + 残留分段/向量补偿清理）
     auto-retries: ${KNOWLEDGE_PARSE_AUTO_RETRIES:2}
+  ocr:
+    # 扫描版 PDF/图片 OCR（需安装 tesseract；chi_sim+eng 需对应语言包）
+    enabled: ${KNOWLEDGE_OCR_ENABLED:false}
+    command: ${KNOWLEDGE_OCR_COMMAND:tesseract}
+    languages: ${KNOWLEDGE_OCR_LANGUAGES:chi_sim+eng}
+    max-pages: ${KNOWLEDGE_OCR_MAX_PAGES:20}
+    dpi: ${KNOWLEDGE_OCR_DPI:150}
 
 pgvector:
   url: ${PG_URL:jdbc:postgresql://localhost:5432/vector}

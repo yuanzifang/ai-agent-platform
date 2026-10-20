@@ -15,6 +15,8 @@ public class KnowledgeChunk {
     private Long documentId;
     private Long knowledgeBaseId;
     private Integer chunkIndex;
+    private Integer parentIndex;
+    private String parentContent;
     private String content;
     private String imageUrls;  // JSON
     private Long tenantId;

@@ -10,13 +10,17 @@
       <el-button v-if="detail.canEdit" @click="openEdit">编辑</el-button>
       <el-button v-if="detail.canEdit" @click="openPermission">权限设置</el-button>
       <el-upload v-if="detail.canEdit" :show-file-list="false" :before-upload="upload" :disabled="uploading"
-                 accept=".md,.txt,.docx,.pdf,.xlsx,.xls,.pptx,.html,.htm,.csv,.json">
+                 accept=".md,.txt,.docx,.pdf,.xlsx,.xls,.pptx,.html,.htm,.csv,.json,.png,.jpg,.jpeg,.bmp,.tif,.tiff">
         <el-button type="primary" :loading="uploading">
           {{ uploading ? '上传中…' : '上传文档' }}
         </el-button>
       </el-upload>
       <el-button v-if="detail.canEdit" @click="urlVisible = true">URL 导入</el-button>
       <el-button v-if="detail.canEdit" type="danger" plain @click="removeKb">删除</el-button>
+    </div>
+
+    <div v-if="detail.canEdit" class="upload-hint">
+      支持 PDF/DOCX/XLSX/XLS/PPTX/HTML/MD/TXT/CSV/JSON；扫描版 PDF/图片需后端启用 OCR（tesseract）。
     </div>
 
     <div class="body">
@@ -413,6 +417,7 @@ function statusText(s: string) {
 </script>
 
 <style scoped>
+.upload-hint { font-size: 12px; color: #909399; margin: 0 0 10px 4px; }
 .page { height: 100%; display: flex; flex-direction: column; }
 .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .kb-title { font-weight: 600; font-size: 16px; }

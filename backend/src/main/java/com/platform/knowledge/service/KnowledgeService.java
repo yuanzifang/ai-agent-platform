@@ -504,28 +504,33 @@ public class KnowledgeService {
     /** 单次解析：上传对象 → 分段 → 嵌入 → 向量落库。失败时由 doParse 清理残留并重试。 */
     private void parseOnce(KnowledgeDocument doc) throws Exception {
         byte[] bytes = storage.get(doc.getObjectName());
-        List<String> chunks = parser.parse(doc.getFileName(), bytes);
-        float[][] vectors = embeddingService.embedBatch(chunks);
+        List<DocumentParser.ParsedChunk> chunks = parser.parseWithParents(doc.getFileName(), bytes);
+        float[][] vectors = embeddingService.embedBatch(
+                chunks.stream().map(DocumentParser.ParsedChunk::content).toList());
 
         List<Map<String, Object>> rows = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
+            DocumentParser.ParsedChunk parsed = chunks.get(i);
             KnowledgeChunk chunk = new KnowledgeChunk();
             chunk.setDocumentId(doc.getId());
             chunk.setKnowledgeBaseId(doc.getKnowledgeBaseId());
             chunk.setChunkIndex(i);
-            chunk.setContent(chunks.get(i));
+            chunk.setParentIndex(parsed.parentIndex());
+            chunk.setParentContent(parsed.parentContent());
+            chunk.setContent(parsed.content());
             chunk.setTenantId(doc.getTenantId());
             chunk.setCreatedAt(LocalDateTime.now());
             chunkMapper.insert(chunk);
 
             Map<String, Object> row = new HashMap<>();
-            row.put("content", chunks.get(i));
+            row.put("content", parsed.content());
             row.put("embedding", vectors[i]);
             row.put("metadata", objectMapper.writeValueAsString(Map.of(
                     "knowledge_base_id", doc.getKnowledgeBaseId(),
                     "document_id", doc.getId(),
                     "chunk_id", chunk.getId(),
                     "chunk_index", i,
+                    "parent_index", parsed.parentIndex(),
                     "file_name", doc.getFileName())));
             rows.add(row);
         }

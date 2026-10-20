@@ -5,15 +5,47 @@ import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xslf.usermodel.XSLFTextBox;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DocumentParserTest {
 
     private final DocumentParser parser = new DocumentParser();
+
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void parsesParentChildChunks() {
+        String text = ("## 章节\n" + "这是一段用于验证父子分块的正文内容。".repeat(20) + "\n").repeat(8);
+        List<DocumentParser.ParsedChunk> chunks = parser.parseWithParents("long.md",
+                text.getBytes(StandardCharsets.UTF_8));
+        assertTrue(chunks.size() > 4);
+        assertTrue(chunks.stream().allMatch(c -> c.content().length() <= 500));
+        assertTrue(chunks.stream().allMatch(c -> c.parentContent() != null && !c.parentContent().isBlank()));
+        assertTrue(chunks.stream().map(DocumentParser.ParsedChunk::parentIndex).distinct().count() > 1);
+    }
+
+    @Test
+    void ocrImageUsesConfiguredCommand() throws Exception {
+        Path script = tempDir.resolve("fake-ocr.sh");
+        Files.writeString(script, "#!/bin/sh\necho \"OCR识别文本\"\n", StandardCharsets.UTF_8);
+        assertTrue(script.toFile().setExecutable(true));
+        ReflectionTestUtils.setField(parser, "ocrEnabled", true);
+        ReflectionTestUtils.setField(parser, "ocrCommand", script.toAbsolutePath().toString());
+        ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
+        List<DocumentParser.ParsedChunk> chunks = parser.parseWithParents("scan.png",
+                new byte[]{(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10});
+        assertTrue(chunks.stream().anyMatch(c -> c.content().contains("OCR识别文本")));
+    }
 
     @Test
     void parsesXlsx() throws Exception {

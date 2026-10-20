@@ -173,12 +173,27 @@ public class HybridRetrievalService {
         return new Result(result, vectorHits.size(), keywordHits.size(), embedMs, searchMs, mode);
     }
 
-    /** 父子分块的轻量近似：把命中 chunk 的相邻 chunk 合并为 parentContent 注入上下文。 */
+    /** 父块注入：优先使用入库时保存的 parent_content；历史数据回退到相邻 chunk 合并。 */
     private void enrichNeighbors(Long kbId, List<Map<String, Object>> hits) {
         for (Map<String, Object> hit : hits) {
             try {
                 Map<?, ?> meta = hit.get("metadata") instanceof String text && !text.isBlank()
                         ? objectMapper.readValue(text, Map.class) : Map.of();
+                Object chunkIdObj = meta.get("chunk_id");
+                if (chunkIdObj != null) {
+                    try {
+                        com.platform.knowledge.entity.KnowledgeChunk stored = chunkMapper.selectById(
+                                Long.valueOf(String.valueOf(chunkIdObj)));
+                        if (stored != null && stored.getParentContent() != null
+                                && !stored.getParentContent().isBlank()) {
+                            hit.put("parentContent", stored.getParentContent());
+                            hit.put("parentIndex", stored.getParentIndex());
+                            continue;
+                        }
+                    } catch (Exception e) {
+                        log.debug("父块读取失败：{}", e.getMessage());
+                    }
+                }
                 Object docIdObj = meta.get("document_id");
                 Object idxObj = meta.get("chunk_index");
                 if (docIdObj == null || idxObj == null) continue;
