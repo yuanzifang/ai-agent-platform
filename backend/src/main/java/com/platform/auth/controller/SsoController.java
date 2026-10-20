@@ -1,5 +1,6 @@
 package com.platform.auth.controller;
 
+import com.platform.auth.service.AuthCookieService;
 import com.platform.auth.service.AuthService;
 import com.platform.auth.service.SsoService;
 import com.platform.common.response.ApiResponse;
@@ -23,6 +24,7 @@ import java.util.Map;
 public class SsoController {
 
     private final SsoService ssoService;
+    private final AuthCookieService cookieService;
 
     public record ExchangeRequest(@NotBlank String code, @NotBlank String state) {
     }
@@ -38,8 +40,8 @@ public class SsoController {
     }
 
     @PostMapping("/exchange")
-    public ApiResponse<Map<String, Object>> exchange(@RequestBody ExchangeRequest req,
-                                                     HttpServletRequest request) {
+    public org.springframework.http.ResponseEntity<ApiResponse<Map<String, Object>>> exchange(
+            @RequestBody ExchangeRequest req, HttpServletRequest request) {
         AuthService.LoginResult r = ssoService.exchange(req.code(), req.state(), request);
         Map<String, Object> user = new LinkedHashMap<>();
         user.put("id", r.userId());
@@ -50,12 +52,14 @@ public class SsoController {
         user.put("permissions", r.permissions());
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("accessToken", r.accessToken());
-        data.put("refreshToken", r.refreshToken());
         data.put("expiresIn", r.expiresIn());
         data.put("user", user);
         data.put("mfaRequired", false);
         data.put("mfaToken", null);
-        return ApiResponse.ok(data);
+        return org.springframework.http.ResponseEntity.ok()
+                .header(org.springframework.http.HttpHeaders.SET_COOKIE,
+                        cookieService.create(r.refreshToken()).toString())
+                .body(ApiResponse.ok(data));
     }
 
     @GetMapping("/settings")

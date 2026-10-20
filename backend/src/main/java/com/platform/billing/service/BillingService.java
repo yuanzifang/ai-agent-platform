@@ -121,6 +121,8 @@ public class BillingService {
         r.setBillingMode(mode);
         r.setInputPrice(nonNegative(req.get("inputPrice"), "输入单价"));
         r.setOutputPrice(nonNegative(req.get("outputPrice"), "输出单价"));
+        r.setCacheReadPrice(nonNegative(req.get("cacheReadPrice"), "缓存命中单价"));
+        r.setCacheWritePrice(nonNegative(req.get("cacheWritePrice"), "缓存写入单价"));
         r.setPricePerCall(nonNegative(req.get("pricePerCall"), "单次价格"));
         String currency = req.get("currency") == null ? "CNY" : String.valueOf(req.get("currency")).toUpperCase();
         if (!currency.matches("[A-Z]{3}")) throw new BusinessException(400, "币种需为 3 位字母（如 CNY）");
@@ -162,6 +164,8 @@ public class BillingService {
         m.put("billingMode", r.getBillingMode());
         m.put("inputPrice", r.getInputPrice());
         m.put("outputPrice", r.getOutputPrice());
+        m.put("cacheReadPrice", r.getCacheReadPrice());
+        m.put("cacheWritePrice", r.getCacheWritePrice());
         m.put("pricePerCall", r.getPricePerCall());
         m.put("currency", r.getCurrency());
         m.put("status", r.getStatus());

@@ -18,6 +18,8 @@ public class BillingRule {
     private String billingMode;
     private BigDecimal inputPrice;
     private BigDecimal outputPrice;
+    private BigDecimal cacheReadPrice;
+    private BigDecimal cacheWritePrice;
     private BigDecimal pricePerCall;
     private String currency;
     private String status;

@@ -37,8 +37,18 @@ async function cleanupSkill(request: APIRequestContext, token: string | null, na
 test('登录与能力入口可见', async ({ page }) => {
   await login(page)
 
+  // 清除 access token 后刷新：应通过 HttpOnly Refresh Cookie 自动恢复会话
+  await page.evaluate(() => localStorage.removeItem('accessToken'))
+  await page.reload()
+  await page.waitForURL(/\/agents/, { timeout: 20_000 })
+
   await page.getByRole('button', { name: '切换主题' }).click()
   await expect(page.locator('html')).toHaveClass(/dark/)
+  // 清除 access token 后刷新：应通过 HttpOnly Refresh Cookie 自动恢复会话
+  await page.evaluate(() => localStorage.removeItem('accessToken'))
+  await page.reload()
+  await page.waitForURL(/\/agents/, { timeout: 20_000 })
+
   await page.getByRole('button', { name: '切换主题' }).click()
   await expect(page.locator('html')).not.toHaveClass(/dark/)
 

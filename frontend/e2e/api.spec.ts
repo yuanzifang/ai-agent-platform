@@ -72,6 +72,28 @@ test('权限与租户基线', async ({ request }) => {
   }
 })
 
+test('Refresh Token 仅 HttpOnly Cookie', async ({ request }) => {
+  const res = await request.post(`${P}/auth/login`, {
+    data: { username: 'dev', password: 'Dev@123456', tenantKey: 'dev' }
+  })
+  const body = await res.json()
+  expect(body.code, JSON.stringify(body)).toBe(0)
+  expect(body.data.accessToken).toBeTruthy()
+  expect(body.data.refreshToken).toBeUndefined()
+  const setCookie = String(res.headers()['set-cookie'] || '')
+  expect(setCookie).toContain('refresh_token=')
+  expect(setCookie.toLowerCase()).toContain('httponly')
+  expect(setCookie.toLowerCase()).toContain('samesite=strict')
+
+  const refresh = await request.post(`${P}/auth/refresh`, { data: {} })
+  const refreshed = await refresh.json()
+  expect(refreshed.code, JSON.stringify(refreshed)).toBe(0)
+  expect(refreshed.data.accessToken).toBeTruthy()
+
+  const logout = await request.post(`${P}/auth/logout`, { data: {} })
+  expect((await logout.json()).code).toBe(0)
+})
+
 test('对话→工具→计费→Trace 全链路', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()
@@ -178,7 +200,7 @@ test('渠道入站与出站', async ({ request }) => {
   let channelId: number | null = null
   try {
     await publishAgent(request, token!, agentId)
-    await request.post(`${MOCK}/reset`).catch(() => {})
+    await request.get(`${MOCK}/reset`).catch(() => {})
     const chRes = await request.post(`${P}/agent/${agentId}/channels`, {
       headers: auth(token!),
       data: { name: 'E2E Webhook', type: 'WEBHOOK', outboundUrl: `${MOCK}/e2e-hook` }
@@ -586,5 +608,76 @@ test('SSE 断线续传', async ({ request }) => {
       await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
     }
     await deleteAgent(request, token!, agentId)
+  }
+})
+
+test('写工具默认阻断与显式允许', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const name = `E2E写工具-${Date.now()}`
+  const toolRes = await request.post(`${P}/tools`, {
+    headers: auth(token!),
+    data: {
+      name, toolType: 'API', description: 'E2E 写操作工具',
+      apiConfig: { url: `${MOCK}/write-tool`, method: 'POST' },
+      timeoutMs: 5000, retryTimes: 0
+    }
+  })
+  const toolBody = await toolRes.json()
+  expect(toolBody.code, JSON.stringify(toolBody)).toBe(0)
+  const toolId = toolBody.data.id as number
+
+  const agentRes = await request.post(`${P}/agent`, {
+    headers: auth(token!),
+    data: {
+      name: `E2E 写工具Agent-${Date.now()}`,
+      systemPrompt: '你是测试助手。',
+      modelConfig: { modelName: 'deepseek-flash' },
+      agentCapabilities: { functionCall: true },
+      tools: [{ toolId, enabled: true }],
+      visibility: 'PRIVATE'
+    }
+  })
+  const agentBody = await agentRes.json()
+  expect(agentBody.code, JSON.stringify(agentBody)).toBe(0)
+  const agentId = agentBody.data.id as number
+  let conversationId: number | null = null
+  try {
+    await request.post(`${P}/agent/${agentId}/publish`, {
+      headers: auth(token!), data: { force: true }
+    })
+    const convRes = await request.post(`${P}/conversations`, {
+      headers: auth(token!), data: { agentId, title: '写工具门禁' }
+    })
+    conversationId = (await convRes.json()).data.id
+    await request.get(`${MOCK}/reset`).catch(() => {})
+
+    const blocked = await request.post(`${P}/conversations/${conversationId}/messages`, {
+      headers: auth(token!),
+      data: { message: '请计算并调用写工具', stream: false },
+      timeout: 60_000
+    })
+    const blockedBody = await blocked.json()
+    expect(blockedBody.code, JSON.stringify(blockedBody)).toBe(0)
+    expect(String(blockedBody.data.answer)).toContain('安全阻断')
+    let captured = await (await request.get(`${MOCK}/captured`)).json()
+    expect(captured.filter((c: any) => c.path.includes('write-tool')).length).toBe(0)
+
+    const allowed = await request.post(`${P}/conversations/${conversationId}/messages`, {
+      headers: auth(token!),
+      data: { message: '请计算并调用写工具', stream: false, allowWriteTools: true },
+      timeout: 60_000
+    })
+    const allowedBody = await allowed.json()
+    expect(allowedBody.code, JSON.stringify(allowedBody)).toBe(0)
+    expect(String(allowedBody.data.answer)).not.toContain('安全阻断')
+    captured = await (await request.get(`${MOCK}/captured`)).json()
+    expect(captured.filter((c: any) => c.path.includes('write-tool')).length).toBeGreaterThan(0)
+  } finally {
+    if (conversationId) {
+      await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
+    }
+    await deleteAgent(request, token!, agentId)
+    await request.delete(`${P}/tools/${toolId}`, { headers: auth(token!) })
   }
 })

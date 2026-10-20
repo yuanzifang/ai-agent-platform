@@ -21,6 +21,9 @@ public class BillingUsage {
     private String modelName;
     private Long inputTokens;
     private Long outputTokens;
+    private Long cachedInputTokens;
+    private Long cacheWriteTokens;
+    private Long reasoningTokens;
     private BigDecimal cost;
     private LocalDate statDate;
     private LocalDateTime createdAt;

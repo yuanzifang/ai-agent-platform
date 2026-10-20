@@ -106,6 +106,10 @@
             <span v-else>📎</span> {{ a.fileName }}
           </el-tag>
         </div>
+        <div class="write-gate">
+          <el-checkbox v-model="allowWriteTools" size="small">允许写操作工具（本次）</el-checkbox>
+          <span class="hint">默认阻断 POST/PUT/DELETE、MCP 写工具与脚本；仅本次消息生效</span>
+        </div>
         <div class="input-row">
           <el-button circle :type="recording ? (recordCancel ? 'info' : 'danger') : ''"
                      :title="recording ? '松开结束，移出按钮取消' : '按住说话'"
@@ -195,6 +199,7 @@ const variableDefs = ref<any[]>([])
 const variableValues = ref<Record<string, string>>({})
 const variablesVisible = ref(false)
 const pendingSend = ref<{ text: string } | null>(null)
+const allowWriteTools = ref(false)
 const dragging = ref(false)
 const volumeBars = ref<number[]>(Array.from({ length: 18 }, () => 3))
 const recordCancel = ref(false)
@@ -315,8 +320,10 @@ async function doSend(text: string) {
   messages.value.push(pending)
   await streamCall(`/conversations/${conversationId.value}/messages`, {
     message: text, stream: agentStreamEnabled.value, attachmentIds,
-    variables: { ...variableValues.value }
+    variables: { ...variableValues.value },
+    allowWriteTools: allowWriteTools.value
   }, pending)
+  allowWriteTools.value = false
 }
 
 function confirmVariables() {
@@ -954,6 +961,8 @@ function clip(text: string, n: number) {
   cursor: pointer;
   flex-shrink: 0;
 }
+.write-gate { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.write-gate .hint { font-size: 12px; color: #909399; }
 .recording-bar {
   margin-top: 8px; display: flex; align-items: center; gap: 10px;
   font-size: 12px; color: #f56c6c;

@@ -83,7 +83,12 @@ public class ChatStreamService {
 
     private static final int MEMORY_WINDOW = 10;
 
-    public record SendRequest(String message, Boolean stream, Map<String, Object> variables, List<Long> attachmentIds) {
+    public record SendRequest(String message, Boolean stream, Map<String, Object> variables,
+                              List<Long> attachmentIds, Boolean allowWriteTools) {
+        public SendRequest(String message, Boolean stream, Map<String, Object> variables,
+                           List<Long> attachmentIds) {
+            this(message, stream, variables, attachmentIds, false);
+        }
     }
 
     /** 流式输出接收端：Web 端写平台 SSE，Open API 端转换为 OpenAI chunk。 */
@@ -122,6 +127,12 @@ public class ChatStreamService {
         Map<String, Object> config = published.config();
         Map<String, Object> variables = req.variables() == null ? Map.of() : req.variables();
         validateVariables(config.get("variables"), variables);
+        Map<String, Object> caps = config.get("agentCapabilities") instanceof Map<?, ?> m
+                ? (Map<String, Object>) m : Map.of();
+        boolean allowWriteTools = Boolean.TRUE.equals(req.allowWriteTools())
+                || Boolean.TRUE.equals(caps.get("allowWriteTools"))
+                || "true".equals(String.valueOf(caps.get("allowWriteTools")));
+        config.put("_allowWriteTools", allowWriteTools);
 
         // 输入审核（P0：敏感词/注入，BLOCK 拦截并留痕）
         com.platform.capability.runtime.TraceStepCollector steps =
@@ -211,8 +222,9 @@ public class ChatStreamService {
                 event -> out.event("tool", toolEvent(event)),
                 start -> out.event("tool_start", toolStartEvent(start)));
         long assemblyStart = System.currentTimeMillis();
+        boolean allowWriteTools = Boolean.TRUE.equals(config.get("_allowWriteTools"));
         ToolRuntimeService.RuntimeTools runtime = toolRuntime.build(conv.getAgentId(), config, principal, viewer,
-                collector, variables);
+                collector, variables, allowWriteTools);
         steps.add("chain", "tool-assembly", "SUCCESS", assemblyStart, System.currentTimeMillis(),
                 java.util.Map.of("callbacks", runtime.callbacks().size(),
                         "skills", runtime.skillPrompt() != null, "kbDeps", runtime.knowledgeBaseIds().size()));
@@ -265,6 +277,7 @@ public class ChatStreamService {
         StringBuilder acc = new StringBuilder();
         final String finalSystemPrompt = systemPrompt;
         long[] tokens = {0, 0};
+        long[] usageExtras = {0, 0, 0}; // cachedInput, cacheWrite, reasoning
         long[] lastLiveWrite = {0};
         liveState.start(conv.getId(), traceId);
 
@@ -283,7 +296,8 @@ public class ChatStreamService {
             long persistStart = System.currentTimeMillis();
             messageMapper.insert(ai);
             conversationService.touch(conv.getId());
-            recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1], source);
+            recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1],
+                    usageExtras[0], usageExtras[1], usageExtras[2], source);
             liveState.finish(conv.getId(), traceId, acc.toString(), "SUCCESS", ai.getId(),
                     tokens[0], tokens[1], citations);
             moderationService.moderate("OUT", acc.toString(), conv.getId(), ai.getId());
@@ -314,9 +328,12 @@ public class ChatStreamService {
                         }
                     }
                     if (resp.getMetadata() != null && resp.getMetadata().getUsage() != null) {
-                        var u = resp.getMetadata().getUsage();
-                        if (u.getPromptTokens() > 0) tokens[0] = u.getPromptTokens();
-                        if (u.getCompletionTokens() > 0) tokens[1] = u.getCompletionTokens();
+                        var m = com.platform.model.service.UsageMetrics.of(resp.getMetadata().getUsage());
+                        if (m.inputTokens() > 0) tokens[0] = m.inputTokens();
+                        if (m.outputTokens() > 0) tokens[1] = m.outputTokens();
+                        usageExtras[0] = m.cachedInputTokens();
+                        usageExtras[1] = m.cacheWriteTokens();
+                        usageExtras[2] = m.reasoningTokens();
                     }
                 },
                 err -> {
@@ -336,7 +353,8 @@ public class ChatStreamService {
                                 ai.setTokens((int) (tokens[0] + tokens[1]));
                                 messageMapper.insert(ai);
                                 conversationService.touch(conv.getId());
-                                recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1], source);
+                                recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1],
+                                        usageExtras[0], usageExtras[1], usageExtras[2], source);
                                 liveState.finish(conv.getId(), traceId, acc.toString(), "STOPPED", ai.getId(),
                                         tokens[0], tokens[1], citations);
                                 traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
@@ -398,7 +416,8 @@ public class ChatStreamService {
                     ai.setTokens((int) (tokens[0] + tokens[1]));
                     messageMapper.insert(ai);
                     conversationService.touch(conv.getId());
-                    recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1], source);
+                    recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1],
+                            usageExtras[0], usageExtras[1], usageExtras[2], source);
                     liveState.finish(conv.getId(), traceId, acc.toString(), "STOPPED", ai.getId(),
                             tokens[0], tokens[1], citations);
                     traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
@@ -443,8 +462,9 @@ public class ChatStreamService {
         String traceId = UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
         ToolCallCollector collector = new ToolCallCollector();
+        boolean allowWriteTools = Boolean.TRUE.equals(config.get("_allowWriteTools"));
         ToolRuntimeService.RuntimeTools runtime = toolRuntime.build(conv.getAgentId(), config, principal, viewer,
-                collector, variables);
+                collector, variables, allowWriteTools);
         String systemPrompt = applyVariables(str(config.get("systemPrompt")),
                 config.get("variables"), variables);
         if (runtime.skillPrompt() != null) {
@@ -482,8 +502,9 @@ public class ChatStreamService {
         var resp = spec.messages(history).user(userMsgWithAttachments).call().chatResponse();
         String answer = resp.getResult().getOutput().getText();
         var usage = resp.getMetadata().getUsage();
-        long in = usage == null ? 0 : usage.getPromptTokens();
-        long out = usage == null ? 0 : usage.getCompletionTokens();
+        var metrics = com.platform.model.service.UsageMetrics.of(usage);
+        long in = metrics.inputTokens();
+        long out = metrics.outputTokens();
 
         Message ai = newMessage(conv, traceId, null, false);
         ai.setContent(answer == null ? "" : answer);
@@ -492,7 +513,8 @@ public class ChatStreamService {
         long persistStart = System.currentTimeMillis();
         messageMapper.insert(ai);
         conversationService.touch(conv.getId());
-        recordUsage(tenantId, conv.getAgentId(), modelName, in, out, source);
+        recordUsage(tenantId, conv.getAgentId(), modelName, in, out,
+                metrics.cachedInputTokens(), metrics.cacheWriteTokens(), metrics.reasoningTokens(), source);
         steps.add("chain", "persist", "SUCCESS", persistStart, System.currentTimeMillis(),
                 java.util.Map.of("messageId", ai.getId()));
         traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
@@ -759,7 +781,8 @@ public class ChatStreamService {
         }
     }
 
-    private void recordUsage(Long tenantId, Long agentId, String modelName, long in, long out, String source) {
+    private void recordUsage(Long tenantId, Long agentId, String modelName, long in, long out,
+                             long cached, long cacheWrite, long reasoning, String source) {
         BillingUsage u = new BillingUsage();
         u.setTenantId(tenantId);
         u.setAgentId(agentId);
@@ -767,7 +790,10 @@ public class ChatStreamService {
         u.setModelName(modelName);
         u.setInputTokens(in);
         u.setOutputTokens(out);
-        u.setCost(pricingService.cost(tenantId, modelName, in, out));
+        u.setCachedInputTokens(cached);
+        u.setCacheWriteTokens(cacheWrite);
+        u.setReasoningTokens(reasoning);
+        u.setCost(pricingService.cost(tenantId, modelName, in, out, cached, cacheWrite));
         u.setStatDate(LocalDate.now());
         u.setCreatedAt(LocalDateTime.now());
         billingMapper.insert(u);
@@ -832,7 +858,8 @@ public class ChatStreamService {
                         int remain = 20000 - total;
                         String clipped = text.length() > Math.min(8000, remain)
                                 ? text.substring(0, Math.min(8000, remain)) : text;
-                        sb.append(clipped);
+                        sb.append("\n<untrusted_attachment name=\"").append(name)
+                                .append("\">\n").append(clipped).append("\n</untrusted_attachment>");
                         total += clipped.length();
                     }
                 } catch (Exception e) {

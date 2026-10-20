@@ -59,6 +59,11 @@
           <el-table-column label="输出单价" width="120">
             <template #default="{ row }">{{ row.billingMode === 'COUNT' ? '-' : '¥' + money(row.outputPrice) + '/千Token' }}</template>
           </el-table-column>
+          <el-table-column label="缓存命中/写入" width="150">
+            <template #default="{ row }">
+              {{ row.billingMode === 'COUNT' ? '-' : '¥' + money(row.cacheReadPrice) + ' / ¥' + money(row.cacheWritePrice) }}
+            </template>
+          </el-table-column>
           <el-table-column label="单次价格" width="110">
             <template #default="{ row }">{{ row.billingMode === 'COUNT' ? '¥' + money(row.pricePerCall) + '/次' : '-' }}</template>
           </el-table-column>
@@ -186,6 +191,14 @@
             <el-input-number v-model="ruleForm.outputPrice" :min="0" :precision="6" :step="0.001" />
             <span class="unit">元 / 千 Token</span>
           </el-form-item>
+          <el-form-item label="缓存命中单价">
+            <el-input-number v-model="ruleForm.cacheReadPrice" :min="0" :precision="6" :step="0.001" />
+            <span class="unit">元 / 千 Token（未配置则按输入单价）</span>
+          </el-form-item>
+          <el-form-item label="缓存写入单价">
+            <el-input-number v-model="ruleForm.cacheWritePrice" :min="0" :precision="6" :step="0.001" />
+            <span class="unit">元 / 千 Token（未配置则 0）</span>
+          </el-form-item>
         </template>
         <el-form-item v-else label="单次价格">
           <el-input-number v-model="ruleForm.pricePerCall" :min="0" :precision="6" :step="0.01" />
@@ -288,7 +301,7 @@ const ruleVisible = ref(false)
 const saving = ref(false)
 const ruleForm = reactive({
   id: 0, modelName: '', billingMode: 'TOKEN', inputPrice: 0, outputPrice: 0,
-  pricePerCall: 0, currency: 'CNY', enabled: true
+  cacheReadPrice: 0, cacheWritePrice: 0, pricePerCall: 0, currency: 'CNY', enabled: true
 })
 
 const rechargeVisible = ref(false)
@@ -367,7 +380,7 @@ function mb(v?: number) {
 
 function openRuleCreate() {
   Object.assign(ruleForm, { id: 0, modelName: '', billingMode: 'TOKEN', inputPrice: 0,
-    outputPrice: 0, pricePerCall: 0, currency: 'CNY', enabled: true })
+    outputPrice: 0, cacheReadPrice: 0, cacheWritePrice: 0, pricePerCall: 0, currency: 'CNY', enabled: true })
   ruleVisible.value = true
 }
 
@@ -375,6 +388,7 @@ function openRuleEdit(row: any) {
   Object.assign(ruleForm, {
     id: row.id, modelName: row.modelName || '', billingMode: row.billingMode || 'TOKEN',
     inputPrice: Number(row.inputPrice || 0), outputPrice: Number(row.outputPrice || 0),
+    cacheReadPrice: Number(row.cacheReadPrice || 0), cacheWritePrice: Number(row.cacheWritePrice || 0),
     pricePerCall: Number(row.pricePerCall || 0), currency: row.currency || 'CNY',
     enabled: row.status !== 'DISABLED'
   })
@@ -389,6 +403,8 @@ async function saveRule() {
       billingMode: ruleForm.billingMode,
       inputPrice: ruleForm.inputPrice,
       outputPrice: ruleForm.outputPrice,
+      cacheReadPrice: ruleForm.cacheReadPrice,
+      cacheWritePrice: ruleForm.cacheWritePrice,
       pricePerCall: ruleForm.pricePerCall,
       currency: ruleForm.currency || 'CNY',
       status: ruleForm.enabled ? 'ENABLED' : 'DISABLED'

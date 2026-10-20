@@ -3,7 +3,7 @@ import { ElMessage } from 'element-plus'
 import { useUserStore } from '../stores/user'
 import router from '../router'
 
-const http = axios.create({ baseURL: '/api/v1', timeout: 30000 })
+const http = axios.create({ baseURL: '/api/v1', timeout: 30000, withCredentials: true })
 
 http.interceptors.request.use((config) => {
   const user = useUserStore()
@@ -25,8 +25,11 @@ http.interceptors.response.use(
   async (error) => {
     const user = useUserStore()
     const status = error.response?.status
-    if (status === 401 && user.refreshToken) {
-      // 401 → 静默刷新一次访问令牌后重放（需求文档 3.25）
+    const url = String(error.config?.url || '')
+    if (status === 401 && !error.config?._retry
+        && !url.includes('/auth/login') && !url.includes('/auth/refresh')) {
+      // 401 → 用 HttpOnly Refresh Cookie 静默换 access token 后重放一次
+      error.config._retry = true
       try {
         refreshing = refreshing ?? user.doRefresh()
         await refreshing

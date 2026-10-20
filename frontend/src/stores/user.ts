@@ -4,7 +4,7 @@ import http from '../api/http'
 export const useUserStore = defineStore('user', {
   state: () => ({
     accessToken: localStorage.getItem('accessToken') || '',
-    refreshToken: localStorage.getItem('refreshToken') || '',
+    bootstrapped: false,
     userInfo: JSON.parse(localStorage.getItem('userInfo') || 'null') as
       { id: string; displayName: string; isPlatformAdmin: boolean; tenantId: string | null;
       roles?: string[]; permissions?: string[] } | null
@@ -17,11 +17,28 @@ export const useUserStore = defineStore('user', {
     },
     applyLogin(data: any) {
       this.accessToken = data.accessToken
-      this.refreshToken = data.refreshToken
       this.userInfo = data.user
+      this.bootstrapped = true
       localStorage.setItem('accessToken', data.accessToken)
-      localStorage.setItem('refreshToken', data.refreshToken)
       localStorage.setItem('userInfo', JSON.stringify(data.user))
+      // 清理旧版本遗留的 refresh token（现在只在 HttpOnly Cookie）
+      localStorage.removeItem('refreshToken')
+    },
+    /** 页面刷新/新标签页：用 HttpOnly Cookie 换新 access token。 */
+    async bootstrap() {
+      localStorage.removeItem('refreshToken')
+      if (this.accessToken) {
+        this.bootstrapped = true
+        return
+      }
+      try {
+        await this.doRefresh()
+        await this.refreshProfile()
+      } catch {
+        this.clear()
+      } finally {
+        this.bootstrapped = true
+      }
     },
     async refreshProfile() {
       try {
@@ -41,18 +58,19 @@ export const useUserStore = defineStore('user', {
       }
     },
     async doRefresh() {
-      const data = await http.post('/auth/refresh', { refreshToken: this.refreshToken }) as any
+      const data = await http.post('/auth/refresh', {}, { withCredentials: true }) as any
       this.accessToken = data.accessToken
       localStorage.setItem('accessToken', data.accessToken)
       return data.accessToken
     },
     async logout() {
-      try { await http.post('/auth/logout', { refreshToken: this.refreshToken }) } catch { /* 忽略 */ }
+      try {
+        await http.post('/auth/logout', {}, { withCredentials: true })
+      } catch { /* 忽略 */ }
       this.clear()
     },
     clear() {
       this.accessToken = ''
-      this.refreshToken = ''
       this.userInfo = null
       localStorage.removeItem('accessToken')
       localStorage.removeItem('refreshToken')

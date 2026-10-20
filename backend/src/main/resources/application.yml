@@ -66,7 +66,12 @@ security:
     lock-minutes: ${LOGIN_LOCK_MINUTES:15}
   jwt:
     secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
-    expiry-seconds: 7200
+    # 短期 Access Token（默认 30 分钟），续期走 HttpOnly Refresh Cookie
+    expiry-seconds: ${JWT_EXPIRY_SECONDS:1800}
+  auth:
+    # Refresh Token 仅通过 HttpOnly Cookie 下发；生产必须 HTTPS 并设为 true
+    cookie-secure: ${AUTH_COOKIE_SECURE:false}
+    refresh-cookie-max-age-seconds: ${AUTH_REFRESH_COOKIE_MAX_AGE:604800}
   aes-key: ${AES_KEY:}          # 凭证加密密钥，M2 使用
 
 llm:

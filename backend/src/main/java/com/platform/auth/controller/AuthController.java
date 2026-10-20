@@ -1,11 +1,16 @@
 package com.platform.auth.controller;
 
+import com.platform.auth.service.AuthCookieService;
 import com.platform.auth.service.AuthService;
+import com.platform.common.exception.BusinessException;
 import com.platform.common.response.ApiResponse;
+import com.platform.security.JwtService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,14 +26,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final AuthCookieService cookieService;
+    private final JwtService jwtService;
 
     public record LoginRequest(@NotBlank String username, @NotBlank String password, String tenantKey) {
     }
 
-    public record RefreshRequest(@NotBlank String refreshToken) {
+    public record RefreshRequest(String refreshToken) {
     }
 
-    public record LoginResponse(String accessToken, String refreshToken, long expiresIn, UserInfo user,
+    public record LoginResponse(String accessToken, long expiresIn, UserInfo user,
                                 Boolean mfaRequired, String mfaToken) {
     }
 
@@ -40,16 +47,21 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest req, HttpServletRequest request) {
+    public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest req,
+                                                            HttpServletRequest request) {
         AuthService.LoginResult r = authService.login(req.username(), req.password(),
                 req.tenantKey(), request);
         if (r.mfaRequired()) {
-            return ApiResponse.ok(new LoginResponse(null, null, 0, null, true, r.mfaToken()));
+            return ResponseEntity.ok(ApiResponse.ok(
+                    new LoginResponse(null, 0, null, true, r.mfaToken())));
         }
-        return ApiResponse.ok(new LoginResponse(r.accessToken(), r.refreshToken(), r.expiresIn(),
+        LoginResponse body = new LoginResponse(r.accessToken(), r.expiresIn(),
                 new UserInfo(r.userId(), r.displayName(), r.platformAdmin(),
                         r.tenantId() == null ? null : String.valueOf(r.tenantId()),
-                        r.roles(), r.permissions()), false, null));
+                        r.roles(), r.permissions()), false, null);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookieService.create(r.refreshToken()).toString())
+                .body(ApiResponse.ok(body));
     }
 
     public record MfaVerifyRequest(@NotBlank String mfaToken, @NotBlank String code) {
@@ -60,13 +72,16 @@ public class AuthController {
 
     /** 登录第二步：MFA 动态码/恢复码校验（使用短期 mfaToken，无需 JWT）。 */
     @PostMapping("/mfa/verify")
-    public ApiResponse<LoginResponse> verifyMfa(@Valid @RequestBody MfaVerifyRequest req,
-                                                HttpServletRequest request) {
+    public ResponseEntity<ApiResponse<LoginResponse>> verifyMfa(@Valid @RequestBody MfaVerifyRequest req,
+                                                                HttpServletRequest request) {
         AuthService.LoginResult r = authService.verifyMfa(req.mfaToken(), req.code(), request);
-        return ApiResponse.ok(new LoginResponse(r.accessToken(), r.refreshToken(), r.expiresIn(),
+        LoginResponse body = new LoginResponse(r.accessToken(), r.expiresIn(),
                 new UserInfo(r.userId(), r.displayName(), r.platformAdmin(),
                         r.tenantId() == null ? null : String.valueOf(r.tenantId()),
-                        r.roles(), r.permissions()), false, null));
+                        r.roles(), r.permissions()), false, null);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookieService.create(r.refreshToken()).toString())
+                .body(ApiResponse.ok(body));
     }
 
     @GetMapping("/mfa/status")
@@ -134,13 +149,25 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public ApiResponse<RefreshResponse> refresh(@Valid @RequestBody RefreshRequest req) {
-        return ApiResponse.ok(new RefreshResponse(authService.refresh(req.refreshToken()), 7200));
+    public ResponseEntity<ApiResponse<RefreshResponse>> refresh(
+            @RequestBody(required = false) RefreshRequest req, HttpServletRequest request) {
+        String token = cookieService.resolve(req == null ? null : req.refreshToken(), request);
+        if (token == null || token.isBlank()) {
+            throw new BusinessException(401, "缺少刷新令牌，请重新登录");
+        }
+        String accessToken = authService.refresh(token);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookieService.create(token).toString())
+                .body(ApiResponse.ok(new RefreshResponse(accessToken, jwtService.getExpirySeconds())));
     }
 
     @PostMapping("/logout")
-    public ApiResponse<Void> logout(@Valid @RequestBody RefreshRequest req) {
-        authService.logout(req.refreshToken());
-        return ApiResponse.ok();
+    public ResponseEntity<ApiResponse<Void>> logout(@RequestBody(required = false) RefreshRequest req,
+                                                    HttpServletRequest request) {
+        String token = cookieService.resolve(req == null ? null : req.refreshToken(), request);
+        if (token != null && !token.isBlank()) authService.logout(token);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookieService.clear().toString())
+                .body(ApiResponse.ok());
     }
 }

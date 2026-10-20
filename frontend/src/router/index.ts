@@ -44,11 +44,15 @@ const router = createRouter({
 })
 
 // 路由守卫：先查登录态（需求文档 4.4；租户配置加载随 M2 租户模块接入）
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const user = useUserStore()
   // 公开路由：登录、SSO 回调、会话分享
   if (to.path === '/login' || to.path === '/sso/callback' || to.path === '/reset-password'
       || to.path === '/widget' || to.path.startsWith('/share/')) return
+  // 页面刷新/新标签页：先用 HttpOnly Cookie 尝试换取 access token
+  if (!user.accessToken && !user.bootstrapped) {
+    await user.bootstrap()
+  }
   if (!user.accessToken) {
     return '/login'
   }

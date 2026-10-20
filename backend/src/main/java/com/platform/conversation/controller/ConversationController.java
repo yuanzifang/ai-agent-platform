@@ -78,7 +78,8 @@ public class ConversationController {
                        @RequestBody SendRequest req,
                        @AuthenticationPrincipal JwtPrincipal principal) {
         Object result = chatStreamService.send(id, new ChatStreamService.SendRequest(
-                req.message(), req.stream(), req.variables(), req.attachmentIds()), principal);
+                req.message(), req.stream(), req.variables(), req.attachmentIds(),
+                req.allowWriteTools()), principal);
         return result instanceof SseEmitter ? result : ApiResponse.ok(result);
     }
 
@@ -145,7 +146,8 @@ public class ConversationController {
     }
 
     public record SendRequest(@NotBlank String message, Boolean stream,
-                              Map<String, Object> variables, List<Long> attachmentIds) {
+                              Map<String, Object> variables, List<Long> attachmentIds,
+                              Boolean allowWriteTools) {
     }
 
     public record FeedbackRequest(@NotBlank String type, String comment) {
