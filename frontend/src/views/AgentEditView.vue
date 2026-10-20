@@ -541,6 +541,10 @@
         外部调用：POST /api/v1/open/chat/completions，请求头 X-Api-Key: {key}（或 Authorization: ApiKey {key}）。
         API Key 归属当前 Agent，调用计入审计与计费。
       </div>
+      <div class="hint mb8">
+        MCP Server 直连（Claude Desktop / Cursor）：POST {{ mcpEndpoint }}，请求头 X-Api-Key: {key}；
+        工具：ask_agent、search_knowledge（已绑定知识库时）。
+      </div>
       <div class="tab-actions">
         <el-button type="primary" size="small" @click="openKeyCreate">创建 API Key</el-button>
         <el-button size="small" :loading="widgetCreating" @click="createWidgetKey">生成网页挂件</el-button>
@@ -1032,6 +1036,7 @@ const scheduleResults = ref<any[]>([])
 const resultsTitle = ref('')
 const integrationVisible = ref(false)
 const apiKeys = ref<any[]>([])
+const mcpEndpoint = `${window.location.origin}/mcp`
 const createdKey = ref('')
 const channelsVisible = ref(false)
 const channelMessagesVisible = ref(false)

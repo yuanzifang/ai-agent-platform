@@ -4,6 +4,7 @@ import path from 'path'
 const P = '/api/v1'
 const MOCK = 'http://127.0.0.1:18092'
 const MCP_MOCK = 'http://127.0.0.1:18093'
+const BACKEND = process.env.E2E_BACKEND_URL || 'http://localhost:8080'
 
 function auth(token: string) {
   return { Authorization: `Bearer ${token}` }
@@ -336,6 +337,82 @@ test('MCP OAuth 2.1：PKCE 授权与自动刷新', async ({ request }) => {
     expect(status2.connected).toBe(false)
   } finally {
     if (serverId) await request.delete(`${P}/mcp-servers/${serverId}`, { headers: auth(token!) })
+  }
+})
+
+test('平台作为 MCP Server：Agent 工具与鉴权', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  // 不绑定工具，确保 Mock 模型直接回答 OK
+  const agentRes = await request.post(`${P}/agent`, {
+    headers: auth(token!),
+    data: {
+      name: `E2E MCP平台-${Date.now()}`,
+      description: 'E2E 平台 MCP Server',
+      systemPrompt: '你是测试助手，简洁回答。',
+      modelConfig: { modelName: 'deepseek-flash', temperature: 0.2 },
+      visibility: 'PRIVATE'
+    }
+  })
+  const agentBody = await agentRes.json()
+  expect(agentBody.code, JSON.stringify(agentBody)).toBe(0)
+  const agentId = agentBody.data.id as number
+  let keyId: number | null = null
+  try {
+    await publishAgent(request, token!, agentId)
+    const keyRes = await request.post(`${P}/agent/${agentId}/api-keys`, {
+      headers: auth(token!),
+      data: { name: 'E2E MCP', channel: 'API', dailyLimit: 0, minuteLimit: 0 }
+    })
+    const keyBody = await keyRes.json()
+    expect(keyBody.code, JSON.stringify(keyBody)).toBe(0)
+    const apiKey = keyBody.data.apiKey as string
+    keyId = keyBody.data.id
+
+    const init = await request.post(`${BACKEND}/mcp`, {
+      headers: { 'X-Api-Key': apiKey },
+      data: {
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'e2e', version: '1.0' } }
+      }
+    })
+    expect(init.status()).toBe(200)
+    expect(init.headers()['mcp-session-id']).toBeTruthy()
+    const initBody = await init.json()
+    expect(initBody.result.serverInfo.name).toBe('ai-agent-platform')
+
+    const list = await request.post(`${BACKEND}/mcp`, {
+      headers: { 'X-Api-Key': apiKey },
+      data: { jsonrpc: '2.0', id: 2, method: 'tools/list' }
+    })
+    const tools = (await list.json()).result.tools
+    const names = tools.map((t: any) => t.name)
+    expect(names).toContain('ask_agent')
+    expect(JSON.stringify(tools.find((t: any) => t.name === 'ask_agent').annotations))
+      .toContain('openWorldHint')
+
+    const call = await request.post(`${BACKEND}/mcp`, {
+      headers: { 'X-Api-Key': apiKey },
+      data: {
+        jsonrpc: '2.0', id: 3, method: 'tools/call',
+        params: { name: 'ask_agent', arguments: { message: '只回答OK' } }
+      },
+      timeout: 120_000
+    })
+    const callBody = await call.json()
+    expect(callBody.result.isError, JSON.stringify(callBody)).toBe(false)
+    expect(String(callBody.result.content[0].text)).toContain('OK')
+    expect(Number(callBody.result.structuredContent.conversationId)).toBeGreaterThan(0)
+
+    const bad = await request.post(`${BACKEND}/mcp`, {
+      headers: { 'X-Api-Key': 'sk-invalid-key' },
+      data: { jsonrpc: '2.0', id: 4, method: 'tools/list' }
+    })
+    expect(bad.status()).toBe(401)
+    expect(bad.headers()['www-authenticate']).toContain('Bearer')
+  } finally {
+    if (keyId) await request.delete(`${P}/agent/${agentId}/api-keys/${keyId}`, { headers: auth(token!) })
+    await deleteAgent(request, token!, agentId)
   }
 })
 
