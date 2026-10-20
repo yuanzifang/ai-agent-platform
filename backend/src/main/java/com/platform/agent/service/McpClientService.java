@@ -39,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 import java.util.regex.Pattern;
 
 /**
@@ -73,6 +74,12 @@ public class McpClientService {
 
     private final CryptoService cryptoService;
     private final ObjectMapper objectMapper;
+
+    /** 类级单例：HttpClient 线程安全且持有 selector 线程/连接池，不能每请求创建（无法关闭会泄漏）。 */
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(TIMEOUT)
+            .followRedirects(HttpClient.Redirect.NEVER)
+            .build();
     private final McpOAuthService oauthService;
 
     private final Map<Long, CachedHttpSession> httpSessions = new ConcurrentHashMap<>();
@@ -117,7 +124,7 @@ public class McpClientService {
         Exception last = null;
         for (int attempt = 0; attempt <= READ_RETRIES; attempt++) {
             try {
-                JsonNode result = rpc(server, "tools/list", objectMapper.createObjectNode(), TIMEOUT);
+                JsonNode result = rpc(server, "tools/list", objectMapper.createObjectNode(), TIMEOUT, () -> false);
                 return parseTools(result);
             } catch (Exception e) {
                 last = e;
@@ -129,6 +136,12 @@ public class McpClientService {
     }
 
     public McpCallResult callTool(McpServer server, String toolName, Map<String, Object> arguments) {
+        return callTool(server, toolName, arguments, () -> false);
+    }
+
+    /** cancelled 由对话停止信号驱动：HTTP 取消本地请求；stdio 直接终止子进程。 */
+    public McpCallResult callTool(McpServer server, String toolName, Map<String, Object> arguments,
+                                  BooleanSupplier cancelled) {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("name", toolName);
         params.put("arguments", arguments == null ? Map.of() : arguments);
@@ -137,9 +150,12 @@ public class McpClientService {
         // 写操作只重试一次，避免重复副作用
         for (int attempt = 0; attempt <= 1; attempt++) {
             try {
-                JsonNode result = rpc(server, "tools/call", params, CALL_TIMEOUT);
+                if (cancelled.getAsBoolean()) throw new IllegalStateException("MCP 调用已取消");
+                JsonNode result = rpc(server, "tools/call", params, CALL_TIMEOUT, cancelled);
+                if (cancelled.getAsBoolean()) throw new IllegalStateException("MCP 调用已取消");
                 return parseCallResult(result);
             } catch (Exception e) {
+                if (cancelled.getAsBoolean()) throw new IllegalStateException("MCP 调用已取消");
                 last = e;
                 log.warn("MCP tools/call 失败（第 {} 次）server={} tool={}：{}",
                         attempt + 1, server.getId(), toolName, rootMessage(e));
@@ -149,24 +165,28 @@ public class McpClientService {
         throw new IllegalStateException(rootMessage(last));
     }
 
-    private JsonNode rpc(McpServer server, String method, Object params, Duration timeout) throws Exception {
+    private JsonNode rpc(McpServer server, String method, Object params, Duration timeout,
+                         BooleanSupplier cancelled) throws Exception {
+        if (cancelled.getAsBoolean()) throw new IllegalStateException("MCP 调用已取消");
         String transport = server.getTransport() == null ? "HTTP" : server.getTransport().toUpperCase(Locale.ROOT);
         return switch (transport) {
-            case "STDIO" -> stdioSession(server).rpc(method, params, timeout);
-            case "SSE" -> rpcSse(server, method, params);
-            default -> rpcHttp(server, method, params);
+            case "STDIO" -> stdioSession(server).rpc(method, params, timeout, cancelled);
+            case "SSE" -> rpcSse(server, method, params, cancelled);
+            default -> rpcHttp(server, method, params, cancelled);
         };
     }
 
     // ---------- HTTP 传输 ----------
 
-    private JsonNode rpcHttp(McpServer server, String method, Object params) throws Exception {
+    private JsonNode rpcHttp(McpServer server, String method, Object params,
+                             BooleanSupplier cancelled) throws Exception {
         Exception last = null;
         for (int attempt = 0; attempt < 2; attempt++) {
-            String sessionId = httpSessionId(server);
+            if (cancelled.getAsBoolean()) throw new IllegalStateException("MCP 调用已取消");
+            String sessionId = httpSessionId(server, cancelled);
             try {
                 JsonNode node = rpcHttpWithSession(server, sessionId, method,
-                        params instanceof JsonNode n ? n : objectMapper.valueToTree(params), 2);
+                        params instanceof JsonNode n ? n : objectMapper.valueToTree(params), 2, cancelled);
                 touchHttpSession(server.getId());
                 return node;
             } catch (SessionExpiredException e) {
@@ -176,6 +196,7 @@ public class McpClientService {
             } catch (UnauthorizedException e) {
                 last = e;
                 if (!"OAUTH".equalsIgnoreCase(server.getAuthType())) throw e;
+                if (cancelled.getAsBoolean()) throw new IllegalStateException("MCP 调用已取消");
                 log.info("MCP OAuth 401，强制刷新 token 后重试：server={}", server.getId());
                 oauthService.forceRefresh(server);
                 invalidateHttpSession(server.getId());
@@ -184,26 +205,26 @@ public class McpClientService {
         throw last;
     }
 
-    private String httpSessionId(McpServer server) throws Exception {
+    private String httpSessionId(McpServer server, BooleanSupplier cancelled) throws Exception {
         CachedHttpSession cached = httpSessions.get(server.getId());
         if (cached != null && cached.expiresAt() > System.currentTimeMillis()) {
             return cached.sessionId();
         }
-        return initializeHttp(server);
+        return initializeHttp(server, cancelled);
     }
 
-    private String initializeHttp(McpServer server) throws Exception {
+    private String initializeHttp(McpServer server, BooleanSupplier cancelled) throws Exception {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("protocolVersion", PROTOCOL_VERSION);
         params.put("capabilities", Map.of());
         params.put("clientInfo", Map.of("name", "ai-agent-platform", "version", "1.0"));
         HttpResponse<String> resp = postHttp(server, Map.of(
-                "jsonrpc", "2.0", "id", 1, "method", "initialize", "params", params), null);
+                "jsonrpc", "2.0", "id", 1, "method", "initialize", "params", params), null, cancelled);
         String sessionId = resp.headers().firstValue("Mcp-Session-Id").orElse(null);
         JsonNode node = parseHttpResponse(resp);
         if (node.has("error")) throw new IllegalStateException("initialize 失败：" + node.path("error").path("message").asText());
         try {
-            postHttp(server, Map.of("jsonrpc", "2.0", "method", "notifications/initialized"), sessionId);
+            postHttp(server, Map.of("jsonrpc", "2.0", "method", "notifications/initialized"), sessionId, cancelled);
         } catch (Exception e) {
             log.debug("MCP initialized 通知失败（忽略）：{}", e.getMessage());
         }
@@ -227,26 +248,40 @@ public class McpClientService {
     }
 
     private JsonNode rpcHttpWithSession(McpServer server, String sessionId, String method,
-                                        Object params, int id) throws Exception {
+                                        Object params, int id, BooleanSupplier cancelled) throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("jsonrpc", "2.0");
         body.put("id", id);
         body.put("method", method);
         body.put("params", params);
-        HttpResponse<String> resp = postHttp(server, body, sessionId);
+        HttpResponse<String> resp = postHttp(server, body, sessionId, cancelled);
         JsonNode node = parseHttpResponse(resp);
         if (node.has("error")) throw new IllegalStateException(method + " 失败：" + node.path("error").path("message").asText());
         return node.path("result");
     }
 
-    private HttpResponse<String> postHttp(McpServer server, Object body, String sessionId) throws Exception {
+    private HttpResponse<String> postHttp(McpServer server, Object body, String sessionId,
+                                           BooleanSupplier cancelled) throws Exception {
         HttpRequest.Builder builder = requestBuilder(server)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json, text/event-stream")
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body), StandardCharsets.UTF_8));
         if (sessionId != null && !sessionId.isBlank()) builder.header("Mcp-Session-Id", sessionId);
-        HttpClient client = HttpClient.newBuilder().connectTimeout(TIMEOUT).build();
-        HttpResponse<String> resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        java.util.concurrent.CompletableFuture<HttpResponse<String>> future =
+                httpClient.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> resp;
+        while (true) {
+            if (cancelled.getAsBoolean()) {
+                future.cancel(true);
+                throw new IllegalStateException("MCP 调用已取消");
+            }
+            try {
+                resp = future.get(200, TimeUnit.MILLISECONDS);
+                break;
+            } catch (TimeoutException te) {
+                // 轮询取消信号；请求本身的 timeout 由 HttpRequest 控制
+            }
+        }
         if (resp.statusCode() == 401) {
             throw new UnauthorizedException("HTTP 401：" + truncate(respBody(resp), 200));
         }
@@ -276,7 +311,7 @@ public class McpClientService {
                 if (json.isEmpty() || "[DONE]".equals(json)) continue;
                 try {
                     last = objectMapper.readTree(json);
-                } catch (Exception ignored) { }
+                } catch (Exception e) {     log.debug("MCP 忽略异常：{}", e.getMessage()); }
             }
             if (last == null) throw new IllegalStateException("SSE 响应中没有 JSON-RPC 数据");
             return last;
@@ -302,16 +337,19 @@ public class McpClientService {
 
     // ---------- SSE 传输 ----------
 
-    private JsonNode rpcSse(McpServer server, String method, Object params) throws Exception {
+    private JsonNode rpcSse(McpServer server, String method, Object params,
+                            BooleanSupplier cancelled) throws Exception {
         try (SseSession session = SseSession.open(server, this)) {
             session.rpc(1, "initialize", Map.of(
                     "protocolVersion", PROTOCOL_VERSION,
                     "capabilities", Map.of(),
-                    "clientInfo", Map.of("name", "ai-agent-platform", "version", "1.0")));
+                    "clientInfo", Map.of("name", "ai-agent-platform", "version", "1.0")), cancelled);
             try {
                 session.notify("notifications/initialized", Map.of());
-            } catch (Exception ignored) { }
-            return session.rpc(2, method, params);
+            } catch (Exception e) {
+                log.debug("MCP 忽略异常：{}", e.getMessage());
+            }
+            return session.rpc(2, method, params, cancelled);
         }
     }
 
@@ -340,7 +378,7 @@ public class McpClientService {
         }
 
         static SseSession open(McpServer server, McpClientService owner) throws Exception {
-            HttpClient client = HttpClient.newBuilder().connectTimeout(TIMEOUT).build();
+            HttpClient client = owner.httpClient;   // 复用类级单例
             HttpRequest request = owner.requestBuilder(server)
                     .header("Accept", "text/event-stream")
                     .GET()
@@ -393,10 +431,10 @@ public class McpClientService {
                 int id = node.path("id").asInt(-1);
                 CompletableFuture<JsonNode> future = pending.remove(id);
                 if (future != null) future.complete(node);
-            } catch (Exception ignored) { }
+            } catch (Exception e) {     log.debug("MCP 忽略异常：{}", e.getMessage()); }
         }
 
-        JsonNode rpc(int id, String method, Object params) throws Exception {
+        JsonNode rpc(int id, String method, Object params, BooleanSupplier cancelled) throws Exception {
             CompletableFuture<JsonNode> future = new CompletableFuture<>();
             pending.put(id, future);
             Map<String, Object> body = new LinkedHashMap<>();
@@ -407,7 +445,22 @@ public class McpClientService {
             post(body);
             JsonNode node;
             try {
-                node = future.get(25, TimeUnit.SECONDS);
+                while (true) {
+                    if (cancelled.getAsBoolean()) {
+                        try {
+                            notify("notifications/cancelled", Map.of("requestId", id, "reason", "cancelled by user"));
+                        } catch (Exception cancelError) {
+                            log.debug("MCP 取消通知发送失败：{}", cancelError.getMessage());
+                        }
+                        throw new IllegalStateException("MCP 调用已取消");
+                    }
+                    try {
+                        node = future.get(200, TimeUnit.MILLISECONDS);
+                        break;
+                    } catch (TimeoutException te) {
+                        // 轮询取消信号
+                    }
+                }
             } finally {
                 pending.remove(id);
             }
@@ -444,10 +497,10 @@ public class McpClientService {
             closed.set(true);
             try {
                 response.body().close();
-            } catch (Exception ignored) { }
+            } catch (Exception e) {     log.debug("MCP 忽略异常：{}", e.getMessage()); }
             try {
                 reader.close();
-            } catch (Exception ignored) { }
+            } catch (Exception e) {     log.debug("MCP 忽略异常：{}", e.getMessage()); }
             readerThread.interrupt();
         }
     }
@@ -528,7 +581,7 @@ public class McpClientService {
                 session.rpc("initialize", Map.of(
                         "protocolVersion", PROTOCOL_VERSION,
                         "capabilities", Map.of(),
-                        "clientInfo", Map.of("name", "ai-agent-platform", "version", "1.0")), TIMEOUT);
+                        "clientInfo", Map.of("name", "ai-agent-platform", "version", "1.0")), TIMEOUT, () -> false);
                 session.notify("notifications/initialized", Map.of());
             } catch (Exception e) {
                 session.close();
@@ -554,7 +607,8 @@ public class McpClientService {
             return lastUsedAt;
         }
 
-        JsonNode rpc(String method, Object params, Duration timeout) throws Exception {
+        JsonNode rpc(String method, Object params, Duration timeout,
+                     BooleanSupplier cancelled) throws Exception {
             if (!healthy()) throw new IllegalStateException("MCP stdio 进程不可用（command=" + server.getCommand() + "）");
             int id = seq.getAndIncrement();
             CompletableFuture<JsonNode> future = new CompletableFuture<>();
@@ -564,19 +618,40 @@ public class McpClientService {
             body.put("id", id);
             body.put("method", method);
             body.put("params", params);
+            long deadline = System.currentTimeMillis() + timeout.toMillis();
             try {
                 send(body);
                 touch();
-                JsonNode node = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-                if (node.has("error")) {
-                    throw new IllegalStateException(method + " 失败：" + node.path("error").path("message").asText());
+                while (true) {
+                    if (cancelled.getAsBoolean()) {
+                        try {
+                            notify("notifications/cancelled", Map.of("requestId", id, "reason", "cancelled by user"));
+                        } catch (Exception cancelError) {
+                            log.debug("MCP stdio 取消失败：{}", cancelError.getMessage());
+                        }
+                        close(); // 直接终止本地子进程，保证停止副作用
+                        throw new IllegalStateException("MCP 调用已取消");
+                    }
+                    try {
+                        JsonNode node = future.get(200, TimeUnit.MILLISECONDS);
+                        if (node.has("error")) {
+                            throw new IllegalStateException(method + " 失败："
+                                    + node.path("error").path("message").asText());
+                        }
+                        return node.path("result");
+                    } catch (TimeoutException te) {
+                        if (System.currentTimeMillis() > deadline) {
+                            throw te;
+                        }
+                    }
                 }
-                return node.path("result");
             } catch (TimeoutException e) {
                 // 协议 2025-03-26：超时后尽力发送取消通知
                 try {
                     notify("notifications/cancelled", Map.of("requestId", id, "reason", "timeout"));
-                } catch (Exception ignored) { }
+                } catch (Exception cancelError) {
+                    log.debug("MCP 取消通知发送失败：{}", cancelError.getMessage());
+                }
                 throw new IllegalStateException(method + " 超时（" + timeout.toSeconds() + "s）");
             } finally {
                 pending.remove(id);
@@ -640,7 +715,7 @@ public class McpClientService {
                 while (!closed.get() && (line = reader.readLine()) != null) {
                     log.debug("MCP stdio[{}] stderr：{}", server.getId(), owner.truncate(line, 500));
                 }
-            } catch (Exception ignored) { }
+            } catch (Exception e) {     log.debug("MCP 忽略异常：{}", e.getMessage()); }
         }
 
         private void failPending(String reason) {
@@ -653,7 +728,7 @@ public class McpClientService {
             failPending("MCP stdio 会话已关闭");
             try {
                 writer.close();
-            } catch (Exception ignored) { }
+            } catch (Exception e) {     log.debug("MCP 忽略异常：{}", e.getMessage()); }
             process.destroy();
             try {
                 if (!process.waitFor(2, TimeUnit.SECONDS)) {

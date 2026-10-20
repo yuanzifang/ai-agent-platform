@@ -61,6 +61,9 @@ class McpClientServiceStdioTest {
                               "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}}]}})
                     elif method == "tools/call":
                         params = msg.get("params") or {}
+                        if params.get("name") == "slow":
+                            import time
+                            time.sleep(10)
                         args = params.get("arguments") or {}
                         text = str(args.get("text", ""))
                         send({"jsonrpc": "2.0", "id": rid, "result": {
@@ -125,6 +128,19 @@ class McpClientServiceStdioTest {
         JsonNode secondNode = objectMapper.readTree(second.structuredContent());
         assertEquals(firstNode.path("pid").asInt(), secondNode.path("pid").asInt(), "两次调用应复用同一 stdio 进程");
         assertEquals("hello", secondNode.path("env").asText(), "环境变量应注入子进程");
+    }
+
+    @Test
+    void cancellationKillsStdioProcessAndAllowsReconnect() {
+        long start = System.currentTimeMillis();
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> client.callTool(server, "slow", Map.of(), 
+                        () -> System.currentTimeMillis() - start > 300));
+        assertTrue(e.getMessage().contains("取消"), e.getMessage());
+        assertTrue(System.currentTimeMillis() - start < 3000, "stdio 取消应在轮询周期内生效");
+        // 会话已终止，下一次调用应自动重建进程
+        McpClientService.McpCallResult again = client.callTool(server, "echo", Map.of("text", "after"));
+        assertTrue(again.text().contains("after"), again.text());
     }
 
     @Test

@@ -70,6 +70,8 @@ public class WorkflowService {
     private final com.platform.system.service.NotificationService notificationService;
     private final com.platform.system.mapper.SysUserMapper userMapper;
     private final ObjectMapper objectMapper;
+    @org.springframework.beans.factory.annotation.Qualifier("llmTaskExecutor")
+    private final org.springframework.core.task.TaskExecutor llmExecutor;
 
     private static final int MAX_STEPS = 50;
 
@@ -642,7 +644,7 @@ public class WorkflowService {
         for (Object o : list) {
             String start = str(o);
             futures.add(CompletableFuture.supplyAsync(() -> TenantContext.runWith(run.getTenantId(),
-                    () -> executeBranch(run, nodes, start, joinId, outputs, principal))));
+                    () -> executeBranch(run, nodes, start, joinId, outputs, principal)), llmExecutor));
         }
         StringBuilder merged = new StringBuilder("【并行分支结果】\n");
         long in = 0, out = 0;

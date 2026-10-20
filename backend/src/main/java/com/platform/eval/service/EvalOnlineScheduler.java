@@ -63,7 +63,7 @@ public class EvalOnlineScheduler {
                 .eq(SysConfig::getConfigKey, "eval.sample-rate"));
         if (cfg != null && cfg.getConfigValue() != null) {
             try { return Math.max(0, Math.min(1, Double.parseDouble(cfg.getConfigValue()))); }
-            catch (Exception ignored) { }
+            catch (Exception e) {     log.debug("在线抽样比例解析失败，使用默认值：{}", e.getMessage()); }
         }
         return 0.1;
     }

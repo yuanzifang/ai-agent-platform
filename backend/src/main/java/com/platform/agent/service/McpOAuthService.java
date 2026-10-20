@@ -67,6 +67,7 @@ public class McpOAuthService {
 
     private final Map<String, CachedMeta> metaCache = new ConcurrentHashMap<>();
     private final Map<Long, Object> refreshLocks = new ConcurrentHashMap<>();
+    private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(HTTP_TIMEOUT).build();
 
     public record OAuthMeta(String issuer, String authorizationEndpoint, String tokenEndpoint,
                             String registrationEndpoint, List<String> scopesSupported,
@@ -191,7 +192,8 @@ public class McpOAuthService {
                             String.valueOf(st.serverId()), "FAILED", Map.of("error", truncate(msg(e), 200)));
                     return null;
                 });
-            } catch (Exception ignored) {
+            } catch (Exception auditError) {
+                log.warn("OAuth 审计写入失败：{}", auditError.getMessage());
             }
             return frontend("error", st.serverId(), msg(e));
         }
@@ -355,8 +357,7 @@ public class McpOAuthService {
             builder.header("Authorization", "Basic " + Base64.getEncoder().encodeToString(
                     (clientId + ":" + clientSecret).getBytes(StandardCharsets.UTF_8)));
         }
-        return HttpClient.newBuilder().connectTimeout(HTTP_TIMEOUT).build()
-                .send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        return httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }
 
     // ---------- 发现与注册 ----------
@@ -425,8 +426,7 @@ public class McpOAuthService {
                 .POST(HttpRequest.BodyPublishers.ofString(
                         objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
                 .build();
-        HttpResponse<String> resp = HttpClient.newBuilder().connectTimeout(HTTP_TIMEOUT).build()
-                .send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() >= 400) {
             throw new IllegalStateException("HTTP " + resp.statusCode() + " " + truncate(resp.body(), 200));
         }
@@ -448,8 +448,7 @@ public class McpOAuthService {
                         .timeout(HTTP_TIMEOUT)
                         .header("Accept", "application/json")
                         .GET().build();
-                HttpResponse<String> resp = HttpClient.newBuilder().connectTimeout(HTTP_TIMEOUT).build()
-                        .send(request, HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                 if (resp.statusCode() == 200 && resp.body() != null && !resp.body().isBlank()) {
                     return objectMapper.readTree(resp.body());
                 }

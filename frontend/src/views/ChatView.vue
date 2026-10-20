@@ -22,16 +22,29 @@
 
       <div class="messages" ref="msgBox">
         <div v-if="openingStatement && messages.length === 0" class="msg assistant">
-          <div class="bubble">{{ openingStatement }}</div>
+          <div class="bubble"><MarkdownContent :content="openingStatement" /></div>
         </div>
         <div v-for="m in messages" :key="m.id ?? 'pending'" class="msg" :class="m.role.toLowerCase()">
           <div class="bubble">
-            <div class="content">{{ m.content }}<span v-if="m.streaming" class="cursor">▍</span></div>
-            <div v-if="(m.tools || []).length" class="tool-chips">
-              <span v-for="(t, i) in m.tools" :key="i" class="tool-chip"
-                    :class="t.status === 'ERROR' ? 'err' : ''">
-                ⚙ {{ t.subAgentName || t.name }} · {{ t.status === 'ERROR' ? '失败' : '成功' }} · {{ t.durationMs }}ms
-              </span>
+            <MarkdownContent v-if="m.role === 'ASSISTANT'" :content="m.content" />
+            <div v-else class="content">{{ m.content }}</div>
+            <span v-if="m.streaming" class="cursor">▍</span>
+            <div v-if="(m.tools || []).length" class="tool-steps">
+              <div v-for="(t, i) in m.tools" :key="i" class="tool-step" :class="toolStatusClass(t.status)">
+                <span class="tool-dot" />
+                <div class="tool-body">
+                  <div class="tool-title">
+                    <span>{{ t.subAgentName || t.name }}</span>
+                    <el-tag size="small" effect="plain" class="tool-type">{{ toolTypeText(t.toolType) }}</el-tag>
+                  </div>
+                  <div class="tool-meta">
+                    <template v-if="t.status === 'RUNNING'">执行中…</template>
+                    <template v-else>
+                      {{ toolStatusText(t.status) }}<span v-if="t.durationMs"> · {{ t.durationMs }}ms</span>
+                    </template>
+                  </div>
+                </div>
+              </div>
             </div>
             <div v-if="(m.attachments || []).length" class="msg-attachments">
               <span v-for="(a, i) in m.attachments" :key="i" class="attach-chip">📎 {{ a.fileName }}</span>
@@ -97,6 +110,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Microphone, Paperclip } from '@element-plus/icons-vue'
 import http from '../api/http'
+import MarkdownContent from '../components/MarkdownContent.vue'
 import { useUserStore } from '../stores/user'
 
 interface SessionItem { id: number; agentId: number; agentName: string; title: string; lastActiveAt: string }
@@ -249,8 +263,11 @@ function handleEvent(event: string, data: any, pending: ChatMessage) {
     scrollToBottom()
   } else if (event === 'citation') {
     (pending.citations ||= []).push(data)
+  } else if (event === 'tool_start') {
+    upsertTool(pending, data, true)
+    scrollToBottom()
   } else if (event === 'tool') {
-    (pending.tools ||= []).push(data)
+    upsertTool(pending, data, false)
     scrollToBottom()
   } else if (event === 'moderation') {
     ElMessage.warning(data.tip || '内容审核提示')
@@ -263,6 +280,39 @@ function handleEvent(event: string, data: any, pending: ChatMessage) {
   } else if (event === 'error') {
     ElMessage.error(data.message || '生成失败')
   }
+}
+
+function upsertTool(pending: ChatMessage, data: any, running: boolean) {
+  const tools = (pending.tools ||= [])
+  const key = data.toolName || data.name
+  const idx = tools.findIndex((t: any) => (t.toolName || t.name) === key && (running || t.status === 'RUNNING'))
+  if (idx >= 0) {
+    tools[idx] = { ...tools[idx], ...data, status: running ? 'RUNNING' : (data.status || 'SUCCESS') }
+  } else {
+    tools.push({ ...data, status: data.status || (running ? 'RUNNING' : 'SUCCESS') })
+  }
+}
+
+function toolTypeText(type?: string) {
+  const map: Record<string, string> = {
+    RAG: '知识库', API: 'API', MCP: 'MCP', SKILL: '技能',
+    BUILTIN: '内置', SUB_AGENT: '子 Agent'
+  }
+  return map[type || ''] || (type || '工具')
+}
+
+function toolStatusText(status?: string) {
+  if (status === 'RUNNING') return '执行中'
+  if (status === 'ERROR') return '失败'
+  if (status === 'CANCELLED') return '已取消'
+  return '完成'
+}
+
+function toolStatusClass(status?: string) {
+  if (status === 'RUNNING') return 'running'
+  if (status === 'ERROR') return 'error'
+  if (status === 'CANCELLED') return 'cancelled'
+  return 'success'
 }
 
 async function stopGen() {
@@ -373,12 +423,25 @@ function clip(text: string, n: number) {
 </script>
 
 <style scoped>
-.tool-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.tool-chip {
-  font-size: 12px; color: #606266; background: #f4f4f5;
-  border-radius: 4px; padding: 2px 6px;
+.tool-steps { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.tool-step {
+  display: flex; gap: 8px; padding: 7px 10px;
+  border: 1px solid #e4e7ed; border-radius: 6px; background: #fafbfc;
+  font-size: 12px; color: #606266;
 }
-.tool-chip.err { color: #f56c6c; background: #fef0f0; }
+.tool-step.running { border-color: #c6e2ff; background: #f2f8ff; }
+.tool-step.error { border-color: #fbc4c4; background: #fef2f2; }
+.tool-step.cancelled { border-color: #f5dab1; background: #fdf6ec; opacity: .85; }
+.tool-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #67c23a;
+  margin-top: 5px; flex-shrink: 0;
+}
+.tool-step.running .tool-dot { background: #409eff; animation: tool-pulse 1s infinite; }
+.tool-step.error .tool-dot { background: #f56c6c; }
+.tool-step.cancelled .tool-dot { background: #e6a23c; }
+@keyframes tool-pulse { 50% { opacity: .3; } }
+.tool-title { display: flex; align-items: center; gap: 6px; font-weight: 600; color: #303133; }
+.tool-meta { color: #909399; margin-top: 1px; }
 .chat-page {
   display: flex;
   height: 100%;

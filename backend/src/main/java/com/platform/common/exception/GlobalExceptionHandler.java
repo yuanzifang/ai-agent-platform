@@ -20,6 +20,11 @@ public class GlobalExceptionHandler {
         int code = e.getCode();
         // 语义码直接作为 HTTP 状态；6 位业务码默认映射 400
         int httpStatus = (code >= 400 && code < 600) ? code : 400;
+        // 5xx 统一脱敏：底层 HTTP/堆栈细节只进日志，不返回给调用方
+        if (httpStatus >= 500) {
+            log.error("business 5xx（对外脱敏）：code={} message={}", code, e.getMessage(), e);
+            return ResponseEntity.status(httpStatus).body(ApiResponse.error(code, "系统繁忙，请稍后重试"));
+        }
         return ResponseEntity.status(httpStatus).body(ApiResponse.error(code, e.getMessage()));
     }
 
@@ -49,6 +54,11 @@ public class GlobalExceptionHandler {
         BusinessException business = findBusiness(e);
         if (business != null) {
             int http = (business.getCode() >= 400 && business.getCode() < 600) ? business.getCode() : 400;
+            if (http >= 500) {
+                log.error("wrapped business 5xx（对外脱敏）：code={} message={}",
+                        business.getCode(), business.getMessage(), e);
+                return ResponseEntity.status(http).body(ApiResponse.error(business.getCode(), "系统繁忙，请稍后重试"));
+            }
             return ResponseEntity.status(http).body(ApiResponse.error(business.getCode(), business.getMessage()));
         }
         log.error("unhandled exception", e);

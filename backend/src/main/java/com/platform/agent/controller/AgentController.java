@@ -26,6 +26,7 @@ import java.util.Map;
 public class AgentController {
 
     private final AgentService agentService;
+    private final com.platform.eval.service.EvalService evalService;
     private final ChatService chatService;
     private final com.platform.agent.service.PromptOptimizeService promptOptimizeService;
 
@@ -78,6 +79,15 @@ public class AgentController {
         Long datasetId = req == null ? null : req.gateDatasetId();
         if (force && !principal.roles().contains("OWNER") && !principal.roles().contains("ADMIN")) {
             throw new BusinessException(403, "强制发布需 OWNER/ADMIN 权限");
+        }
+        // 门禁在事务外执行（内含评测轮询等待，事务内睡眠会占死数据库连接）
+        if (!force) {
+            Map<String, Object> gate = evalService.preReleaseGate(id, datasetId, principal.userId());
+            if (Boolean.FALSE.equals(gate.get("skipped")) && !Boolean.TRUE.equals(gate.get("passed"))) {
+                throw new BusinessException(400, "预发布测评未通过，无法发布（通过率 "
+                        + gate.get("passRate") + " < 阈值 " + gate.get("threshold")
+                        + "；OWNER/ADMIN 可强制发布）");
+            }
         }
         return ApiResponse.ok(agentService.publish(id, principal, datasetId, force));
     }

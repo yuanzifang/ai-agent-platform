@@ -179,7 +179,7 @@ public class AgentScheduleService {
             } finally {
                 try {
                     redis.delete(lockKey);
-                } catch (Exception ignored) { }
+                } catch (Exception e) {     log.warn("定时任务锁释放/结果落库失败：{}", e.getMessage()); }
             }
         }
     }
@@ -272,7 +272,7 @@ public class AgentScheduleService {
             row.setError(truncate(error, 1000));
             row.setCreatedAt(LocalDateTime.now());
             resultMapper.insert(row);
-        } catch (Exception ignored) { }
+        } catch (Exception e) {     log.warn("定时任务锁释放/结果落库失败：{}", e.getMessage()); }
         result.put("status", "FAILED");
         result.put("message", error);
         return result;

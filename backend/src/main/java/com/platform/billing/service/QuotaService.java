@@ -3,30 +3,29 @@ package com.platform.billing.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.platform.agent.entity.AgentRegistry;
 import com.platform.agent.mapper.AgentRegistryMapper;
-import com.platform.billing.entity.BillingUsage;
-import com.platform.billing.mapper.BillingUsageMapper;
-import com.platform.common.context.TenantContext;
-import com.platform.common.exception.BusinessException;
-import com.platform.knowledge.entity.KnowledgeBase;
 import com.platform.billing.entity.BillingAccount;
 import com.platform.billing.entity.BillingUsage;
 import com.platform.billing.mapper.BillingAccountMapper;
+import com.platform.billing.mapper.BillingUsageMapper;
+import com.platform.common.context.TenantContext;
+import com.platform.common.exception.BusinessException;
 import com.platform.common.mail.MailService;
-import com.platform.knowledge.entity.KnowledgeDocument;
+import com.platform.knowledge.entity.KnowledgeBase;
 import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.knowledge.mapper.KnowledgeDocumentMapper;
 import com.platform.system.entity.SysUser;
-import com.platform.system.mapper.SysUserMapper;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import com.platform.system.entity.SysTenantQuota;
 import com.platform.system.mapper.SysTenantQuotaMapper;
+import com.platform.system.mapper.SysUserMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.util.List;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * 配额校验（需求 3.11(4)）：0 表示不限制；超限拒绝创建/调用。
@@ -48,6 +47,7 @@ public class QuotaService {
     private final SysUserMapper userMapper;
     private final MailService mailService;
     private final StringRedisTemplate redis;
+    private final MeterRegistry meterRegistry;
 
     public void checkAgentCreate() {
         SysTenantQuota q = quota();
@@ -87,7 +87,8 @@ public class QuotaService {
         alertQuota("每日Token", used, max);
     }
 
-    /** 预付费余额阻断：仅当租户发生过充值（account 存在）且可用余额 <= 0 时阻断。 */
+    /** 预付费余额阻断：仅当租户发生过充值（account 存在）且可用余额 <= 0 时阻断。
+     * 成本用 SQL 聚合（曾全表拉取到内存求和，量级增长后拖垮每次对话）。 */
     public void checkBalance() {
         Long tenantId = TenantContext.getTenantId();
         if (tenantId == null) return;
@@ -95,30 +96,27 @@ public class QuotaService {
             BillingAccount account = accountMapper.selectOne(new LambdaQueryWrapper<BillingAccount>()
                     .eq(BillingAccount::getTenantId, tenantId));
             if (account == null || account.getBalance() == null || account.getBalance().signum() <= 0) return;
-            java.math.BigDecimal cost = java.math.BigDecimal.ZERO;
-            for (BillingUsage u : usageMapper.selectList(new LambdaQueryWrapper<BillingUsage>()
-                    .eq(BillingUsage::getTenantId, tenantId))) {
-                cost = cost.add(u.getCost() == null ? java.math.BigDecimal.ZERO : u.getCost());
-            }
+            java.math.BigDecimal cost = usageMapper.sumCostByTenant(tenantId);
             if (account.getBalance().subtract(cost).signum() <= 0) {
                 throw new BusinessException(429, "账户余额不足，请充值后再调用");
             }
         } catch (BusinessException e) {
             throw e;
-        } catch (Exception ignored) { }
+        } catch (Exception e) {
+            // fail-open 但必须可见：余额校验故障静默放行会造成资损，记录告警日志 + 指标
+            meterRegistry.counter("platform.quota.balance_check_failed").increment();
+            log.error("余额校验异常（已放行，请排查）：tenant={} err={}", tenantId, e.getMessage(), e);
+        }
     }
 
-    /** 存储配额：当前租户附件大小 + 本次新增（知识库文档暂未计入）。 */
+    /** 存储配额：租户附件+文档占用（SQL 聚合）+ 本次新增。 */
     public void checkStorage(long addBytes) {
         SysTenantQuota q = quota();
         if (q == null || q.getMaxStorageBytes() == null || q.getMaxStorageBytes() <= 0) return;
+        Long tenantId = TenantContext.getTenantId();
         long used = 0;
-        for (com.platform.conversation.entity.ChatAttachment a
-                : attachmentMapper.selectList(new LambdaQueryWrapper<>())) {
-            used += a.getSizeBytes() == null ? 0 : a.getSizeBytes();
-        }
-        for (KnowledgeDocument d : documentMapper.selectList(new LambdaQueryWrapper<>())) {
-            used += d.getSizeBytes() == null ? 0 : d.getSizeBytes();
+        if (tenantId != null) {
+            used = attachmentMapper.sumSizeByTenant(tenantId) + documentMapper.sumSizeByTenant(tenantId);
         }
         long max = q.getMaxStorageBytes();
         if (used + Math.max(addBytes, 0) > max) {
@@ -138,7 +136,9 @@ public class QuotaService {
         try {
             Boolean first = redis.opsForValue().setIfAbsent(key, "1", java.time.Duration.ofHours(25));
             if (!Boolean.TRUE.equals(first)) return;
-        } catch (Exception ignored) { }
+        } catch (Exception e) {
+            log.warn("配额告警去重失败（继续发送）：{}", e.getMessage());
+        }
         int percent = (int) Math.min(100, used * 100 / max);
         log.warn("配额告警：租户 {} {} 使用率 {}%（{}/{}）", tenantId, metric, percent, used, max);
         try {
@@ -156,14 +156,9 @@ public class QuotaService {
     }
 
     public long tokensToday() {
-        long used = 0;
-        List<BillingUsage> rows = usageMapper.selectList(new LambdaQueryWrapper<BillingUsage>()
-                .eq(BillingUsage::getStatDate, LocalDate.now()));
-        for (BillingUsage u : rows) {
-            used += (u.getInputTokens() == null ? 0 : u.getInputTokens())
-                    + (u.getOutputTokens() == null ? 0 : u.getOutputTokens());
-        }
-        return used;
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null) return 0;
+        return usageMapper.sumTokensToday(tenantId);
     }
 
     private SysTenantQuota quota() {

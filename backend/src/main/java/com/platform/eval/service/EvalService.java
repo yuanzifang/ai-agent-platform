@@ -73,6 +73,8 @@ public class EvalService {
     private final QuotaService quotaService;
     private final com.platform.knowledge.service.EmbeddingService embeddingService;
     private final com.platform.knowledge.service.VectorRepository vectorRepository;
+    @org.springframework.beans.factory.annotation.Qualifier("llmTaskExecutor")
+    private final org.springframework.core.task.TaskExecutor llmExecutor;
     private final ObjectMapper objectMapper;
     /** 自身代理：用于以独立事务（REQUIRES_NEW）执行门禁评测（自调用不经代理会使事务注解失效）。 */
     private final org.springframework.beans.factory.ObjectProvider<EvalService> selfProvider;
@@ -251,7 +253,7 @@ public class EvalService {
                     taskMapper.updateById(fail);
                 });
             }
-        });
+        }, llmExecutor);
         return Map.of("taskId", t.getId());
     }
 
@@ -368,7 +370,7 @@ public class EvalService {
                     taskMapper.updateById(fail);
                 });
             }
-        });
+        }, llmExecutor);
         return Map.of("taskId", taskId, "sampled", traces.size());
     }
 
@@ -479,7 +481,8 @@ public class EvalService {
             try {
                 score = Double.parseDouble(String.valueOf(
                         objectMapper.readValue(m.group(), Map.class).getOrDefault("score", "0")));
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                log.debug("评测解析忽略异常：{}", e.getMessage());
             }
         }
         return new double[]{Math.max(0, Math.min(1, score))};
@@ -546,7 +549,7 @@ public class EvalService {
                         fail.setCompletedCalls(1);
                         taskMapper.updateById(fail);
                     }
-                }));
+                }), llmExecutor);
     }
 
     /**
@@ -628,7 +631,7 @@ public class EvalService {
                 new LambdaQueryWrapper<com.platform.system.entity.SysConfig>()
                         .eq(com.platform.system.entity.SysConfig::getConfigKey, "publish.gate-threshold"));
         if (cfg != null && cfg.getConfigValue() != null) {
-            try { return Double.parseDouble(cfg.getConfigValue()); } catch (Exception ignored) { }
+            try { return Double.parseDouble(cfg.getConfigValue()); } catch (Exception e) {     log.debug("评测解析忽略异常：{}", e.getMessage()); }
         }
         return 0.8;
     }
@@ -785,7 +788,8 @@ public class EvalService {
                 Map<String, Object> parsed = objectMapper.readValue(matcher.group(), Map.class);
                 score = Double.parseDouble(String.valueOf(parsed.getOrDefault("score", "0")));
                 reason = str(parsed.getOrDefault("reason", ""));
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                log.debug("评测解析忽略异常：{}", e.getMessage());
             }
         }
         score = Math.max(0, Math.min(1, score));

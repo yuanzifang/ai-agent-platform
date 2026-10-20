@@ -22,6 +22,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 /**
  * 技能脚本执行：Python / JavaScript 进程级隔离（临时目录、超时、输出上限）。
@@ -50,6 +51,11 @@ public class ScriptRunnerService {
     @Value("${skill.script.max-code-length:50000}")
     private int maxCodeLength;
 
+    @Value("${skill.script.network-isolation:true}")
+    private boolean networkIsolation;
+
+    private volatile Boolean unshareUsable;
+
     public record Result(String output, String stderr, int exitCode, long durationMs, boolean truncated) {
     }
 
@@ -57,6 +63,12 @@ public class ScriptRunnerService {
     }
 
     public Result run(String language, String code, Map<String, Object> args, int timeoutMs) {
+        return run(language, code, args, timeoutMs, () -> false);
+    }
+
+    /** cancelled 由对话停止信号驱动：每 100ms 轮询，取消时强杀子进程。 */
+    public Result run(String language, String code, Map<String, Object> args, int timeoutMs,
+                      BooleanSupplier cancelled) {
         if (!enabled) throw new BusinessException(403, "技能脚本执行未启用（SKILL_SCRIPT_ENABLED=false）");
         String lang = normalizeLanguage(language);
         if (code == null || code.isBlank()) throw new BusinessException(400, "脚本代码不能为空");
@@ -83,6 +95,7 @@ public class ScriptRunnerService {
             List<String> command = "PYTHON".equals(lang)
                     ? List.of(executable, "-u", file.toString())
                     : List.of(executable, file.toString());
+            if (networkIsolation) command = networkSandbox(command);
             ProcessBuilder pb = new ProcessBuilder(command).directory(dir.toFile());
             pb.environment().clear();
             String path = System.getenv().getOrDefault("PATH", "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin");
@@ -107,19 +120,25 @@ public class ScriptRunnerService {
             ExecutorService pool = Executors.newFixedThreadPool(2);
             Future<Capped> stdoutFuture = pool.submit(() -> readCapped(process.getInputStream(), maxOutputBytes));
             Future<Capped> stderrFuture = pool.submit(() -> readCapped(process.getErrorStream(), 4000));
-            boolean finished;
+            long deadline = System.currentTimeMillis() + timeout;
             try {
-                finished = process.waitFor(timeout, TimeUnit.MILLISECONDS);
+                while (!process.waitFor(100, TimeUnit.MILLISECONDS)) {
+                    if (cancelled.getAsBoolean()) {
+                        process.destroyForcibly();
+                        pool.shutdownNow();
+                        throw new BusinessException(499, "脚本执行已取消");
+                    }
+                    if (System.currentTimeMillis() >= deadline) {
+                        process.destroyForcibly();
+                        process.waitFor(2, TimeUnit.SECONDS);
+                        pool.shutdownNow();
+                        throw new BusinessException(504, "脚本执行超时（" + timeout + "ms）");
+                    }
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 process.destroyForcibly();
                 throw new BusinessException(500, "脚本执行被中断");
-            }
-            if (!finished) {
-                process.destroyForcibly();
-                process.waitFor(2, TimeUnit.SECONDS);
-                pool.shutdownNow();
-                throw new BusinessException(504, "脚本执行超时（" + timeout + "ms）");
             }
             Capped stdout = stdoutFuture.get(3, TimeUnit.SECONDS);
             Capped stderr = stderrFuture.get(3, TimeUnit.SECONDS);
@@ -224,10 +243,70 @@ public class ScriptRunnerService {
         if ("PYTHON".equals(lang)) {
             return "import os, json\n"
                     + "params = json.loads(os.environ.get(\"SKILL_ARGS\") or \"{}\")\n"
-                    + "args = params\n";
+                    + "args = params\n"
+                    // 语言级兜底（OS 沙箱不可用时）：禁用 socket / DNS
+                    + "try:\n"
+                    + "    import socket\n"
+                    + "    def _net_denied(*a, **k):\n"
+                    + "        raise PermissionError(\"network access disabled by skill sandbox\")\n"
+                    + "    socket.socket = _net_denied\n"
+                    + "    socket.create_connection = _net_denied\n"
+                    + "    socket.getaddrinfo = _net_denied\n"
+                    + "except Exception:\n"
+                    + "    pass\n";
         }
         return "const params = JSON.parse(process.env.SKILL_ARGS || \"{}\");\n"
-                + "const args = params;\n";
+                + "const args = params;\n"
+                + "try {\n"
+                + "  const net = require('net'); const dns = require('dns');\n"
+                + "  const deny = () => { throw new Error('network access disabled by skill sandbox'); };\n"
+                + "  net.Socket.prototype.connect = deny; net.connect = deny; net.createConnection = deny;\n"
+                + "  dns.lookup = deny; dns.resolve = deny; dns.resolve4 = deny;\n"
+                + "} catch (e) {}\n";
+    }
+
+    /** OS 级网络隔离：macOS sandbox-exec / Linux unshare -n（不可用时回退语言级禁用）。 */
+    private List<String> networkSandbox(List<String> command) {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (os.contains("mac")) {
+            File sandbox = new File("/usr/bin/sandbox-exec");
+            if (sandbox.canExecute()) {
+                List<String> wrapped = new ArrayList<>();
+                wrapped.add(sandbox.getAbsolutePath());
+                wrapped.add("-p");
+                wrapped.add("(version 1)(allow default)(deny network*)");
+                wrapped.addAll(command);
+                return wrapped;
+            }
+        }
+        if (os.contains("linux")) {
+            File unshare = new File("/usr/bin/unshare");
+            if (unshare.canExecute() && unshareUsable()) {
+                List<String> wrapped = new ArrayList<>();
+                wrapped.add(unshare.getAbsolutePath());
+                wrapped.add("-n");
+                wrapped.add("--");
+                wrapped.addAll(command);
+                return wrapped;
+            }
+        }
+        log.warn("脚本网络沙箱不可用，回退到语言级 socket 禁用（可被绕过，生产建议容器隔离）");
+        return command;
+    }
+
+    private boolean unshareUsable() {
+        Boolean cached = unshareUsable;
+        if (cached != null) return cached;
+        try {
+            Process p = new ProcessBuilder("/usr/bin/unshare", "-n", "--", "true")
+                    .redirectErrorStream(true).start();
+            boolean ok = p.waitFor(2, TimeUnit.SECONDS) && p.exitValue() == 0;
+            unshareUsable = ok;
+            return ok;
+        } catch (Exception e) {
+            unshareUsable = false;
+            return false;
+        }
     }
 
     private String resolveExecutable(String configured, String name) {
@@ -296,9 +375,10 @@ public class ScriptRunnerService {
     private void deleteRecursively(Path dir) {
         try (var paths = Files.walk(dir)) {
             paths.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
-                try { Files.deleteIfExists(p); } catch (Exception ignored) { }
+                try { Files.deleteIfExists(p); } catch (Exception e) {     log.debug("脚本临时目录清理失败：{}", e.getMessage()); }
             });
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            log.debug("脚本临时目录清理失败：{}", e.getMessage());
         }
     }
 

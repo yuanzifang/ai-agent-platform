@@ -227,15 +227,8 @@ public class AgentService {
         if (agent.getSystemPrompt() == null || agent.getSystemPrompt().isBlank()) {
             throw new BusinessException(400, "提示词不能为空，无法发布");
         }
-        // 预发布门禁（需求 3.5）：绑定了默认数据集才生效；force 需 OWNER/ADMIN
-        if (!force) {
-            Map<String, Object> gate = evalService.preReleaseGate(id, gateDatasetId, principal.userId());
-            if (Boolean.FALSE.equals(gate.get("skipped")) && !Boolean.TRUE.equals(gate.get("passed"))) {
-                throw new BusinessException(400, "预发布测评未通过，无法发布（通过率 "
-                        + gate.get("passRate") + " < 阈值 " + gate.get("threshold")
-                        + "；OWNER/ADMIN 可强制发布）");
-            }
-        }
+        // 预发布门禁已移至 Controller 层执行（门禁含评测轮询等待，
+        // 不能在 @Transactional 内睡眠占住数据库连接）
         if (agent.getModelConfig() == null || !agent.getModelConfig().contains("modelName")) {
             throw new BusinessException(400, "未选择模型，无法发布");
         }

@@ -110,3 +110,51 @@ test('技能脚本可直跑并保存', async ({ page, request }) => {
     await cleanupSkill(request, token || await tokenOf(page).catch(() => null), name)
   }
 })
+
+test('Markdown 渲染与工具步骤卡片', async ({ page, request }) => {
+  await login(page)
+
+  // Markdown：加粗 + 表格 + 代码块（含复制按钮）
+  await page.goto('/chat/1')
+  const input = page.getByPlaceholder(/输入消息/)
+  await input.fill('markdown测试')
+  await page.getByRole('button', { name: '发送' }).click()
+  await expect(page.locator('.markdown-body strong').last()).toHaveText('加粗文本', { timeout: 30_000 })
+  await expect(page.locator('.markdown-body table').last()).toBeVisible()
+  await expect(page.locator('.markdown-body .copy-code').last()).toBeVisible()
+
+  // 工具步骤卡片：创建临时 Agent（绑定计算器）→ 发布 → 对话
+  const token = await tokenOf(page)
+  const name = `E2E UI工具-${Date.now()}`
+  const created = await request.post('/api/v1/agent', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      name,
+      systemPrompt: '你是测试助手，必须调用计算器工具。',
+      modelConfig: { modelName: 'deepseek-flash' },
+      agentCapabilities: { functionCall: true },
+      tools: [{ toolId: 1, enabled: true }],
+      visibility: 'PRIVATE'
+    }
+  })
+  const createdBody = await created.json()
+  expect(createdBody.code, JSON.stringify(createdBody)).toBe(0)
+  const agentId = createdBody.data.id as number
+  try {
+    await request.post(`/api/v1/agent/${agentId}/publish`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { force: true }
+    })
+    await page.goto(`/chat/${agentId}`)
+    await page.getByPlaceholder(/输入消息/).fill('请用计算器计算 12*3')
+    await page.getByRole('button', { name: '发送' }).click()
+    const step = page.locator('.tool-step').filter({ hasText: '计算器' }).last()
+    await expect(step).toBeVisible({ timeout: 30_000 })
+    await expect(step.locator('.tool-meta')).toContainText('完成', { timeout: 30_000 })
+    await expect(page.locator('.markdown-body').last()).toContainText('36', { timeout: 30_000 })
+  } finally {
+    await request.delete(`/api/v1/agent/${agentId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+  }
+})

@@ -204,7 +204,9 @@ public class ChatStreamService {
         SseEmitter emitter = out.emitter();
 
         // 技能/工具/子 Agent 装配（工具调用事件实时推送 SSE）
-        ToolCallCollector collector = new ToolCallCollector(event -> out.event("tool", toolEvent(event)));
+        ToolCallCollector collector = new ToolCallCollector(
+                event -> out.event("tool", toolEvent(event)),
+                start -> out.event("tool_start", toolStartEvent(start)));
         long assemblyStart = System.currentTimeMillis();
         ToolRuntimeService.RuntimeTools runtime = toolRuntime.build(conv.getAgentId(), config, principal, viewer,
                 collector, variables);
@@ -223,8 +225,20 @@ public class ChatStreamService {
             kbBindings.add(Map.of("knowledgeBaseId", kbId, "enabled", true));
         }
         if (!kbBindings.isEmpty()) {
+            out.event("tool_start", Map.of("name", "知识库检索", "toolName", "knowledge_retrieval",
+                    "toolType", "RAG", "status", "RUNNING"));
+            long kbStart = System.currentTimeMillis();
             systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings,
                     citations, viewer, steps);
+            Map<String, Object> kbEvent = new LinkedHashMap<>();
+            kbEvent.put("name", "知识库检索");
+            kbEvent.put("toolName", "knowledge_retrieval");
+            kbEvent.put("toolType", "RAG");
+            kbEvent.put("status", "SUCCESS");
+            kbEvent.put("durationMs", System.currentTimeMillis() - kbStart);
+            kbEvent.put("subAgentName", "");
+            kbEvent.put("citations", citations.size());
+            out.event("tool", kbEvent);
         }
         long memoryStart = System.currentTimeMillis();
         List<org.springframework.ai.chat.messages.Message> history = history(conv.getId(), userMsg.getId(),
@@ -294,6 +308,38 @@ public class ChatStreamService {
                     }
                 },
                 err -> {
+                    if (isClientAbort(err)) {
+                        // 客户端主动断开（关页面/网络中断）：不是生成失败，按 STOPPED 落库，避免污染错误率
+                        collector.cancel();
+                        log.info("客户端断开，按 STOPPED 处理 conversation={}：{}", conv.getId(), err.getMessage());
+                        if (streamRegistry.unregister(conv.getId())) {
+                            if (tokens[0] == 0 && tokens[1] == 0) {
+                                tokens[0] = estimateTokens(userMsg.getContent());
+                                tokens[1] = estimateTokens(acc.toString());
+                            }
+                            TenantContext.run(tenantId, () -> {
+                                Message ai = newMessage(conv, traceId, parentMessageId, regenerated);
+                                ai.setContent(acc.toString());
+                                ai.setStatus("STOPPED");
+                                ai.setTokens((int) (tokens[0] + tokens[1]));
+                                messageMapper.insert(ai);
+                                conversationService.touch(conv.getId());
+                                recordUsage(tenantId, conv.getAgentId(), modelName, tokens[0], tokens[1], source);
+                                traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
+                                        conv.getAgentId(), conv.getUserId(), agent.getName(), "STOPPED",
+                                        modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
+                                        citations.size(),
+                                        traceExtra(source, version, userMsg.getContent(), acc.toString(), null),
+                                        collector.events(), steps.steps());
+                            });
+                        }
+                        try {
+                            out.complete();
+                        } catch (Exception e) {
+                            log.debug("客户端断开后关闭 SSE 失败：{}", e.getMessage());
+                        }
+                        return;
+                    }
                     log.error("对话流式失败 conversation={}：{}", conv.getId(), err.getMessage());
                     streamRegistry.unregister(conv.getId());
                     TenantContext.run(tenantId, () -> {
@@ -321,8 +367,9 @@ public class ChatStreamService {
                     persist.run();
                 });
 
-        // 停止/断开：取消上游，落 STOPPED（幂等保护）
+        // 停止/断开：取消上游与进行中的工具，落 STOPPED（幂等保护）
         Runnable cancel = () -> {
+            collector.cancel();
             if (streamRegistry.unregister(conv.getId())) {
                 if (tokens[0] == 0 && tokens[1] == 0) {
                     tokens[0] = estimateTokens(userMsg.getContent());
@@ -555,6 +602,16 @@ public class ChatStreamService {
     }
 
     /** 工具事件（前端在对话气泡内展示调用状态）。 */
+    private Map<String, Object> toolStartEvent(ToolCallCollector.ToolCallStart s) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("name", s.name());
+        m.put("toolName", s.toolKey());
+        m.put("toolType", s.type());
+        m.put("status", "RUNNING");
+        m.put("input", s.input());
+        return m;
+    }
+
     private Map<String, Object> toolEvent(ToolCallEvent e) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("name", e.displayName() == null ? e.toolName() : e.displayName());
@@ -727,6 +784,24 @@ public class ChatStreamService {
             if (v != null) text = text.replace("{{" + key + "}}", String.valueOf(v));
         }
         return text;
+    }
+
+    /** 客户端主动断开/网络中断（Broken pipe、Connection reset、Reactor AbortedException 等）。 */
+    private boolean isClientAbort(Throwable e) {
+        Throwable t = e;
+        while (t != null) {
+            String cls = t.getClass().getName();
+            String msg = t.getMessage() == null ? "" : t.getMessage().toLowerCase(java.util.Locale.ROOT);
+            if (cls.contains("AbortedException") || cls.contains("ClientAbortException")
+                    || t instanceof java.nio.channels.ClosedChannelException
+                    || (t instanceof java.io.IOException && (msg.contains("broken pipe")
+                    || msg.contains("connection reset") || msg.contains("connection abort")
+                    || msg.contains("an established connection was aborted")))) {
+                return true;
+            }
+            t = t.getCause();
+        }
+        return false;
     }
 
     private String str(Object o) {

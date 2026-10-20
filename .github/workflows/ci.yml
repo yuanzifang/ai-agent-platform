@@ -171,6 +171,11 @@ jobs:
           tail -200 /tmp/backend.log
           exit 1
 
+      - name: 放宽 E2E 租户限流
+        run: |
+          docker exec ${{ job.services.mysql.id }} mysql -uroot -proot ai_agent_platform \
+            -e "UPDATE sys_tenant_quota SET max_api_calls_per_min=600;"
+
       - name: 启动前端
         working-directory: frontend
         run: |

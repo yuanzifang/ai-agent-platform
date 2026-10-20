@@ -530,7 +530,8 @@ public class ChannelService {
         if (req.containsKey("config")) {
             try {
                 c.setConfigJson(req.get("config") == null ? null : objectMapper.writeValueAsString(req.get("config")));
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                log.warn("渠道配置/消息解析失败：{}", e.getMessage());
             }
         }
     }
@@ -692,7 +693,8 @@ public class ChannelService {
             try {
                 Map<String, Object> parsed = objectMapper.readValue(raw, Map.class);
                 if (parsed.get("text") != null) return String.valueOf(parsed.get("text"));
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                log.warn("渠道配置/消息解析失败：{}", e.getMessage());
             }
             return raw;
         }

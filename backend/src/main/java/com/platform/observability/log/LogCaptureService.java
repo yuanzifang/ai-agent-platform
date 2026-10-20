@@ -97,8 +97,9 @@ public class LogCaptureService {
                 Entry entry = new Entry(tenantId, level.toString(), truncate(loggerName, 160),
                         message, exception, traceId, truncate(event.getThreadName(), 80), LocalDateTime.now());
                 if (!queue.offer(entry)) dropped.incrementAndGet();
-            } catch (Exception ignored) {
+            } catch (Exception e) {
                 // 日志采集绝不能影响业务
+                log.warn("日志采集失败（不影响业务）：{}", e.getMessage());
             }
         }
     }

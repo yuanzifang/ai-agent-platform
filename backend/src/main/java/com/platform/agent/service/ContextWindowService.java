@@ -136,7 +136,7 @@ public class ContextWindowService {
             if (m != null && m.getContextWindow() != null && m.getContextWindow() > 0) {
                 return m.getContextWindow();
             }
-        } catch (Exception ignored) { }
+        } catch (Exception e) {     log.debug("模型上下文窗口读取失败，使用默认值：{}", e.getMessage()); }
         return Math.max(defaultWindow, 4096);
     }
 

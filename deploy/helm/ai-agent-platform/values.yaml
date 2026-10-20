@@ -142,7 +142,7 @@ ingress:
           pathType: Prefix
           service: backend
         - path: /mcp
-          pathType: Prefix
+          pathType: Exact
           service: backend
         - path: /
           pathType: Prefix

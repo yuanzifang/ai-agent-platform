@@ -40,6 +40,8 @@ def answer_for(body):
         return {"tool_call": name}
     if "只回答OK" in system or "只回答OK" in last_user:
         return "OK"
+    if "markdown测试" in last_user:
+        return "**加粗文本**\n\n| 列A | 列B |\n| --- | --- |\n| 1 | 2 |\n\n```js\nconst answer = 42\nconsole.log(answer)\n```"
     if "裁判" in system or "评分" in system:
         return '{"score":0.8,"reason":"mock 裁判"}'
     if "提示词工程师" in system or "提示词优化" in system:
@@ -135,7 +137,30 @@ class OpenAiHandler(BaseHTTPRequestHandler):
         if slow:
             answer = "长回答：" + "这是模拟流式内容。 " * 40
         if isinstance(answer, dict) and answer.get("tool_call"):
-            return self._json(200, tool_call_payload(body, answer["tool_call"]))
+            name = answer["tool_call"]
+            if body.get("stream"):
+                # OpenAI 流式 tool_calls：Spring AI 需要 delta.tool_calls 才会执行工具
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                tool_chunk = {
+                    "id": "chatcmpl-mock-tool", "object": "chat.completion.chunk", "created": 0,
+                    "model": body.get("model", "mock-model"),
+                    "choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [{
+                        "index": 0, "id": "call_mock_1", "type": "function",
+                        "function": {"name": name, "arguments": "{\"expression\":\"12*3\"}"}
+                    }]}, "finish_reason": None}]
+                }
+                self.wfile.write(f"data: {json.dumps(tool_chunk, ensure_ascii=False)}\n\n".encode())
+                finish_chunk = {
+                    "id": "chatcmpl-mock-tool", "object": "chat.completion.chunk", "created": 0,
+                    "model": body.get("model", "mock-model"),
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]
+                }
+                self.wfile.write(f"data: {json.dumps(finish_chunk, ensure_ascii=False)}\n\ndata: [DONE]\n\n".encode())
+                self.wfile.flush()
+                return
+            return self._json(200, tool_call_payload(body, name))
         if body.get("stream"):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")

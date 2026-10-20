@@ -430,7 +430,8 @@ public class KnowledgeService {
                 String last = path.substring(path.lastIndexOf('/') + 1);
                 if (!last.isBlank()) name = last;
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            log.debug("URL 文件名解析失败：{}", e.getMessage());
         }
         name = name.replaceAll("[^a-zA-Z0-9._-]", "_");
         if (name.length() > 80) name = name.substring(name.length() - 80);

@@ -21,6 +21,7 @@ import com.platform.conversation.mapper.MessageMapper;
 import com.platform.knowledge.service.StorageService;
 import com.platform.security.JwtPrincipal;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -35,6 +36,7 @@ import java.util.stream.Collectors;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ConversationService {
 
     private final ConversationMapper conversationMapper;
@@ -155,7 +157,8 @@ public class ConversationService {
                     text = text.replace("{{" + key + "}}", String.valueOf(dv));
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            log.debug("Agent 变量解析失败：{}", e.getMessage());
         }
         return text;
     }
@@ -212,15 +215,17 @@ public class ConversationService {
     public Map<String, Object> saveAttachment(Long conversationId, MultipartFilePart file, JwtPrincipal principal) {
         owned(conversationId, principal);
         quotaService.checkStorage(file.bytes().length);
+        // 文件名同时用于 MinIO object key 与 VARCHAR(256) 列：去路径分隔符/控制字符并限长
+        String safeName = sanitizeFileName(file.fileName(), 200);
         String objectName = "%d/chat/%d/%s/%s".formatted(principal.tenantId(), conversationId,
-                UUID.randomUUID().toString().replace("-", "").substring(0, 12), file.fileName());
+                UUID.randomUUID().toString().replace("-", "").substring(0, 12), safeName);
         storageService.put(objectName, file.bytes(), file.contentType());
         ChatAttachment a = new ChatAttachment();
         a.setConversationId(conversationId);
         a.setObjectName(objectName);
-        a.setFileName(file.fileName());
+        a.setFileName(truncate(safeName, 255));
         a.setSizeBytes((long) file.bytes().length);
-        a.setContentType(file.contentType());
+        a.setContentType(truncate(file.contentType(), 120));
         a.setTenantId(principal.tenantId());
         a.setCreatedAt(LocalDateTime.now());
         attachmentMapper.insert(a);
@@ -310,6 +315,18 @@ public class ConversationService {
 
     public Message messageOf(Long messageId) {
         return messageMapper.selectById(messageId);
+    }
+
+    /** 对象存储路径安全文件名：去路径分隔符与控制字符，防目录穿越，限长。 */
+    private String sanitizeFileName(String name, int max) {
+        if (name == null || name.isBlank()) return "file";
+        String cleaned = name.replaceAll("[\\\\/:*?\\\"<>|\\p{Cntrl}]", "_").trim();
+        return cleaned.length() > max ? cleaned.substring(0, max) : cleaned;
+    }
+
+    private String truncate(String s, int max) {
+        if (s == null) return null;
+        return s.length() <= max ? s : s.substring(0, max);
     }
 
     public record MultipartFilePart(String fileName, String contentType, byte[] bytes) {

@@ -99,6 +99,11 @@ public class ToolRuntimeService {
     private final KnowledgePermissionService permissionService;
     private final ObjectMapper objectMapper;
 
+    /** 类级单例：HttpClient 线程安全且持有连接池，避免每次工具调用创建后无法关闭。 */
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(5))
+            .build();
+
     /** 装配结果：工具回调 + 技能提示词 + 技能依赖的知识库。 */
     public record RuntimeTools(List<ToolCallback> callbacks, String skillPrompt, List<Long> knowledgeBaseIds) {
         public static RuntimeTools empty() {
@@ -251,20 +256,22 @@ public class ToolRuntimeService {
 
             @Override
             public String call(String toolInput) {
+                if (isCancelled(collector)) return cancelledMessage();
+                collector.start(toolName, skill.getName(), "SKILL", toolInput);
                 long start = System.currentTimeMillis();
                 String status = "SUCCESS";
                 String output;
                 try {
                     Map<String, Object> args = scriptRunner.withDefaults(skill.getParams(), args(toolInput));
                     ScriptRunnerService.Result result = scriptRunner.run(skill.getScriptLanguage(),
-                            skill.getScriptCode(), args, timeout);
+                            skill.getScriptCode(), args, timeout, collector::isCancelled);
                     output = result.output().isBlank() ? "脚本执行完成（无输出）" : result.output();
                     if (!result.stderr().isBlank()) {
                         output = output + "\n[stderr] " + result.stderr();
                     }
                 } catch (Exception e) {
-                    status = "ERROR";
-                    output = "技能脚本执行失败：" + rootMessage(e);
+                    status = isCancelled(collector) ? "CANCELLED" : "ERROR";
+                    output = isCancelled(collector) ? cancelledMessage() : "技能脚本执行失败：" + rootMessage(e);
                 }
                 String modelOutput = limitModelOutput(output);
                 long end = System.currentTimeMillis();
@@ -353,6 +360,14 @@ public class ToolRuntimeService {
                 "toolCalls", collector.events());
     }
 
+    private boolean isCancelled(ToolCallCollector collector) {
+        return collector != null && collector.isCancelled();
+    }
+
+    private String cancelledMessage() {
+        return "工具调用已取消（用户停止生成）";
+    }
+
     // ---------- 内置工具 ----------
 
     private ToolCallback builtinCallback(ToolRegistry tool, ToolCallCollector collector) {
@@ -369,6 +384,8 @@ public class ToolRuntimeService {
 
             @Override
             public String call(String toolInput) {
+                if (isCancelled(collector)) return cancelledMessage();
+                collector.start(tool.getToolKey(), tool.getName(), "BUILTIN", toolInput);
                 long start = System.currentTimeMillis();
                 String status = "SUCCESS";
                 String output;
@@ -380,8 +397,8 @@ public class ToolRuntimeService {
                         default -> "未实现的内置工具：" + tool.getToolKey();
                     };
                 } catch (Exception e) {
-                    status = "ERROR";
-                    output = "工具执行失败：" + rootMessage(e);
+                    status = isCancelled(collector) ? "CANCELLED" : "ERROR";
+                    output = isCancelled(collector) ? cancelledMessage() : "工具执行失败：" + rootMessage(e);
                 }
                 String modelOutput = limitModelOutput(output);
                 long end = System.currentTimeMillis();
@@ -424,6 +441,8 @@ public class ToolRuntimeService {
 
             @Override
             public String call(String toolInput) {
+                if (isCancelled(collector)) return cancelledMessage();
+                collector.start(tool.getToolKey(), tool.getName(), "API", toolInput);
                 long start = System.currentTimeMillis();
                 String status = "SUCCESS";
                 String output;
@@ -434,10 +453,10 @@ public class ToolRuntimeService {
                         credential = credentialService.resolveContent(agentId, tool.getId());
                         credentialType = credentialService.typeOf(agentId, tool.getId());
                     }
-                    output = executeApi(cfg, args(toolInput), timeout, retries, credential, credentialType);
+                    output = executeApi(cfg, args(toolInput), timeout, retries, credential, credentialType, collector);
                 } catch (Exception e) {
-                    status = "ERROR";
-                    output = "工具执行失败：" + rootMessage(e);
+                    status = isCancelled(collector) ? "CANCELLED" : "ERROR";
+                    output = isCancelled(collector) ? cancelledMessage() : "工具执行失败：" + rootMessage(e);
                 }
                 String modelOutput = limitModelOutput(output);
                 long end = System.currentTimeMillis();
@@ -451,7 +470,8 @@ public class ToolRuntimeService {
 
     @SuppressWarnings("unchecked")
     private String executeApi(Map<String, Object> cfg, Map<String, Object> args,
-                              int timeoutMs, int retries, String credential, String credentialType) throws Exception {
+                              int timeoutMs, int retries, String credential, String credentialType,
+                              ToolCallCollector collector) throws Exception {
         String url = str(cfg.get("url"));
         if (url == null || url.isBlank()) throw new IllegalArgumentException("API 地址未配置");
         URI uri = URI.create(substitutePath(url, args));
@@ -529,11 +549,25 @@ public class ToolRuntimeService {
             builder.method(method, HttpRequest.BodyPublishers.noBody());
         }
 
-        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(timeoutMs)).build();
         Exception last = null;
         for (int attempt = 0; attempt <= retries; attempt++) {
             try {
-                HttpResponse<String> resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+                // 异步发送 + 200ms 轮询取消信号：用户停止生成时尽快取消本地请求
+                java.util.concurrent.CompletableFuture<HttpResponse<String>> future =
+                        httpClient.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> resp;
+                while (true) {
+                    if (isCancelled(collector)) {
+                        future.cancel(true);
+                        throw new IllegalStateException(cancelledMessage());
+                    }
+                    try {
+                        resp = future.get(200, java.util.concurrent.TimeUnit.MILLISECONDS);
+                        break;
+                    } catch (java.util.concurrent.TimeoutException te) {
+                        // 继续轮询取消信号
+                    }
+                }
                 if ((resp.statusCode() >= 500 || resp.statusCode() == 429) && attempt < retries) {
                     last = new IllegalStateException("HTTP " + resp.statusCode());
                     sleepBackoff(attempt);
@@ -545,6 +579,7 @@ public class ToolRuntimeService {
                 }
                 return extractResponse(resp.body(), str(cfg.get("responsePath")));
             } catch (Exception e) {
+                if (isCancelled(collector)) throw e;
                 last = e;
                 if (attempt < retries) sleepBackoff(attempt);
             }
@@ -626,6 +661,8 @@ public class ToolRuntimeService {
 
             @Override
             public String call(String toolInput) {
+                if (isCancelled(collector)) return cancelledMessage();
+                collector.start(tool.getToolKey(), tool.getName(), "MCP", toolInput);
                 long start = System.currentTimeMillis();
                 String status = "SUCCESS";
                 String output;
@@ -633,12 +670,16 @@ public class ToolRuntimeService {
                     Map<String, Object> args = args(toolInput);
                     McpClientService.McpCallResult result = TenantContext.runWith(
                             TenantContext.getTenantId(),
-                            () -> mcpClient.callTool(server, finalRemoteName, args));
+                            () -> mcpClient.callTool(server, finalRemoteName, args, collector::isCancelled));
                     output = result.text();
                     if (result.error()) status = "ERROR";
+                    if (isCancelled(collector)) {
+                        status = "CANCELLED";
+                        output = cancelledMessage();
+                    }
                 } catch (Exception e) {
-                    status = "ERROR";
-                    output = "MCP 工具执行失败：" + rootMessage(e);
+                    status = isCancelled(collector) ? "CANCELLED" : "ERROR";
+                    output = isCancelled(collector) ? cancelledMessage() : "MCP 工具执行失败：" + rootMessage(e);
                 }
                 String modelOutput = limitModelOutput(output);
                 long end = System.currentTimeMillis();
@@ -669,6 +710,8 @@ public class ToolRuntimeService {
 
             @Override
             public String call(String toolInput) {
+                if (isCancelled(collector)) return cancelledMessage();
+                collector.start(name, sub.getName(), "SUB_AGENT", toolInput);
                 long start = System.currentTimeMillis();
                 String status = "SUCCESS";
                 String output;
@@ -680,8 +723,8 @@ public class ToolRuntimeService {
                     output = TenantContext.runWith(tenantId, () -> invokeSubAgent(sub, task, principal, viewer,
                             collector, variables, depth, visited, usage));
                 } catch (Exception e) {
-                    status = "ERROR";
-                    output = "子 Agent 执行失败：" + rootMessage(e);
+                    status = isCancelled(collector) ? "CANCELLED" : "ERROR";
+                    output = isCancelled(collector) ? cancelledMessage() : "子 Agent 执行失败：" + rootMessage(e);
                 }
                 String modelOutput = limitModelOutput(output);
                 long end = System.currentTimeMillis();
@@ -814,7 +857,7 @@ public class ToolRuntimeService {
         if (schema != null) {
             try {
                 return objectMapper.writeValueAsString(schema);
-            } catch (Exception ignored) { }
+            } catch (Exception e) {     log.debug("工具配置解析失败：{}", e.getMessage()); }
         }
         // API 工具：由参数定义生成 inputSchema
         if (cfg.get("params") instanceof List<?> params && !params.isEmpty()) {
@@ -836,7 +879,7 @@ public class ToolRuntimeService {
             if (!required.isEmpty()) schemaMap.put("required", required);
             try {
                 return objectMapper.writeValueAsString(schemaMap);
-            } catch (Exception ignored) { }
+            } catch (Exception e) {     log.debug("工具配置解析失败：{}", e.getMessage()); }
         }
         return EMPTY_SCHEMA;
     }
@@ -888,7 +931,7 @@ public class ToolRuntimeService {
         if (o instanceof String s) {
             try {
                 return objectMapper.readValue(s, Map.class);
-            } catch (Exception ignored) { }
+            } catch (Exception e) {     log.debug("工具配置解析失败：{}", e.getMessage()); }
         }
         return Map.of();
     }

@@ -65,7 +65,8 @@ public class StreamRegistryService {
         if (container != null) {
             try {
                 container.stop();
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                log.debug("Redis 监听容器停止失败：{}", e.getMessage());
             }
         }
     }

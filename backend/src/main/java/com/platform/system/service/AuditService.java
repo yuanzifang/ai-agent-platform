@@ -170,7 +170,8 @@ public class AuditService {
                 return (xff != null && !xff.isBlank() ? xff.split(",")[0].trim()
                         : attrs.getRequest().getRemoteAddr());
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            log.warn("审计请求上下文读取失败：{}", e.getMessage());
         }
         return null;
     }

@@ -7,6 +7,7 @@ import com.platform.system.mapper.SysTenantQuotaMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -20,6 +21,7 @@ import java.time.Duration;
  */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class RateLimitInterceptor implements HandlerInterceptor {
 
     private final StringRedisTemplate redis;
@@ -39,7 +41,9 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             SysTenantQuota q = quotaMapper.selectOne(new LambdaQueryWrapper<SysTenantQuota>()
                     .eq(SysTenantQuota::getTenantId, tenantId));
             if (q != null && q.getMaxApiCallsPerMin() != null) limit = q.getMaxApiCallsPerMin();
-        } catch (Exception ignored) { }
+        } catch (Exception e) {
+            log.warn("租户限流配置读取失败，使用全局默认：{}", e.getMessage());
+        }
         if (limit <= 0) return true;
 
         String bucket = "ratelimit:t:" + tenantId + ":" + (System.currentTimeMillis() / 60_000);

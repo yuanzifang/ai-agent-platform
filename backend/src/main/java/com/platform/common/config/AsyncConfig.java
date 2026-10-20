@@ -12,6 +12,22 @@ import java.util.concurrent.ThreadPoolExecutor;
 @Configuration
 public class AsyncConfig {
 
+    /** LLM 长阻塞调用专用池（评测/工作流并行/点踩复核）：
+     * 此前落 ForkJoinPool.commonPool，几路 2-3s 的 LLM 调用就会饿死全局并行流。 */
+    @Bean("llmTaskExecutor")
+    public ThreadPoolTaskExecutor llmTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(4);
+        executor.setMaxPoolSize(8);
+        executor.setQueueCapacity(200);
+        executor.setThreadNamePrefix("llm-task-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+        executor.initialize();
+        return executor;
+    }
+
     @Bean("documentParseExecutor")
     public ThreadPoolTaskExecutor documentParseExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

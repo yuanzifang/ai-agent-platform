@@ -296,8 +296,9 @@ public class OpenApiController {
                 log.warn("OpenAPI SSE 写出失败：{}", e.getMessage());
                 try {
                     emitter.completeWithError(e);
-                } catch (Exception ignored) {
+                } catch (Exception closeError) {
                     // 客户端可能已断开
+                    log.debug("SSE completeWithError 失败（客户端可能已断开）：{}", closeError.getMessage());
                 }
             }
         }
