@@ -365,10 +365,14 @@ manifest = {
 }
 (root / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
 
+manifest_path = root / 'manifest.json'
+manifest_hash = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
 with (root / 'SHA256SUMS').open('w') as out:
     for rel, meta in files.items():
         out.write(f"{meta['sha256']}  {rel}\n")
-print(f"manifest: {len(files)} files")
+    # manifest 本身也必须被校验，防止对象数量/库名被意外篡改
+    out.write(f"{manifest_hash}  manifest.json\n")
+print(f"manifest: {len(files)} files (+ manifest.json)")
 PY
 
 chmod -R go-rwx "$PARTIAL"
