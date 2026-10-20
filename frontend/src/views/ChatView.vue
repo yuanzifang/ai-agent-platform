@@ -94,6 +94,7 @@
               <el-button size="small" text :type="m.feedback === 'UP' ? 'primary' : ''" @click="feedback(m, 'UP')">👍</el-button>
               <el-button size="small" text :type="m.feedback === 'DOWN' ? 'danger' : ''" @click="feedback(m, 'DOWN')">👎</el-button>
               <el-button size="small" text @click="copyMessage(m)">复制</el-button>
+              <el-button size="small" text @click="openCaseDialog(m)">收藏用例</el-button>
               <el-button v-if="isLastAssistant(m)" size="small" text @click="regenerate(m)">重新生成</el-button>
             </div>
           </div>
@@ -136,6 +137,29 @@
       </div>
     </div>
 
+    <el-dialog v-model="caseVisible" title="收藏为回归用例" width="560px">
+      <el-form label-width="90px">
+        <el-form-item label="类型">
+          <el-radio-group v-model="caseForm.kind">
+            <el-radio value="CLASSIC">经典（回答质量好，作金样例）</el-radio>
+            <el-radio value="BAD">坏例（回答有问题）</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="期望答案" :required="caseForm.kind === 'BAD'">
+          <el-input v-model="caseForm.expectedAnswer" type="textarea" :rows="3"
+                    placeholder="坏例建议填写正确期望答案；后续审核通过后才会进入模型回归" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="caseForm.note" maxlength="512" placeholder="如：答非所问 / 编造事实" />
+        </el-form-item>
+      </el-form>
+      <div class="hint">收藏后进入用例库「待审核」，人工确认/修正后才会用于模型切换回归。</div>
+      <template #footer>
+        <el-button @click="caseVisible = false">取消</el-button>
+        <el-button type="primary" :loading="caseSaving" @click="saveCase">收藏</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="variablesVisible" title="填写对话变量" width="520px">
       <div class="hint mb8">该 Agent 配置了必填变量，填写后开始对话。</div>
       <el-form label-width="130px">
@@ -163,7 +187,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Microphone, Paperclip } from '@element-plus/icons-vue'
@@ -201,6 +225,9 @@ const variableValues = ref<Record<string, string>>({})
 const variablesVisible = ref(false)
 const pendingSend = ref<{ text: string } | null>(null)
 const allowWriteTools = ref(false)
+const caseVisible = ref(false)
+const caseSaving = ref(false)
+const caseForm = reactive({ assistantMessageId: 0, kind: 'BAD', expectedAnswer: '', note: '' })
 const dragging = ref(false)
 const volumeBars = ref<number[]>(Array.from({ length: 18 }, () => 3))
 const recordCancel = ref(false)
@@ -554,6 +581,33 @@ async function recoverStream() {
     }
   }
   ElMessage.error('连接中断，请重新发送或刷新页面')
+}
+
+function openCaseDialog(m: ChatMessage) {
+  if (!m.id) { ElMessage.warning('消息尚未保存完成'); return }
+  Object.assign(caseForm, {
+    assistantMessageId: m.id, kind: 'BAD', expectedAnswer: '', note: ''
+  })
+  caseVisible.value = true
+}
+
+async function saveCase() {
+  if (caseForm.kind === 'BAD' && !caseForm.expectedAnswer.trim()) {
+    ElMessage.warning('坏例建议填写期望答案；也可先收藏，稍后在用例库审核时补充')
+  }
+  caseSaving.value = true
+  try {
+    await http.post('/cases', {
+      assistantMessageId: caseForm.assistantMessageId,
+      kind: caseForm.kind,
+      expectedAnswer: caseForm.expectedAnswer || null,
+      note: caseForm.note || null
+    })
+    ElMessage.success('已收藏到用例库（待审核）')
+    caseVisible.value = false
+  } finally {
+    caseSaving.value = false
+  }
 }
 
 async function copyMessage(m: ChatMessage) {

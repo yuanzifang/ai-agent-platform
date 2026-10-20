@@ -50,6 +50,7 @@ public class ConversationService {
     private final com.platform.system.service.AuditService auditService;
     private final com.platform.system.mapper.AgentUserGrantMapper grantMapper;
     private final com.platform.eval.service.EvalService evalService;
+    private final com.platform.agent.service.CaseService caseService;
     private final ObjectMapper objectMapper;
 
     public Map<String, Object> list(String keyword, long page, long size, JwtPrincipal principal) {
@@ -273,6 +274,7 @@ public class ConversationService {
         // upsert 语义：重复提交同类型 = 取消反馈；不同类型 = 切换
         if (existing != null && existing.getType().equals(type)) {
             feedbackMapper.deleteById(existing.getId());
+            caseService.archiveAuto(messageId);
             return;
         }
         if (existing != null) {
@@ -288,6 +290,7 @@ public class ConversationService {
         f.setTenantId(principal.tenantId());
         f.setCreatedAt(LocalDateTime.now());
         feedbackMapper.insert(f);
+        caseService.captureFeedback(conversationId, messageId, type, comment, principal);
         // 点踩自动触发 FEEDBACK 评测复核（需求 3.14(2)，P1 开关默认开）
         if ("DOWN".equals(type)) {
             evalService.triggerFeedbackEval(conversationId, messageId, principal.tenantId());

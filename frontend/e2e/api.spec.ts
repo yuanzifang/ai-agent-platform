@@ -1138,3 +1138,79 @@ test('长期记忆自动生成与用户画像', async ({ request }) => {
     await deleteAgent(request, token!, agentId)
   }
 })
+
+
+test('对话用例库：反馈沉淀与模型回归', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E 用例库-${Date.now()}`)
+  let conversationId: number | null = null
+  const caseIds: number[] = []
+  let runId: number | null = null
+  try {
+    await publishAgent(request, token!, agentId)
+    const conv = await request.post(`${P}/conversations`, {
+      headers: auth(token!), data: { agentId, title: '用例库' }
+    })
+    conversationId = (await conv.json()).data.id
+
+    const send = async (message: string) => {
+      const res = await request.post(`${P}/conversations/${conversationId}/messages`, {
+        headers: auth(token!), data: { message, stream: false }, timeout: 60_000
+      })
+      const body = await res.json()
+      expect(body.code, JSON.stringify(body)).toBe(0)
+      return body.data.messageId as number
+    }
+    const first = await send('只回答OK')
+    await request.post(`${P}/conversations/${conversationId}/messages/${first}/feedback`, {
+      headers: auth(token!), data: { type: 'DOWN', comment: '答非所问' }
+    })
+    const second = await send('只回答OK')
+    await request.post(`${P}/conversations/${conversationId}/messages/${second}/feedback`, {
+      headers: auth(token!), data: { type: 'UP' }
+    })
+
+    const list = await (await request.get(`${P}/cases`, { headers: auth(token!) })).json()
+    const bad = (list.data.list || []).find((c: any) => c.assistantMessageId === first)
+    const classic = (list.data.list || []).find((c: any) => c.assistantMessageId === second)
+    expect(bad?.kind).toBe('BAD')
+    expect(bad?.source).toBe('AUTO_BAD')
+    expect(classic?.kind).toBe('CLASSIC')
+    caseIds.push(bad.id, classic.id)
+
+    const noExpected = await request.put(`${P}/cases/${bad.id}`, {
+      headers: auth(token!), data: { status: 'APPROVED' }
+    })
+    expect((await noExpected.json()).code, '坏例缺少期望答案应拒绝审核').toBe(400)
+    for (const id of caseIds) {
+      const upd = await request.put(`${P}/cases/${id}`, {
+        headers: auth(token!), data: { status: 'APPROVED', expectedAnswer: 'OK' }
+      })
+      expect((await upd.json()).code).toBe(0)
+    }
+
+    const run = await request.post(`${P}/cases/run`, {
+      headers: auth(token!),
+      data: { modelName: 'deepseek-flash', judgeModel: 'deepseek-flash', caseIds },
+      timeout: 120_000
+    })
+    const runBody = await run.json()
+    expect(runBody.code, JSON.stringify(runBody)).toBe(0)
+    runId = runBody.data.id
+    expect(runBody.data.total).toBe(2)
+    expect(runBody.data.passed).toBe(2)
+    expect(runBody.data.items.length).toBe(2)
+  } finally {
+    if (runId) {
+      // 回归记录保留用于审计；用例本身删除
+    }
+    for (const id of caseIds) {
+      await request.delete(`${P}/cases/${id}`, { headers: auth(token!) })
+    }
+    if (conversationId) {
+      await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
+    }
+    await deleteAgent(request, token!, agentId)
+  }
+})

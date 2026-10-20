@@ -51,6 +51,9 @@
           <el-menu-item index="/memories">
             <el-icon><Reading /></el-icon>长期记忆
           </el-menu-item>
+          <el-menu-item index="/cases">
+            <el-icon><Files /></el-icon>用例库
+          </el-menu-item>
           <el-menu-item index="/square">
             <el-icon><Star /></el-icon>Agent 广场
           </el-menu-item>

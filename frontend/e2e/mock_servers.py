@@ -39,8 +39,8 @@ def answer_for(body):
     if tools and ("计算" in last_user or "calc" in json.dumps(tools).lower()):
         name = tools[0].get("function", {}).get("name", "calculator")
         return {"tool_call": name}
-    if "只回答OK" in system or "只回答OK" in last_user:
-        return "OK"
+    if "模型回归裁判" in system:
+        return json.dumps({"score": 0.9, "reason": "语义一致"}, ensure_ascii=False)
     if "质量审查" in system:
         return json.dumps({"score": 0.2, "issues": "信息不完整", "revised": "这是纠正后的答案。"},
                           ensure_ascii=False)
@@ -53,6 +53,8 @@ def answer_for(body):
         return "这是正常的流式内容。" * 10 + "赌博内容"
     if "触发审核" in last_user:
         return "这是模拟回答：赌博内容示例。"
+    if "只回答OK" in system or "只回答OK" in last_user:
+        return "OK"
     if "markdown测试" in last_user:
         return "**加粗文本**\n\n| 列A | 列B |\n| --- | --- |\n| 1 | 2 |\n\n```js\nconst answer = 42\nconsole.log(answer)\n```"
     if "裁判" in system or "评分" in system:
