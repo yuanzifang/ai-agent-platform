@@ -18,64 +18,91 @@ import java.util.Map;
 public class VectorRepository {
 
     private final JdbcTemplate pgJdbcTemplate; // 由 PgVectorConfig 提供，指向 PostgreSQL
-
-    @Value("${embedding.dimensions:768}")
-    private int dimensions;
+    private final EmbeddingProperties embeddingProperties;
 
     public void ensureTenantSchema(Long tenantId) {
         String schema = schema(tenantId);
         pgJdbcTemplate.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
-        pgJdbcTemplate.execute("""
-                CREATE TABLE IF NOT EXISTS %s.embeddings (
-                    id BIGSERIAL PRIMARY KEY,
-                    content TEXT NOT NULL,
-                    embedding vector(%d) NOT NULL,
-                    metadata JSONB NOT NULL,
-                    created_at TIMESTAMPTZ DEFAULT now()
-                )
-                """.formatted(schema, dimensions));
-        pgJdbcTemplate.execute("""
-                CREATE INDEX IF NOT EXISTS idx_embeddings_kbid ON %s.embeddings ((metadata->>'knowledge_base_id'))
-                """.formatted(schema));
+        for (int dim : embeddingProperties.models().values().stream().distinct().toList()) {
+            String table = table(dim);
+            pgJdbcTemplate.execute("""
+                    CREATE TABLE IF NOT EXISTS %s.%s (
+                        id BIGSERIAL PRIMARY KEY,
+                        content TEXT NOT NULL,
+                        embedding vector(%d) NOT NULL,
+                        metadata JSONB NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """.formatted(schema, table, dim));
+            pgJdbcTemplate.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_%s_kbid ON %s.%s ((metadata->>'knowledge_base_id'))
+                    """.formatted(table, schema, table));
+        }
     }
 
-    /** 批量写入分段向量。 */
+    /** 批量写入分段向量（默认维度）。 */
     public void saveBatch(Long tenantId, List<Map<String, Object>> rows) {
-        String schema = schema(tenantId);
+        saveBatch(tenantId, rows, embeddingProperties.getDimensions());
+    }
+
+    public void saveBatch(Long tenantId, List<Map<String, Object>> rows, int dimensions) {
+        String table = "%s.%s".formatted(schema(tenantId), table(dimensions));
         rows.forEach(r -> pgJdbcTemplate.update(
-                "INSERT INTO %s.embeddings (content, embedding, metadata) VALUES (?, ?::vector, ?::jsonb)"
-                        .formatted(schema),
+                "INSERT INTO %s (content, embedding, metadata) VALUES (?, ?::vector, ?::jsonb)"
+                        .formatted(table),
                 r.get("content"), vectorLiteral((float[]) r.get("embedding")), r.get("metadata")));
+    }
+
+    public List<Map<String, Object>> search(Long tenantId, float[] queryVector, Long knowledgeBaseId,
+                                            int topK, double threshold) {
+        return search(tenantId, queryVector, knowledgeBaseId, topK, threshold,
+                embeddingProperties.getDimensions());
     }
 
     /**
      * 相似度检索：cosine（<=> 为距离，score = 1 - 距离），按 knowledge_base_id 过滤。
      */
     public List<Map<String, Object>> search(Long tenantId, float[] queryVector, Long knowledgeBaseId,
-                                            int topK, double threshold) {
+                                            int topK, double threshold, int dimensions) {
         String q = vectorLiteral(queryVector);
         return pgJdbcTemplate.queryForList("""
                 SELECT id, content, metadata, 1 - (embedding <=> ?::vector) AS score
-                FROM %s.embeddings
+                FROM %s.%s
                 WHERE metadata->>'knowledge_base_id' = ?
                   AND 1 - (embedding <=> ?::vector) >= ?
                 ORDER BY embedding <=> ?::vector
                 LIMIT ?
-                """.formatted(schema(tenantId)),
+                """.formatted(schema(tenantId), table(dimensions)),
                 q, String.valueOf(knowledgeBaseId), q, threshold, q, topK);
     }
 
     public void deleteByDocument(Long tenantId, Long documentId) {
-        pgJdbcTemplate.update(
-                "DELETE FROM %s.embeddings WHERE metadata->>'document_id' = ?".formatted(schema(tenantId)),
-                String.valueOf(documentId));
+        for (String table : tables()) {
+            pgJdbcTemplate.update(
+                    "DELETE FROM %s.%s WHERE metadata->>'document_id' = ?"
+                            .formatted(schema(tenantId), table),
+                    String.valueOf(documentId));
+        }
     }
 
-    /** 删除知识库时级联清理全部向量（需求 3.6.4 / 架构 6.5）。 */
+    /** 删除知识库时级联清理全部维度向量（需求 3.6.4 / 架构 6.5）。 */
     public void deleteByKnowledgeBase(Long tenantId, Long knowledgeBaseId) {
-        pgJdbcTemplate.update(
-                "DELETE FROM %s.embeddings WHERE metadata->>'knowledge_base_id' = ?".formatted(schema(tenantId)),
-                String.valueOf(knowledgeBaseId));
+        for (String table : tables()) {
+            pgJdbcTemplate.update(
+                    "DELETE FROM %s.%s WHERE metadata->>'knowledge_base_id' = ?"
+                            .formatted(schema(tenantId), table),
+                    String.valueOf(knowledgeBaseId));
+        }
+    }
+
+    String table(int dimensions) {
+        return dimensions == embeddingProperties.getDimensions()
+                ? "embeddings" : "embeddings_" + dimensions;
+    }
+
+    private List<String> tables() {
+        return embeddingProperties.models().values().stream().distinct()
+                .map(this::table).toList();
     }
 
     private String schema(Long tenantId) {

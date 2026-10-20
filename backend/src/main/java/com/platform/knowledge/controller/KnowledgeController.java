@@ -2,6 +2,7 @@ package com.platform.knowledge.controller;
 
 import com.platform.common.response.ApiResponse;
 import com.platform.knowledge.entity.KnowledgeDocument;
+import com.platform.knowledge.service.EmbeddingService;
 import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.knowledge.service.KnowledgeService;
 import com.platform.security.JwtPrincipal;
@@ -26,12 +27,14 @@ public class KnowledgeController {
 
     private final KnowledgeService knowledgeService;
     private final KnowledgePermissionService permissionService;
+    private final EmbeddingService embeddingService;
 
     private static KnowledgePermissionService.Viewer viewer(JwtPrincipal principal) {
         return KnowledgePermissionService.Viewer.of(principal.userId(), principal.roles());
     }
 
-    public record CreateKbRequest(@NotBlank String name, String description, String visibility) {
+    public record CreateKbRequest(@NotBlank String name, String description, String visibility,
+                                  String embeddingModel) {
     }
 
     @PostMapping
@@ -39,7 +42,7 @@ public class KnowledgeController {
     public ApiResponse<Map<String, Object>> create(@Valid @RequestBody CreateKbRequest req,
                                                    @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(knowledgeService.create(req.name(), req.description(), req.visibility(),
-                principal.userId()));
+                req.embeddingModel(), principal.userId()));
     }
 
     /** 列表：可见性过滤 + 搜索 + 分页（仅返回当前用户可见的知识库）。 */
@@ -58,15 +61,21 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.detail(id, viewer(principal)));
     }
 
-    public record UpdateKbRequest(@NotBlank String name, String description) {
+    public record UpdateKbRequest(@NotBlank String name, String description, String embeddingModel) {
     }
 
     /** 编辑名称/描述（需编辑权限）。 */
     @PutMapping("/{id}")
     public ApiResponse<Void> update(@PathVariable Long id, @Valid @RequestBody UpdateKbRequest req,
                                     @AuthenticationPrincipal JwtPrincipal principal) {
-        knowledgeService.update(id, req.name(), req.description(), viewer(principal));
+        knowledgeService.update(id, req.name(), req.description(), req.embeddingModel(), viewer(principal));
         return ApiResponse.ok();
+    }
+
+    /** 可选的 embedding 模型（名称 + 维度），供知识库创建/编辑下拉。 */
+    @GetMapping("/embedding-models")
+    public ApiResponse<List<Map<String, Object>>> embeddingModels() {
+        return ApiResponse.ok(embeddingService.availableModels());
     }
 
     /** 删除前查询引用该知识库的 Agent（需求 3.6.3(6)：被引用时需提示）。 */

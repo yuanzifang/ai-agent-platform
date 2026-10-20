@@ -85,7 +85,8 @@ public class KnowledgeService {
     @Resource(name = "documentParseExecutor")
     private ThreadPoolTaskExecutor documentParseExecutor;
 
-    public Map<String, Object> create(String name, String description, String visibility, Long userId) {
+    public Map<String, Object> create(String name, String description, String visibility,
+                                      String embeddingModel, Long userId) {
         quotaService.checkKnowledgeBaseCreate();
         KnowledgeBase kb = new KnowledgeBase();
         kb.setName(name);
@@ -93,7 +94,12 @@ public class KnowledgeService {
         kb.setTenantId(TenantContext.getTenantId());
         kb.setCreatedBy(userId);
         kb.setVisibility("PRIVATE".equalsIgnoreCase(visibility) ? "PRIVATE" : "TENANT");
-        kb.setEmbeddingModel(embeddingService.model());
+        String model = embeddingModel == null || embeddingModel.isBlank()
+                ? embeddingService.model() : embeddingModel.trim();
+        if (!embeddingService.supports(model)) {
+            throw new BusinessException(400, "未配置的 embedding 模型：" + model);
+        }
+        kb.setEmbeddingModel(model);
         kb.setIndexVersion("v1");
         kb.setCreatedAt(LocalDateTime.now());
         kbMapper.insert(kb);
@@ -102,15 +108,31 @@ public class KnowledgeService {
     }
 
     /** 编辑名称/描述（需求 3.6.3(6)）；需编辑权限。 */
-    public void update(Long id, String name, String description,
+    public void update(Long id, String name, String description, String embeddingModel,
                        KnowledgePermissionService.Viewer viewer) {
         KnowledgeBase kb = permissionService.requireEdit(id, viewer);
         if (name == null || name.isBlank()) throw new BusinessException(400, "知识库名称不能为空");
+        String model = kb.getEmbeddingModel();
+        if (embeddingModel != null && !embeddingModel.isBlank()
+                && !embeddingModel.trim().equals(model)) {
+            if (!embeddingService.supports(embeddingModel.trim())) {
+                throw new BusinessException(400, "未配置的 embedding 模型：" + embeddingModel);
+            }
+            long chunks = chunkMapper.selectCount(new LambdaQueryWrapper<KnowledgeChunk>()
+                    .eq(KnowledgeChunk::getKnowledgeBaseId, id));
+            if (chunks > 0) {
+                throw new BusinessException(400,
+                        "已有文档使用当前 embedding 模型，不能直接切换；请先清空文档或新建知识库");
+            }
+            model = embeddingModel.trim();
+        }
+        final String finalModel = model;
         kbMapper.update(null, new LambdaUpdateWrapper<KnowledgeBase>()
                 .eq(KnowledgeBase::getId, id)
                 .set(KnowledgeBase::getName, name.trim())
                 .set(KnowledgeBase::getDescription,
-                        description == null || description.isBlank() ? null : description.trim()));
+                        description == null || description.isBlank() ? null : description.trim())
+                .set(KnowledgeBase::getEmbeddingModel, finalModel));
         auditService.record(viewer.userId(), "kb.update", "knowledge", String.valueOf(id), "SUCCESS",
                 Map.of("name", name.trim()));
         log.info("知识库已更新：id={} name={}", kb.getId(), name.trim());
@@ -504,9 +526,14 @@ public class KnowledgeService {
     /** 单次解析：上传对象 → 分段 → 嵌入 → 向量落库。失败时由 doParse 清理残留并重试。 */
     private void parseOnce(KnowledgeDocument doc) throws Exception {
         byte[] bytes = storage.get(doc.getObjectName());
+        KnowledgeBase kb = kbMapper.selectById(doc.getKnowledgeBaseId());
+        String embeddingModel = kb == null || kb.getEmbeddingModel() == null
+                || kb.getEmbeddingModel().isBlank()
+                ? embeddingService.model() : kb.getEmbeddingModel();
+        int embeddingDimensions = embeddingService.dimension(embeddingModel);
         List<DocumentParser.ParsedChunk> chunks = parser.parseWithParents(doc.getFileName(), bytes);
         float[][] vectors = embeddingService.embedBatch(
-                chunks.stream().map(DocumentParser.ParsedChunk::content).toList());
+                chunks.stream().map(DocumentParser.ParsedChunk::content).toList(), embeddingModel);
 
         List<Map<String, Object>> rows = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
@@ -531,12 +558,13 @@ public class KnowledgeService {
                     "chunk_id", chunk.getId(),
                     "chunk_index", i,
                     "parent_index", parsed.parentIndex(),
+                    "embedding_model", embeddingModel,
                     "file_name", doc.getFileName())));
             rows.add(row);
         }
-        vectorRepository.saveBatch(doc.getTenantId(), rows);
+        vectorRepository.saveBatch(doc.getTenantId(), rows, embeddingDimensions);
         updateStatus(doc, "DONE", chunks.size(), null);
-        recordEmbeddingUsage(doc, chunks.size());
+        recordEmbeddingUsage(doc, chunks.size(), embeddingModel);
         log.info("文档解析完成：doc={} chunks={}", doc.getId(), chunks.size());
     }
 
@@ -606,7 +634,7 @@ public class KnowledgeService {
         docMapper.updateById(patch);
     }
 
-    private void recordEmbeddingUsage(KnowledgeDocument doc, int chunkCount) {
+    private void recordEmbeddingUsage(KnowledgeDocument doc, int chunkCount, String embeddingModel) {
         try {
             BillingUsage u = new BillingUsage();
             u.setTenantId(doc.getTenantId());

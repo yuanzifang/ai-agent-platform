@@ -54,6 +54,13 @@
         <el-form-item label="描述">
           <el-input v-model="editForm.description" type="textarea" :rows="2" maxlength="512" />
         </el-form-item>
+        <el-form-item label="嵌入模型">
+          <el-select v-model="editForm.embeddingModel" :disabled="editForm.documentCount > 0" style="width: 260px">
+            <el-option v-for="m in embeddingModels" :key="m.name" :value="m.name"
+                       :label="`${m.name}（${m.dimensions} 维）`" />
+          </el-select>
+          <span v-if="editForm.documentCount > 0" class="hint">已有文档使用当前模型，不能直接切换</span>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
@@ -68,6 +75,13 @@
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="form.description" type="textarea" :rows="2" />
+        </el-form-item>
+        <el-form-item label="嵌入模型">
+          <el-select v-model="form.embeddingModel" style="width: 260px">
+            <el-option v-for="m in embeddingModels" :key="m.name" :value="m.name"
+                       :label="`${m.name}（${m.dimensions} 维）`" />
+          </el-select>
+          <span class="hint">需先在 Ollama 拉取对应模型；不同维度向量分表存储</span>
         </el-form-item>
         <el-form-item label="可见范围">
           <el-radio-group v-model="form.visibility">
@@ -108,10 +122,11 @@ const visibility = ref('')
 const loading = ref(false)
 const createVisible = ref(false)
 const creating = ref(false)
-const form = reactive({ name: '', description: '', visibility: 'TENANT' })
+const embeddingModels = ref<any[]>([])
+const form = reactive({ name: '', description: '', visibility: 'TENANT', embeddingModel: '' })
 const editVisible = ref(false)
 const editSaving = ref(false)
-const editForm = reactive({ id: 0, name: '', description: '' })
+const editForm = reactive({ id: 0, name: '', description: '', embeddingModel: '', documentCount: 0 })
 
 async function load() {
   loading.value = true
@@ -140,6 +155,8 @@ function openEdit(kb: Kb) {
   editForm.id = kb.id
   editForm.name = kb.name
   editForm.description = kb.description || ''
+  editForm.embeddingModel = kb.embeddingModel
+  editForm.documentCount = kb.documentCount || 0
   editVisible.value = true
 }
 
@@ -148,7 +165,8 @@ async function saveEdit() {
   editSaving.value = true
   try {
     await http.put(`/knowledge-base/${editForm.id}`, {
-      name: editForm.name.trim(), description: editForm.description
+      name: editForm.name.trim(), description: editForm.description,
+      embeddingModel: editForm.embeddingModel
     })
     ElMessage.success('已保存')
     editVisible.value = false
@@ -183,13 +201,15 @@ async function create() {
   creating.value = true
   try {
     await http.post('/knowledge-base', {
-      name: form.name, description: form.description, visibility: form.visibility
+      name: form.name, description: form.description, visibility: form.visibility,
+      embeddingModel: form.embeddingModel
     })
     ElMessage.success('已创建')
     createVisible.value = false
     form.name = ''
     form.description = ''
     form.visibility = 'TENANT'
+    form.embeddingModel = embeddingModels.value.find((m: any) => m.default)?.name || ''
     await load()
   } finally {
     creating.value = false
@@ -206,7 +226,15 @@ function formatDate(t?: string) {
   return t ? String(t).replace('T', ' ').slice(0, 16) : ''
 }
 
-onMounted(load)
+onMounted(async () => {
+  try {
+    embeddingModels.value = await http.get('/knowledge-base/embedding-models') as any
+    form.embeddingModel = embeddingModels.value.find((m: any) => m.default)?.name || ''
+  } catch {
+    // 选项加载失败时后端仍会使用默认模型
+  }
+  await load()
+})
 </script>
 
 <style scoped>

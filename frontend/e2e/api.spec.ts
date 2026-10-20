@@ -1027,3 +1027,37 @@ test('长期记忆注入与编辑', async ({ request }) => {
     await deleteAgent(request, token!, agentId)
   }
 })
+
+test('知识库按库选择 embedding 模型', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const modelsRes = await request.get(`${P}/knowledge-base/embedding-models`, { headers: auth(token!) })
+  const modelsBody = await modelsRes.json()
+  expect(modelsBody.code).toBe(0)
+  const names = (modelsBody.data || []).map((m: any) => m.name)
+  expect(names).toContain('nomic-embed-text')
+  expect(names).toContain('bge-m3')
+
+  const create = await request.post(`${P}/knowledge-base`, {
+    headers: auth(token!),
+    data: { name: `E2E 多模型-${Date.now()}`, description: 'embedding 选择', visibility: 'PRIVATE',
+      embeddingModel: 'bge-m3' }
+  })
+  const created = await create.json()
+  expect(created.code, JSON.stringify(created)).toBe(0)
+  const kbId = created.data.id as number
+  try {
+    const detail = await (await request.get(`${P}/knowledge-base/${kbId}`, { headers: auth(token!) })).json()
+    expect(detail.data.embeddingModel).toBe('bge-m3')
+
+    const update = await request.put(`${P}/knowledge-base/${kbId}`, {
+      headers: auth(token!),
+      data: { name: `E2E 多模型-${kbId}`, description: '切换 nomic', embeddingModel: 'nomic-embed-text' }
+    })
+    expect((await update.json()).code, '无文档时应允许切换').toBe(0)
+    const detail2 = await (await request.get(`${P}/knowledge-base/${kbId}`, { headers: auth(token!) })).json()
+    expect(detail2.data.embeddingModel).toBe('nomic-embed-text')
+  } finally {
+    await request.delete(`${P}/knowledge-base/${kbId}?force=true`, { headers: auth(token!) })
+  }
+})

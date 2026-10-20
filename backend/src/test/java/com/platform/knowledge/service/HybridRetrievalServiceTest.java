@@ -2,6 +2,7 @@ package com.platform.knowledge.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.common.exception.BusinessException;
+import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.knowledge.mapper.KnowledgeChunkMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,7 @@ class HybridRetrievalServiceTest {
     private EmbeddingService embedding;
     private VectorRepository vectorRepository;
     private KnowledgeChunkMapper chunkMapper;
+    private KnowledgeBaseMapper kbMapper;
     private HybridRetrievalService service;
 
     @BeforeEach
@@ -35,15 +37,19 @@ class HybridRetrievalServiceTest {
         embedding = mock(EmbeddingService.class);
         vectorRepository = mock(VectorRepository.class);
         chunkMapper = mock(KnowledgeChunkMapper.class);
-        service = new HybridRetrievalService(embedding, vectorRepository, chunkMapper, new ObjectMapper());
+        kbMapper = mock(KnowledgeBaseMapper.class);
+        when(embedding.model()).thenReturn("nomic-embed-text");
+        when(embedding.dimension(anyString())).thenReturn(768);
+        service = new HybridRetrievalService(embedding, vectorRepository, chunkMapper, kbMapper,
+                new ObjectMapper());
         ReflectionTestUtils.setField(service, "hybridEnabled", true);
         ReflectionTestUtils.setField(service, "defaultKeywordWeight", 0.35);
     }
 
     @Test
     void hybridMergesByChunkIdWithRrf() {
-        when(embedding.embedOne("滤芯")).thenReturn(new float[]{0.1f, 0.2f});
-        when(vectorRepository.search(anyLong(), any(float[].class), anyLong(), anyInt(), anyDouble()))
+        when(embedding.embedOne(eq("滤芯"), anyString())).thenReturn(new float[]{0.1f, 0.2f});
+        when(vectorRepository.search(anyLong(), any(float[].class), anyLong(), anyInt(), anyDouble(), anyInt()))
                 .thenReturn(List.of(Map.of("content", "A", "score", 0.9,
                         "metadata", "{\"chunk_id\":1,\"document_id\":1}")));
         when(chunkMapper.searchFulltext(eq(1L), anyString(), anyInt())).thenReturn(List.of(
@@ -62,8 +68,8 @@ class HybridRetrievalServiceTest {
 
     @Test
     void vectorModeSkipsKeyword() {
-        when(embedding.embedOne("q")).thenReturn(new float[]{0.1f});
-        when(vectorRepository.search(anyLong(), any(float[].class), anyLong(), anyInt(), anyDouble()))
+        when(embedding.embedOne(eq("q"), anyString())).thenReturn(new float[]{0.1f});
+        when(vectorRepository.search(anyLong(), any(float[].class), anyLong(), anyInt(), anyDouble(), anyInt()))
                 .thenReturn(List.of(Map.of("content", "A", "score", 0.8,
                         "metadata", "{\"chunk_id\":1}")));
 
@@ -76,7 +82,7 @@ class HybridRetrievalServiceTest {
 
     @Test
     void hybridFallsBackToKeywordWhenEmbeddingFails() {
-        when(embedding.embedOne("q")).thenThrow(new BusinessException(502, "ollama down"));
+        when(embedding.embedOne(eq("q"), anyString())).thenThrow(new BusinessException(502, "ollama down"));
         when(chunkMapper.searchFulltext(eq(1L), anyString(), anyInt())).thenReturn(List.of(
                 Map.of("id", 9, "content", "关键字命中", "score", 4, "document_id", 1, "chunk_index", 0)));
 

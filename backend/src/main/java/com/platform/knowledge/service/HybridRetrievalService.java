@@ -28,6 +28,7 @@ public class HybridRetrievalService {
     private final EmbeddingService embeddingService;
     private final VectorRepository vectorRepository;
     private final KnowledgeChunkMapper chunkMapper;
+    private final com.platform.knowledge.mapper.KnowledgeBaseMapper kbMapper;
     private final ObjectMapper objectMapper;
 
     @Value("${retrieval.hybrid.enabled:true}")
@@ -76,10 +77,15 @@ public class HybridRetrievalService {
         if (!"keyword".equals(mode)) {
             long start = System.currentTimeMillis();
             try {
-                float[] vector = embeddingService.embedOne(q);
+                com.platform.knowledge.entity.KnowledgeBase kb = kbMapper.selectById(kbId);
+                String embeddingModel = kb == null || kb.getEmbeddingModel() == null
+                        || kb.getEmbeddingModel().isBlank()
+                        ? embeddingService.model() : kb.getEmbeddingModel();
+                int dimensions = embeddingService.dimension(embeddingModel);
+                float[] vector = embeddingService.embedOne(q, embeddingModel);
                 embedMs = System.currentTimeMillis() - start;
                 long searchStart = System.currentTimeMillis();
-                vectorHits = vectorRepository.search(tenantId, vector, kbId, candidates, threshold);
+                vectorHits = vectorRepository.search(tenantId, vector, kbId, candidates, threshold, dimensions);
                 searchMs = System.currentTimeMillis() - searchStart;
             } catch (Exception e) {
                 log.warn("向量检索失败，尝试关键字兜底 kb={}：{}", kbId, e.getMessage());

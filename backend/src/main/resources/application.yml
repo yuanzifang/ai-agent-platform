@@ -87,8 +87,13 @@ llm:
 embedding:
   provider: ollama
   endpoint: ${OLLAMA_ENDPOINT:http://localhost:11434}
-  model: nomic-embed-text
-  dimensions: 768
+  model: ${EMBEDDING_MODEL:nomic-embed-text}
+  dimensions: ${EMBEDDING_DIMENSIONS:768}
+  # 知识库可选的 embedding 模型及维度（需先在 Ollama 拉取对应模型）
+  available:
+    nomic-embed-text: 768
+    bge-m3: 1024
+    bge-large-zh-v1.5: 1024
 
 skill:
   script:
