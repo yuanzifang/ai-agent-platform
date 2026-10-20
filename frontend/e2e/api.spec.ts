@@ -926,6 +926,32 @@ test('工作流 Loop 与节点错误策略', async ({ request }) => {
     expect(String(runBody.data.output)).toContain('[1]')
     expect(String(runBody.data.output)).toContain('[2]')
 
+    const limitWorkflow = {
+      name: 'E2E Loop超限', status: 'ENABLED',
+      definition: {
+        nodes: [
+          { id: 'start', type: 'START', name: '开始', next: 'loop1' },
+          { id: 'loop1', type: 'LOOP', name: '循环超限', items: ['A', 'B', 'C'],
+            bodyNode: 'llm1', maxIterations: 2, next: 'end' },
+          { id: 'llm1', type: 'LLM', name: '回复', prompt: '只回复OK', next: 'end' },
+          { id: 'end', type: 'END', name: '结束' }
+        ]
+      }
+    }
+    await request.put(`${P}/agent/${agentId}/workflow`, { headers: auth(token!), data: limitWorkflow })
+    const limited = await request.post(`${P}/agent/${agentId}/workflow/run`, {
+      headers: auth(token!), data: { input: '测试' }, timeout: 60_000
+    })
+    const limitedBody = await limited.json()
+    expect(limitedBody.code, JSON.stringify(limitedBody)).toBe(0)
+    expect(limitedBody.data.status).toBe('WAITING_APPROVAL')
+    const approvals = await (await request.get(`${P}/workflow/approvals`, {
+      headers: auth(token!), params: { status: 'PENDING', pageSize: 50 }
+    })).json()
+    const pending = (approvals.data.list || []).find((a: any) => a.runId === limitedBody.data.id)
+    expect(pending, '超过循环上限应创建人工审批').toBeTruthy()
+    expect(String(pending.title)).toContain('循环')
+
     const errorWorkflow = {
       name: 'E2E 节点错误策略', status: 'ENABLED',
       definition: {

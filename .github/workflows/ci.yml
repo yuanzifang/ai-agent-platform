@@ -175,8 +175,9 @@ jobs:
 
       - name: 放宽 E2E 租户限流
         run: |
+          # E2E 批量轮询会集中打到同一分钟，限流本身另有“配额阻断”用例覆盖
           docker exec ${{ job.services.mysql.id }} mysql -uroot -proot ai_agent_platform \
-            -e "UPDATE sys_tenant_quota SET max_api_calls_per_min=600;"
+            -e "UPDATE sys_tenant_quota SET max_api_calls_per_min=100000;"
 
       - name: 启动前端
         working-directory: frontend

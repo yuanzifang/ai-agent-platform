@@ -836,6 +836,16 @@
               </div>
               <el-input v-model="n.itemsText" type="textarea" :rows="2" class="mt8"
                         placeholder='JSON 数组（如 ["A","B"]）或每行/逗号分隔；支持 {{input}} / {{last}}' />
+              <div class="wf-line mt8">
+                <span class="hint">超过最大次数将暂停并转人工审批</span>
+                审批角色
+                <el-select v-model="n.requiredRole" clearable placeholder="OWNER/ADMIN" size="small" style="width: 150px">
+                  <el-option label="OWNER" value="OWNER" />
+                  <el-option label="ADMIN" value="ADMIN" />
+                  <el-option label="EDITOR" value="EDITOR" />
+                </el-select>
+                超时(分钟) <el-input-number v-model="n.timeoutMinutes" :min="0" :max="10080" size="small" />
+              </div>
             </template>
             <template v-else-if="n.type === 'JOIN'">
               <span class="hint">汇合节点：等待所有并行分支完成后继续</span>
@@ -1888,7 +1898,7 @@ function addWorkflowNode() {
   if (wfAddType.value === 'KNOWLEDGE') { node.mode = 'hybrid'; node.topK = 5; node.queryTemplate = '' }
   if (wfAddType.value === 'APPROVAL') { node.requiredRole = ''; node.timeoutMinutes = 0 }
   if (wfAddType.value === 'PARALLEL') { node.branches = []; node.joinNode = ''; node.next = ''; node.strategy = 'ALL_OR_NOTHING' }
-  if (wfAddType.value === 'LOOP') { node.bodyNode = ''; node.loopEnd = ''; node.itemsText = '["A","B"]'; node.maxIterations = 10 }
+  if (wfAddType.value === 'LOOP') { node.bodyNode = ''; node.loopEnd = ''; node.itemsText = '["A","B"]'; node.maxIterations = 10; node.requiredRole = ''; node.timeoutMinutes = 0 }
   if (['LLM','AGENT','TOOL','KNOWLEDGE'].includes(wfAddType.value)) { node.retryTimes = 0; node.onError = 'FAIL' }
   if (wfAddType.value === 'JOIN') node.next = 'end'
   if (wfAddType.value === 'CONDITION') {

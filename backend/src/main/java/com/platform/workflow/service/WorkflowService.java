@@ -486,11 +486,56 @@ public class WorkflowService {
                     output = run.getInputText();
                     next = str(node.get("next"));
                 } else if ("LOOP".equals(type)) {
-                    LoopResult loop = executeLoop(node, run, nodes, outputs, lastOutput, principal);
-                    output = loop.output();
-                    next = str(node.get("next"));
-                    run.setInputTokens(nz(run.getInputTokens()) + loop.inputTokens());
-                    run.setOutputTokens(nz(run.getOutputTokens()) + loop.outputTokens());
+                    try {
+                        LoopResult loop = executeLoop(node, run, nodes, outputs, lastOutput, principal);
+                        output = loop.output();
+                        next = str(node.get("next"));
+                        run.setInputTokens(nz(run.getInputTokens()) + loop.inputTokens());
+                        run.setOutputTokens(nz(run.getOutputTokens()) + loop.outputTokens());
+                    } catch (LoopLimitExceededException ex) {
+                        output = ex.getMessage() + "；待处理项预览：" + ex.preview;
+                        // 超出循环上限：创建人工审批并暂停，审批通过后从 LOOP.next 继续
+                        WorkflowApproval approval = new WorkflowApproval();
+                        approval.setRunId(run.getId());
+                        approval.setAgentId(run.getAgentId());
+                        approval.setTenantId(run.getTenantId());
+                        approval.setNodeId(nodeId);
+                        approval.setTitle(str(node.getOrDefault("limitTitle", "循环次数超限，需人工确认")));
+                        String requiredRole = str(node.get("requiredRole"));
+                        approval.setRequiredRole(requiredRole);
+                        int timeoutMinutes = toInt(node.get("timeoutMinutes"));
+                        if (timeoutMinutes > 0) {
+                            approval.setExpireAt(LocalDateTime.now().plusMinutes(timeoutMinutes));
+                        }
+                        approval.setPayload(output);
+                        approval.setStatus("PENDING");
+                        approval.setCreatedAt(LocalDateTime.now());
+                        approvalMapper.insert(approval);
+                        java.util.List<Long> recipients = requiredRole == null || requiredRole.isBlank()
+                                ? userMapper.findOwnerAdminUserIds(run.getTenantId())
+                                : userMapper.findUserIdsByRole(run.getTenantId(), requiredRole);
+                        if (recipients.isEmpty()) recipients = userMapper.findOwnerAdminUserIds(run.getTenantId());
+                        notificationService.notify(run.getTenantId(), recipients, "workflow_approval",
+                                "循环超限待处理：" + approval.getTitle(), output, "/approvals");
+                        nr.setStatus("WAITING");
+                        nr.setOutputText(truncate(output, 20000));
+                        nr.setEndedAt(LocalDateTime.now());
+                        nodeRunMapper.updateById(nr);
+                        List<Map<String, Object>> waitingOutputs = new ArrayList<>(outputs);
+                        waitingOutputs.add(Map.of("nodeId", nodeId, "name", name,
+                                "output", truncate(output, 1500)));
+                        run.setStatus("WAITING_APPROVAL");
+                        run.setCurrentNode(nodeId);
+                        run.setOutputText(truncate(output, 20000));
+                        run.setUpdatedAt(LocalDateTime.now());
+                        run.setContextJson(json(Map.of("outputs", waitingOutputs)));
+                        runMapper.updateById(run);
+                        auditService.record(run.getUserId(), "workflow.loop_limit", "workflow_run",
+                                String.valueOf(run.getId()), "WAITING_APPROVAL",
+                                Map.of("nodeId", nodeId, "requested", ex.requested,
+                                        "limit", ex.limit, "approvalId", approval.getId()));
+                        return;
+                    }
                 } else if ("PARALLEL".equals(type)) {
                     ParallelResult result = executeParallel(node, run, nodes, outputs, principal);
                     output = result.output();
@@ -638,6 +683,19 @@ public class WorkflowService {
     private record LoopResult(String output, long inputTokens, long outputTokens) {
     }
 
+    private static final class LoopLimitExceededException extends RuntimeException {
+        private final int requested;
+        private final int limit;
+        private final String preview;
+
+        LoopLimitExceededException(int requested, int limit, String preview) {
+            super("循环项数 " + requested + " 超过上限 " + limit + "，已暂停等待人工确认");
+            this.requested = requested;
+            this.limit = limit;
+            this.preview = preview;
+        }
+    }
+
     private record NodeResult(String output, long inputTokens, long outputTokens) {
     }
 
@@ -717,6 +775,11 @@ public class WorkflowService {
         int max = Math.max(1, Math.min(toInt(node.getOrDefault("maxIterations", 10)), 50));
         List<String> items = loopItems(node, run, lastOutput);
         if (items.isEmpty()) return new LoopResult(lastOutput == null ? "" : lastOutput, 0, 0);
+        if (items.size() > max) {
+            String preview = items.stream().limit(5).map(s -> truncate(s, 80))
+                    .reduce((a, b) -> a + " | " + b).orElse("");
+            throw new LoopLimitExceededException(items.size(), max, preview);
+        }
         StringBuilder merged = new StringBuilder("【循环结果】");
         long in = 0, out = 0;
         int count = Math.min(items.size(), max);
@@ -1050,6 +1113,10 @@ public class WorkflowService {
                 throw new BusinessException(400, "TOOL 节点必须选择工具");
             }
             if ("LOOP".equals(type)) {
+                int maxIterations = toInt(node.getOrDefault("maxIterations", 10));
+                if (maxIterations < 1 || maxIterations > 50) {
+                    throw new BusinessException(400, "LOOP maxIterations 必须在 1-50 之间");
+                }
                 String body = str(node.get("bodyNode"));
                 if (body == null || body.isBlank()) {
                     throw new BusinessException(400, "LOOP 节点必须配置 bodyNode");
