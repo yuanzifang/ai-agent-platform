@@ -1095,6 +1095,13 @@ test('自我纠正机制', async ({ request }) => {
     const body = await sent.json()
     expect(body.code, JSON.stringify(body)).toBe(0)
     expect(String(body.data.answer)).toContain('纠正后的答案')
+    const cases = await (await request.get(`${P}/cases`, {
+      headers: auth(token!), params: { source: 'AUTO_SELF_CORRECTION' }
+    })).json()
+    const captured = (cases.data.list || []).find((c: any) => c.assistantMessageId === body.data.messageId)
+    expect(captured, '自我纠正应自动沉淀坏例').toBeTruthy()
+    expect(String(captured.expectedAnswer)).toContain('纠正后的答案')
+    await request.delete(`${P}/cases/${captured.id}`, { headers: auth(token!) })
   } finally {
     if (conversationId) {
       await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })

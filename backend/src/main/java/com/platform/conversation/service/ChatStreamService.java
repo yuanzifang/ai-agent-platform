@@ -84,6 +84,7 @@ public class ChatStreamService {
     private final com.platform.agent.service.UserMemoryService userMemoryService;
     private final SelfCorrectionService selfCorrectionService;
     private final MemoryExtractionService memoryExtractionService;
+    private final com.platform.agent.service.CaseService caseService;
     @Value("${moderation.stream.buffer-chars:40}")
     private int streamModerateChars;
     @org.springframework.beans.factory.annotation.Qualifier("llmTaskExecutor")
@@ -194,6 +195,10 @@ public class ChatStreamService {
         if (lastUser == null) {
             throw new BusinessException(400, "找不到对应的用户消息，无法重新生成");
         }
+        caseService.captureAuto(conv.getTenantId(), conv.getAgentId(), conversationId,
+                lastUser.getId(), target.getId(), lastUser.getContent(), target.getContent(),
+                null, "BAD", "AUTO_REGENERATE", "用户重新生成", target.getTraceId(),
+                principal.userId());
         AgentRegistry agent = agentMapper.selectById(conv.getAgentId());
         Published published = publishedOrThrow(agent);
         Map<String, Object> config = published.config();
@@ -296,6 +301,8 @@ public class ChatStreamService {
         long[] lastLiveWrite = {0};
         StringBuilder pendingModeration = new StringBuilder();
         boolean[] outputBlocked = {false};
+        String[] selfCorrectionOriginal = {null};
+        String[] selfCorrectionIssues = {null};
         liveState.start(conv.getId(), traceId);
 
         ChatClient.ChatClientRequestSpec spec = buildSpec(modelName, systemPrompt, history,
@@ -334,6 +341,8 @@ public class ChatStreamService {
                     }
                     if (review.revised() != null && !review.revised().isBlank()
                             && !review.revised().equals(acc.toString())) {
+                        selfCorrectionOriginal[0] = acc.toString();
+                        selfCorrectionIssues[0] = review.issues();
                         acc.setLength(0);
                         acc.append(review.revised());
                         out.event("revision", Map.of("content", review.revised(),
@@ -352,6 +361,19 @@ public class ChatStreamService {
             long persistStart = System.currentTimeMillis();
             messageMapper.insert(ai);
             conversationService.touch(conv.getId());
+            if ("ERROR".equals(ai.getStatus()) || "BLOCKED".equals(ai.getStatus())) {
+                caseService.captureAuto(tenantId, conv.getAgentId(), conv.getId(), userMsg.getId(),
+                        ai.getId(), userMsg.getContent(), ai.getContent(), null, "BAD",
+                        "AUTO_" + ai.getStatus(), "消息状态：" + ai.getStatus(), traceId,
+                        conv.getUserId());
+            }
+            if (selfCorrectionOriginal[0] != null) {
+                caseService.captureAuto(tenantId, conv.getAgentId(), conv.getId(), userMsg.getId(),
+                        ai.getId(), userMsg.getContent(), selfCorrectionOriginal[0], ai.getContent(),
+                        "BAD", "AUTO_SELF_CORRECTION",
+                        "自我纠正：" + (selfCorrectionIssues[0] == null ? "" : selfCorrectionIssues[0]),
+                        traceId, conv.getUserId());
+            }
             if ("chat".equals(source)) {
                 memoryExtractionService.extractAsync(tenantId, conv.getUserId(), conv.getAgentId(),
                         usedModel.get(), userMsg.getContent(), ai.getContent());
@@ -457,6 +479,9 @@ public class ChatStreamService {
                         ai.setContent(acc.toString());
                         ai.setStatus("ERROR");
                         messageMapper.insert(ai);
+                        caseService.captureAuto(tenantId, conv.getAgentId(), conv.getId(), userMsg.getId(),
+                                ai.getId(), userMsg.getContent(), ai.getContent(), null, "BAD",
+                                "AUTO_ERROR", "生成失败：" + err.getMessage(), traceId, conv.getUserId());
                         liveState.finish(conv.getId(), traceId, acc.toString(), "ERROR", ai.getId(),
                                 tokens[0], tokens[1], citations);
                         traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
@@ -617,12 +642,19 @@ public class ChatStreamService {
         var metrics = com.platform.model.service.UsageMetrics.of(usage);
         long in = metrics.inputTokens();
         long out = metrics.outputTokens();
+        String selfCorrectionOriginal = null;
+        String selfCorrectionIssues = null;
         if (selfCorrectionEnabled(config)) {
             long reviewStart = System.currentTimeMillis();
             SelfCorrectionService.ReviewResult review = selfCorrectionService.review(
                     usedModel, userMsg.getContent(), answer == null ? "" : answer);
             if (review != null) {
-                if (review.revised() != null && !review.revised().isBlank()) answer = review.revised();
+                if (review.revised() != null && !review.revised().isBlank()
+                        && !review.revised().equals(answer)) {
+                    selfCorrectionOriginal = answer;
+                    selfCorrectionIssues = review.issues();
+                    answer = review.revised();
+                }
                 if (review.inputTokens() > 0 || review.outputTokens() > 0) {
                     recordUsage(tenantId, conv.getAgentId(), usedModel,
                             review.inputTokens(), review.outputTokens(), 0, 0, 0, "self-correction");
@@ -644,6 +676,18 @@ public class ChatStreamService {
         long persistStart = System.currentTimeMillis();
         messageMapper.insert(ai);
         conversationService.touch(conv.getId());
+        if ("BLOCKED".equals(ai.getStatus())) {
+            caseService.captureAuto(tenantId, conv.getAgentId(), conv.getId(), userMsg.getId(),
+                    ai.getId(), userMsg.getContent(), ai.getContent(), null, "BAD",
+                    "AUTO_BLOCKED", "输出触发安全策略", traceId, conv.getUserId());
+        }
+        if (selfCorrectionOriginal != null) {
+            caseService.captureAuto(tenantId, conv.getAgentId(), conv.getId(), userMsg.getId(),
+                    ai.getId(), userMsg.getContent(), selfCorrectionOriginal, ai.getContent(),
+                    "BAD", "AUTO_SELF_CORRECTION",
+                    "自我纠正：" + (selfCorrectionIssues == null ? "" : selfCorrectionIssues),
+                    traceId, conv.getUserId());
+        }
         if ("chat".equals(source)) {
             memoryExtractionService.extractAsync(tenantId, conv.getUserId(), conv.getAgentId(),
                     usedModel, userMsg.getContent(), ai.getContent());

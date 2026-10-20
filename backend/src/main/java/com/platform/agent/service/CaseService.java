@@ -27,6 +27,7 @@ import com.platform.system.service.AuditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -60,6 +61,8 @@ public class CaseService {
     private final EvalService evalService;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
+    @Qualifier("llmTaskExecutor")
+    private final org.springframework.core.task.TaskExecutor llmExecutor;
 
     /** 反馈回调：UP→经典候选，DOWN→坏例候选；同一消息只保留一条，重复反馈更新类型。 */
     public void captureFeedback(Long conversationId, Long assistantMessageId, String type,
@@ -106,6 +109,57 @@ public class CaseService {
             log.info("用例库沉淀：kind={} message={}", c.getKind(), assistantMessageId);
         } catch (Exception e) {
             log.warn("用例库自动沉淀失败（不影响反馈）：{}", e.getMessage());
+        }
+    }
+
+    /** 通用自动沉淀：ERROR/BLOCKED/自我纠正/重新生成等。 */
+    public void captureAuto(Long tenantId, Long agentId, Long conversationId,
+                            Long userMessageId, Long assistantMessageId, String question,
+                            String actualAnswer, String expectedAnswer, String kind,
+                            String source, String note, String traceId, Long createdBy) {
+        try {
+            if (assistantMessageId == null) return;
+            TestCase existing = caseMapper.selectOne(new LambdaQueryWrapper<TestCase>()
+                    .eq(TestCase::getAssistantMessageId, assistantMessageId).last("LIMIT 1"));
+            if (existing != null) {
+                // 已有人工收藏/反馈时，不用自动状态覆盖审核结果
+                if (existing.getSource() != null && existing.getSource().startsWith("AUTO_")
+                        && "CANDIDATE".equals(existing.getStatus())) {
+                    existing.setSource(source);
+                    existing.setKind(kind);
+                    existing.setNote(note);
+                    if (expectedAnswer != null && !expectedAnswer.isBlank()) {
+                        existing.setExpectedAnswer(expectedAnswer);
+                    }
+                    existing.setUpdatedAt(LocalDateTime.now());
+                    caseMapper.updateById(existing);
+                }
+                return;
+            }
+            long count = caseMapper.selectCount(new LambdaQueryWrapper<TestCase>()
+                    .eq(TestCase::getTenantId, tenantId));
+            if (count >= MAX_CASES) return;
+            TestCase c = new TestCase();
+            c.setTenantId(tenantId);
+            c.setAgentId(agentId);
+            c.setConversationId(conversationId);
+            c.setUserMessageId(userMessageId);
+            c.setAssistantMessageId(assistantMessageId);
+            c.setQuestion(question == null ? "" : question);
+            c.setActualAnswer(actualAnswer);
+            c.setExpectedAnswer(expectedAnswer);
+            c.setKind(kind == null ? "BAD" : kind);
+            c.setSource(source);
+            c.setStatus("CANDIDATE");
+            c.setNote(note);
+            c.setTraceId(traceId);
+            c.setCreatedBy(createdBy);
+            c.setCreatedAt(LocalDateTime.now());
+            c.setUpdatedAt(LocalDateTime.now());
+            caseMapper.insert(c);
+            log.info("自动沉淀用例：source={} message={}", source, assistantMessageId);
+        } catch (Exception e) {
+            log.warn("自动沉淀用例失败（忽略）：{}", e.getMessage());
         }
     }
 
@@ -263,6 +317,22 @@ public class CaseService {
         run.setCreatedAt(LocalDateTime.now());
         runMapper.insert(run);
 
+        boolean async = Boolean.TRUE.equals(req.get("async"))
+                || "true".equals(String.valueOf(req.get("async")));
+        if (async) {
+            final List<TestCase> queued = cases;
+            llmExecutor.execute(() -> com.platform.common.context.TenantContext.runWith(
+                    principal.tenantId(), () -> {
+                        executeRun(run, queued, modelName, judgeModel, principal);
+                        return null;
+                    }));
+            return runView(run);
+        }
+        return executeRun(run, cases, modelName, judgeModel, principal);
+    }
+
+    private Map<String, Object> executeRun(TestCaseRun run, List<TestCase> cases, String modelName,
+                                           String judgeModel, JwtPrincipal principal) {
         int passed = 0;
         double scoreSum = 0;
         int scored = 0;
