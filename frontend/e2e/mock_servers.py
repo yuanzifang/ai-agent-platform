@@ -468,6 +468,39 @@ class AnthropicHandler(BaseHTTPRequestHandler):
         pass
 
 
+class OtlpHandler(BaseHTTPRequestHandler):
+    """OTLP HTTP/Protobuf collector Mock：只统计请求与字节数，返回空 protobuf 成功响应。"""
+
+    stats = {"requests": 0, "bytes": 0}
+
+    def do_POST(self):
+        if self.path != "/v1/traces":
+            return self._json(404, {"error": "not found"})
+        raw = read_body(self)
+        OtlpHandler.stats["requests"] += 1
+        OtlpHandler.stats["bytes"] += len(raw or b"")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-protobuf")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def do_GET(self):
+        if self.path == "/stats":
+            return self._json(200, dict(OtlpHandler.stats))
+        self._json(404, {"error": "not found"})
+
+    def _json(self, code, obj):
+        data = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        pass
+
+
 def serve(port, handler):
     ThreadingHTTPServer(("127.0.0.1", port), handler).serve_forever()
 
@@ -477,4 +510,5 @@ if __name__ == "__main__":
     threading.Thread(target=serve, args=(11434, OllamaHandler), daemon=True).start()
     threading.Thread(target=serve, args=(18093, McpHandler), daemon=True).start()
     threading.Thread(target=serve, args=(18095, AnthropicHandler), daemon=True).start()
+    threading.Thread(target=serve, args=(18097, OtlpHandler), daemon=True).start()
     serve(18092, CaptureHandler)

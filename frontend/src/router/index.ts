@@ -15,6 +15,7 @@ const router = createRouter({
       children: [
         { path: '', redirect: '/agents' },
         { path: 'agents', component: () => import('../views/AgentListView.vue') },
+        { path: 'memories', component: () => import('../views/MemoryView.vue') },
         { path: 'agent/edit/:id', component: () => import('../views/AgentEditView.vue') },
         { path: 'knowledge', component: () => import('../views/KnowledgeListView.vue') },
         { path: 'skills', component: () => import('../views/SkillListView.vue') },

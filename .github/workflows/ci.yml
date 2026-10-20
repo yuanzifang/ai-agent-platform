@@ -109,6 +109,8 @@ jobs:
       SKILL_SCRIPT_ENABLED: 'true'
       TOOL_ALLOW_PRIVATE: 'true'
       RATE_LIMIT_PER_MINUTE: '600'
+      OTEL_ENABLED: 'true'
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:18097
 
     steps:
       - uses: actions/checkout@v4

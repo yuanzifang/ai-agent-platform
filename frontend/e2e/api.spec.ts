@@ -5,6 +5,7 @@ const P = '/api/v1'
 const MOCK = 'http://127.0.0.1:18092'
 const MCP_MOCK = 'http://127.0.0.1:18093'
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://localhost:8080'
+const OPENAI_MOCK = 'http://127.0.0.1:18080'
 
 function auth(token: string) {
   return { Authorization: `Bearer ${token}` }
@@ -946,6 +947,83 @@ test('工作流 Loop 与节点错误策略', async ({ request }) => {
     expect(String(run2Body.data.output)).toContain('节点失败')
   } finally {
     await request.delete(`${P}/agent/${agentId}/workflow`, { headers: auth(token!) })
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
+test('OTel Trace 导出', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const before = await (await request.get('http://127.0.0.1:18097/stats')).json()
+  const agentId = await createAgent(request, token!, `E2E OTel-${Date.now()}`)
+  let conversationId: number | null = null
+  try {
+    await publishAgent(request, token!, agentId)
+    const conv = await request.post(`${P}/conversations`, {
+      headers: auth(token!), data: { agentId, title: 'OTel 导出' }
+    })
+    conversationId = (await conv.json()).data.id
+    await request.post(`${P}/conversations/${conversationId}/messages`, {
+      headers: auth(token!),
+      data: { message: '只回答OK', stream: false },
+      timeout: 60_000
+    })
+    let after: any = before
+    for (let i = 0; i < 20; i++) {
+      await new Promise(resolve => setTimeout(resolve, 500))
+      after = await (await request.get('http://127.0.0.1:18097/stats')).json()
+      if (after.requests > before.requests) break
+    }
+    expect(after.requests, 'OTLP collector 应收到 trace').toBeGreaterThan(before.requests)
+    expect(after.bytes).toBeGreaterThan(0)
+  } finally {
+    if (conversationId) {
+      await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
+    }
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
+test('长期记忆注入与编辑', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const memoryRes = await request.post(`${P}/memories`, {
+    headers: auth(token!),
+    data: { content: '我的名字是王小明，偏好简洁回答。', category: 'PROFILE' }
+  })
+  const memoryBody = await memoryRes.json()
+  expect(memoryBody.code, JSON.stringify(memoryBody)).toBe(0)
+  const memoryId = memoryBody.data.id as number
+  const agentId = await createAgent(request, token!, `E2E 记忆-${Date.now()}`)
+  let conversationId: number | null = null
+  try {
+    await publishAgent(request, token!, agentId)
+    const conv = await request.post(`${P}/conversations`, {
+      headers: auth(token!), data: { agentId, title: '记忆注入' }
+    })
+    conversationId = (await conv.json()).data.id
+    await request.post(`${P}/conversations/${conversationId}/messages`, {
+      headers: auth(token!), data: { message: '只回答OK', stream: false }, timeout: 60_000
+    })
+    const last = await (await request.get(`${OPENAI_MOCK}/last`)).json()
+    const systemText = (last.messages || [])
+      .filter((m: any) => m.role === 'system')
+      .map((m: any) => typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
+      .join('\n')
+    expect(systemText).toContain('王小明')
+    expect(systemText).toContain('长期记忆')
+
+    const updated = await request.put(`${P}/memories/${memoryId}`, {
+      headers: auth(token!), data: { content: '我的名字是王小明，偏好简洁回答，常住上海。' }
+    })
+    expect((await updated.json()).data.content).toContain('上海')
+    const list = await (await request.get(`${P}/memories`, { headers: auth(token!) })).json()
+    expect((list.data.list || []).some((m: any) => m.id === memoryId)).toBe(true)
+  } finally {
+    if (conversationId) {
+      await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
+    }
+    await request.delete(`${P}/memories/${memoryId}`, { headers: auth(token!) })
     await deleteAgent(request, token!, agentId)
   }
 })

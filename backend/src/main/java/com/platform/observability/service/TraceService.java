@@ -52,6 +52,7 @@ public class TraceService {
     private final ModelMapper modelMapper;
     private final PricingService pricingService;
     private final ObjectMapper objectMapper;
+    private final OtelTraceExporter otelTraceExporter;
 
     /** 扩展元数据：kind/版本/输入输出/错误/标签（均可为空，缺省回落）。 */
     public record TraceExtra(String kind, String version, String inputText, String outputText,
@@ -214,6 +215,10 @@ public class TraceService {
                     span.setAttributes(json(step.attributes()));
                     spanMapper.insert(span);
                 }
+            }
+            if (otelTraceExporter.enabled()) {
+                otelTraceExporter.export(t, spanMapper.selectList(
+                        new LambdaQueryWrapper<AgentSpan>().eq(AgentSpan::getTraceId, traceId)));
             }
         } catch (Exception e) {
             log.warn("Trace 落库失败 traceId={}", traceId, e);

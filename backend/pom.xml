@@ -109,6 +109,16 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-anthropic</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk</artifactId>
+            <version>1.37.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+            <version>1.37.0</version>
+        </dependency>
 
         <!-- M3 知识库：MinIO / POI / PDFBox / PostgreSQL(pgvector) -->
         <dependency>

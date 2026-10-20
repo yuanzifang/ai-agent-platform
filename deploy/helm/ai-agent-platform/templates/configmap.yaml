@@ -23,6 +23,8 @@ data:
   APP_FRONTEND_BASE: {{ .Values.config.frontendBase | quote }}
   APP_ENV: {{ .Values.config.appEnv | quote }}
   AUTH_COOKIE_SECURE: {{ .Values.config.authCookieSecure | quote }}
+  OTEL_ENABLED: {{ .Values.config.otelEnabled | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.config.otelEndpoint | quote }}
   RATE_LIMIT_PER_MINUTE: {{ .Values.config.rateLimitPerMinute | quote }}
   SKILL_SCRIPT_ENABLED: {{ .Values.config.skillScriptEnabled | quote }}
   ASR_ENABLED: {{ .Values.config.asrEnabled | quote }}

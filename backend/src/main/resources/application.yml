@@ -158,6 +158,12 @@ moderation:
     api-key: ${MODERATION_HTTP_API_KEY:}
     timeout-ms: ${MODERATION_HTTP_TIMEOUT_MS:3000}
 
+otel:
+  # 标准 OTLP Trace 导出（Jaeger/Tempo/Langfuse/Phoenix 等）
+  enabled: ${OTEL_ENABLED:false}
+  endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}
+  service-name: ${OTEL_SERVICE_NAME:ai-agent-platform}
+
 billing:
   # 余额低于该值时前端提示充值（需求 3.11）
   low-balance-threshold: ${BILLING_LOW_BALANCE_THRESHOLD:10}

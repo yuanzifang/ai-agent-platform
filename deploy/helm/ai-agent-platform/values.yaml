@@ -99,6 +99,8 @@ config:
   # 生产默认：弱默认密钥熔断 + HttpOnly Secure Cookie（需配 TLS）
   appEnv: "production"
   authCookieSecure: "true"
+  otelEnabled: "false"
+  otelEndpoint: "http://otel-collector:4318"
   rateLimitPerMinute: "60"
   skillScriptEnabled: "true"
   asrEnabled: "false"
