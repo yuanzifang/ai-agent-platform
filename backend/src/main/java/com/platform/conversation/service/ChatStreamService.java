@@ -35,6 +35,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.Disposable;
@@ -80,6 +81,8 @@ public class ChatStreamService {
     private final ObjectMapper objectMapper;
     private final StreamRegistryService streamRegistry;
     private final ChatLiveStateService liveState;
+    @Value("${moderation.stream.buffer-chars:40}")
+    private int streamModerateChars;
     @org.springframework.beans.factory.annotation.Qualifier("llmTaskExecutor")
     private final org.springframework.core.task.TaskExecutor resumeExecutor;
 
@@ -282,6 +285,8 @@ public class ChatStreamService {
         long[] tokens = {0, 0};
         long[] usageExtras = {0, 0, 0}; // cachedInput, cacheWrite, reasoning
         long[] lastLiveWrite = {0};
+        StringBuilder pendingModeration = new StringBuilder();
+        boolean[] outputBlocked = {false};
         liveState.start(conv.getId(), traceId);
 
         ChatClient.ChatClientRequestSpec spec = buildSpec(modelName, systemPrompt, history,
@@ -310,24 +315,26 @@ public class ChatStreamService {
 
         Runnable persist = () -> TenantContext.run(tenantId, () -> {
             Message ai = newMessage(conv, traceId, parentMessageId, regenerated);
-            ai.setContent(acc.toString());
-            ai.setStatus("SUCCESS");
+            ai.setContent(outputBlocked[0] ? "【内容已按安全策略拦截】" : acc.toString());
+            ai.setStatus(outputBlocked[0] ? "BLOCKED" : "SUCCESS");
             ai.setTokens((int) (tokens[0] + tokens[1]));
             long persistStart = System.currentTimeMillis();
             messageMapper.insert(ai);
             conversationService.touch(conv.getId());
             recordUsage(tenantId, conv.getAgentId(), usedModel.get(), tokens[0], tokens[1],
                     usageExtras[0], usageExtras[1], usageExtras[2], source);
-            liveState.finish(conv.getId(), traceId, acc.toString(), "SUCCESS", ai.getId(),
+            liveState.finish(conv.getId(), traceId, ai.getContent(), ai.getStatus(), ai.getId(),
                     tokens[0], tokens[1], citations);
-            moderationService.moderate("OUT", acc.toString(), conv.getId(), ai.getId());
+            if (!outputBlocked[0]) {
+                moderationService.moderate("OUT", acc.toString(), conv.getId(), ai.getId());
+            }
             steps.add("chain", "persist", "SUCCESS", persistStart, System.currentTimeMillis(),
                     java.util.Map.of("messageId", ai.getId()));
             traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
-                    conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
+                    conv.getAgentId(), conv.getUserId(), agent.getName(), ai.getStatus(),
                     usedModel.get(), tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
                     citations.size(),
-                    traceExtra(source, version, userMsg.getContent(), acc.toString(), null),
+                    traceExtra(source, version, userMsg.getContent(), ai.getContent(), null),
                     collector.events(), steps.steps());
             out.event("done", Map.of("traceId", traceId, "messageId", ai.getId(),
                     "status", ai.getStatus(),
@@ -339,8 +346,24 @@ public class ChatStreamService {
                 resp -> {
                     String delta = resp.getResult() == null ? null : resp.getResult().getOutput().getText();
                     if (delta != null && !delta.isEmpty()) {
-                        acc.append(delta);
-                        out.event("delta", Map.of("content", delta));
+                        if (outputBlocked[0]) return;
+                        pendingModeration.append(delta);
+                        if (pendingModeration.length() >= Math.max(streamModerateChars, 1)) {
+                            String chunk = pendingModeration.toString();
+                            pendingModeration.setLength(0);
+                            List<ModerationService.Hit> outHits =
+                                    moderationService.moderate("OUT", chunk, conv.getId(), null);
+                            if (moderationService.blocked(outHits)) {
+                                outputBlocked[0] = true;
+                                ModerationService.Hit hit = outHits.stream()
+                                        .filter(h -> "BLOCK".equals(h.action())).findFirst().orElse(outHits.get(0));
+                                out.event("moderation", moderationService.toEvent(hit));
+                                collector.cancel();
+                                return;
+                            }
+                            acc.append(chunk);
+                            out.event("delta", Map.of("content", chunk));
+                        }
                         long now = System.currentTimeMillis();
                         if (now - lastLiveWrite[0] > 200) {
                             liveState.running(conv.getId(), traceId, acc.toString(), tokens[0], tokens[1]);
@@ -413,6 +436,21 @@ public class ChatStreamService {
                 },
                 () -> {
                     streamRegistry.unregister(conv.getId());
+                    if (!outputBlocked[0] && pendingModeration.length() > 0) {
+                        String chunk = pendingModeration.toString();
+                        pendingModeration.setLength(0);
+                        List<ModerationService.Hit> outHits =
+                                moderationService.moderate("OUT", chunk, conv.getId(), null);
+                        if (moderationService.blocked(outHits)) {
+                            outputBlocked[0] = true;
+                            ModerationService.Hit hit = outHits.stream()
+                                    .filter(h -> "BLOCK".equals(h.action())).findFirst().orElse(outHits.get(0));
+                            out.event("moderation", moderationService.toEvent(hit));
+                        } else {
+                            acc.append(chunk);
+                            out.event("delta", Map.of("content", chunk));
+                        }
+                    }
                     if (tokens[0] == 0 && tokens[1] == 0) {
                         tokens[0] = estimateTokens(userMsg.getContent() + finalSystemPrompt);
                         tokens[1] = estimateTokens(acc.toString());
@@ -539,9 +577,12 @@ public class ChatStreamService {
         long in = metrics.inputTokens();
         long out = metrics.outputTokens();
 
+        List<ModerationService.Hit> outHits = moderationService.moderate("OUT",
+                answer == null ? "" : answer, conv.getId(), null);
+        boolean outBlocked = moderationService.blocked(outHits);
         Message ai = newMessage(conv, traceId, null, false);
-        ai.setContent(answer == null ? "" : answer);
-        ai.setStatus("SUCCESS");
+        ai.setContent(outBlocked ? "【内容已按安全策略拦截】" : (answer == null ? "" : answer));
+        ai.setStatus(outBlocked ? "BLOCKED" : "SUCCESS");
         ai.setTokens((int) (in + out));
         long persistStart = System.currentTimeMillis();
         messageMapper.insert(ai);
@@ -551,13 +592,10 @@ public class ChatStreamService {
         steps.add("chain", "persist", "SUCCESS", persistStart, System.currentTimeMillis(),
                 java.util.Map.of("messageId", ai.getId()));
         traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
-                conv.getAgentId(), conv.getUserId(), agent.getName(), "SUCCESS",
+                conv.getAgentId(), conv.getUserId(), agent.getName(), ai.getStatus(),
                 usedModel, in, out, System.currentTimeMillis() - startedAt, citations.size(),
-                traceExtra(source, version, userMsg.getContent(), answer, null), collector.events(),
+                traceExtra(source, version, userMsg.getContent(), ai.getContent(), null), collector.events(),
                 steps.steps());
-
-        // 输出审核（P0 留痕）
-        moderationService.moderate("OUT", answer, conv.getId(), ai.getId());
 
         return Map.of("answer", ai.getContent(), "traceId", traceId, "messageId", ai.getId(),
                 "usage", Map.of("inputTokens", in, "outputTokens", out), "citations", citations,

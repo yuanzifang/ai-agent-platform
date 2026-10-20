@@ -40,6 +40,10 @@ def answer_for(body):
         return {"tool_call": name}
     if "只回答OK" in system or "只回答OK" in last_user:
         return "OK"
+    if "流式审核" in last_user:
+        return "这是正常的流式内容。" * 10 + "赌博内容"
+    if "触发审核" in last_user:
+        return "这是模拟回答：赌博内容示例。"
     if "markdown测试" in last_user:
         return "**加粗文本**\n\n| 列A | 列B |\n| --- | --- |\n| 1 | 2 |\n\n```js\nconst answer = 42\nconsole.log(answer)\n```"
     if "裁判" in system or "评分" in system:

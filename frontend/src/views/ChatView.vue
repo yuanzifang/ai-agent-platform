@@ -71,6 +71,7 @@
               <span v-for="(a, i) in m.attachments" :key="i" class="attach-chip">📎 {{ a.fileName }}</span>
             </div>
             <div v-if="m.status === 'STOPPED'" class="stopped-tag">已停止</div>
+            <div v-if="m.status === 'BLOCKED'" class="blocked-tag">已按安全策略拦截</div>
             <div v-if="(m.citations || []).length" class="citations">
               <el-collapse>
                 <el-collapse-item :title="`引用来源 ${m.citations?.length ?? 0} 条`">
@@ -899,6 +900,11 @@ function clip(text: string, n: number) {
   margin-top: 6px;
   font-size: 12px;
   color: #e6a23c;
+}
+.blocked-tag {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #f56c6c;
 }
 .citations {
   margin-top: 8px;

@@ -128,7 +128,7 @@ public class ConversationService {
         AgentRegistry agent = agentMapper.selectById(c.getAgentId());
         List<Message> messages = messageMapper.selectList(new LambdaQueryWrapper<Message>()
                 .eq(Message::getConversationId, id)
-                .in(Message::getStatus, "SUCCESS", "STOPPED")
+                .in(Message::getStatus, "SUCCESS", "STOPPED", "BLOCKED")
                 .orderByAsc(Message::getId));
         Map<Long, String> myFeedback = feedbackMapper.selectList(new LambdaQueryWrapper<Feedback>()
                         .eq(Feedback::getConversationId, id).eq(Feedback::getUserId, principal.userId()))
@@ -321,7 +321,7 @@ public class ConversationService {
             AgentRegistry agent = agentMapper.selectById(c.getAgentId());
             List<Message> messages = messageMapper.selectList(new LambdaQueryWrapper<Message>()
                     .eq(Message::getConversationId, c.getId())
-                    .in(Message::getStatus, "SUCCESS", "STOPPED")
+                    .in(Message::getStatus, "SUCCESS", "STOPPED", "BLOCKED")
                     .orderByAsc(Message::getId));
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("title", c.getTitle());

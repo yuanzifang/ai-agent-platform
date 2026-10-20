@@ -816,6 +816,23 @@
                 </el-select>
               </div>
             </template>
+            <template v-else-if="n.type === 'LOOP'">
+              <div class="wf-line">
+                <span>循环体起点</span>
+                <el-select v-model="n.bodyNode" style="width: 190px">
+                  <el-option v-for="o in wfBranchTargets(n.id)" :key="o.id" :value="o.id"
+                             :label="wfTypeText(o.type) + ' · ' + o.name" />
+                </el-select>
+                <span>循环结束于</span>
+                <el-select v-model="n.loopEnd" clearable style="width: 180px">
+                  <el-option v-for="o in wfTargets(n.id)" :key="o.id" :value="o.id"
+                             :label="wfTypeText(o.type) + ' · ' + o.name" />
+                </el-select>
+                最大次数 <el-input-number v-model="n.maxIterations" :min="1" :max="50" size="small" />
+              </div>
+              <el-input v-model="n.itemsText" type="textarea" :rows="2" class="mt8"
+                        placeholder='JSON 数组（如 ["A","B"]）或每行/逗号分隔；支持 {{input}} / {{last}}' />
+            </template>
             <template v-else-if="n.type === 'JOIN'">
               <span class="hint">汇合节点：等待所有并行分支完成后继续</span>
             </template>
@@ -835,6 +852,22 @@
             <template v-else>
               <span class="hint">开始 / 结束节点无需配置</span>
             </template>
+            <div v-if="['LLM','AGENT','TOOL','KNOWLEDGE'].includes(n.type)" class="wf-line mt8">
+              <span class="hint">失败策略</span>
+              重试 <el-input-number v-model="n.retryTimes" :min="0" :max="3" size="small" />
+              <el-select v-model="n.onError" size="small" style="width: 160px">
+                <el-option label="终止工作流" value="FAIL" />
+                <el-option label="继续下一节点" value="CONTINUE" />
+                <el-option label="走失败分支" value="BRANCH" />
+              </el-select>
+              <template v-if="n.onError === 'BRANCH'">
+                失败分支 →
+                <el-select v-model="n.errorNext" size="small" style="width: 170px">
+                  <el-option v-for="o in wfTargets(n.id)" :key="o.id" :value="o.id"
+                             :label="wfTypeText(o.type) + ' · ' + o.name" />
+                </el-select>
+              </template>
+            </div>
           </div>
           <div v-if="n.type !== 'END' && n.type !== 'PARALLEL'" class="wf-node-next">
             <template v-if="n.type === 'CONDITION'">
@@ -1087,6 +1120,7 @@ const wfTypes = [
   { label: '知识库检索', value: 'KNOWLEDGE' },
   { label: '条件分支', value: 'CONDITION' },
   { label: '并行分支', value: 'PARALLEL' },
+  { label: '循环迭代', value: 'LOOP' },
   { label: '汇合节点', value: 'JOIN' },
   { label: '人工审批', value: 'APPROVAL' }
 ]
@@ -1629,7 +1663,9 @@ async function openWorkflow() {
   workflowForm.status = data?.status || 'ENABLED'
   workflowPublishedVersion.value = data?.publishedVersion || ''
   workflowHasUnpublishedChanges.value = !!data?.hasUnpublishedChanges
-  workflowForm.nodes = (data?.definition?.nodes || []).map((n: any) => ({ ...n }))
+  workflowForm.nodes = (data?.definition?.nodes || []).map((n: any) => ({
+    ...n, ...(n.type === 'LOOP' ? { itemsText: JSON.stringify(n.items || []) } : {})
+  }))
   ensureWorkflowPositions()
   wfMode.value = 'list'
   wfSelected.value = ''
@@ -1646,7 +1682,7 @@ async function openWorkflow() {
 }
 
 function wfTypeText(type: string) {
-  return ({ START: '开始', END: '结束', LLM: 'LLM 生成', AGENT: 'Agent 调用', TOOL: '工具调用', KNOWLEDGE: '知识库检索', CONDITION: '条件分支', APPROVAL: '人工审批', PARALLEL: '并行分支', JOIN: '汇合节点' } as any)[type] || type
+  return ({ START: '开始', END: '结束', LLM: 'LLM 生成', AGENT: 'Agent 调用', TOOL: '工具调用', KNOWLEDGE: '知识库检索', CONDITION: '条件分支', APPROVAL: '人工审批', PARALLEL: '并行分支', LOOP: '循环迭代', JOIN: '汇合节点' } as any)[type] || type
 }
 
 function wfTagType(type: string) {
@@ -1659,7 +1695,7 @@ function wfTargets(currentId: string) {
 
 function wfBranchTargets(currentId: string) {
   return workflowForm.nodes.filter((n: any) => n.id !== currentId
-    && !['START', 'END', 'JOIN', 'PARALLEL'].includes(n.type))
+    && !['START', 'END', 'JOIN', 'PARALLEL', 'LOOP'].includes(n.type))
 }
 
 function ensureWorkflowPositions() {
@@ -1771,7 +1807,9 @@ function applyWorkflowTemplate(t: any) {
   }
   const nodes = def?.nodes || []
   if (!nodes.length) { ElMessage.warning('模板无节点'); return }
-  workflowForm.nodes = nodes.map((n: any) => ({ ...n }))
+  workflowForm.nodes = nodes.map((n: any) => ({
+    ...n, ...(n.type === 'LOOP' ? { itemsText: JSON.stringify(n.items || []) } : {})
+  }))
   ensureWorkflowPositions()
   wfMode.value = 'list'
   wfSelected.value = ''
@@ -1845,6 +1883,8 @@ function addWorkflowNode() {
   if (wfAddType.value === 'KNOWLEDGE') { node.mode = 'hybrid'; node.topK = 5; node.queryTemplate = '' }
   if (wfAddType.value === 'APPROVAL') { node.requiredRole = ''; node.timeoutMinutes = 0 }
   if (wfAddType.value === 'PARALLEL') { node.branches = []; node.joinNode = ''; node.next = ''; node.strategy = 'ALL_OR_NOTHING' }
+  if (wfAddType.value === 'LOOP') { node.bodyNode = ''; node.loopEnd = ''; node.itemsText = '["A","B"]'; node.maxIterations = 10 }
+  if (['LLM','AGENT','TOOL','KNOWLEDGE'].includes(wfAddType.value)) { node.retryTimes = 0; node.onError = 'FAIL' }
   if (wfAddType.value === 'JOIN') node.next = 'end'
   if (wfAddType.value === 'CONDITION') {
     node.conditionType = 'contains'
@@ -1905,7 +1945,15 @@ async function saveWorkflow() {
     await http.put(`/agent/${agentId}/workflow`, {
       name: workflowForm.name,
       status: workflowForm.status,
-      definition: { nodes: workflowForm.nodes }
+      definition: { nodes: workflowForm.nodes.map((n: any) => {
+        if (n.type !== 'LOOP') return n
+        let items = n.items
+        try { items = JSON.parse(n.itemsText || '[]') } catch {
+          items = String(n.itemsText || '').split(/[\n,，]/).map((x: string) => x.trim()).filter(Boolean)
+        }
+        const { itemsText, ...rest } = n
+        return { ...rest, items }
+      }) }
     })
     workflowConfigured.value = true
     const fresh = await http.get(`/agent/${agentId}/workflow`) as any

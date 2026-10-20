@@ -472,21 +472,25 @@ public class WorkflowService {
 
                 String output;
                 String next;
-                if ("START".equals(type)) {
+                boolean nodeFailed = false;
+                SimpleResult simple = isSimpleNode(type)
+                        ? executeWithPolicy(type, node, run, outputs, lastOutput, principal,
+                        run.getInputText()) : null;
+                if (simple != null) {
+                    output = simple.output();
+                    next = simple.next();
+                    nodeFailed = simple.failed();
+                    run.setInputTokens(nz(run.getInputTokens()) + simple.inputTokens());
+                    run.setOutputTokens(nz(run.getOutputTokens()) + simple.outputTokens());
+                } else if ("START".equals(type)) {
                     output = run.getInputText();
                     next = str(node.get("next"));
-                } else if ("LLM".equals(type) || "AGENT".equals(type)) {
-                    NodeResult result = callModel(node, run, outputs, principal);
-                    output = result.output();
-                    run.setInputTokens(nz(run.getInputTokens()) + result.inputTokens());
-                    run.setOutputTokens(nz(run.getOutputTokens()) + result.outputTokens());
+                } else if ("LOOP".equals(type)) {
+                    LoopResult loop = executeLoop(node, run, nodes, outputs, lastOutput, principal);
+                    output = loop.output();
                     next = str(node.get("next"));
-                } else if ("TOOL".equals(type)) {
-                    output = callTool(node, run, lastOutput);
-                    next = str(node.get("next"));
-                } else if ("KNOWLEDGE".equals(type)) {
-                    output = retrieveKnowledge(node, run, lastOutput, principal);
-                    next = str(node.get("next"));
+                    run.setInputTokens(nz(run.getInputTokens()) + loop.inputTokens());
+                    run.setOutputTokens(nz(run.getOutputTokens()) + loop.outputTokens());
                 } else if ("PARALLEL".equals(type)) {
                     ParallelResult result = executeParallel(node, run, nodes, outputs, principal);
                     output = result.output();
@@ -543,7 +547,7 @@ public class WorkflowService {
                     return;
                 }
 
-                nr.setStatus("SUCCESS");
+                nr.setStatus(nodeFailed ? "FAILED" : "SUCCESS");
                 nr.setOutputText(truncate(output, 20000));
                 nr.setEndedAt(LocalDateTime.now());
                 nodeRunMapper.updateById(nr);
@@ -571,6 +575,12 @@ public class WorkflowService {
 
     private NodeResult callModel(Map<String, Object> node, WorkflowRun run,
                                  List<Map<String, Object>> outputs, JwtPrincipal principal) {
+        return callModel(node, run, outputs, principal, run.getInputText());
+    }
+
+    private NodeResult callModel(Map<String, Object> node, WorkflowRun run,
+                                 List<Map<String, Object>> outputs, JwtPrincipal principal,
+                                 String modelInput) {
         AgentRegistry agent = agentMapper.selectById(run.getAgentId());
         Map<String, Object> modelConfig = agent == null ? Map.of() : parseMap(agent.getModelConfig());
         String modelName = str(node.get("modelName"));
@@ -593,7 +603,7 @@ public class WorkflowService {
         String prompt = str(node.get("prompt"));
         if (prompt != null && !prompt.isBlank()) system.append(prompt).append("\n\n");
         if (system.isEmpty()) system.append("你是工作流执行助手，请直接完成当前节点任务。");
-        system.append("【用户输入】\n").append(run.getInputText()).append("\n");
+        system.append("【用户输入】\n").append(modelInput == null ? "" : modelInput).append("\n");
         if (!outputs.isEmpty()) {
             system.append("【前序节点结果】\n");
             for (Map<String, Object> o : outputs) {
@@ -601,12 +611,13 @@ public class WorkflowService {
                         .append(truncate(str(o.get("output")), 1500)).append("\n");
             }
         }
-        String fitted = contextWindow.fitPrompt(modelName, system.toString(), run.getInputText());
+        String fitted = contextWindow.fitPrompt(modelName, system.toString(),
+                modelInput == null ? "" : modelInput);
         long start = System.currentTimeMillis();
         ChatResponse response = ChatClient.create(modelRouter.resolve(modelName)).prompt()
                 .options(modelRouter.options(modelName, 0.3, java.util.List.of()))
                 .system(fitted)
-                .user(run.getInputText())
+                .user(modelInput == null ? "" : modelInput)
                 .call().chatResponse();
         String output = response.getResult() == null ? "" : response.getResult().getOutput().getText();
         long in = 0, out = 0;
@@ -620,6 +631,13 @@ public class WorkflowService {
         return new NodeResult(output == null ? "" : output, in, out);
     }
 
+    private record SimpleResult(String output, String next, long inputTokens, long outputTokens,
+                                boolean failed) {
+    }
+
+    private record LoopResult(String output, long inputTokens, long outputTokens) {
+    }
+
     private record NodeResult(String output, long inputTokens, long outputTokens) {
     }
 
@@ -630,6 +648,107 @@ public class WorkflowService {
     }
 
     /** 并行节点：分支用独立线程执行，结果文本汇总后进入 JOIN。 */
+    private boolean isSimpleNode(String type) {
+        return "LLM".equals(type) || "AGENT".equals(type)
+                || "TOOL".equals(type) || "KNOWLEDGE".equals(type);
+    }
+
+    /** 节点级重试 + onError 策略（FAIL/CONTINUE/BRANCH）。 */
+    private SimpleResult executeWithPolicy(String type, Map<String, Object> node, WorkflowRun run,
+                                           List<Map<String, Object>> outputs, String lastOutput,
+                                           JwtPrincipal principal, String modelInput) {
+        int retries = Math.max(0, Math.min(toInt(node.get("retryTimes")), 3));
+        int delay = Math.max(0, Math.min(toInt(node.get("retryDelayMs")), 5000));
+        Exception last = null;
+        for (int attempt = 0; attempt <= retries; attempt++) {
+            try {
+                SimpleResult result = executeSimpleNode(type, node, run, outputs, lastOutput, principal, modelInput);
+                return new SimpleResult(result.output(), str(node.get("next")),
+                        result.inputTokens(), result.outputTokens(), false);
+            } catch (Exception e) {
+                last = e;
+                if (attempt < retries) {
+                    log.warn("工作流节点失败，重试 {}/{} node={}：{}",
+                            attempt + 1, retries, node.get("id"), rootMessage(e));
+                    if (delay > 0) {
+                        try { Thread.sleep(delay); } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }
+            }
+        }
+        String policy = str(node.getOrDefault("onError", "FAIL")).toUpperCase();
+        String message = "【节点失败】" + rootMessage(last);
+        if ("CONTINUE".equals(policy)) {
+            return new SimpleResult(message, str(node.get("next")), 0, 0, true);
+        }
+        if ("BRANCH".equals(policy)) {
+            return new SimpleResult(message, str(node.get("errorNext")), 0, 0, true);
+        }
+        throw new BusinessException(500, "工作流节点失败：" + rootMessage(last));
+    }
+
+    private SimpleResult executeSimpleNode(String type, Map<String, Object> node, WorkflowRun run,
+                                           List<Map<String, Object>> outputs, String lastOutput,
+                                           JwtPrincipal principal, String modelInput) {
+        if ("LLM".equals(type) || "AGENT".equals(type)) {
+            NodeResult result = callModel(node, run, outputs, principal, modelInput);
+            return new SimpleResult(result.output(), str(node.get("next")),
+                    result.inputTokens(), result.outputTokens(), false);
+        }
+        if ("TOOL".equals(type)) {
+            return new SimpleResult(callTool(node, run, lastOutput), str(node.get("next")), 0, 0, false);
+        }
+        if ("KNOWLEDGE".equals(type)) {
+            return new SimpleResult(retrieveKnowledge(node, run, lastOutput, principal),
+                    str(node.get("next")), 0, 0, false);
+        }
+        throw new BusinessException(400, "不支持的简单节点类型：" + type);
+    }
+
+    private LoopResult executeLoop(Map<String, Object> node, WorkflowRun run,
+                                   Map<String, Map<String, Object>> nodes,
+                                   List<Map<String, Object>> outputs, String lastOutput,
+                                   JwtPrincipal principal) {
+        String body = str(node.get("bodyNode"));
+        if (body == null || body.isBlank()) throw new BusinessException(400, "LOOP 节点未配置 bodyNode");
+        String loopEnd = str(node.get("loopEnd"));
+        int max = Math.max(1, Math.min(toInt(node.getOrDefault("maxIterations", 10)), 50));
+        List<String> items = loopItems(node, run, lastOutput);
+        if (items.isEmpty()) return new LoopResult(lastOutput == null ? "" : lastOutput, 0, 0);
+        StringBuilder merged = new StringBuilder("【循环结果】");
+        long in = 0, out = 0;
+        int count = Math.min(items.size(), max);
+        for (int i = 0; i < count; i++) {
+            BranchResult br = executeBranch(run, nodes, body, loopEnd, outputs, principal, items.get(i));
+            merged.append("\n[").append(i + 1).append("] ").append(br.output());
+            in += br.inputTokens();
+            out += br.outputTokens();
+        }
+        if (items.size() > max) merged.append("\n（已截断：共 ").append(items.size())
+                .append(" 项，上限 ").append(max).append("）");
+        return new LoopResult(merged.toString(), in, out);
+    }
+
+    private List<String> loopItems(Map<String, Object> node, WorkflowRun run, String lastOutput) {
+        Object raw = node.get("items");
+        List<String> items = new ArrayList<>();
+        if (raw instanceof List<?> list) {
+            for (Object o : list) items.add(String.valueOf(o));
+        } else {
+            String text = raw == null || String.valueOf(raw).isBlank()
+                    ? (lastOutput == null ? run.getInputText() : lastOutput) : String.valueOf(raw);
+            text = text.replace("{{input}}", run.getInputText())
+                    .replace("{{last}}", lastOutput == null ? "" : lastOutput);
+            String[] parts = text.contains("\n") ? text.split("\r?\n") : text.split("[,，]");
+            for (String part : parts) {
+                if (part != null && !part.isBlank()) items.add(part.trim());
+            }
+        }
+        return items;
+    }
+
     private ParallelResult executeParallel(Map<String, Object> node, WorkflowRun run,
                                             Map<String, Map<String, Object>> nodes,
                                             List<Map<String, Object>> outputs, JwtPrincipal principal) {
@@ -644,7 +763,7 @@ public class WorkflowService {
         for (Object o : list) {
             String start = str(o);
             futures.add(CompletableFuture.supplyAsync(() -> TenantContext.runWith(run.getTenantId(),
-                    () -> executeBranch(run, nodes, start, joinId, outputs, principal)), llmExecutor));
+                    () -> executeBranch(run, nodes, start, joinId, outputs, principal, null)), llmExecutor));
         }
         StringBuilder merged = new StringBuilder("【并行分支结果】\n");
         long in = 0, out = 0;
@@ -672,9 +791,9 @@ public class WorkflowService {
 
     private BranchResult executeBranch(WorkflowRun run, Map<String, Map<String, Object>> nodes,
                                        String start, String joinId, List<Map<String, Object>> baseOutputs,
-                                       JwtPrincipal principal) {
+                                       JwtPrincipal principal, String initialOutput) {
         String nodeId = start;
-        String lastOutput = run.getOutputText();
+        String lastOutput = initialOutput == null ? run.getOutputText() : initialOutput;
         List<Map<String, Object>> outputs = new ArrayList<>(baseOutputs);
         long in = 0, out = 0;
         int steps = 0;
@@ -689,8 +808,8 @@ public class WorkflowService {
                 nodeId = str(node.get("next"));
                 continue;
             }
-            if ("APPROVAL".equals(type) || "PARALLEL".equals(type)) {
-                throw new BusinessException(400, "并行分支内暂不支持 " + type + " 节点");
+            if ("APPROVAL".equals(type) || "PARALLEL".equals(type) || "LOOP".equals(type)) {
+                throw new BusinessException(400, "分支内暂不支持 " + type + " 节点");
             }
             String name = str(node.getOrDefault("name", nodeId));
             WorkflowNodeRun nr = new WorkflowNodeRun();
@@ -706,18 +825,15 @@ public class WorkflowService {
 
             String output;
             String next;
-            if ("LLM".equals(type) || "AGENT".equals(type)) {
-                NodeResult result = callModel(node, run, outputs, principal);
-                output = result.output();
-                in += result.inputTokens();
-                out += result.outputTokens();
-                next = str(node.get("next"));
-            } else if ("TOOL".equals(type)) {
-                output = callTool(node, run, lastOutput);
-                next = str(node.get("next"));
-            } else if ("KNOWLEDGE".equals(type)) {
-                output = retrieveKnowledge(node, run, lastOutput, principal);
-                next = str(node.get("next"));
+            boolean nodeFailed = false;
+            SimpleResult simple = isSimpleNode(type)
+                    ? executeWithPolicy(type, node, run, outputs, lastOutput, principal, lastOutput) : null;
+            if (simple != null) {
+                output = simple.output();
+                next = simple.next();
+                nodeFailed = simple.failed();
+                in += simple.inputTokens();
+                out += simple.outputTokens();
             } else if ("CONDITION".equals(type)) {
                 boolean matched = evaluate(node, lastOutput == null ? run.getInputText() : lastOutput);
                 output = matched ? "true" : "false";
@@ -725,7 +841,7 @@ public class WorkflowService {
             } else {
                 throw new BusinessException(400, "分支内不支持的节点类型：" + type);
             }
-            nr.setStatus("SUCCESS");
+            nr.setStatus(nodeFailed ? "FAILED" : "SUCCESS");
             nr.setOutputText(truncate(output, 20000));
             nr.setEndedAt(LocalDateTime.now());
             nodeRunMapper.updateById(nr);
@@ -908,7 +1024,8 @@ public class WorkflowService {
             if (id == null || id.isBlank()) throw new BusinessException(400, "节点 id 不能为空");
             if (nodes.containsKey(id)) throw new BusinessException(400, "节点 id 重复：" + id);
             String t = type == null ? "" : type.toUpperCase();
-            if (!List.of("START", "LLM", "AGENT", "TOOL", "KNOWLEDGE", "CONDITION", "APPROVAL", "PARALLEL", "JOIN", "END").contains(t)) {
+            if (!List.of("START", "LLM", "AGENT", "TOOL", "KNOWLEDGE", "CONDITION", "APPROVAL",
+                    "PARALLEL", "LOOP", "JOIN", "END").contains(t)) {
                 throw new BusinessException(400, "不支持的节点类型：" + type);
             }
             if ("START".equals(t)) hasStart = true;
@@ -931,6 +1048,19 @@ public class WorkflowService {
             }
             if ("TOOL".equals(type) && node.get("toolId") == null) {
                 throw new BusinessException(400, "TOOL 节点必须选择工具");
+            }
+            if ("LOOP".equals(type)) {
+                String body = str(node.get("bodyNode"));
+                if (body == null || body.isBlank()) {
+                    throw new BusinessException(400, "LOOP 节点必须配置 bodyNode");
+                }
+                if (!nodes.containsKey(body)) {
+                    throw new BusinessException(400, "LOOP bodyNode 不存在：" + body);
+                }
+                String loopEnd = str(node.get("loopEnd"));
+                if (loopEnd != null && !loopEnd.isBlank() && !nodes.containsKey(loopEnd)) {
+                    throw new BusinessException(400, "LOOP loopEnd 不存在：" + loopEnd);
+                }
             }
             if ("KNOWLEDGE".equals(type) && node.get("knowledgeBaseId") == null) {
                 throw new BusinessException(400, "KNOWLEDGE 节点必须选择知识库");

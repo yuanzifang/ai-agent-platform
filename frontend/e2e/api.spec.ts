@@ -812,3 +812,140 @@ test('Anthropic 原生协议', async ({ request }) => {
     })
   }
 })
+
+
+test('流式输出前置审核', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentRes = await request.post(`${P}/agent`, {
+    headers: auth(token!),
+    data: {
+      name: `E2E 审核-${Date.now()}`,
+      systemPrompt: '你是测试助手。',
+      modelConfig: { modelName: 'deepseek-flash' },
+      visibility: 'PRIVATE'
+    }
+  })
+  const agentBody = await agentRes.json()
+  expect(agentBody.code, JSON.stringify(agentBody)).toBe(0)
+  const agentId = agentBody.data.id as number
+  let conversationId: number | null = null
+  try {
+    await request.post(`${P}/agent/${agentId}/publish`, {
+      headers: auth(token!), data: { force: true }
+    })
+    const conv = await request.post(`${P}/conversations`, {
+      headers: auth(token!), data: { agentId, title: '审核' }
+    })
+    conversationId = (await conv.json()).data.id
+
+    const blocked = await request.post(`${P}/conversations/${conversationId}/messages`, {
+      headers: auth(token!),
+      data: { message: '触发审核', stream: false },
+      timeout: 60_000
+    })
+    const blockedBody = await blocked.json()
+    expect(blockedBody.code, JSON.stringify(blockedBody)).toBe(0)
+    expect(String(blockedBody.data.answer)).toContain('拦截')
+
+    const controller = new AbortController()
+    const resp = await fetch(`${BACKEND}${P}/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      headers: { ...auth(token!), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '流式审核', stream: true }),
+      signal: controller.signal
+    })
+    expect(resp.status).toBe(200)
+    const reader = resp.body!.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let moderationSeen = false
+    let doneStatus: string | null = null
+    let leaked = false
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const blocks = buffer.split('\n\n')
+      buffer = blocks.pop() || ''
+      for (const block of blocks) {
+        const event = (block.match(/event:(.*)/) || [])[1]?.trim()
+        const data = (block.match(/data:(.*)/) || [])[1]?.trim()
+        if (!data) continue
+        const parsed = JSON.parse(data)
+        if (event === 'moderation') moderationSeen = true
+        if (event === 'delta' && String(parsed.content || '').includes('赌博')) leaked = true
+        if (event === 'done') doneStatus = parsed.status
+      }
+    }
+    expect(moderationSeen, '应收到 moderation 事件').toBe(true)
+    expect(leaked, '命中内容不应下发').toBe(false)
+    expect(doneStatus).toBe('BLOCKED')
+
+    const detail = await request.get(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
+    const last = ((await detail.json()).data.messages || [])
+      .filter((m: any) => m.role === 'ASSISTANT').pop()
+    expect(last?.status).toBe('BLOCKED')
+  } finally {
+    if (conversationId) {
+      await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
+    }
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
+test('工作流 Loop 与节点错误策略', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E Loop-${Date.now()}`)
+  try {
+    const loopWorkflow = {
+      name: 'E2E Loop', status: 'ENABLED',
+      definition: {
+        nodes: [
+          { id: 'start', type: 'START', name: '开始', next: 'loop1' },
+          { id: 'loop1', type: 'LOOP', name: '循环', items: ['A', 'B'],
+            bodyNode: 'llm1', loopEnd: 'join1', maxIterations: 5, next: 'end' },
+          { id: 'llm1', type: 'LLM', name: '回复', prompt: '只回复OK', next: 'join1' },
+          { id: 'join1', type: 'JOIN', name: '汇合', next: 'end' },
+          { id: 'end', type: 'END', name: '结束' }
+        ]
+      }
+    }
+    const save = await request.put(`${P}/agent/${agentId}/workflow`, {
+      headers: auth(token!), data: loopWorkflow
+    })
+    expect((await save.json()).code).toBe(0)
+    const run = await request.post(`${P}/agent/${agentId}/workflow/run`, {
+      headers: auth(token!), data: { input: '测试' }, timeout: 60_000
+    })
+    const runBody = await run.json()
+    expect(runBody.code, JSON.stringify(runBody)).toBe(0)
+    expect(runBody.data.status).toBe('SUCCESS')
+    expect(String(runBody.data.output)).toContain('[1]')
+    expect(String(runBody.data.output)).toContain('[2]')
+
+    const errorWorkflow = {
+      name: 'E2E 节点错误策略', status: 'ENABLED',
+      definition: {
+        nodes: [
+          { id: 'start', type: 'START', name: '开始', next: 'tool1' },
+          { id: 'tool1', type: 'TOOL', name: '坏工具', toolId: 999999,
+            retryTimes: 1, onError: 'CONTINUE', next: 'end' },
+          { id: 'end', type: 'END', name: '结束' }
+        ]
+      }
+    }
+    await request.put(`${P}/agent/${agentId}/workflow`, { headers: auth(token!), data: errorWorkflow })
+    const run2 = await request.post(`${P}/agent/${agentId}/workflow/run`, {
+      headers: auth(token!), data: { input: '测试' }, timeout: 60_000
+    })
+    const run2Body = await run2.json()
+    expect(run2Body.code, JSON.stringify(run2Body)).toBe(0)
+    expect(run2Body.data.status).toBe('SUCCESS')
+    expect(String(run2Body.data.output)).toContain('节点失败')
+  } finally {
+    await request.delete(`${P}/agent/${agentId}/workflow`, { headers: auth(token!) })
+    await deleteAgent(request, token!, agentId)
+  }
+})
