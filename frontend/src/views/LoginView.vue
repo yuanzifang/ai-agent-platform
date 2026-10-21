@@ -1,6 +1,12 @@
 <template>
   <div class="login-wrap">
     <el-card class="login-card">
+      <div class="login-lang">
+        <el-select v-model="currentLocale" size="small" style="width: 92px">
+          <el-option label="中文" value="zh-CN" />
+          <el-option label="English" value="en-US" />
+        </el-select>
+      </div>
       <h2>{{ t('app.name') }}</h2>
 
       <!-- 邀请激活模式 -->
@@ -62,9 +68,10 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { setLocale, type Locale } from '../i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../stores/user'
 import http from '../api/http'
@@ -72,7 +79,8 @@ import http from '../api/http'
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const currentLocale = computed({ get: () => locale.value, set: (v: Locale) => setLocale(v) })
 const form = reactive({ username: '', password: '', tenantKey: '' })
 const inviteForm = reactive({ username: '', password: '' })
 const inviteToken = ref((route.query.invite as string) || '')
@@ -175,6 +183,7 @@ async function accept() {
   justify-content: center;
   background: #f5f7fa;
 }
+.login-lang { display: flex; justify-content: flex-end; margin-bottom: 4px; }
 .login-card {
   width: 380px;
 }
