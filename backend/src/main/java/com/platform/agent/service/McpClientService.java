@@ -91,6 +91,8 @@ public class McpClientService {
     private int maxResourceBytes;
 
     private final Map<Long, CachedHttpSession> httpSessions = new ConcurrentHashMap<>();
+    /** 服务端主动通知过 tools/list_changed 的本地标记；用于提示重新同步，不自动改已同步工具。 */
+    private final Map<Long, Long> toolsChangedAt = new ConcurrentHashMap<>();
     private final Map<Long, StdioSession> stdioSessions = new ConcurrentHashMap<>();
     private final ScheduledExecutorService maintenance = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "mcp-session-maintenance");
@@ -132,6 +134,20 @@ public class McpClientService {
     @PostConstruct
     void init() {
         maintenance.scheduleWithFixedDelay(this::cleanup, 60, 60, TimeUnit.SECONDS);
+    }
+
+    public void markToolsChanged(Long serverId) {
+        if (serverId == null) return;
+        toolsChangedAt.put(serverId, System.currentTimeMillis());
+        log.info("MCP 工具列表已变更 server={}（等待管理员重新同步）", serverId);
+    }
+
+    public Long toolsChangedAt(Long serverId) {
+        return serverId == null ? null : toolsChangedAt.get(serverId);
+    }
+
+    public void markToolsSynced(Long serverId) {
+        if (serverId != null) toolsChangedAt.remove(serverId);
     }
 
     @PreDestroy
@@ -395,6 +411,7 @@ public class McpClientService {
         body.put("method", method);
         body.put("params", params);
         HttpResponse<String> resp = postHttp(server, body, sessionId, cancelled);
+        inspectHttpNotifications(server, resp);
         JsonNode node = parseHttpResponse(resp);
         if (node.has("error")) throw new IllegalStateException(method + " 失败：" + node.path("error").path("message").asText());
         return node.path("result");
@@ -436,6 +453,12 @@ public class McpClientService {
             throw new IllegalStateException("HTTP " + resp.statusCode() + "：" + truncate(respBody, 300));
         }
         return resp;
+    }
+
+    private void inspectHttpNotifications(McpServer server, HttpResponse<String> resp) {
+        String body = resp.body();
+        if (body == null || !body.contains("notifications/tools/list_changed")) return;
+        markToolsChanged(server.getId());
     }
 
     private JsonNode parseHttpResponse(HttpResponse<String> resp) throws Exception {
@@ -568,6 +591,10 @@ public class McpClientService {
                     return;
                 }
                 JsonNode node = owner.objectMapper.readTree(data);
+                String method = node.path("method").asText("");
+                if ("notifications/tools/list_changed".equals(method)) {
+                    owner.markToolsChanged(server.getId());
+                }
                 int id = node.path("id").asInt(-1);
                 CompletableFuture<JsonNode> future = pending.remove(id);
                 if (future != null) future.complete(node);
@@ -836,6 +863,8 @@ public class McpClientService {
                         String method = node.path("method").asText("");
                         if (method.contains("progress")) {
                             log.debug("MCP stdio 进度 server={}：{}", server.getId(), node.path("params"));
+                        } else if ("notifications/tools/list_changed".equals(method)) {
+                            owner.markToolsChanged(server.getId());
                         } else if (!method.isBlank()) {
                             log.debug("MCP stdio 通知 server={} method={}", server.getId(), method);
                         }

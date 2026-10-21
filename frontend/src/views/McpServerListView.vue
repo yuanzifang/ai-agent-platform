@@ -25,6 +25,7 @@
           <el-tag size="small" :type="healthType(row.healthStatus)">
             {{ healthText(row.healthStatus) }}
           </el-tag>
+          <el-tag v-if="row.toolsChangedAt" size="small" type="warning" class="ml4">工具待同步</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="toolCount" label="工具数" width="80" />
@@ -303,7 +304,8 @@ async function openCapabilities(row: any) {
       tools: res.tools || [], resources: res.resources || [],
       resourceTemplates: res.resourceTemplates || [], prompts: res.prompts || []
     }
-    capsWarnings.value = res.warnings || []
+    capsWarnings.value = [...(res.warnings || [])]
+    if (res.toolsChangedAt) capsWarnings.value.unshift('服务端报告工具列表已变更，请重新同步工具')
   } catch (e: any) {
     caps.value = { tools: [], resources: [], resourceTemplates: [], prompts: [] }
     capsWarnings.value = [e?.response?.data?.message || '能力发现失败']
@@ -505,6 +507,7 @@ async function openSync(row: any) {
   try {
     const res = await http.get(`/mcp-servers/${row.id}/discover`) as any
     discovered.value = (res.tools || []).map((t: any) => ({ ...t, checked: true }))
+    if (res.toolsChangedAt) ElMessage.warning('服务端报告工具列表已变更，请确认后重新同步')
     checkAll.value = true
   } finally {
     discovering.value = false
@@ -568,5 +571,6 @@ function fmt(v?: string) {
 .preset-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .mb8 { margin-bottom: 8px; }
 .oauth-box { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.ml4 { margin-left: 4px; }
 .resource-pre { white-space: pre-wrap; word-break: break-all; max-height: 420px; overflow: auto; background: var(--el-fill-color-light); padding: 12px; border-radius: 4px; }
 </style>

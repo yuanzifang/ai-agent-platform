@@ -503,6 +503,7 @@ test('MCP stdio：本地进程接入与命令防护', async ({ request }) => {
     const discovered = await discover.json()
     expect(discovered.code).toBe(0)
     expect(JSON.stringify(discovered.data.tools[0].annotations)).toContain('destructiveHint')
+    expect(discovered.data.toolsChangedAt, 'stdio 主动通知应被检测').toBeTruthy()
 
     const sync = await request.post(`${P}/mcp-servers/${serverId}/sync`, {
       headers: auth(token!), data: {}

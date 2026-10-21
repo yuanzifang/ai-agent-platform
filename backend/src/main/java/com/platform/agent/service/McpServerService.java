@@ -236,6 +236,7 @@ public class McpServerService {
                 result.put("prompts", List.of());
                 warnings.add("prompts: " + rootMessage(e));
             }
+            result.put("toolsChangedAt", client.toolsChangedAt(s.getId()));
             result.put("warnings", warnings);
             return result;
         } catch (Exception e) {
@@ -351,6 +352,7 @@ public class McpServerService {
         s.setHealthStatus("ONLINE");
         s.setLastCheckedAt(LocalDateTime.now());
         serverMapper.updateById(s);
+        client.markToolsSynced(id);
         auditService.record(principal.userId(), "mcp_server.sync", "mcp_server", String.valueOf(id),
                 "SUCCESS", Map.of("name", s.getName(), "synced", synced.size()));
         return Map.of("synced", synced, "total", synced.size());
@@ -666,6 +668,7 @@ public class McpServerService {
         m.put("status", s.getStatus());
         m.put("healthStatus", s.getHealthStatus());
         m.put("lastSyncAt", s.getLastSyncAt());
+        m.put("toolsChangedAt", client.toolsChangedAt(s.getId()));
         m.put("lastCheckedAt", s.getLastCheckedAt());
         m.put("toolCount", toolMapper.selectCount(new LambdaQueryWrapper<ToolRegistry>()
                 .eq(ToolRegistry::getMcpServerId, s.getId())));

@@ -32,6 +32,8 @@ def main():
                 "protocolVersion": "2025-03-26",
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": "stdio-mock", "version": "1.0"}}})
+            # 主动通知工具列表变化，供平台验证 list_changed 检测
+            send({"jsonrpc": "2.0", "method": "notifications/tools/list_changed", "params": {}})
         elif method == "tools/list":
             send({"jsonrpc": "2.0", "id": rid, "result": {"tools": [{
                 "name": "echo",

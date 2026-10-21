@@ -70,15 +70,24 @@ MCP Server 列表新增「能力」按钮（需 `tool:manage`）：
 - 资源订阅/变更通知（`resources/list_changed`）
 - 流式/超大资源分段
 
-## 5. tools/list_changed 现状
+## 5. tools/list_changed 检测
 
-工具列表**没有本地缓存**：每次验证/发现/同步都会重新 `tools/list`，所以工具变化在下次操作时自然生效。当前尚未处理服务端主动 `notifications/tools/list_changed` 自动刷新：
+已实现“检测 + 提示 + 手动同步”的安全闭环：
 
-- HTTP/SSE 通知解析未扩展到自动触发同步；
-- stdio 通知只记录 debug 日志；
-- 不会自动修改已同步到 `tool_registry` 的工具，需管理员手动「同步工具」。
+- stdio 读取线程识别 `notifications/tools/list_changed`；
+- SSE 事件流识别同名通知；
+- HTTP Streamable 的响应体扫描该通知；
+- 命中后记录 `toolsChangedAt`，`GET /mcp-servers/{id}` / `discover` 返回该时间；
+- MCP Server 页面显示「工具待同步」，能力抽屉/同步弹窗提示；
+- 管理员重新「同步工具」成功后清除标记。
 
-后续如需自动热更新，应增加通知回调 + 工具缓存失效 + 自动同步策略（避免服务端恶意/误发通知直接改工具）。
+**不会自动修改已同步到 `tool_registry` 的工具**：服务端主动通知可能是误发/恶意，自动增删工具会影响 Agent。工具列表本身没有本地缓存，每次发现/同步仍会重新 `tools/list`。
+
+限制：
+
+- HTTP 没有建立长期通知订阅流，只能扫描当前响应；
+- 多实例内存标记不共享（重启后丢失）；
+- 未做自动同步/工具差异预览。
 
 ## 6. 已验证
 
@@ -88,11 +97,13 @@ MCP Server 列表新增「能力」按钮（需 `tool:manage`）：
 - `resources/read` 返回 `resource:mock://docs/readme`；
 - `prompts/get` 返回 `prompt:hello`；
 - Mock 会话复用仍成立（initialize 只发生一次）；
+- stdio Mock 主动发送 `notifications/tools/list_changed`，discover 返回 `toolsChangedAt`，同步后清除；
 - 新增 `/mcp-paged` 两页工具测试：`echo-page1` + `nextCursor` → `echo-page2`，共 2 条；
 - 完整 E2E **29/29**（API 25 + UI 4），后端单测 **48/48**，前端 `vue-tsc`/`vite build`、`helm lint` 通过。
 
 未验证：
 
 - 真实第三方 MCP Server 的 resources/prompts 兼容性（无凭据/网络条件）。
-- 二进制资源安全下载、资源订阅、`tools/list_changed` 热更新。
+- 二进制资源安全下载、资源订阅、多实例 tools_changed 共享、自动同步差异预览。
+- HTTP 长期通知订阅未实现。
 - Compose/Helm 未实跑。
