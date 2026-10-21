@@ -76,6 +76,21 @@ public class VectorRepository {
         }
     }
 
+    /** 单 chunk 独立 ACL：同步所有维度表。 */
+    public void updateAclForChunk(Long tenantId, Long knowledgeBaseId, Long chunkId,
+                                  List<Long> allowedUsers, boolean tenantWide) {
+        String usersJson = allowedUsers.stream().map(String::valueOf).map(id -> "\"" + id + "\"")
+                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+        for (String table : tables()) {
+            String sql = ("UPDATE %s.%s SET metadata = jsonb_set(jsonb_set(metadata, " +
+                    "'{allowed_users}', ?::jsonb), '{tenant_visible}', ?::jsonb) " +
+                    "WHERE metadata->>'knowledge_base_id' = ? AND metadata->>'chunk_id' = ?")
+                    .formatted(schema(tenantId), table);
+            pgJdbcTemplate.update(sql, usersJson, String.valueOf(tenantWide),
+                    String.valueOf(knowledgeBaseId), String.valueOf(chunkId));
+        }
+    }
+
     public List<Map<String, Object>> search(Long tenantId, float[] queryVector, Long knowledgeBaseId,
                                             int topK, double threshold, int dimensions) {
         return search(tenantId, queryVector, knowledgeBaseId, topK, threshold, dimensions, null, true);

@@ -174,6 +174,17 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.chunks(id, docId, page, pageSize, viewer(principal)));
     }
 
+    public record ChunkAclRequest(List<Long> allowedUsers, Boolean tenantVisible) {
+    }
+
+    @PutMapping("/{id}/chunks/{chunkId}/acl")
+    public ApiResponse<Map<String, Object>> updateChunkAcl(@PathVariable Long id, @PathVariable Long chunkId,
+                                                            @RequestBody ChunkAclRequest req,
+                                                            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(knowledgeService.updateChunkAcl(id, chunkId, req.allowedUsers(),
+                req.tenantVisible() == null || req.tenantVisible(), viewer(principal)));
+    }
+
     public record SearchRequest(@NotBlank String query, Integer topK, Double scoreThreshold, String mode) {
     }
 

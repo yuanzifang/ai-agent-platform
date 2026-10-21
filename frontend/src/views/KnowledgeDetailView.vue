@@ -58,6 +58,8 @@
           <div v-for="c in chunks.list" :key="c.id" class="chunk">
             <span class="idx">#{{ c.chunkIndex }}</span>
             <span class="text">{{ c.content }}</span>
+            <el-button v-if="detail.canEdit" size="small" text type="primary"
+                       @click="openChunkAcl(c)">授权</el-button>
           </div>
         </div>
       </div>
@@ -158,6 +160,25 @@
         <el-button type="primary" :loading="savingPerm" @click="savePermission">保存</el-button>
       </template>
     </el-dialog>
+    <el-dialog v-model="aclVisible" title="分段独立授权" width="520px">
+      <el-form label-width="100px">
+        <el-form-item label="租户可见">
+          <el-switch v-model="aclForm.tenantVisible" />
+          <span class="hint" style="margin-left:8px">开启后租户内非受限成员可检索该分段</span>
+        </el-form-item>
+        <el-form-item label="指定用户">
+          <el-select v-model="aclForm.users" multiple filterable style="width:100%"
+                     :disabled="aclForm.tenantVisible" placeholder="选择额外授权用户">
+            <el-option v-for="m in aclMembers" :key="m.id" :value="m.id"
+                       :label="(m.displayName || m.username) + ' (' + m.id + ')'" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="aclVisible = false">取消</el-button>
+        <el-button type="primary" :loading="aclSaving" @click="saveChunkAcl">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -186,6 +207,11 @@ const search = reactive({ query: '', topK: 5, scoreThreshold: 0.5, mode: 'hybrid
 const chunks = reactive<{ docId: number | null; docName: string; list: any[]; total: number }>({
   docId: null, docName: '', list: [], total: 0
 })
+const aclVisible = ref(false)
+const aclSaving = ref(false)
+const aclChunk = ref<any>(null)
+const aclMembers = ref<any[]>([])
+const aclForm = reactive<{ tenantVisible: boolean; users: number[] }>({ tenantVisible: true, users: [] })
 
 // ---- 编辑/删除 ----
 const editVisible = ref(false)
@@ -338,6 +364,33 @@ async function toggleChunks(row: any) {
   chunks.docName = row.fileName
   chunks.list = data.list || []
   chunks.total = data.total || 0
+}
+
+async function openChunkAcl(c: any) {
+  aclChunk.value = c
+  let users = c.allowedUsers
+  if (typeof users === 'string') { try { users = JSON.parse(users) } catch { users = [] } }
+  aclForm.users = (users || []).map((x: any) => Number(x)).filter((x: number) => !Number.isNaN(x))
+  aclForm.tenantVisible = c.tenantVisible !== false
+  if (!aclMembers.value.length) {
+    try { aclMembers.value = (await http.get('/users') as any) || [] } catch { /* 权限不足时仍可编辑已有 ID */ }
+  }
+  aclVisible.value = true
+}
+
+async function saveChunkAcl() {
+  if (!aclChunk.value) return
+  aclSaving.value = true
+  try {
+    await http.put(`/knowledge-base/${kbId}/chunks/${aclChunk.value.id}/acl`, {
+      allowedUsers: aclForm.users, tenantVisible: aclForm.tenantVisible
+    })
+    ElMessage.success('分段授权已保存')
+    aclVisible.value = false
+    await toggleChunks({ id: chunks.docId, fileName: chunks.docName })
+  } finally {
+    aclSaving.value = false
+  }
 }
 
 async function doSearch() {

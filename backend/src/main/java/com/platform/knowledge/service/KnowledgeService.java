@@ -612,9 +612,37 @@ public class KnowledgeService {
             m.put("id", c.getId());
             m.put("chunkIndex", c.getChunkIndex());
             m.put("content", c.getContent());
+            m.put("allowedUsers", parseJson(c.getAllowedUsers()));
+            m.put("tenantVisible", c.getTenantVisible() == null || c.getTenantVisible() == 1);
             return m;
         }).toList();
         return Map.of("list", list, "total", result.getTotal(), "page", page, "pageSize", pageSize);
+    }
+
+    /** 单 chunk 独立授权：更新 MySQL 分段与 PgVector metadata；需知识库编辑权限。 */
+    public Map<String, Object> updateChunkAcl(Long kbId, Long chunkId, List<Long> allowedUsers,
+                                               boolean tenantVisible,
+                                               KnowledgePermissionService.Viewer viewer) {
+        KnowledgeBase kb = permissionService.requireEdit(kbId, viewer);
+        KnowledgeChunk chunk = chunkMapper.selectById(chunkId);
+        if (chunk == null || !Objects.equals(chunk.getKnowledgeBaseId(), kbId)) {
+            throw new BusinessException(404, "分段不存在");
+        }
+        List<Long> users = allowedUsers == null ? new ArrayList<>() : new ArrayList<>(allowedUsers);
+        permissionService.validateAclUsers(kb.getTenantId(), users);
+        if (chunk.getDocumentId() == null) throw new BusinessException(400, "分段缺少文档信息");
+        String usersJson = users.stream().map(String::valueOf).map(id -> "\"" + id + "\"")
+                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+        chunkMapper.update(null, new LambdaUpdateWrapper<KnowledgeChunk>()
+                .eq(KnowledgeChunk::getId, chunkId)
+                .set(KnowledgeChunk::getAllowedUsers, usersJson)
+                .set(KnowledgeChunk::getTenantVisible, tenantVisible ? 1 : 0));
+        vectorRepository.updateAclForChunk(kb.getTenantId(), kbId, chunkId, users, tenantVisible);
+        auditService.record(viewer.userId(), "knowledge.chunk_acl", "knowledge_chunk",
+                String.valueOf(chunkId), "SUCCESS",
+                Map.of("knowledgeBaseId", kbId, "tenantVisible", tenantVisible,
+                        "allowedUsers", users));
+        return Map.of("id", chunkId, "allowedUsers", users, "tenantVisible", tenantVisible);
     }
 
     public List<KnowledgeDocument> documents(Long kbId, KnowledgePermissionService.Viewer viewer) {
@@ -629,6 +657,15 @@ public class KnowledgeService {
             vectorRepository.deleteByDocument(tenantId, documentId);
         } catch (Exception e) {
             log.warn("删除文档向量失败 doc={} err={}（数据库记录继续清理）", documentId, e.getMessage());
+        }
+    }
+
+    private Object parseJson(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            return objectMapper.readValue(raw, Object.class);
+        } catch (Exception e) {
+            return raw;
         }
     }
 

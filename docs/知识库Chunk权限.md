@@ -56,7 +56,23 @@ AND (allowed_users IS NULL
 - 同步更新 `knowledge_chunk.allowed_users/tenant_visible`；
 - 新文档入库时直接写入 ACL。
 
-## 5. 已验证
+## 5. 独立 chunk 授权
+
+接口：
+
+```http
+PUT /api/v1/knowledge-base/{kbId}/chunks/{chunkId}/acl
+{"allowedUsers":[2,4],"tenantVisible":false}
+```
+
+- 需知识库编辑权限；
+- 校验用户属于同租户且非 RESTRICTED；
+- 更新 `knowledge_chunk` 与所有维度 PgVector metadata；
+- 分段预览新增「授权」按钮，可选择租户可见或指定用户。
+
+已验证：KB 1 / chunk 2 设置为 `["2","4"], tenant_visible=false`，MySQL 与 PgVector 同步更新；恢复为 `["2"], true`。
+
+## 6. 已验证
 
 2026-10-21 使用真实 MySQL/PgVector：
 
@@ -72,5 +88,5 @@ AND (allowed_users IS NULL
 - 当前 ACL 仍由知识库级权限派生，没有 chunk 级独立授权 UI。
 - 权限变更同步更新向量 metadata 是同步操作；超大知识库需要异步重建/批量更新。
 - 旧数据缺少 ACL 时走“知识库级已校验”的兜底，不等于历史 chunk 已有精细 ACL。
-- 向量/关键字 SQL 的 ACL 逻辑通过直接 SQL 验证；未单独做完整文档入库→检索 E2E。
+- 向量/关键字 SQL 的 ACL 逻辑通过直接 SQL 验证；独立 chunk 授权通过真实 API/DB 验证；未做完整文档入库→检索的自动化 E2E（CI 无 Ollama）。
 - 向量维度表与 MySQL 分段表若更新部分失败，没有跨库补偿事务；生产需要重试/对账。

@@ -94,6 +94,21 @@ public class KnowledgePermissionService {
         return new Acl(users, "TENANT".equals(visibility));
     }
 
+    /** 校验 chunk 独立 ACL 用户：必须同租户且非 RESTRICTED。 */
+    public void validateAclUsers(Long tenantId, List<Long> userIds) {
+        if (userIds == null) return;
+        for (Long userId : userIds) {
+            if (userId == null) continue;
+            SysUser user = userMapper.selectById(userId);
+            if (user == null || !Objects.equals(user.getTenantId(), tenantId)) {
+                throw new BusinessException(400, "ACL 用户不存在或不属于当前租户");
+            }
+            if (isRestrictedUser(userId)) {
+                throw new BusinessException(400, "受限成员不可加入 chunk ACL");
+            }
+        }
+    }
+
     public boolean canEdit(KnowledgeBase kb, Viewer viewer) {
         if (kb == null || viewer == null || viewer.userId() == null) return false;
         if (isCreator(kb, viewer)) return true;
