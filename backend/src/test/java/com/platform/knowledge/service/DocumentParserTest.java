@@ -4,15 +4,22 @@ import org.apache.poi.xslf.usermodel.XMLSlideShow;
 import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xslf.usermodel.XSLFTextBox;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+
+import javax.imageio.ImageIO;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -45,6 +52,39 @@ class DocumentParserTest {
         List<DocumentParser.ParsedChunk> chunks = parser.parseWithParents("scan.png",
                 new byte[]{(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10});
         assertTrue(chunks.stream().anyMatch(c -> c.content().contains("OCR识别文本")));
+    }
+
+    @Test
+    void realTesseractOcrOnRenderedImage() throws Exception {
+        Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过真实 OCR");
+        BufferedImage image = new BufferedImage(1200, 320, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, image.getWidth(), image.getHeight());
+            g.setColor(Color.BLACK);
+            g.setFont(new Font("SansSerif", Font.BOLD, 64));
+            g.drawString("INVOICE 1234.00", 50, 190);
+        } finally {
+            g.dispose();
+        }
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", out);
+        ReflectionTestUtils.setField(parser, "ocrEnabled", true);
+        ReflectionTestUtils.setField(parser, "ocrCommand", "tesseract");
+        ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
+        List<DocumentParser.ParsedChunk> chunks = parser.parseWithParents("scan.png", out.toByteArray());
+        String text = chunks.stream().map(DocumentParser.ParsedChunk::content).reduce("", String::concat);
+        assertTrue(text.contains("1234"), "真实 OCR 应识别金额数字，实际=" + text);
+    }
+
+    private boolean commandExists(String command) {
+        try {
+            return new ProcessBuilder(command, "--version").redirectErrorStream(true)
+                    .start().waitFor() == 0;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     @Test
