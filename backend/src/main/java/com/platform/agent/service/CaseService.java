@@ -385,6 +385,135 @@ public class CaseService {
         return result;
     }
 
+    /** 裁判校准队列：回归明细的人工标注/校准。 */
+    public Map<String, Object> calibrations(JwtPrincipal principal, String status, Long runId,
+                                            int page, int pageSize) {
+        int size = Math.max(1, Math.min(pageSize <= 0 ? 20 : pageSize, 100));
+        int current = Math.max(1, page);
+        List<TestCaseRun> tenantRuns = runMapper.selectList(new LambdaQueryWrapper<TestCaseRun>()
+                .eq(TestCaseRun::getTenantId, principal.tenantId())
+                .orderByDesc(TestCaseRun::getId).last("LIMIT 200"));
+        Map<Long, TestCaseRun> runMap = new LinkedHashMap<>();
+        for (TestCaseRun r : tenantRuns) runMap.put(r.getId(), r);
+        if (runId != null) {
+            if (!runMap.containsKey(runId)) throw new BusinessException(404, "回归记录不存在");
+            runMap.keySet().retainAll(List.of(runId));
+        }
+        if (runMap.isEmpty()) return Map.of("list", List.of(), "total", 0, "page", current, "pageSize", size);
+        LambdaQueryWrapper<TestCaseRunItem> wrapper = new LambdaQueryWrapper<TestCaseRunItem>()
+                .in(TestCaseRunItem::getRunId, runMap.keySet())
+                .isNull("PENDING".equalsIgnoreCase(status), TestCaseRunItem::getHumanLabel)
+                .isNotNull("DONE".equalsIgnoreCase(status), TestCaseRunItem::getHumanLabel)
+                .orderByDesc(TestCaseRunItem::getId);
+        if (!"ALL".equalsIgnoreCase(status) && !"PENDING".equalsIgnoreCase(status)
+                && !"DONE".equalsIgnoreCase(status)) {
+            wrapper.isNull(TestCaseRunItem::getHumanLabel);
+        }
+        long total = runItemMapper.selectCount(wrapper);
+        wrapper.last("LIMIT " + ((current - 1) * size) + ", " + size);
+        List<TestCaseRunItem> items = runItemMapper.selectList(wrapper);
+        List<Map<String, Object>> rows = items.stream().map(i -> calibrationView(i, runMap.get(i.getRunId())))
+                .toList();
+        return Map.of("list", rows, "total", total, "page", current, "pageSize", size);
+    }
+
+    public Map<String, Object> calibrationStats(JwtPrincipal principal) {
+        List<Long> runIds = runMapper.selectList(new LambdaQueryWrapper<TestCaseRun>()
+                        .eq(TestCaseRun::getTenantId, principal.tenantId()))
+                .stream().map(TestCaseRun::getId).toList();
+        if (runIds.isEmpty()) {
+            return Map.of("total", 0, "labeled", 0, "pending", 0, "agreementRate", 0,
+                    "meanAbsError", 0);
+        }
+        List<TestCaseRunItem> items = runItemMapper.selectList(new LambdaQueryWrapper<TestCaseRunItem>()
+                .in(TestCaseRunItem::getRunId, runIds));
+        int labeled = 0, pending = 0, agree = 0;
+        double errorSum = 0;
+        int errorCount = 0;
+        for (TestCaseRunItem i : items) {
+            if (i.getHumanLabel() == null || i.getHumanLabel().isBlank()) {
+                pending++;
+                continue;
+            }
+            labeled++;
+            boolean judgePass = i.getScore() != null
+                    && i.getScore().compareTo(BigDecimal.valueOf(0.6)) >= 0;
+            boolean humanPass = "PASS".equalsIgnoreCase(i.getHumanLabel());
+            if (judgePass == humanPass) agree++;
+            if (i.getHumanScore() != null && i.getScore() != null) {
+                errorSum += Math.abs(i.getHumanScore().doubleValue() - i.getScore().doubleValue());
+                errorCount++;
+            }
+        }
+        return Map.of("total", items.size(), "labeled", labeled, "pending", pending,
+                "agreementRate", labeled == 0 ? 0 : round4(agree / (double) labeled),
+                "meanAbsError", errorCount == 0 ? 0 : round4(errorSum / errorCount));
+    }
+
+    public Map<String, Object> calibrate(Long itemId, Map<String, Object> req, JwtPrincipal principal) {
+        TestCaseRunItem item = runItemMapper.selectById(itemId);
+        if (item == null) throw new BusinessException(404, "回归明细不存在");
+        TestCaseRun run = runMapper.selectById(item.getRunId());
+        if (run == null || !run.getTenantId().equals(principal.tenantId())) {
+            throw new BusinessException(404, "回归记录不存在");
+        }
+        String label = str(req.get("humanLabel"));
+        if (label == null || (!"PASS".equalsIgnoreCase(label) && !"FAIL".equalsIgnoreCase(label))) {
+            throw new BusinessException(400, "humanLabel 必须是 PASS 或 FAIL");
+        }
+        BigDecimal score = decimal(req.get("humanScore"));
+        if (score == null) score = "PASS".equalsIgnoreCase(label) ? BigDecimal.ONE : BigDecimal.ZERO;
+        if (score.compareTo(BigDecimal.ZERO) < 0 || score.compareTo(BigDecimal.ONE) > 0) {
+            throw new BusinessException(400, "humanScore 必须在 0~1 之间");
+        }
+        item.setHumanScore(score.setScale(3, RoundingMode.HALF_UP));
+        item.setHumanLabel(label.toUpperCase());
+        item.setReviewerId(principal.userId());
+        item.setReviewedAt(LocalDateTime.now());
+        item.setReviewNote(truncate(str(req.get("note")), 512));
+        runItemMapper.updateById(item);
+        auditService.record(principal.userId(), "case.calibration", "test_case_run_item",
+                String.valueOf(itemId), "SUCCESS",
+                Map.of("humanLabel", item.getHumanLabel(), "humanScore", item.getHumanScore()));
+        return calibrationView(item, run);
+    }
+
+    private Map<String, Object> calibrationView(TestCaseRunItem i, TestCaseRun run) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", i.getId());
+        m.put("runId", i.getRunId());
+        m.put("runName", run == null ? null : run.getName());
+        m.put("modelName", run == null ? null : run.getModelName());
+        m.put("judgeModel", run == null ? null : run.getJudgeModel());
+        m.put("caseId", i.getCaseId());
+        m.put("question", i.getQuestion());
+        m.put("answer", i.getAnswer());
+        m.put("judgeScore", i.getScore());
+        m.put("judgePassed", i.getPassed() != null && i.getPassed() == 1);
+        TestCase c = i.getCaseId() == null ? null : caseMapper.selectById(i.getCaseId());
+        m.put("referenceAnswer", c == null ? null : reference(c));
+        m.put("humanScore", i.getHumanScore());
+        m.put("humanLabel", i.getHumanLabel());
+        m.put("reviewerId", i.getReviewerId());
+        m.put("reviewedAt", i.getReviewedAt());
+        m.put("reviewNote", i.getReviewNote());
+        m.put("error", i.getError());
+        return m;
+    }
+
+    private BigDecimal decimal(Object raw) {
+        if (raw == null || String.valueOf(raw).isBlank()) return null;
+        try {
+            return new BigDecimal(String.valueOf(raw));
+        } catch (Exception e) {
+            throw new BusinessException(400, "humanScore 不是合法数字");
+        }
+    }
+
+    private double round4(double value) {
+        return BigDecimal.valueOf(value).setScale(4, RoundingMode.HALF_UP).doubleValue();
+    }
+
     public Map<String, Object> runs(JwtPrincipal principal) {
         List<TestCaseRun> rows = runMapper.selectList(new LambdaQueryWrapper<TestCaseRun>()
                 .eq(TestCaseRun::getTenantId, principal.tenantId())
@@ -527,6 +656,10 @@ public class CaseService {
         m.put("question", i.getQuestion());
         m.put("answer", i.getAnswer());
         m.put("score", i.getScore());
+        m.put("humanScore", i.getHumanScore());
+        m.put("humanLabel", i.getHumanLabel());
+        m.put("reviewedAt", i.getReviewedAt());
+        m.put("reviewNote", i.getReviewNote());
         m.put("passed", i.getPassed() != null && i.getPassed() == 1);
         m.put("latencyMs", i.getLatencyMs());
         m.put("error", i.getError());

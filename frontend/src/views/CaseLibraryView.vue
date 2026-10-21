@@ -18,6 +18,7 @@
                 @keyup.enter="load" @clear="load" />
       <el-button @click="load">刷新</el-button>
       <el-button :disabled="!approved.length" @click="exportCases">导出评测集</el-button>
+      <el-button @click="openCalibration">人工标注 / 校准</el-button>
     </div>
 
     <div class="run-bar">
@@ -110,6 +111,66 @@
         <el-table-column prop="error" label="错误" min-width="120" show-overflow-tooltip />
       </el-table>
     </el-dialog>
+
+    <el-drawer v-model="calVisible" title="人工标注 / 裁判校准" size="1100px">
+      <div class="cal-stats">
+        <el-statistic title="回归明细" :value="calStats.total || 0" />
+        <el-statistic title="已标注" :value="calStats.labeled || 0" />
+        <el-statistic title="待标注" :value="calStats.pending || 0" />
+        <el-statistic title="裁判一致率" :value="(calStats.agreementRate || 0) * 100">
+          <template #suffix>%</template>
+        </el-statistic>
+        <el-statistic title="平均分差" :value="calStats.meanAbsError || 0" />
+      </div>
+      <div class="toolbar">
+        <el-radio-group v-model="calStatus" @change="loadCalibration">
+          <el-radio-button value="PENDING">待标注</el-radio-button>
+          <el-radio-button value="DONE">已标注</el-radio-button>
+          <el-radio-button value="ALL">全部</el-radio-button>
+        </el-radio-group>
+        <el-button @click="loadCalibration">刷新</el-button>
+        <span class="hint">人工标签与 LLM 裁判分开保存；一致率仅统计已标注项</span>
+      </div>
+      <el-table :data="calRows" size="small" v-loading="calLoading" max-height="560">
+        <el-table-column prop="runName" label="回归任务" width="150" show-overflow-tooltip />
+        <el-table-column prop="modelName" label="候选模型" width="120" show-overflow-tooltip />
+        <el-table-column prop="question" label="问题" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="answer" label="候选回答" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="referenceAnswer" label="参考/期望" min-width="180" show-overflow-tooltip />
+        <el-table-column label="裁判" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.judgePassed ? 'success' : 'danger'">
+              {{ row.judgeScore ?? '-' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="人工分" width="110">
+          <template #default="{ row }">
+            <el-input-number v-model="row.humanScore" :min="0" :max="1" :step="0.1" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="人工标签" width="110">
+          <template #default="{ row }">
+            <el-select v-model="row.humanLabel" size="small" placeholder="选择">
+              <el-option label="PASS" value="PASS" />
+              <el-option label="FAIL" value="FAIL" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="备注" width="140">
+          <template #default="{ row }"><el-input v-model="row.reviewNote" size="small" /></template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" text @click="saveCalibration(row)">保存</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="cal-pager">
+        <el-pagination v-model:current-page="calPage" :page-size="20" :total="calTotal"
+                       layout="prev, pager, next, total" @current-change="loadCalibration" />
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -135,6 +196,13 @@ const judgeModel = ref('')
 const form = reactive({ id: 0, question: '', actualAnswer: '', expectedAnswer: '', kind: 'BAD',
   status: 'CANDIDATE', note: '' })
 const approved = computed(() => approvedRows.value)
+const calVisible = ref(false)
+const calLoading = ref(false)
+const calStatus = ref('PENDING')
+const calRows = ref<any[]>([])
+const calStats = ref<any>({})
+const calPage = ref(1)
+const calTotal = ref(0)
 
 onMounted(async () => {
   const models = await http.get('/provider/models', { params: { purpose: 'CHAT' } }) as any
@@ -220,6 +288,42 @@ async function runRegression() {
   }
 }
 
+async function openCalibration() {
+  calVisible.value = true
+  calPage.value = 1
+  await loadCalibration()
+}
+
+async function loadCalibration() {
+  calLoading.value = true
+  try {
+    const [data, stats] = await Promise.all([
+      http.get('/cases/calibrations', {
+        params: { status: calStatus.value, page: calPage.value, pageSize: 20 }
+      }),
+      http.get('/cases/calibrations/stats')
+    ]) as any[]
+    calRows.value = data.list || []
+    calTotal.value = data.total || 0
+    calStats.value = stats || {}
+  } finally {
+    calLoading.value = false
+  }
+}
+
+async function saveCalibration(row: any) {
+  if (!row.humanLabel) { ElMessage.warning('请选择人工标签 PASS/FAIL'); return }
+  try {
+    await http.put(`/cases/calibrations/${row.id}`, {
+      humanScore: row.humanScore, humanLabel: row.humanLabel, note: row.reviewNote
+    })
+    ElMessage.success('已保存标注')
+    await loadCalibration()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '保存失败')
+  }
+}
+
 function sourceText(source: string) {
   return ({ MANUAL: '手动收藏', AUTO_BAD: '点踩自动', AUTO_CLASSIC: '点赞自动' } as any)[source] || source
 }
@@ -239,7 +343,9 @@ function statusText(value: string) {
 .case-head { display: flex; align-items: center; gap: 8px; }
 .case-id { font-size: 12px; color: #c0c4cc; }
 .case-q { margin-top: 8px; font-size: 14px; line-height: 1.5; }
-.case-a, .case-expected, .case-note {
+.case-a, .case-expected, .cal-stats { display: flex; gap: 28px; padding: 8px 0 16px; }
+.cal-pager { display: flex; justify-content: flex-end; margin-top: 12px; }
+.case-note {
   margin-top: 4px; font-size: 13px; color: #606266; line-height: 1.5;
   white-space: pre-wrap; word-break: break-word;
 }

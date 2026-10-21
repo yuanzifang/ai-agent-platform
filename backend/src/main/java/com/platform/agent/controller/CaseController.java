@@ -62,6 +62,30 @@ public class CaseController {
         return ApiResponse.ok(service.run(req, principal));
     }
 
+    @GetMapping("/calibrations")
+    @PreAuthorize("hasAuthority('eval:manage')")
+    public ApiResponse<Map<String, Object>> calibrations(@RequestParam(required = false) String status,
+                                                         @RequestParam(required = false) Long runId,
+                                                         @RequestParam(defaultValue = "1") int page,
+                                                         @RequestParam(defaultValue = "20") int pageSize,
+                                                         @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(service.calibrations(principal, status, runId, page, pageSize));
+    }
+
+    @GetMapping("/calibrations/stats")
+    @PreAuthorize("hasAuthority('eval:manage')")
+    public ApiResponse<Map<String, Object>> calibrationStats(@AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(service.calibrationStats(principal));
+    }
+
+    @PutMapping("/calibrations/{id}")
+    @PreAuthorize("hasAuthority('eval:manage')")
+    public ApiResponse<Map<String, Object>> calibrate(@PathVariable Long id,
+                                                      @RequestBody Map<String, Object> req,
+                                                      @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(service.calibrate(id, req, principal));
+    }
+
     @GetMapping("/runs")
     public ApiResponse<Map<String, Object>> runs(@AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(service.runs(principal));

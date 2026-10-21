@@ -1297,6 +1297,26 @@ test('对话用例库：反馈沉淀与模型回归', async ({ request }) => {
     expect(runBody.data.total).toBe(2)
     expect(runBody.data.passed).toBe(2)
     expect(runBody.data.items.length).toBe(2)
+
+    const cal = await (await request.get(`${P}/cases/calibrations`, {
+      headers: auth(token!), params: { status: 'PENDING' }
+    })).json()
+    expect(cal.code, JSON.stringify(cal)).toBe(0)
+    expect(cal.data.total).toBeGreaterThanOrEqual(2)
+    const item = cal.data.list[0]
+    const savedCal = await (await request.put(`${P}/cases/calibrations/${item.id}`, {
+      headers: auth(token!), data: { humanScore: 1, humanLabel: 'PASS', note: 'E2E 人工校准' }
+    })).json()
+    expect(savedCal.code, JSON.stringify(savedCal)).toBe(0)
+    expect(savedCal.data.humanLabel).toBe('PASS')
+    const calStats = await (await request.get(`${P}/cases/calibrations/stats`, {
+      headers: auth(token!)
+    })).json()
+    expect(calStats.data.labeled).toBeGreaterThanOrEqual(1)
+    const done = await (await request.get(`${P}/cases/calibrations`, {
+      headers: auth(token!), params: { status: 'DONE' }
+    })).json()
+    expect(done.data.list.some((x: any) => x.id === item.id)).toBe(true)
   } finally {
     if (runId) {
       // 回归记录保留用于审计；用例本身删除

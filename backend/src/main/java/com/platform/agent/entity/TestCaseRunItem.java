@@ -18,6 +18,11 @@ public class TestCaseRunItem {
     private String question;
     private String answer;
     private BigDecimal score;
+    private BigDecimal humanScore;
+    private String humanLabel;
+    private Long reviewerId;
+    private LocalDateTime reviewedAt;
+    private String reviewNote;
     private Integer passed;
     private Long latencyMs;
     private String error;
