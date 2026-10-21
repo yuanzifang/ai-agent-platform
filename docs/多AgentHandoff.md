@@ -24,12 +24,13 @@
 - 运行成功；
 - nodeRuns 包含 `HANDOFF`，run detail `state.handoff_result` 非空；
 - 后续 LLM 的 system prompt 实测包含「前序节点结果」和「共享状态」；
-- 完整 E2E **30/30**，单测 **52/52**。
+- 新增并行 State E2E：两个分支分别写 `branch_a=alpha`、`branch_b=beta`，JOIN 后 run.state 同时保留；
+- 完整 E2E **31/31**，单测 **52/52**。
 
 ## 边界
 
 - 不是完整 Graph 引擎：没有独立边列表、任意 fan-out/fan-in、条件路由 DSL；
-- `STATE` 只在主顺序执行链验证；并行分支内状态合并尚未验证；
+- 并行分支内 `STATE` 已支持，并在 JOIN 前合并到运行级 state；
 - `HANDOFF` 目前顺序执行；
 - 目标 Agent 的内部 Trace 记录为 debug 用量，不生成独立的正式对话 Trace；
 - 没有 handoff 回传/多轮往返；

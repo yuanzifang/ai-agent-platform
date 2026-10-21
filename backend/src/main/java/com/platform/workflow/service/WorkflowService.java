@@ -573,8 +573,9 @@ public class WorkflowService {
                         return;
                     }
                 } else if ("PARALLEL".equals(type)) {
-                    ParallelResult result = executeParallel(node, run, nodes, outputs, principal);
+                    ParallelResult result = executeParallel(node, run, nodes, outputs, principal, state);
                     output = result.output();
+                    state.putAll(result.state());
                     run.setInputTokens(nz(run.getInputTokens()) + result.inputTokens());
                     run.setOutputTokens(nz(run.getOutputTokens()) + result.outputTokens());
                     next = str(node.get("joinNode"));
@@ -797,10 +798,12 @@ public class WorkflowService {
     private record NodeResult(String output, long inputTokens, long outputTokens) {
     }
 
-    private record BranchResult(String output, long inputTokens, long outputTokens) {
+    private record BranchResult(String output, long inputTokens, long outputTokens,
+                                Map<String, Object> state) {
     }
 
-    private record ParallelResult(String output, long inputTokens, long outputTokens) {
+    private record ParallelResult(String output, long inputTokens, long outputTokens,
+                                  Map<String, Object> state) {
     }
 
     /** 并行节点：分支用独立线程执行，结果文本汇总后进入 JOIN。 */
@@ -880,7 +883,8 @@ public class WorkflowService {
         StringBuilder merged = new StringBuilder("【循环结果】");
         long in = 0, out = 0;
         for (int i = 0; i < count; i++) {
-            BranchResult br = executeBranch(run, nodes, body, loopEnd, outputs, principal, items.get(i));
+            BranchResult br = executeBranch(run, nodes, body, loopEnd, outputs, principal, items.get(i),
+                    Map.of());
             merged.append("\n[").append(i + 1).append("] ").append(br.output());
             in += br.inputTokens();
             out += br.outputTokens();
@@ -914,7 +918,8 @@ public class WorkflowService {
 
     private ParallelResult executeParallel(Map<String, Object> node, WorkflowRun run,
                                             Map<String, Map<String, Object>> nodes,
-                                            List<Map<String, Object>> outputs, JwtPrincipal principal) {
+                                            List<Map<String, Object>> outputs, JwtPrincipal principal,
+                                            Map<String, Object> baseState) {
         Object raw = node.get("branches");
         if (!(raw instanceof List<?> list) || list.isEmpty()) {
             throw new BusinessException(400, "PARALLEL 节点没有分支");
@@ -926,11 +931,13 @@ public class WorkflowService {
         for (Object o : list) {
             String start = str(o);
             futures.add(CompletableFuture.supplyAsync(() -> TenantContext.runWith(run.getTenantId(),
-                    () -> executeBranch(run, nodes, start, joinId, outputs, principal, null)), llmExecutor));
+                    () -> executeBranch(run, nodes, start, joinId, outputs, principal, null,
+                            new LinkedHashMap<>(baseState))), llmExecutor));
         }
         StringBuilder merged = new StringBuilder("【并行分支结果】\n");
         long in = 0, out = 0;
         int failed = 0;
+        Map<String, Object> mergedState = new LinkedHashMap<>(baseState);
         for (int i = 0; i < futures.size(); i++) {
             merged.append("\n[分支 ").append(i + 1).append("]\n");
             try {
@@ -938,6 +945,7 @@ public class WorkflowService {
                 merged.append(br.output() == null ? "" : br.output()).append("\n");
                 in += br.inputTokens();
                 out += br.outputTokens();
+                mergedState.putAll(br.state());
             } catch (Exception e) {
                 failed++;
                 if ("ALL_OR_NOTHING".equalsIgnoreCase(strategy)) {
@@ -949,15 +957,17 @@ public class WorkflowService {
         if (failed > 0 && failed == futures.size()) {
             throw new BusinessException(500, "并行分支全部失败");
         }
-        return new ParallelResult(merged.toString(), in, out);
+        return new ParallelResult(merged.toString(), in, out, mergedState);
     }
 
     private BranchResult executeBranch(WorkflowRun run, Map<String, Map<String, Object>> nodes,
                                        String start, String joinId, List<Map<String, Object>> baseOutputs,
-                                       JwtPrincipal principal, String initialOutput) {
+                                       JwtPrincipal principal, String initialOutput,
+                                       Map<String, Object> baseState) {
         String nodeId = start;
         String lastOutput = initialOutput == null ? run.getOutputText() : initialOutput;
         List<Map<String, Object>> outputs = new ArrayList<>(baseOutputs);
+        Map<String, Object> state = new LinkedHashMap<>(baseState);
         long in = 0, out = 0;
         int steps = 0;
         while (steps++ < 30) {
@@ -997,6 +1007,15 @@ public class WorkflowService {
                 nodeFailed = simple.failed();
                 in += simple.inputTokens();
                 out += simple.outputTokens();
+            } else if ("STATE".equals(type)) {
+                String key = str(node.get("stateKey"));
+                if (key == null || key.isBlank()) throw new BusinessException(400, "STATE 节点必须配置 stateKey");
+                String template = str(node.get("valueTemplate"));
+                String value = template == null || template.isBlank() ? lastOutput
+                        : applyStateTemplate(template, run, state, lastOutput);
+                state.put(key, value == null ? "" : value);
+                output = value == null ? "" : value;
+                next = str(node.get("next"));
             } else if ("CONDITION".equals(type)) {
                 boolean matched = evaluate(node, lastOutput == null ? run.getInputText() : lastOutput);
                 output = matched ? "true" : "false";
@@ -1014,7 +1033,7 @@ public class WorkflowService {
             nodeId = next;
             if (nodeId == null || nodeId.isBlank()) break;
         }
-        return new BranchResult(lastOutput, in, out);
+        return new BranchResult(lastOutput, in, out, state);
     }
 
     private String callTool(Map<String, Object> node, WorkflowRun run, String lastOutput) {

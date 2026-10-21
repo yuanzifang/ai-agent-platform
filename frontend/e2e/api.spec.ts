@@ -1005,6 +1005,43 @@ test('工作流 Agent Handoff 与共享上下文', async ({ request }) => {
   }
 })
 
+test('工作流并行分支 State 合并', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E 并行State-${Date.now()}`)
+  try {
+    await publishAgent(request, token!, agentId)
+    const workflow = {
+      name: 'E2E 并行 State', status: 'ENABLED',
+      definition: {
+        nodes: [
+          { id: 'start', type: 'START', name: '开始', next: 'parallel1' },
+          { id: 'parallel1', type: 'PARALLEL', name: '并行',
+            branches: ['s1', 's2'], joinNode: 'join1', strategy: 'ALL_OR_NOTHING' },
+          { id: 's1', type: 'STATE', name: '分支A', stateKey: 'branch_a',
+            valueTemplate: 'alpha', next: 'join1' },
+          { id: 's2', type: 'STATE', name: '分支B', stateKey: 'branch_b',
+            valueTemplate: 'beta', next: 'join1' },
+          { id: 'join1', type: 'JOIN', name: '汇合', next: 'end' },
+          { id: 'end', type: 'END', name: '结束' }
+        ]
+      }
+    }
+    expect((await (await request.put(`${P}/agent/${agentId}/workflow`, {
+      headers: auth(token!), data: workflow
+    })).json()).code).toBe(0)
+    const body = await (await request.post(`${P}/agent/${agentId}/workflow/run`, {
+      headers: auth(token!), data: { input: '并行测试' }, timeout: 60_000
+    })).json()
+    expect(body.code, JSON.stringify(body)).toBe(0)
+    expect(body.data.status).toBe('SUCCESS')
+    expect(body.data.state?.branch_a).toBe('alpha')
+    expect(body.data.state?.branch_b).toBe('beta')
+  } finally {
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
 test('工作流 Loop 与节点错误策略', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()
