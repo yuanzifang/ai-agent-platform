@@ -1,0 +1,87 @@
+groups:
+  - name: ai-agent-platform
+    rules:
+      - alert: AiAgentBackendDown
+        expr: up{job="ai-agent-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: ai-agent-platform
+        annotations:
+          summary: "AI Agent 后端不可用"
+          description: "Prometheus 已连续 2 分钟无法抓取 {{ $labels.instance }}。"
+
+      - alert: AiAgentHighErrorRate
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{status=~"5..",uri!~"/actuator.*"}[5m]))
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count{uri!~"/actuator.*"}[5m])), 0.001)
+          ) > 0.05
+          and
+          sum(rate(http_server_requests_seconds_count{uri!~"/actuator.*"}[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: critical
+          service: ai-agent-platform
+        annotations:
+          summary: "API 5xx 错误率超过 5%"
+          description: "最近 5 分钟 5xx 占比 {{ $value | humanizePercentage }}（要求 > 0.5 QPS 才触发）。"
+
+      - alert: AiAgentHighLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(http_server_requests_seconds_bucket{uri!~"/actuator.*"}[5m]))
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "API P95 延迟超过 2 秒"
+          description: "最近 5 分钟 API P95 延迟 {{ $value }}s。"
+
+      - alert: AiAgentRateLimitRejections
+        expr: sum(rate(http_server_requests_seconds_count{status="429"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "租户限流持续触发"
+          description: "最近 5 分钟平均每秒超过 1 次 429，检查配额或异常调用。"
+
+      - alert: AiAgentDiskSpaceLow
+        expr: (disk_free_bytes / clamp_min(disk_total_bytes, 1)) < 0.15
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "磁盘可用空间低于 15%"
+          description: "路径 {{ $labels.path }} 可用比例 {{ $value | humanizePercentage }}。"
+
+      - alert: AiAgentDbPoolSaturation
+        expr: |
+          (
+            hikaricp_connections_active / clamp_min(hikaricp_connections_max, 1) > 0.9
+          )
+          or hikaricp_connections_pending > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "数据库连接池接近耗尽"
+          description: "连接池 {{ $labels.pool }} 活跃比例高或排队请求 > 5。"
+
+      - alert: AiAgentLlmQueueBacklog
+        expr: executor_queued_tasks{name="llmTaskExecutor"} > 50
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "LLM 异步队列积压"
+          description: "llmTaskExecutor 排队任务 {{ $value }}，检查模型延迟/下游限流。"

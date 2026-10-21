@@ -175,6 +175,12 @@ moderation:
     api-key: ${MODERATION_HTTP_API_KEY:}
     timeout-ms: ${MODERATION_HTTP_TIMEOUT_MS:3000}
 
+observability:
+  trace:
+    # 0~1；1=全量；错误/阻断默认始终保留
+    sample-rate: ${TRACE_SAMPLE_RATE:1.0}
+    always-sample-errors: ${TRACE_ALWAYS_SAMPLE_ERRORS:true}
+
 otel:
   # 标准 OTLP Trace 导出（Jaeger/Tempo/Langfuse/Phoenix 等）
   enabled: ${OTEL_ENABLED:false}

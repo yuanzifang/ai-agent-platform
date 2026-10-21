@@ -15,6 +15,7 @@ import com.platform.observability.mapper.AgentSpanMapper;
 import com.platform.observability.mapper.AgentTraceMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -53,6 +54,13 @@ public class TraceService {
     private final PricingService pricingService;
     private final ObjectMapper objectMapper;
     private final OtelTraceExporter otelTraceExporter;
+
+    /** 0..1；1=全量落库，ERROR/BLOCKED 默认始终保留。 */
+    @Value("${observability.trace.sample-rate:1.0}")
+    private double traceSampleRate;
+
+    @Value("${observability.trace.always-sample-errors:true}")
+    private boolean alwaysSampleErrors;
 
     /** 扩展元数据：kind/版本/输入输出/错误/标签（均可为空，缺省回落）。 */
     public record TraceExtra(String kind, String version, String inputText, String outputText,
@@ -109,6 +117,10 @@ public class TraceService {
                        String modelName, long inTokens, long outTokens, long latencyMs,
                        int citationCount, TraceExtra extra, List<ToolCallEvent> toolCalls,
                        List<TraceStep> steps) {
+        if (!shouldSample(traceId, status, traceSampleRate, alwaysSampleErrors)) {
+            log.debug("Trace 采样跳过 traceId={} rate={}", traceId, traceSampleRate);
+            return;
+        }
         try {
             String kind = extra != null && extra.kind() != null ? extra.kind() : KIND_INTERNAL;
             String version = extra != null && extra.version() != null ? extra.version()
@@ -223,6 +235,17 @@ public class TraceService {
         } catch (Exception e) {
             log.warn("Trace 落库失败 traceId={}", traceId, e);
         }
+    }
+
+    /** 确定性采样：同一 traceId 结果稳定；错误/阻断默认始终保留。 */
+    static boolean shouldSample(String traceId, String status, double rate, boolean alwaysSampleErrors) {
+        if (rate >= 1.0) return true;
+        if (alwaysSampleErrors && ("ERROR".equalsIgnoreCase(status) || "BLOCKED".equalsIgnoreCase(status))) {
+            return true;
+        }
+        if (rate <= 0.0) return false;
+        int hash = traceId == null ? 0 : (traceId.hashCode() & 0x7fffffff);
+        return (hash / 2147483648.0) < rate;
     }
 
     /** Trace 名称（需求 3.4 Traces 列表 NAME 列）：invoke_agent_{id}#{name}。 */
