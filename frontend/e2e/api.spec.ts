@@ -958,6 +958,49 @@ test('流式输出前置审核', async ({ request }) => {
   }
 })
 
+test('工作流 Agent Handoff 与共享上下文', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const targetId = await createAgent(request, token!, `E2E Handoff 目标-${Date.now()}`)
+  const sourceId = await createAgent(request, token!, `E2E Handoff 源-${Date.now()}`)
+  try {
+    await publishAgent(request, token!, targetId)
+    await publishAgent(request, token!, sourceId)
+    const workflow = {
+      name: 'E2E Handoff', status: 'ENABLED',
+      definition: {
+        nodes: [
+          { id: 'start', type: 'START', name: '开始', next: 'handoff1' },
+          { id: 'handoff1', type: 'HANDOFF', name: '交给目标 Agent',
+            agentId: targetId, inputTemplate: '{{input}}', next: 'llm1' },
+          { id: 'llm1', type: 'LLM', name: '读取共享上下文', prompt: '总结前序结果', next: 'end' },
+          { id: 'end', type: 'END', name: '结束' }
+        ]
+      }
+    }
+    const save = await request.put(`${P}/agent/${sourceId}/workflow`, {
+      headers: auth(token!), data: workflow
+    })
+    expect((await save.json()).code).toBe(0)
+    const run = await request.post(`${P}/agent/${sourceId}/workflow/run`, {
+      headers: auth(token!), data: { input: '请目标 Agent 接手' }, timeout: 60_000
+    })
+    const body = await run.json()
+    expect(body.code, JSON.stringify(body)).toBe(0)
+    expect(body.data.status).toBe('SUCCESS')
+    expect(String(body.data.output).length).toBeGreaterThan(0)
+    const nodeTypes = (body.data.nodeRuns || []).map((n: any) => n.nodeType)
+    expect(nodeTypes).toContain('HANDOFF')
+    const last = await (await request.get(`${OPENAI_MOCK}/last-chat`)).json()
+    const systemText = (last.messages || []).filter((m: any) => m.role === 'system')
+      .map((m: any) => String(m.content)).join('\n')
+    expect(systemText).toContain('前序节点结果')
+  } finally {
+    await deleteAgent(request, token!, sourceId)
+    await deleteAgent(request, token!, targetId)
+  }
+})
+
 test('工作流 Loop 与节点错误策略', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()

@@ -59,6 +59,8 @@ public class WorkflowService {
     private final WorkflowApprovalMapper approvalMapper;
     private final com.platform.workflow.mapper.AgentWorkflowVersionMapper versionMapper;
     private final AgentRegistryMapper agentMapper;
+    private final com.platform.agent.mapper.AgentVersionMapper agentVersionMapper;
+    private final com.platform.agent.service.ChatService chatService;
     private final ChatModelRouter modelRouter;
     private final com.platform.agent.service.ContextWindowService contextWindow;
     private final BillingUsageMapper billingMapper;
@@ -641,6 +643,55 @@ public class WorkflowService {
         }
     }
 
+    /**
+     * Agent handoff：调用目标 Agent 的完整发布配置（工具/RAG/技能/子 Agent），
+     * 输出作为当前节点的 lastOutput，并进入后续节点的共享「前序节点结果」上下文。
+     */
+    private SimpleResult handoff(Map<String, Object> node, WorkflowRun run, JwtPrincipal principal,
+                                 String input) {
+        Long targetId = toLong(node.get("agentId"));
+        if (targetId == null) throw new BusinessException(400, "HANDOFF 节点必须选择 Agent");
+        AgentRegistry target = agentMapper.selectById(targetId);
+        if (target == null || "DELETED".equals(target.getStatus())) {
+            throw new BusinessException(400, "HANDOFF 目标 Agent 不可用");
+        }
+        com.platform.agent.entity.AgentVersion published = agentVersionMapper.selectList(
+                        new LambdaQueryWrapper<com.platform.agent.entity.AgentVersion>()
+                                .eq(com.platform.agent.entity.AgentVersion::getAgentId, targetId)
+                                .orderByDesc(com.platform.agent.entity.AgentVersion::getId)
+                                .last("LIMIT 1"))
+                .stream().findFirst().orElse(null);
+        Map<String, Object> config;
+        if (published != null && published.getSnapshot() != null) {
+            config = parseMap(published.getSnapshot());
+        } else {
+            config = new LinkedHashMap<>();
+            config.put("systemPrompt", target.getSystemPrompt());
+            config.put("modelConfig", parseMap(target.getModelConfig()));
+            config.put("agentCapabilities", parseMap(target.getAgentCapabilities()));
+            config.put("variables", parseObject(target.getVariables()));
+        }
+        String template = str(node.get("inputTemplate"));
+        String message = template == null || template.isBlank() ? input : template
+                .replace("{{input}}", run.getInputText() == null ? "" : run.getInputText())
+                .replace("{{last}}", input == null ? "" : input);
+        if (message == null || message.isBlank()) message = "请接手当前任务并给出结果。";
+        var viewer = KnowledgePermissionService.Viewer.of(principal.userId(), principal.roles());
+        Map<String, Object> result;
+        try {
+            result = chatService.debugChat(config, message, viewer, principal);
+        } catch (Exception e) {
+            throw new BusinessException(502, "HANDOFF 调用失败：" + rootMessage(e));
+        }
+        String answer = str(result.get("answer"));
+        long in = 0, out = 0;
+        if (result.get("usage") instanceof Map<?, ?> usage) {
+            in = toLong(usage.get("inputTokens")) == null ? 0 : toLong(usage.get("inputTokens"));
+            out = toLong(usage.get("outputTokens")) == null ? 0 : toLong(usage.get("outputTokens"));
+        }
+        return new SimpleResult(answer, str(node.get("next")), in, out, false);
+    }
+
     private NodeResult callModel(Map<String, Object> node, WorkflowRun run,
                                  List<Map<String, Object>> outputs, JwtPrincipal principal) {
         return callModel(node, run, outputs, principal, run.getInputText());
@@ -740,7 +791,7 @@ public class WorkflowService {
 
     /** 并行节点：分支用独立线程执行，结果文本汇总后进入 JOIN。 */
     private boolean isSimpleNode(String type) {
-        return "LLM".equals(type) || "AGENT".equals(type)
+        return "LLM".equals(type) || "AGENT".equals(type) || "HANDOFF".equals(type)
                 || "TOOL".equals(type) || "KNOWLEDGE".equals(type);
     }
 
@@ -787,6 +838,9 @@ public class WorkflowService {
             NodeResult result = callModel(node, run, outputs, principal, modelInput);
             return new SimpleResult(result.output(), str(node.get("next")),
                     result.inputTokens(), result.outputTokens(), false);
+        }
+        if ("HANDOFF".equals(type)) {
+            return handoff(node, run, principal, modelInput);
         }
         if ("TOOL".equals(type)) {
             return new SimpleResult(callTool(node, run, lastOutput), str(node.get("next")), 0, 0, false);
@@ -1121,7 +1175,7 @@ public class WorkflowService {
             if (nodes.containsKey(id)) throw new BusinessException(400, "节点 id 重复：" + id);
             String t = type == null ? "" : type.toUpperCase();
             if (!List.of("START", "LLM", "AGENT", "TOOL", "KNOWLEDGE", "CONDITION", "APPROVAL",
-                    "PARALLEL", "LOOP", "JOIN", "END").contains(t)) {
+                    "PARALLEL", "LOOP", "JOIN", "HANDOFF", "END").contains(t)) {
                 throw new BusinessException(400, "不支持的节点类型：" + type);
             }
             if ("START".equals(t)) hasStart = true;
@@ -1139,8 +1193,8 @@ public class WorkflowService {
             } else if (!"PARALLEL".equals(type)) {
                 checkTarget(nodes, str(node.get("next")), "节点 next");
             }
-            if ("AGENT".equals(type) && node.get("agentId") == null) {
-                throw new BusinessException(400, "AGENT 节点必须选择 Agent");
+            if (("AGENT".equals(type) || "HANDOFF".equals(type)) && node.get("agentId") == null) {
+                throw new BusinessException(400, type + " 节点必须选择 Agent");
             }
             if ("TOOL".equals(type) && node.get("toolId") == null) {
                 throw new BusinessException(400, "TOOL 节点必须选择工具");
@@ -1317,6 +1371,15 @@ public class WorkflowService {
     }
 
     @SuppressWarnings("unchecked")
+    private Object parseObject(String json) {
+        if (json == null || json.isBlank()) return null;
+        try {
+            return objectMapper.readValue(json, Object.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private Map<String, Object> parseMap(String json) {
         if (json == null || json.isBlank()) return Map.of();
         try {
