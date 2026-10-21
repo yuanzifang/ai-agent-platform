@@ -77,7 +77,7 @@ MCP Server 列表新增「能力」按钮（需 `tool:manage`）：
 - stdio 读取线程识别 `notifications/tools/list_changed`；
 - SSE 事件流识别同名通知；
 - HTTP Streamable 的响应体扫描该通知；
-- 命中后记录 `toolsChangedAt`，`GET /mcp-servers/{id}` / `discover` 返回该时间；
+- 命中后写入 `mcp_server.tools_changed_at`（V51 持久化），`GET /mcp-servers/{id}` / `discover` 返回该时间；
 - MCP Server 页面显示「工具待同步」，能力抽屉/同步弹窗提示；
 - 管理员重新「同步工具」成功后清除标记。
 
@@ -86,7 +86,6 @@ MCP Server 列表新增「能力」按钮（需 `tool:manage`）：
 限制：
 
 - HTTP 没有建立长期通知订阅流，只能扫描当前响应；
-- 多实例内存标记不共享（重启后丢失）；
 - 未做自动同步/工具差异预览。
 
 ## 6. 已验证
@@ -97,13 +96,13 @@ MCP Server 列表新增「能力」按钮（需 `tool:manage`）：
 - `resources/read` 返回 `resource:mock://docs/readme`；
 - `prompts/get` 返回 `prompt:hello`；
 - Mock 会话复用仍成立（initialize 只发生一次）；
-- stdio Mock 主动发送 `notifications/tools/list_changed`，discover 返回 `toolsChangedAt`，同步后清除；
+- stdio Mock 主动发送 `notifications/tools/list_changed`，discover 返回 `toolsChangedAt`，同步后清除（V51 持久化）；
 - 新增 `/mcp-paged` 两页工具测试：`echo-page1` + `nextCursor` → `echo-page2`，共 2 条；
 - 完整 E2E **29/29**（API 25 + UI 4），后端单测 **48/48**，前端 `vue-tsc`/`vite build`、`helm lint` 通过。
 
 未验证：
 
 - 真实第三方 MCP Server 的 resources/prompts 兼容性（无凭据/网络条件）。
-- 二进制资源安全下载、资源订阅、多实例 tools_changed 共享、自动同步差异预览。
+- 二进制资源安全下载、资源订阅、自动同步差异预览。
 - HTTP 长期通知订阅未实现。
 - Compose/Helm 未实跑。

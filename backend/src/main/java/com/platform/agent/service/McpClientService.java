@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.platform.agent.entity.McpServer;
+import com.platform.agent.mapper.McpServerMapper;
 import com.platform.common.security.CryptoService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -85,6 +86,7 @@ public class McpClientService {
             .followRedirects(HttpClient.Redirect.NEVER)
             .build();
     private final McpOAuthService oauthService;
+    private final McpServerMapper serverMapper;
 
     /** 单次 resources/read 返回的总字节上限，防止恶意/异常大资源耗尽内存。 */
     @Value("${mcp.resource.max-bytes:1048576}")
@@ -138,16 +140,22 @@ public class McpClientService {
 
     public void markToolsChanged(Long serverId) {
         if (serverId == null) return;
-        toolsChangedAt.put(serverId, System.currentTimeMillis());
-        log.info("MCP 工具列表已变更 server={}（等待管理员重新同步）", serverId);
-    }
-
-    public Long toolsChangedAt(Long serverId) {
-        return serverId == null ? null : toolsChangedAt.get(serverId);
+        try {
+            serverMapper.markToolsChanged(serverId);
+            log.info("MCP 工具列表已变更 server={}（等待管理员重新同步）", serverId);
+        } catch (Exception e) {
+            // 通知处理不能影响当前 MCP 调用
+            log.warn("MCP toolsChangedAt 持久化失败 server={}：{}", serverId, e.getMessage());
+        }
     }
 
     public void markToolsSynced(Long serverId) {
-        if (serverId != null) toolsChangedAt.remove(serverId);
+        if (serverId == null) return;
+        try {
+            serverMapper.clearToolsChanged(serverId);
+        } catch (Exception e) {
+            log.warn("MCP toolsChangedAt 清理失败 server={}：{}", serverId, e.getMessage());
+        }
     }
 
     @PreDestroy

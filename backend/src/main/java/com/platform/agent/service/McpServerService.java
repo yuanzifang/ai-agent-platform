@@ -236,7 +236,8 @@ public class McpServerService {
                 result.put("prompts", List.of());
                 warnings.add("prompts: " + rootMessage(e));
             }
-            result.put("toolsChangedAt", client.toolsChangedAt(s.getId()));
+            McpServer fresh = serverMapper.selectById(s.getId());
+            result.put("toolsChangedAt", fresh == null ? null : fresh.getToolsChangedAt());
             result.put("warnings", warnings);
             return result;
         } catch (Exception e) {
@@ -668,7 +669,7 @@ public class McpServerService {
         m.put("status", s.getStatus());
         m.put("healthStatus", s.getHealthStatus());
         m.put("lastSyncAt", s.getLastSyncAt());
-        m.put("toolsChangedAt", client.toolsChangedAt(s.getId()));
+        m.put("toolsChangedAt", s.getToolsChangedAt());
         m.put("lastCheckedAt", s.getLastCheckedAt());
         m.put("toolCount", toolMapper.selectCount(new LambdaQueryWrapper<ToolRegistry>()
                 .eq(ToolRegistry::getMcpServerId, s.getId())));

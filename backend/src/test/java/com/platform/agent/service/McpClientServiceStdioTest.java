@@ -89,7 +89,8 @@ class McpClientServiceStdioTest {
         Assumptions.assumeTrue(pythonAvailable(), "需要 python3 运行 stdio 假 Server");
         cryptoService = mock(CryptoService.class);
         objectMapper = new ObjectMapper();
-        client = new McpClientService(cryptoService, objectMapper, mock(McpOAuthService.class));
+        client = new McpClientService(cryptoService, objectMapper, mock(McpOAuthService.class),
+                mock(com.platform.agent.mapper.McpServerMapper.class));
         Path script = tempDir.resolve("mcp_stdio_mock.py");
         Files.writeString(script, SCRIPT);
         server = new McpServer();

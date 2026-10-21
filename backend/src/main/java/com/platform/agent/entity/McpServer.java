@@ -25,6 +25,7 @@ public class McpServer {
     private String healthStatus;  // ONLINE / OFFLINE / UNKNOWN
     private LocalDateTime lastSyncAt;
     private LocalDateTime lastCheckedAt;
+    private LocalDateTime toolsChangedAt;
     private Long tenantId;
     private Long createdBy;
     private LocalDateTime createdAt;

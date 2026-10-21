@@ -515,6 +515,7 @@ test('MCP stdio：本地进程接入与命令防护', async ({ request }) => {
     expect(view.transport).toBe('STDIO')
     expect(view.command).toBe('python3')
     expect(view.envKeys).toContain('MCP_E2E_TOKEN')
+    expect(view.toolsChangedAt, '同步成功后应清除待同步标记').toBeFalsy()
 
     const bad = await request.post(`${P}/mcp-servers`, {
       headers: auth(token!),
