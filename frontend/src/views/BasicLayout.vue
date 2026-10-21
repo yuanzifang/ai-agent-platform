@@ -1,8 +1,12 @@
 <template>
   <el-container class="layout">
     <el-header class="header">
-      <div class="brand" @click="$router.push('/agents')">AI Agent 平台</div>
+      <div class="brand" @click="$router.push('/agents')">{{ t('app.name') }}</div>
       <div class="spacer" />
+      <el-select v-model="currentLocale" size="small" style="width: 92px" :aria-label="t('common.language')">
+        <el-option label="中文" value="zh-CN" />
+        <el-option label="English" value="en-US" />
+      </el-select>
       <el-tooltip :content="dark ? '切换浅色模式' : '切换深色模式'">
         <el-button text circle class="theme-btn" aria-label="切换主题" @click="toggleDark">
           <el-icon size="18"><Sunny v-if="dark" /><Moon v-else /></el-icon>
@@ -17,10 +21,10 @@
           </span>
         </template>
         <div class="notif-head">
-          <b>通知</b>
-          <el-button text size="small" @click="markAllRead">全部已读</el-button>
+          <b>{{ t('common.notifications') }}</b>
+          <el-button text size="small" @click="markAllRead">{{ t('common.markAllRead') }}</el-button>
         </div>
-        <div v-if="notifications.length === 0" class="notif-empty">暂无通知</div>
+        <div v-if="notifications.length === 0" class="notif-empty">{{ t('common.noNotifications') }}</div>
         <div v-for="n in notifications" :key="n.id" class="notif-item" :class="{ unread: !n.isRead }"
              @click="openNotification(n)">
           <div class="notif-title">{{ n.title }}</div>
@@ -36,8 +40,8 @@
         </span>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item command="security">安全设置</el-dropdown-item>
-            <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+            <el-dropdown-item command="security">{{ t('common.security') }}</el-dropdown-item>
+            <el-dropdown-item command="logout">{{ t('common.logout') }}</el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
@@ -173,16 +177,20 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '../stores/user'
 import http from '../api/http'
+import { setLocale, type Locale } from '../i18n'
 import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
   UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp, DocumentCopy, Grid, Star, Link, Money,
   Checked, Bell, Moon, Sunny } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
-const userName = computed(() => userStore.userInfo?.displayName || '用户')
+const { t, locale } = useI18n()
+const currentLocale = computed({ get: () => locale.value, set: (v: Locale) => setLocale(v) })
+const userName = computed(() => userStore.userInfo?.displayName || t('common.user'))
 const notifications = ref<any[]>([])
 const unreadCount = ref(0)
 const dark = ref(localStorage.getItem('theme') === 'dark')
