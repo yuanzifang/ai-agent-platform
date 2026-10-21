@@ -23,6 +23,7 @@ public class TestCaseRunItem {
     private Long reviewerId;
     private LocalDateTime reviewedAt;
     private String reviewNote;
+    private Integer labelCount;
     private Integer passed;
     private Long latencyMs;
     private String error;

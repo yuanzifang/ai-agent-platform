@@ -137,6 +137,7 @@
         <el-table-column prop="question" label="问题" min-width="180" show-overflow-tooltip />
         <el-table-column prop="answer" label="候选回答" min-width="220" show-overflow-tooltip />
         <el-table-column prop="referenceAnswer" label="参考/期望" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="labelCount" label="标注数" width="75" />
         <el-table-column label="裁判" width="90">
           <template #default="{ row }">
             <el-tag size="small" :type="row.judgePassed ? 'success' : 'danger'">

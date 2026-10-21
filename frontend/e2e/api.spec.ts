@@ -1438,6 +1438,16 @@ test('对话用例库：反馈沉淀与模型回归', async ({ request }) => {
     })).json()
     expect(savedCal.code, JSON.stringify(savedCal)).toBe(0)
     expect(savedCal.data.humanLabel).toBe('PASS')
+    expect(savedCal.data.labelCount).toBe(1)
+    const admin = await login(request, 'admin', process.env.PLATFORM_ADMIN_PASSWORD || 'Admin@123456')
+    expect(admin, '需要平台管理员作为第二标注人').toBeTruthy()
+    const secondCal = await (await request.put(`${P}/cases/calibrations/${item.id}`, {
+      headers: { ...auth(admin!), 'X-Tenant-Id': '1' },
+      data: { humanScore: 0.8, humanLabel: 'PASS', note: '第二标注人' }
+    })).json()
+    expect(secondCal.code, JSON.stringify(secondCal)).toBe(0)
+    expect(secondCal.data.labelCount).toBe(2)
+    expect((secondCal.data.labels || []).length).toBe(2)
     const calStats = await (await request.get(`${P}/cases/calibrations/stats`, {
       headers: auth(token!)
     })).json()

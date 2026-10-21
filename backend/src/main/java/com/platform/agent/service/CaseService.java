@@ -7,10 +7,12 @@ import com.platform.agent.entity.AgentRegistry;
 import com.platform.agent.entity.AgentVersion;
 import com.platform.agent.entity.TestCase;
 import com.platform.agent.entity.TestCaseRun;
+import com.platform.agent.entity.CaseCalibrationLabel;
 import com.platform.agent.entity.TestCaseRunItem;
 import com.platform.agent.mapper.AgentRegistryMapper;
 import com.platform.agent.mapper.AgentVersionMapper;
 import com.platform.agent.mapper.TestCaseMapper;
+import com.platform.agent.mapper.CaseCalibrationLabelMapper;
 import com.platform.agent.mapper.TestCaseRunItemMapper;
 import com.platform.agent.mapper.TestCaseRunMapper;
 import com.platform.common.context.TenantContext;
@@ -49,9 +51,13 @@ public class CaseService {
     private static final int MAX_CASES = 500;
     private static final int MAX_RUN_CASES = 20;
 
+    @org.springframework.beans.factory.annotation.Value("${case.calibration.min-annotators:2}")
+    private int minAnnotators;
+
     private final TestCaseMapper caseMapper;
     private final TestCaseRunMapper runMapper;
     private final TestCaseRunItemMapper runItemMapper;
+    private final CaseCalibrationLabelMapper calibrationMapper;
     private final MessageMapper messageMapper;
     private final ConversationMapper conversationMapper;
     private final AgentVersionMapper versionMapper;
@@ -402,12 +408,12 @@ public class CaseService {
         if (runMap.isEmpty()) return Map.of("list", List.of(), "total", 0, "page", current, "pageSize", size);
         LambdaQueryWrapper<TestCaseRunItem> wrapper = new LambdaQueryWrapper<TestCaseRunItem>()
                 .in(TestCaseRunItem::getRunId, runMap.keySet())
-                .isNull("PENDING".equalsIgnoreCase(status), TestCaseRunItem::getHumanLabel)
-                .isNotNull("DONE".equalsIgnoreCase(status), TestCaseRunItem::getHumanLabel)
+                .lt("PENDING".equalsIgnoreCase(status), TestCaseRunItem::getLabelCount, Math.max(1, minAnnotators))
+                .ge("DONE".equalsIgnoreCase(status), TestCaseRunItem::getLabelCount, Math.max(1, minAnnotators))
                 .orderByDesc(TestCaseRunItem::getId);
         if (!"ALL".equalsIgnoreCase(status) && !"PENDING".equalsIgnoreCase(status)
                 && !"DONE".equalsIgnoreCase(status)) {
-            wrapper.isNull(TestCaseRunItem::getHumanLabel);
+            wrapper.lt(TestCaseRunItem::getLabelCount, Math.max(1, minAnnotators));
         }
         long total = runItemMapper.selectCount(wrapper);
         wrapper.last("LIMIT " + ((current - 1) * size) + ", " + size);
@@ -431,7 +437,7 @@ public class CaseService {
         double errorSum = 0;
         int errorCount = 0;
         for (TestCaseRunItem i : items) {
-            if (i.getHumanLabel() == null || i.getHumanLabel().isBlank()) {
+            if (i.getLabelCount() == null || i.getLabelCount() < Math.max(1, minAnnotators)) {
                 pending++;
                 continue;
             }
@@ -454,7 +460,9 @@ public class CaseService {
         TestCaseRunItem item = runItemMapper.selectById(itemId);
         if (item == null) throw new BusinessException(404, "回归明细不存在");
         TestCaseRun run = runMapper.selectById(item.getRunId());
-        if (run == null || !run.getTenantId().equals(principal.tenantId())) {
+        Long tenantId = principal.platformAdmin()
+                ? TenantContext.getTenantId() : principal.tenantId();
+        if (run == null || !run.getTenantId().equals(tenantId)) {
             throw new BusinessException(404, "回归记录不存在");
         }
         String label = str(req.get("humanLabel"));
@@ -466,16 +474,66 @@ public class CaseService {
         if (score.compareTo(BigDecimal.ZERO) < 0 || score.compareTo(BigDecimal.ONE) > 0) {
             throw new BusinessException(400, "humanScore 必须在 0~1 之间");
         }
-        item.setHumanScore(score.setScale(3, RoundingMode.HALF_UP));
-        item.setHumanLabel(label.toUpperCase());
-        item.setReviewerId(principal.userId());
-        item.setReviewedAt(LocalDateTime.now());
-        item.setReviewNote(truncate(str(req.get("note")), 512));
-        runItemMapper.updateById(item);
+        CaseCalibrationLabel existing = calibrationMapper.selectOne(
+                new LambdaQueryWrapper<CaseCalibrationLabel>()
+                        .eq(CaseCalibrationLabel::getRunItemId, itemId)
+                        .eq(CaseCalibrationLabel::getReviewerId, principal.userId())
+                        .last("LIMIT 1"));
+        if (existing == null) {
+            existing = new CaseCalibrationLabel();
+            existing.setTenantId(run.getTenantId());
+            existing.setRunItemId(itemId);
+            existing.setReviewerId(principal.userId());
+            existing.setCreatedAt(LocalDateTime.now());
+        }
+        existing.setHumanScore(score.setScale(3, RoundingMode.HALF_UP));
+        existing.setHumanLabel(label.toUpperCase());
+        existing.setNote(truncate(str(req.get("note")), 512));
+        existing.setUpdatedAt(LocalDateTime.now());
+        if (existing.getId() == null) calibrationMapper.insert(existing);
+        else calibrationMapper.updateById(existing);
+        recomputeConsensus(item, run.getTenantId());
         auditService.record(principal.userId(), "case.calibration", "test_case_run_item",
                 String.valueOf(itemId), "SUCCESS",
-                Map.of("humanLabel", item.getHumanLabel(), "humanScore", item.getHumanScore()));
+                Map.of("humanLabel", label.toUpperCase(), "humanScore", score));
         return calibrationView(item, run);
+    }
+
+    private void recomputeConsensus(TestCaseRunItem item, Long tenantId) {
+        List<CaseCalibrationLabel> labels = calibrationMapper.selectList(
+                new LambdaQueryWrapper<CaseCalibrationLabel>()
+                        .eq(CaseCalibrationLabel::getRunItemId, item.getId())
+                        .eq(CaseCalibrationLabel::getTenantId, tenantId)
+                        .orderByAsc(CaseCalibrationLabel::getId));
+        item.setLabelCount(labels.size());
+        if (labels.isEmpty()) {
+            item.setHumanScore(null);
+            item.setHumanLabel(null);
+            item.setReviewerId(null);
+            item.setReviewedAt(null);
+            item.setReviewNote(null);
+        } else {
+            double sum = 0;
+            int scored = 0;
+            long pass = labels.stream().filter(l -> "PASS".equalsIgnoreCase(l.getHumanLabel())).count();
+            long fail = labels.size() - pass;
+            BigDecimal avg = BigDecimal.ZERO;
+            for (CaseCalibrationLabel l : labels) {
+                if (l.getHumanScore() != null) {
+                    sum += l.getHumanScore().doubleValue();
+                    scored++;
+                }
+            }
+            if (scored > 0) avg = BigDecimal.valueOf(sum / scored).setScale(3, RoundingMode.HALF_UP);
+            String consensus = pass > fail ? "PASS" : fail > pass ? "FAIL"
+                    : avg.doubleValue() >= 0.6 ? "PASS" : "FAIL";
+            item.setHumanScore(avg);
+            item.setHumanLabel(consensus);
+            item.setReviewerId(labels.get(labels.size() - 1).getReviewerId());
+            item.setReviewedAt(LocalDateTime.now());
+            item.setReviewNote("标注 " + labels.size() + " 人；PASS=" + pass + " FAIL=" + fail);
+        }
+        runItemMapper.updateById(item);
     }
 
     private Map<String, Object> calibrationView(TestCaseRunItem i, TestCaseRun run) {
@@ -494,6 +552,14 @@ public class CaseService {
         m.put("referenceAnswer", c == null ? null : reference(c));
         m.put("humanScore", i.getHumanScore());
         m.put("humanLabel", i.getHumanLabel());
+        m.put("labelCount", i.getLabelCount());
+        m.put("labels", calibrationMapper.selectList(new LambdaQueryWrapper<CaseCalibrationLabel>()
+                .eq(CaseCalibrationLabel::getRunItemId, i.getId())
+                .orderByAsc(CaseCalibrationLabel::getId))
+                .stream().map(l -> Map.of("reviewerId", l.getReviewerId(),
+                        "humanScore", l.getHumanScore() == null ? "" : l.getHumanScore(),
+                        "humanLabel", l.getHumanLabel(),
+                        "note", l.getNote() == null ? "" : l.getNote())).toList());
         m.put("reviewerId", i.getReviewerId());
         m.put("reviewedAt", i.getReviewedAt());
         m.put("reviewNote", i.getReviewNote());
@@ -658,6 +724,7 @@ public class CaseService {
         m.put("score", i.getScore());
         m.put("humanScore", i.getHumanScore());
         m.put("humanLabel", i.getHumanLabel());
+        m.put("labelCount", i.getLabelCount());
         m.put("reviewedAt", i.getReviewedAt());
         m.put("reviewNote", i.getReviewNote());
         m.put("passed", i.getPassed() != null && i.getPassed() == 1);
