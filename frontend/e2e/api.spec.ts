@@ -1160,7 +1160,7 @@ test('自我纠正机制', async ({ request }) => {
       name: `E2E 自纠正-${Date.now()}`,
       systemPrompt: '你是测试助手。',
       modelConfig: { modelName: 'deepseek-flash' },
-      agentCapabilities: { selfCorrection: true },
+      agentCapabilities: { selfCorrection: true, selfCorrectionRounds: 2 },
       visibility: 'PRIVATE'
     }
   })

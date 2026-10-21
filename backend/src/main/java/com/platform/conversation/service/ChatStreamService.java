@@ -332,26 +332,37 @@ public class ChatStreamService {
         Runnable persist = () -> TenantContext.run(tenantId, () -> {
             if (!outputBlocked[0] && selfCorrection) {
                 long reviewStart = System.currentTimeMillis();
-                SelfCorrectionService.ReviewResult review = selfCorrectionService.review(
-                        usedModel.get(), userMsg.getContent(), acc.toString());
-                if (review != null) {
+                String current = acc.toString();
+                String original = null;
+                String issues = null;
+                int rounds = selfCorrectionRounds(config);
+                for (int round = 0; round < rounds; round++) {
+                    SelfCorrectionService.ReviewResult review = selfCorrectionService.review(
+                            usedModel.get(), userMsg.getContent(), current);
+                    if (review == null) break;
                     if (review.inputTokens() > 0 || review.outputTokens() > 0) {
                         recordUsage(tenantId, conv.getAgentId(), usedModel.get(),
                                 review.inputTokens(), review.outputTokens(), 0, 0, 0, "self-correction");
                     }
-                    if (review.revised() != null && !review.revised().isBlank()
-                            && !review.revised().equals(acc.toString())) {
-                        selfCorrectionOriginal[0] = acc.toString();
-                        selfCorrectionIssues[0] = review.issues();
-                        acc.setLength(0);
-                        acc.append(review.revised());
-                        out.event("revision", Map.of("content", review.revised(),
-                                "issues", review.issues() == null ? "" : review.issues()));
+                    boolean changed = review.revised() != null && !review.revised().isBlank()
+                            && !review.revised().equals(current);
+                    if (changed) {
+                        if (original == null) original = current;
+                        issues = review.issues();
+                        current = review.revised();
                     }
                     steps.add("chain", "self-correction", "SUCCESS", reviewStart,
                             System.currentTimeMillis(),
-                            Map.of("score", review.score(),
-                                    "revised", !review.revised().equals(userMsg.getContent())));
+                            Map.of("round", round + 1, "score", review.score(), "revised", changed));
+                    if (!changed) break;
+                }
+                if (original != null) {
+                    selfCorrectionOriginal[0] = original;
+                    selfCorrectionIssues[0] = issues;
+                    acc.setLength(0);
+                    acc.append(current);
+                    out.event("revision", Map.of("content", current,
+                            "issues", issues == null ? "" : issues));
                 }
             }
             Message ai = newMessage(conv, traceId, parentMessageId, regenerated);
@@ -374,7 +385,7 @@ public class ChatStreamService {
                         "自我纠正：" + (selfCorrectionIssues[0] == null ? "" : selfCorrectionIssues[0]),
                         traceId, conv.getUserId());
             }
-            if ("chat".equals(source)) {
+            if ("chat".equals(source) && memoryAutoExtractEnabled(config)) {
                 memoryExtractionService.extractAsync(tenantId, conv.getUserId(), conv.getAgentId(),
                         usedModel.get(), userMsg.getContent(), ai.getContent());
             }
@@ -646,14 +657,18 @@ public class ChatStreamService {
         String selfCorrectionIssues = null;
         if (selfCorrectionEnabled(config)) {
             long reviewStart = System.currentTimeMillis();
-            SelfCorrectionService.ReviewResult review = selfCorrectionService.review(
-                    usedModel, userMsg.getContent(), answer == null ? "" : answer);
-            if (review != null) {
-                if (review.revised() != null && !review.revised().isBlank()
-                        && !review.revised().equals(answer)) {
-                    selfCorrectionOriginal = answer;
+            String current = answer == null ? "" : answer;
+            int rounds = selfCorrectionRounds(config);
+            for (int round = 0; round < rounds; round++) {
+                SelfCorrectionService.ReviewResult review = selfCorrectionService.review(
+                        usedModel, userMsg.getContent(), current);
+                if (review == null) break;
+                boolean changed = review.revised() != null && !review.revised().isBlank()
+                        && !review.revised().equals(current);
+                if (changed) {
+                    if (selfCorrectionOriginal == null) selfCorrectionOriginal = current;
                     selfCorrectionIssues = review.issues();
-                    answer = review.revised();
+                    current = review.revised();
                 }
                 if (review.inputTokens() > 0 || review.outputTokens() > 0) {
                     recordUsage(tenantId, conv.getAgentId(), usedModel,
@@ -661,9 +676,10 @@ public class ChatStreamService {
                 }
                 steps.add("chain", "self-correction", "SUCCESS", reviewStart,
                         System.currentTimeMillis(),
-                        Map.of("score", review.score(),
-                                "revised", !review.revised().equals(userMsg.getContent())));
+                        Map.of("round", round + 1, "score", review.score(), "revised", changed));
+                if (!changed) break;
             }
+            answer = current;
         }
 
         List<ModerationService.Hit> outHits = moderationService.moderate("OUT",
@@ -688,7 +704,7 @@ public class ChatStreamService {
                     "自我纠正：" + (selfCorrectionIssues == null ? "" : selfCorrectionIssues),
                     traceId, conv.getUserId());
         }
-        if ("chat".equals(source)) {
+        if ("chat".equals(source) && memoryAutoExtractEnabled(config)) {
             memoryExtractionService.extractAsync(tenantId, conv.getUserId(), conv.getAgentId(),
                     usedModel, userMsg.getContent(), ai.getContent());
         }
@@ -1001,6 +1017,24 @@ public class ChatStreamService {
     private long estimateTokens(String text) {
         if (text == null || text.isEmpty()) return 0;
         return Math.max(1, text.length() / 2);
+    }
+
+    @SuppressWarnings("unchecked")
+    private int selfCorrectionRounds(Map<String, Object> config) {
+        Map<String, Object> caps = asMap(config == null ? null : config.get("agentCapabilities"));
+        Object raw = caps.get("selfCorrectionRounds");
+        int rounds = raw instanceof Number n ? n.intValue() : 1;
+        if ("1".equals(String.valueOf(raw))) rounds = 1;
+        else if ("2".equals(String.valueOf(raw))) rounds = 2;
+        else if ("3".equals(String.valueOf(raw))) rounds = 3;
+        return Math.max(1, Math.min(rounds, 3));
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean memoryAutoExtractEnabled(Map<String, Object> config) {
+        Map<String, Object> mem = asMap(config == null ? null : config.get("memoryConfig"));
+        Object raw = mem.get("autoExtract");
+        return raw == null || Boolean.TRUE.equals(raw) || "true".equalsIgnoreCase(String.valueOf(raw));
     }
 
     @SuppressWarnings("unchecked")

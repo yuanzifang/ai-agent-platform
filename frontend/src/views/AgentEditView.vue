@@ -84,7 +84,12 @@
               <el-form-item label="函数调用"><el-switch v-model="form.capabilities.functionCall" /></el-form-item>
               <el-form-item label="自我纠正">
                 <el-switch v-model="form.capabilities.selfCorrection" />
-                <span class="hint">生成后由审查模型校验，低分时自动修订（会增加一次模型调用）</span>
+                <span class="hint">生成后由审查模型校验，低分时自动修订</span>
+              </el-form-item>
+              <el-form-item label="审查轮数">
+                <el-input-number v-model="form.capabilities.selfCorrectionRounds" :min="1" :max="3"
+                                 :disabled="!form.capabilities.selfCorrection" />
+                <span class="hint">1~3 轮，每轮增加一次审查模型调用</span>
               </el-form-item>
               <el-form-item label="多模态输入"><el-switch v-model="form.capabilities.multimodal" /></el-form-item>
             </el-form>
@@ -96,6 +101,10 @@
               <el-form-item label="启用记忆"><el-switch v-model="form.memory.enabled" /></el-form-item>
               <el-form-item label="窗口条数">
                 <el-input-number v-model="form.memory.windowSize" :min="2" :max="50" :disabled="!form.memory.enabled" />
+              </el-form-item>
+              <el-form-item label="自动抽取">
+                <el-switch v-model="form.memory.autoExtract" :disabled="!form.memory.enabled" />
+                <span class="hint">对话后异步抽取长期记忆；关闭仅影响本 Agent</span>
               </el-form-item>
             </el-form>
           </el-collapse-item>
@@ -1053,8 +1062,9 @@ const form = reactive({
   name: '', description: '', category: '', visibility: 'TENANT', listed: true,
   modelName: '', fallbackModelName: '', temperature: 0.7,
   systemPrompt: '', openingStatement: '',
-  capabilities: { streamOutput: true, functionCall: false, multimodal: false, selfCorrection: false },
-  memory: { enabled: true, windowSize: 10 },
+  capabilities: { streamOutput: true, functionCall: false, multimodal: false, selfCorrection: false,
+    selfCorrectionRounds: 1 },
+  memory: { enabled: true, windowSize: 10, autoExtract: true },
   variables: [] as VariableRow[]
 })
 const tagsStr = ref('')
@@ -1209,9 +1219,11 @@ onMounted(async () => {
   form.openingStatement = detail.openingStatement || ''
   const caps = detail.agentCapabilities || {}
   form.capabilities = { streamOutput: caps.streamOutput !== false, functionCall: !!caps.functionCall,
-    multimodal: !!caps.multimodal, selfCorrection: !!caps.selfCorrection }
+    multimodal: !!caps.multimodal, selfCorrection: !!caps.selfCorrection,
+    selfCorrectionRounds: caps.selfCorrectionRounds ?? 1 }
   const mem = detail.memoryConfig || {}
-  form.memory = { enabled: mem.enabled !== false, windowSize: mem.windowSize ?? 10 }
+  form.memory = { enabled: mem.enabled !== false, windowSize: mem.windowSize ?? 10,
+    autoExtract: mem.autoExtract !== false }
   form.variables = ((detail.variables as any[]) || []).map(v => ({
     key: v.key || '', type: v.type || 'STRING', required: !!v.required,
     defaultValue: v.defaultValue ?? '', description: v.description || ''
