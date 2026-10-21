@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -128,9 +129,10 @@ public class McpServerService {
             s.setEncryptedAuth("");
             s.setCustomHeaders("");
         } else {
+            // args/env 是 JSON 列；切回 HTTP 时必须写 NULL，不能写空字符串
             s.setCommand("");
-            s.setArgs("");
-            s.setEnvEncrypted("");
+            s.setArgs(null);
+            s.setEnvEncrypted(null);
             if (req.get("endpoint") != null) {
                 String endpoint = str(req.get("endpoint"));
                 validateEndpoint(endpoint);
@@ -279,6 +281,97 @@ public class McpServerService {
             return m;
         } catch (Exception e) {
             throw new BusinessException(400, "获取 prompt 失败：" + rootMessage(e));
+        }
+    }
+
+    /** 工具差异：discovered 与已同步 tool_registry 对比；只预览，不自动删除移除项。 */
+    public Map<String, Object> toolDiff(Long id) {
+        McpServer s = visible(id);
+        List<McpClientService.McpTool> discovered;
+        try {
+            discovered = client.listTools(s);
+        } catch (Exception e) {
+            updateHealth(s, "OFFLINE");
+            throw new BusinessException(400, "工具发现失败：" + rootMessage(e));
+        }
+        Map<String, ToolRegistry> existing = new LinkedHashMap<>();
+        for (ToolRegistry t : toolMapper.selectList(new LambdaQueryWrapper<ToolRegistry>()
+                .eq(ToolRegistry::getMcpServerId, id))) {
+            Map<String, Object> cfg = fromJsonMap(t.getApiConfig());
+            existing.put(String.valueOf(cfg.getOrDefault("toolName", t.getName())), t);
+        }
+        Set<String> discoveredNames = new java.util.HashSet<>();
+        List<Map<String, Object>> added = new ArrayList<>();
+        List<Map<String, Object>> changed = new ArrayList<>();
+        List<Map<String, Object>> tools = new ArrayList<>();
+        for (McpClientService.McpTool t : discovered) {
+            discoveredNames.add(t.name());
+            ToolRegistry old = existing.get(t.name());
+            String change = old == null ? "ADDED" : (toolChanged(old, t) ? "CHANGED" : "UNCHANGED");
+            Map<String, Object> row = toolRow(t);
+            row.put("change", change);
+            tools.add(row);
+            if ("ADDED".equals(change)) added.add(row);
+            else if ("CHANGED".equals(change)) changed.add(row);
+        }
+        List<Map<String, Object>> removed = new ArrayList<>();
+        for (Map.Entry<String, ToolRegistry> e : existing.entrySet()) {
+            if (discoveredNames.contains(e.getKey())) continue;
+            ToolRegistry t = e.getValue();
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("toolId", t.getId());
+            row.put("name", e.getKey());
+            row.put("description", t.getDescription());
+            row.put("status", t.getStatus());
+            long agentRefs = bindingMapper.selectCount(new LambdaQueryWrapper<AgentToolBinding>()
+                    .eq(AgentToolBinding::getToolId, t.getId()));
+            int skillRefs = skillDepMapper.selectByTool(t.getId()).size();
+            row.put("agentRefs", agentRefs);
+            row.put("skillRefs", skillRefs);
+            row.put("referenced", agentRefs > 0 || skillRefs > 0);
+            removed.add(row);
+        }
+        McpServer fresh = serverMapper.selectById(id);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("tools", tools);
+        result.put("added", added);
+        result.put("changed", changed);
+        result.put("removed", removed);
+        result.put("counts", Map.of("total", tools.size(), "added", added.size(),
+                "changed", changed.size(), "unchanged", tools.size() - added.size() - changed.size(),
+                "removed", removed.size()));
+        result.put("toolsChangedAt", fresh == null ? null : fresh.getToolsChangedAt());
+        result.put("note", "removed 仅为预览，不会自动删除；被 Agent/技能引用的工具请先解绑");
+        return result;
+    }
+
+    private Map<String, Object> toolRow(McpClientService.McpTool t) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("name", t.name());
+        row.put("description", t.description());
+        row.put("inputSchema", parseJson(t.inputSchema()));
+        row.put("outputSchema", parseJson(t.outputSchema()));
+        row.put("annotations", parseJson(t.annotations()));
+        return row;
+    }
+
+    private boolean toolChanged(ToolRegistry old, McpClientService.McpTool t) {
+        String expectedDesc = t.description() == null || t.description().isBlank() ? t.name() : t.description();
+        if (!Objects.equals(old.getDescription(), expectedDesc)) return true;
+        Map<String, Object> cfg = fromJsonMap(old.getApiConfig());
+        return !sameJson(cfg.get("inputSchema"), t.inputSchema())
+                || !sameJson(cfg.get("outputSchema"), t.outputSchema())
+                || !sameJson(cfg.get("annotations"), t.annotations());
+    }
+
+    private boolean sameJson(Object stored, String incoming) {
+        if (incoming == null || incoming.isBlank()) return stored == null;
+        Object parsed = parseJson(incoming);
+        if (parsed == null) return stored == null;
+        try {
+            return objectMapper.valueToTree(stored).equals(objectMapper.valueToTree(parsed));
+        } catch (Exception e) {
+            return false;
         }
     }
 

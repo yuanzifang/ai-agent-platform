@@ -95,6 +95,12 @@ public class McpServerController {
         return ApiResponse.ok(service.sync(id, req == null ? null : req.toolNames(), principal));
     }
 
+    @GetMapping("/{id}/tools/diff")
+    @PreAuthorize("hasAuthority('tool:manage')")
+    public ApiResponse<Map<String, Object>> toolDiff(@PathVariable Long id) {
+        return ApiResponse.ok(service.toolDiff(id));
+    }
+
     @GetMapping("/{id}/tools")
     public ApiResponse<Map<String, Object>> tools(@PathVariable Long id) {
         return ApiResponse.ok(service.tools(id));

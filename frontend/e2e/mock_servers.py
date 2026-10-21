@@ -300,6 +300,11 @@ class McpHandler(BaseHTTPRequestHandler):
     def _mcp_tools(self, rid, params=None):
         McpHandler.stats["toolsList"] += 1
         # /mcp-paged 专门用于验证 nextCursor 分页
+        if self.path.startswith("/mcp-diff"):
+            return self._json(200, {"jsonrpc": "2.0", "id": rid, "result": {"tools": [{
+                "name": "echo2", "description": "新工具",
+                "inputSchema": {"type": "object"}
+            }]}})
         if self.path.startswith("/mcp-paged"):
             cursor = (params or {}).get("cursor")
             if not cursor:
@@ -460,7 +465,7 @@ class McpHandler(BaseHTTPRequestHandler):
                 McpHandler.stats["refresh"] += 1
                 return self._json(200, self._issue_tokens(3600))
             return self._json(400, {"error": "unsupported_grant_type"})
-        if path in ("/mcp", "/mcp-oauth", "/mcp-paged"):
+        if path in ("/mcp", "/mcp-oauth", "/mcp-paged", "/mcp-diff"):
             if path == "/mcp-oauth":
                 auth = self.headers.get("Authorization", "")
                 if not auth.startswith("Bearer ") or auth[7:] not in McpHandler.tokens:

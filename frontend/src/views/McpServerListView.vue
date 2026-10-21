@@ -140,6 +140,10 @@
     <!-- 同步工具 -->
     <el-dialog v-model="syncVisible" :title="`同步工具：${syncServerName}`" width="640px">
       <div class="hint mb8">勾选要同步到 Tool 管理的工具（已同步的会更新描述与 Schema）</div>
+      <el-alert v-if="syncDiff" type="info" :closable="false" show-icon class="mb8"
+                :title="`差异：新增 ${syncDiff.counts.added}，变更 ${syncDiff.counts.changed}，未变 ${syncDiff.counts.unchanged}，服务端移除 ${syncDiff.counts.removed}`" />
+      <el-alert v-if="syncDiff && syncDiff.removed.length" type="warning" :closable="false" show-icon class="mb8"
+                :title="`服务端已移除：${syncDiff.removed.map((t: any) => t.name).join('、')}（不会自动删除）`" />
       <el-checkbox v-model="checkAll" @change="toggleAll">全选</el-checkbox>
       <el-table :data="discovered" size="small" max-height="360" v-loading="discovering">
         <el-table-column width="50">
@@ -148,7 +152,14 @@
           </template>
         </el-table-column>
         <el-table-column prop="name" label="工具名" width="200" />
-        <el-table-column prop="description" label="描述" min-width="260" show-overflow-tooltip />
+        <el-table-column label="差异" width="80">
+          <template #default="{ row }">
+            <el-tag v-if="row.change === 'ADDED'" size="small" type="success">新增</el-tag>
+            <el-tag v-else-if="row.change === 'CHANGED'" size="small" type="warning">变更</el-tag>
+            <span v-else class="hint">未变</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip />
       </el-table>
       <template #footer>
         <el-button @click="syncVisible = false">取消</el-button>
@@ -275,6 +286,7 @@ const syncing = ref(false)
 const syncServerId = ref(0)
 const syncServerName = ref('')
 const discovered = ref<any[]>([])
+const syncDiff = ref<any>(null)
 const checkAll = ref(true)
 
 const toolsVisible = ref(false)
@@ -505,7 +517,8 @@ async function openSync(row: any) {
   syncVisible.value = true
   discovering.value = true
   try {
-    const res = await http.get(`/mcp-servers/${row.id}/discover`) as any
+    const res = await http.get(`/mcp-servers/${row.id}/tools/diff`) as any
+    syncDiff.value = res
     discovered.value = (res.tools || []).map((t: any) => ({ ...t, checked: true }))
     if (res.toolsChangedAt) ElMessage.warning('服务端报告工具列表已变更，请确认后重新同步')
     checkAll.value = true
@@ -526,6 +539,7 @@ async function doSync() {
     const res = await http.post(`/mcp-servers/${syncServerId.value}/sync`, { toolNames: names }) as any
     ElMessage.success(`已同步 ${res.total} 个工具`)
     syncVisible.value = false
+    syncDiff.value = null
     await load()
   } finally {
     syncing.value = false

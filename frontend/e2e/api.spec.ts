@@ -304,10 +304,34 @@ test('MCP HTTP：会话复用与 2025-03-26 能力', async ({ request }) => {
     expect(synced.code).toBe(0)
     expect(synced.data.total).toBeGreaterThan(0)
 
+    const diff = await (await request.get(`${P}/mcp-servers/${serverId}/tools/diff`, {
+      headers: auth(token!)
+    })).json()
+    expect(diff.code, JSON.stringify(diff)).toBe(0)
+    expect(diff.data.counts.total).toBeGreaterThan(0)
+    expect(diff.data.counts.added).toBe(0)
+    expect(diff.data.counts.changed).toBe(0)
+    expect(diff.data.counts.removed).toBe(0)
+
     const statsAfter = await (await request.get(`${MCP_MOCK}/stats`)).json()
     expect(statsAfter.initialize - statsBefore.initialize,
       'Mcp-Session-Id 应复用，不应每次 RPC 重新 initialize').toBe(1)
     expect(statsAfter.toolsList - statsBefore.toolsList).toBeGreaterThanOrEqual(3)
+
+    // 切换到只暴露 echo2 的 Mock，验证 diff 的新增/移除分类
+    const switched = await request.put(`${P}/mcp-servers/${serverId}`, {
+      headers: auth(token!), data: { endpoint: `${MCP_MOCK}/mcp-diff` }
+    })
+    expect((await switched.json()).code).toBe(0)
+    const diff2 = await (await request.get(`${P}/mcp-servers/${serverId}/tools/diff`, {
+      headers: auth(token!)
+    })).json()
+    expect(diff2.data.counts.added).toBe(1)
+    expect(diff2.data.counts.changed).toBe(0)
+    expect(diff2.data.counts.removed).toBe(1)
+    expect(diff2.data.removed[0].name).toBe('echo')
+    expect(diff2.data.removed[0].referenced).toBe(false)
+
   } finally {
     if (serverId) await request.delete(`${P}/mcp-servers/${serverId}`, { headers: auth(token!) })
   }
