@@ -393,6 +393,22 @@ public class WorkflowService {
             }
             Map<String, Object> definition = parse(run.getDefinition());
             Map<String, Object> node = findNode(definition, approval.getNodeId());
+            Map<String, Object> approvalPayload = parseMap(approval.getPayload());
+            if (approvalPayload.get("remainingItems") instanceof List<?> remaining
+                    && !remaining.isEmpty() && approval.getNodeId() != null) {
+                List<String> items = remaining.stream().map(String::valueOf).toList();
+                node.put("items", items);
+                run.setDefinition(json(definition));
+                run.setStatus("RUNNING");
+                run.setCurrentNode(approval.getNodeId());
+                run.setUpdatedAt(LocalDateTime.now());
+                runMapper.updateById(run);
+                auditService.record(principal.userId(), "workflow.loop_resume", "workflow_approval",
+                        String.valueOf(approvalId), "SUCCESS",
+                        Map.of("runId", run.getId(), "remaining", items.size()));
+                execute(run, approval.getNodeId(), principal);
+                return runView(runMapper.selectById(run.getId()));
+            }
             String next = str(node.get("next"));
             run.setStatus("RUNNING");
             run.setCurrentNode(next);
@@ -493,8 +509,11 @@ public class WorkflowService {
                         run.setInputTokens(nz(run.getInputTokens()) + loop.inputTokens());
                         run.setOutputTokens(nz(run.getOutputTokens()) + loop.outputTokens());
                     } catch (LoopLimitExceededException ex) {
-                        output = ex.getMessage() + "；待处理项预览：" + ex.preview;
-                        // 超出循环上限：创建人工审批并暂停，审批通过后从 LOOP.next 继续
+                        output = ex.partialOutput + "\n" + ex.getMessage()
+                                + "；剩余项预览：" + ex.preview;
+                        run.setInputTokens(nz(run.getInputTokens()) + ex.inputTokens);
+                        run.setOutputTokens(nz(run.getOutputTokens()) + ex.outputTokens);
+                        // 已执行一批后暂停；审批通过后把剩余项写回 LOOP 并继续，可能再产生下一批审批
                         WorkflowApproval approval = new WorkflowApproval();
                         approval.setRunId(run.getId());
                         approval.setAgentId(run.getAgentId());
@@ -507,7 +526,11 @@ public class WorkflowService {
                         if (timeoutMinutes > 0) {
                             approval.setExpireAt(LocalDateTime.now().plusMinutes(timeoutMinutes));
                         }
-                        approval.setPayload(output);
+                        Map<String, Object> approvalPayload = new LinkedHashMap<>();
+                        approvalPayload.put("message", output);
+                        approvalPayload.put("remainingItems", ex.remainingItems);
+                        approvalPayload.put("loopNodeId", nodeId);
+                        approval.setPayload(json(approvalPayload));
                         approval.setStatus("PENDING");
                         approval.setCreatedAt(LocalDateTime.now());
                         approvalMapper.insert(approval);
@@ -687,12 +710,22 @@ public class WorkflowService {
         private final int requested;
         private final int limit;
         private final String preview;
+        private final String partialOutput;
+        private final List<String> remainingItems;
+        private final long inputTokens;
+        private final long outputTokens;
 
-        LoopLimitExceededException(int requested, int limit, String preview) {
-            super("循环项数 " + requested + " 超过上限 " + limit + "，已暂停等待人工确认");
+        LoopLimitExceededException(int requested, int limit, String preview, String partialOutput,
+                                   List<String> remainingItems, long inputTokens, long outputTokens) {
+            super("循环项数 " + requested + " 超过上限 " + limit + "，已执行 " + limit
+                    + " 项并暂停，剩余 " + remainingItems.size() + " 项待人工确认");
             this.requested = requested;
             this.limit = limit;
             this.preview = preview;
+            this.partialOutput = partialOutput;
+            this.remainingItems = remainingItems;
+            this.inputTokens = inputTokens;
+            this.outputTokens = outputTokens;
         }
     }
 
@@ -775,22 +808,21 @@ public class WorkflowService {
         int max = Math.max(1, Math.min(toInt(node.getOrDefault("maxIterations", 10)), 50));
         List<String> items = loopItems(node, run, lastOutput);
         if (items.isEmpty()) return new LoopResult(lastOutput == null ? "" : lastOutput, 0, 0);
-        if (items.size() > max) {
-            String preview = items.stream().limit(5).map(s -> truncate(s, 80))
-                    .reduce((a, b) -> a + " | " + b).orElse("");
-            throw new LoopLimitExceededException(items.size(), max, preview);
-        }
+        int count = Math.min(items.size(), max);
         StringBuilder merged = new StringBuilder("【循环结果】");
         long in = 0, out = 0;
-        int count = Math.min(items.size(), max);
         for (int i = 0; i < count; i++) {
             BranchResult br = executeBranch(run, nodes, body, loopEnd, outputs, principal, items.get(i));
             merged.append("\n[").append(i + 1).append("] ").append(br.output());
             in += br.inputTokens();
             out += br.outputTokens();
         }
-        if (items.size() > max) merged.append("\n（已截断：共 ").append(items.size())
-                .append(" 项，上限 ").append(max).append("）");
+        if (items.size() > max) {
+            String preview = items.subList(max, items.size()).stream().limit(5).map(s -> truncate(s, 80))
+                    .reduce((a, b) -> a + " | " + b).orElse("");
+            throw new LoopLimitExceededException(items.size(), max, preview, merged.toString(),
+                    new ArrayList<>(items.subList(max, items.size())), in, out);
+        }
         return new LoopResult(merged.toString(), in, out);
     }
 
