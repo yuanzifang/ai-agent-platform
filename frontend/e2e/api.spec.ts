@@ -1042,6 +1042,51 @@ test('工作流并行分支 State 合并', async ({ request }) => {
   }
 })
 
+test('工作流并行 HANDOFF fan-out/fan-in', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const targetA = await createAgent(request, token!, `E2E Fanout A-${Date.now()}`)
+  const targetB = await createAgent(request, token!, `E2E Fanout B-${Date.now()}`)
+  const source = await createAgent(request, token!, `E2E Fanout 源-${Date.now()}`)
+  try {
+    for (const id of [targetA, targetB, source]) await publishAgent(request, token!, id)
+    const workflow = {
+      name: 'E2E 并行 Handoff', status: 'ENABLED',
+      definition: {
+        nodes: [
+          { id: 'start', type: 'START', name: '开始', next: 'parallel1' },
+          { id: 'parallel1', type: 'PARALLEL', name: '并行',
+            branches: ['h1', 'h2'], joinNode: 'join1', strategy: 'ALL_OR_NOTHING' },
+          { id: 'h1', type: 'HANDOFF', name: '交给 A', agentId: targetA,
+            inputTemplate: '{{input}}', next: 's1' },
+          { id: 'h2', type: 'HANDOFF', name: '交给 B', agentId: targetB,
+            inputTemplate: '{{input}}', next: 's2' },
+          { id: 's1', type: 'STATE', name: '记录 A', stateKey: 'agent_a',
+            valueTemplate: '{{last}}', next: 'join1' },
+          { id: 's2', type: 'STATE', name: '记录 B', stateKey: 'agent_b',
+            valueTemplate: '{{last}}', next: 'join1' },
+          { id: 'join1', type: 'JOIN', name: '汇合', next: 'end' },
+          { id: 'end', type: 'END', name: '结束' }
+        ]
+      }
+    }
+    expect((await (await request.put(`${P}/agent/${source}/workflow`, {
+      headers: auth(token!), data: workflow
+    })).json()).code).toBe(0)
+    const body = await (await request.post(`${P}/agent/${source}/workflow/run`, {
+      headers: auth(token!), data: { input: '并行交接测试' }, timeout: 120_000
+    })).json()
+    expect(body.code, JSON.stringify(body)).toBe(0)
+    expect(body.data.status).toBe('SUCCESS')
+    expect(body.data.state?.agent_a).toBeTruthy()
+    expect(body.data.state?.agent_b).toBeTruthy()
+  } finally {
+    await deleteAgent(request, token!, source)
+    await deleteAgent(request, token!, targetA)
+    await deleteAgent(request, token!, targetB)
+  }
+})
+
 test('工作流 Loop 与节点错误策略', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()
