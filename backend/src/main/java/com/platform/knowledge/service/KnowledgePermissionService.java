@@ -6,7 +6,9 @@ import com.platform.common.exception.BusinessException;
 import com.platform.knowledge.entity.KnowledgeBase;
 import com.platform.knowledge.entity.KnowledgePermission;
 import com.platform.knowledge.mapper.KnowledgeBaseMapper;
+import com.platform.knowledge.mapper.KnowledgeChunkMapper;
 import com.platform.knowledge.mapper.KnowledgePermissionMapper;
+import com.platform.knowledge.entity.KnowledgeChunk;
 import com.platform.system.entity.SysRole;
 import com.platform.system.entity.SysUser;
 import com.platform.system.entity.SysUserRole;
@@ -44,11 +46,17 @@ public class KnowledgePermissionService {
     public record Member(Long userId, String permission) {
     }
 
+    /** chunk 级 ACL：allowedUsers 显式用户，tenantWide 表示 TENANT 全员（不含 RESTRICTED）。 */
+    public record Acl(List<Long> allowedUsers, boolean tenantWide) {
+    }
+
     private static final Set<String> VISIBILITIES = Set.of("PRIVATE", "TENANT", "PARTIAL");
     private static final Set<String> PERMISSIONS = Set.of("VIEW", "EDIT");
 
     private final KnowledgeBaseMapper kbMapper;
     private final KnowledgePermissionMapper permMapper;
+    private final KnowledgeChunkMapper chunkMapper;
+    private final VectorRepository vectorRepository;
     private final SysUserMapper userMapper;
     private final SysUserRoleMapper userRoleMapper;
     private final SysRoleMapper roleMapper;
@@ -64,6 +72,26 @@ public class KnowledgePermissionService {
             case "PARTIAL" -> findGrant(kb.getId(), viewer.userId()) != null;
             default -> !isRestricted(viewer); // TENANT：所有团队成员，不含受限成员
         };
+    }
+
+    public boolean tenantWide(Viewer viewer) {
+        return !isRestricted(viewer);
+    }
+
+    public Acl aclOf(KnowledgeBase kb) {
+        List<Long> users = new ArrayList<>();
+        if (kb.getCreatedBy() != null) users.add(kb.getCreatedBy());
+        String visibility = visibilityOf(kb);
+        if ("PARTIAL".equals(visibility)) {
+            for (KnowledgePermission row : permMapper.selectList(new LambdaQueryWrapper<KnowledgePermission>()
+                    .eq(KnowledgePermission::getKnowledgeBaseId, kb.getId())
+                    .eq(KnowledgePermission::getSubjectType, "USER"))) {
+                if (row.getSubjectId() != null && !users.contains(row.getSubjectId())) {
+                    users.add(row.getSubjectId());
+                }
+            }
+        }
+        return new Acl(users, "TENANT".equals(visibility));
     }
 
     public boolean canEdit(KnowledgeBase kb, Viewer viewer) {
@@ -145,34 +173,46 @@ public class KnowledgePermissionService {
                 .set(KnowledgeBase::getVisibility, vis));
         permMapper.delete(new LambdaQueryWrapper<KnowledgePermission>()
                 .eq(KnowledgePermission::getKnowledgeBaseId, kbId));
-        if (!"PARTIAL".equals(vis) || members == null) return;
-
-        Set<Long> seen = new HashSet<>();
-        for (Member member : members) {
-            if (member == null || member.userId() == null) continue;
-            if (member.userId().equals(kb.getCreatedBy())) continue; // 创建者默认具备全部权限
-            if (!seen.add(member.userId())) continue;
-            SysUser user = userMapper.selectById(member.userId());
-            if (user == null || !Objects.equals(user.getTenantId(), kb.getTenantId())) {
-                throw new BusinessException(400, "授权成员不存在或不属于当前租户");
+        if ("PARTIAL".equals(vis) && members != null) {
+            Set<Long> seen = new HashSet<>();
+            for (Member member : members) {
+                if (member == null || member.userId() == null) continue;
+                if (member.userId().equals(kb.getCreatedBy())) continue; // 创建者默认具备全部权限
+                if (!seen.add(member.userId())) continue;
+                SysUser user = userMapper.selectById(member.userId());
+                if (user == null || !Objects.equals(user.getTenantId(), kb.getTenantId())) {
+                    throw new BusinessException(400, "授权成员不存在或不属于当前租户");
+                }
+                if (isRestrictedUser(user.getId())) {
+                    throw new BusinessException(400, "受限成员无知识库权限，不可授权");
+                }
+                String perm = member.permission() == null ? "VIEW"
+                        : member.permission().trim().toUpperCase(Locale.ROOT);
+                if (!PERMISSIONS.contains(perm)) {
+                    throw new BusinessException(400, "成员权限仅支持 VIEW/EDIT");
+                }
+                KnowledgePermission row = new KnowledgePermission();
+                row.setKnowledgeBaseId(kbId);
+                row.setSubjectType("USER");
+                row.setSubjectId(user.getId());
+                row.setPermission(perm);
+                row.setTenantId(kb.getTenantId());
+                row.setCreatedAt(LocalDateTime.now());
+                permMapper.insert(row);
             }
-            if (isRestrictedUser(user.getId())) {
-                throw new BusinessException(400, "受限成员无知识库权限，不可授权");
-            }
-            String perm = member.permission() == null ? "VIEW"
-                    : member.permission().trim().toUpperCase(Locale.ROOT);
-            if (!PERMISSIONS.contains(perm)) {
-                throw new BusinessException(400, "成员权限仅支持 VIEW/EDIT");
-            }
-            KnowledgePermission row = new KnowledgePermission();
-            row.setKnowledgeBaseId(kbId);
-            row.setSubjectType("USER");
-            row.setSubjectId(user.getId());
-            row.setPermission(perm);
-            row.setTenantId(kb.getTenantId());
-            row.setCreatedAt(LocalDateTime.now());
-            permMapper.insert(row);
         }
+        kb.setVisibility(vis);
+        Acl acl = aclOf(kb);
+        vectorRepository.updateAclForKnowledgeBase(kb.getTenantId(), kbId, acl.allowedUsers(), acl.tenantWide());
+        chunkMapper.update(null, new LambdaUpdateWrapper<KnowledgeChunk>()
+                .eq(KnowledgeChunk::getKnowledgeBaseId, kbId)
+                .set(KnowledgeChunk::getAllowedUsers, aclJson(acl.allowedUsers()))
+                .set(KnowledgeChunk::getTenantVisible, acl.tenantWide() ? 1 : 0));
+    }
+
+    private String aclJson(List<Long> users) {
+        return users.stream().map(String::valueOf).map(id -> "\"" + id + "\"")
+                .collect(Collectors.joining(",", "[", "]"));
     }
 
     /** 删除知识库时清理授权行（内部使用，不做权限校验）。 */

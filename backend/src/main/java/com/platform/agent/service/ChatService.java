@@ -181,7 +181,8 @@ public class ChatService {
             int topK = toInt(rc.get("topK"), 5);
             double threshold = toDoubleOrDefault(rc.get("scoreThreshold"), 0.5);
 
-            var retrieved = hybridRetrieval.search(tenantId, message, kbId, topK, threshold, rc);
+            var retrieved = hybridRetrieval.search(tenantId, message, kbId, topK, threshold, rc,
+                    viewer.userId(), permissionService.tenantWide(viewer));
             List<Map<String, Object>> hits = retrieved.hits();
             com.platform.knowledge.entity.KnowledgeBase kb = knowledgeBaseMapper.selectById(kbId);
             long stepEnd = System.currentTimeMillis();

@@ -945,7 +945,8 @@ public class WorkflowService {
         double threshold = toDouble(node.get("scoreThreshold"), 0.5);
         String mode = str(node.get("mode"));
         Map<String, Object> cfg = mode == null || mode.isBlank() ? Map.of() : Map.of("mode", mode);
-        var result = hybridRetrieval.search(run.getTenantId(), query, kbId, topK, threshold, cfg);
+        var result = hybridRetrieval.search(run.getTenantId(), query, kbId, topK, threshold, cfg,
+                viewer.userId(), permissionService.tenantWide(viewer));
         if (result.hits().isEmpty()) return "（知识库未检索到相关内容）";
         StringBuilder sb = new StringBuilder("【知识库检索结果】\n");
         int index = 1;

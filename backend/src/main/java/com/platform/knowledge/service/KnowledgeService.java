@@ -527,6 +527,8 @@ public class KnowledgeService {
     private void parseOnce(KnowledgeDocument doc) throws Exception {
         byte[] bytes = storage.get(doc.getObjectName());
         KnowledgeBase kb = kbMapper.selectById(doc.getKnowledgeBaseId());
+        KnowledgePermissionService.Acl acl = kb == null
+                ? new KnowledgePermissionService.Acl(List.of(), true) : permissionService.aclOf(kb);
         String embeddingModel = kb == null || kb.getEmbeddingModel() == null
                 || kb.getEmbeddingModel().isBlank()
                 ? embeddingService.model() : kb.getEmbeddingModel();
@@ -545,6 +547,8 @@ public class KnowledgeService {
             chunk.setParentIndex(parsed.parentIndex());
             chunk.setParentContent(parsed.parentContent());
             chunk.setContent(parsed.content());
+            chunk.setAllowedUsers(usersJson(acl.allowedUsers()));
+            chunk.setTenantVisible(acl.tenantWide() ? 1 : 0);
             chunk.setTenantId(doc.getTenantId());
             chunk.setCreatedAt(LocalDateTime.now());
             chunkMapper.insert(chunk);
@@ -559,6 +563,8 @@ public class KnowledgeService {
                     "chunk_index", i,
                     "parent_index", parsed.parentIndex(),
                     "embedding_model", embeddingModel,
+                    "allowed_users", acl.allowedUsers().stream().map(String::valueOf).toList(),
+                    "tenant_visible", acl.tenantWide(),
                     "file_name", doc.getFileName())));
             rows.add(row);
         }
@@ -588,7 +594,8 @@ public class KnowledgeService {
                 ? Map.of() : Map.of("mode", mode);
         return hybridRetrieval.search(tenantId, query, kbId,
                 topK == null ? 5 : topK,
-                threshold == null ? 0.5 : threshold, retrievalConfig).hits();
+                threshold == null ? 0.5 : threshold, retrievalConfig,
+                viewer.userId(), permissionService.tenantWide(viewer)).hits();
     }
 
     /** 文档分段浏览（架构 4.8 KnowledgeDetail/ChunkPanel 数据源）；需可见权限。 */
@@ -623,6 +630,12 @@ public class KnowledgeService {
         } catch (Exception e) {
             log.warn("删除文档向量失败 doc={} err={}（数据库记录继续清理）", documentId, e.getMessage());
         }
+    }
+
+    private String usersJson(List<Long> users) {
+        // MySQL JSON_CONTAINS 与 PgVector jsonb_array_elements_text 都按字符串匹配 userId
+        return users.stream().map(String::valueOf).map(id -> "\"" + id + "\"")
+                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
     }
 
     private void updateStatus(KnowledgeDocument doc, String status, Integer chunkCount, String error) {

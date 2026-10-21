@@ -18,6 +18,8 @@ public class KnowledgeChunk {
     private Integer parentIndex;
     private String parentContent;
     private String content;
+    private String allowedUsers;
+    private Integer tenantVisible;
     private String imageUrls;  // JSON
     private Long tenantId;
     private LocalDateTime createdAt;

@@ -26,6 +26,29 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
                                              @Param("query") String query,
                                              @Param("limit") int limit);
 
+    /** ACL 版本：userId/tenantWide 下推；旧数据 allowed_users 为空时按知识库级权限兜底。 */
+    @Select("""
+            <script>
+            SELECT id, document_id, chunk_index, content,
+                   MATCH(content) AGAINST(#{query} IN NATURAL LANGUAGE MODE) AS score
+            FROM knowledge_chunk
+            WHERE knowledge_base_id = #{kbId}
+              AND MATCH(content) AGAINST(#{query} IN NATURAL LANGUAGE MODE)
+              <if test="userId != null">
+                AND (allowed_users IS NULL
+                     OR (tenant_visible = 1 AND #{tenantWide} = TRUE)
+                     OR JSON_CONTAINS(allowed_users, JSON_QUOTE(#{userId})))
+              </if>
+            ORDER BY score DESC
+            LIMIT #{limit}
+            </script>
+            """)
+    List<Map<String, Object>> searchFulltextAcl(@Param("kbId") Long kbId,
+                                                @Param("query") String query,
+                                                @Param("limit") int limit,
+                                                @Param("userId") Long userId,
+                                                @Param("tenantWide") boolean tenantWide);
+
     /** 全文索引不可用/短查询兜底。 */
     @Select("""
             SELECT id, document_id, chunk_index, content, 0.1 AS score
@@ -38,4 +61,25 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
     List<Map<String, Object>> searchLike(@Param("kbId") Long kbId,
                                          @Param("query") String query,
                                          @Param("limit") int limit);
+
+    @Select("""
+            <script>
+            SELECT id, document_id, chunk_index, content, 0.1 AS score
+            FROM knowledge_chunk
+            WHERE knowledge_base_id = #{kbId}
+              AND content LIKE CONCAT('%', #{query}, '%')
+              <if test="userId != null">
+                AND (allowed_users IS NULL
+                     OR (tenant_visible = 1 AND #{tenantWide} = TRUE)
+                     OR JSON_CONTAINS(allowed_users, JSON_QUOTE(#{userId})))
+              </if>
+            ORDER BY id DESC
+            LIMIT #{limit}
+            </script>
+            """)
+    List<Map<String, Object>> searchLikeAcl(@Param("kbId") Long kbId,
+                                            @Param("query") String query,
+                                            @Param("limit") int limit,
+                                            @Param("userId") Long userId,
+                                            @Param("tenantWide") boolean tenantWide);
 }

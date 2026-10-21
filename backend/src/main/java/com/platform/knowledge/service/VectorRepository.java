@@ -62,18 +62,50 @@ public class VectorRepository {
     /**
      * 相似度检索：cosine（<=> 为距离，score = 1 - 距离），按 knowledge_base_id 过滤。
      */
+    /** 权限变更时同步所有维度表的 ACL；旧数据缺失 ACL 时由检索 SQL 按知识库级权限兜底。 */
+    public void updateAclForKnowledgeBase(Long tenantId, Long knowledgeBaseId,
+                                          List<Long> allowedUsers, boolean tenantWide) {
+        String usersJson = allowedUsers.stream().map(String::valueOf).map(id -> "\"" + id + "\"")
+                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+        for (String table : tables()) {
+            String sql = ("UPDATE %s.%s SET metadata = jsonb_set(jsonb_set(metadata, " +
+                    "'{allowed_users}', ?::jsonb), '{tenant_visible}', ?::jsonb) " +
+                    "WHERE metadata->>'knowledge_base_id' = ?")
+                    .formatted(schema(tenantId), table);
+            pgJdbcTemplate.update(sql, usersJson, String.valueOf(tenantWide), String.valueOf(knowledgeBaseId));
+        }
+    }
+
     public List<Map<String, Object>> search(Long tenantId, float[] queryVector, Long knowledgeBaseId,
                                             int topK, double threshold, int dimensions) {
+        return search(tenantId, queryVector, knowledgeBaseId, topK, threshold, dimensions, null, true);
+    }
+
+    public List<Map<String, Object>> search(Long tenantId, float[] queryVector, Long knowledgeBaseId,
+                                            int topK, double threshold, int dimensions,
+                                            Long userId, boolean tenantWide) {
         String q = vectorLiteral(queryVector);
-        return pgJdbcTemplate.queryForList("""
+        String base = """
                 SELECT id, content, metadata, 1 - (embedding <=> ?::vector) AS score
                 FROM %s.%s
                 WHERE metadata->>'knowledge_base_id' = ?
                   AND 1 - (embedding <=> ?::vector) >= ?
+                """.formatted(schema(tenantId), table(dimensions));
+        if (userId == null) {
+            return pgJdbcTemplate.queryForList(base + " ORDER BY embedding <=> ?::vector LIMIT ?",
+                    q, String.valueOf(knowledgeBaseId), q, threshold, q, topK);
+        }
+        return pgJdbcTemplate.queryForList(base + """
+                  AND (metadata->'allowed_users' IS NULL
+                       OR (? = TRUE AND metadata->>'tenant_visible' = 'true')
+                       OR EXISTS (
+                         SELECT 1 FROM jsonb_array_elements_text(
+                           COALESCE(metadata->'allowed_users', '[]'::jsonb)) ua
+                         WHERE ua = ?))
                 ORDER BY embedding <=> ?::vector
                 LIMIT ?
-                """.formatted(schema(tenantId), table(dimensions)),
-                q, String.valueOf(knowledgeBaseId), q, threshold, q, topK);
+                """, q, String.valueOf(knowledgeBaseId), q, threshold,
+                tenantWide, String.valueOf(userId), q, topK);
     }
 
     public void deleteByDocument(Long tenantId, Long documentId) {

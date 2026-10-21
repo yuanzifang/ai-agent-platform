@@ -916,7 +916,8 @@ public class ToolRuntimeService {
             int topK = toInt(rc.get("topK"), 5);
             double threshold = toDouble(rc.get("scoreThreshold"), 0.5);
             try {
-                for (Map<String, Object> hit : hybridRetrieval.search(tenantId, query, kbId, topK, threshold).hits()) {
+                for (Map<String, Object> hit : hybridRetrieval.search(tenantId, query, kbId, topK, threshold,
+                        Map.of(), viewer.userId(), permissionService.tenantWide(viewer)).hits()) {
                     ctx.append("\n---\n").append(hit.get("content"));
                 }
             } catch (Exception e) {

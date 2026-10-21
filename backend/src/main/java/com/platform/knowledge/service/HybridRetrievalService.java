@@ -58,6 +58,12 @@ public class HybridRetrievalService {
 
     public Result search(Long tenantId, String query, Long kbId, int topK, double threshold,
                          Map<String, Object> retrievalConfig) {
+        return search(tenantId, query, kbId, topK, threshold, retrievalConfig, null, true);
+    }
+
+    /** viewer 不为空时把 chunk ACL 下推到向量/关键字 SQL。 */
+    public Result search(Long tenantId, String query, Long kbId, int topK, double threshold,
+                         Map<String, Object> retrievalConfig, Long userId, boolean tenantWide) {
         int limit = Math.max(1, Math.min(topK, 20));
         int candidates = Math.max(10, Math.min(limit * 3, 30));
         String mode = str(retrievalConfig.get("mode"));
@@ -85,7 +91,10 @@ public class HybridRetrievalService {
                 float[] vector = embeddingService.embedOne(q, embeddingModel);
                 embedMs = System.currentTimeMillis() - start;
                 long searchStart = System.currentTimeMillis();
-                vectorHits = vectorRepository.search(tenantId, vector, kbId, candidates, threshold, dimensions);
+                vectorHits = userId == null
+                        ? vectorRepository.search(tenantId, vector, kbId, candidates, threshold, dimensions)
+                        : vectorRepository.search(tenantId, vector, kbId, candidates, threshold,
+                                dimensions, userId, tenantWide);
                 searchMs = System.currentTimeMillis() - searchStart;
             } catch (Exception e) {
                 log.warn("向量检索失败，尝试关键字兜底 kb={}：{}", kbId, e.getMessage());
@@ -100,11 +109,15 @@ public class HybridRetrievalService {
         if (!"vector".equals(mode)) {
             long start = System.currentTimeMillis();
             try {
-                keywordHits = chunkMapper.searchFulltext(kbId, keywordQuery, candidates);
+                keywordHits = userId == null
+                        ? chunkMapper.searchFulltext(kbId, keywordQuery, candidates)
+                        : chunkMapper.searchFulltextAcl(kbId, keywordQuery, candidates, userId, tenantWide);
             } catch (Exception e) {
                 log.debug("全文检索不可用，尝试 LIKE 兜底 kb={}：{}", kbId, e.getMessage());
                 try {
-                    keywordHits = chunkMapper.searchLike(kbId, keywordQuery, candidates);
+                    keywordHits = userId == null
+                            ? chunkMapper.searchLike(kbId, keywordQuery, candidates)
+                            : chunkMapper.searchLikeAcl(kbId, keywordQuery, candidates, userId, tenantWide);
                 } catch (Exception ex) {
                     log.warn("关键字检索失败 kb={}：{}", kbId, ex.getMessage());
                 }
