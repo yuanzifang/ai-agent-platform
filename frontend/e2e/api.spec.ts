@@ -972,7 +972,9 @@ test('工作流 Agent Handoff 与共享上下文', async ({ request }) => {
         nodes: [
           { id: 'start', type: 'START', name: '开始', next: 'handoff1' },
           { id: 'handoff1', type: 'HANDOFF', name: '交给目标 Agent',
-            agentId: targetId, inputTemplate: '{{input}}', next: 'llm1' },
+            agentId: targetId, inputTemplate: '{{input}}', next: 'state1' },
+          { id: 'state1', type: 'STATE', name: '记录 handoff 结果',
+            stateKey: 'handoff_result', valueTemplate: '{{last}}', next: 'llm1' },
           { id: 'llm1', type: 'LLM', name: '读取共享上下文', prompt: '总结前序结果', next: 'end' },
           { id: 'end', type: 'END', name: '结束' }
         ]
@@ -991,10 +993,12 @@ test('工作流 Agent Handoff 与共享上下文', async ({ request }) => {
     expect(String(body.data.output).length).toBeGreaterThan(0)
     const nodeTypes = (body.data.nodeRuns || []).map((n: any) => n.nodeType)
     expect(nodeTypes).toContain('HANDOFF')
+    expect(body.data.state?.handoff_result).toBeTruthy()
     const last = await (await request.get(`${OPENAI_MOCK}/last-chat`)).json()
     const systemText = (last.messages || []).filter((m: any) => m.role === 'system')
       .map((m: any) => String(m.content)).join('\n')
     expect(systemText).toContain('前序节点结果')
+    expect(systemText).toContain('共享状态')
   } finally {
     await deleteAgent(request, token!, sourceId)
     await deleteAgent(request, token!, targetId)

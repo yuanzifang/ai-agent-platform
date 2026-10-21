@@ -335,7 +335,7 @@ public class WorkflowService {
         run.setDefinition(runDefinition);
         run.setInputText(input.trim());
         run.setOutputText(input.trim());
-        run.setContextJson(json(Map.of("outputs", List.of())));
+        run.setContextJson(json(Map.of("outputs", List.of(), "state", Map.of())));
         run.setStatus("RUNNING");
         run.setUserId(principal.userId());
         run.setInputTokens(0L);
@@ -453,11 +453,13 @@ public class WorkflowService {
             String nodeId = startNode == null || startNode.isBlank() ? "start" : startNode;
             String lastOutput = run.getOutputText();
             List<Map<String, Object>> outputs = new ArrayList<>();
+            Map<String, Object> state = new LinkedHashMap<>();
             if (run.getContextJson() != null) {
                 Map<String, Object> ctx = parseMap(run.getContextJson());
                 if (ctx.get("outputs") instanceof List<?> l) {
                     for (Object o : l) if (o instanceof Map<?, ?> m) outputs.add(castMap(m));
                 }
+                if (ctx.get("state") instanceof Map<?, ?> sm) state.putAll(castMap(sm));
             }
             int steps = 0;
             while (steps++ < MAX_STEPS) {
@@ -473,7 +475,7 @@ public class WorkflowService {
                     run.setCurrentNode(nodeId);
                     run.setOutputText(lastOutput);
                     run.setUpdatedAt(LocalDateTime.now());
-                    run.setContextJson(json(Map.of("outputs", outputs)));
+                    run.setContextJson(contextJson(outputs, state));
                     runMapper.updateById(run);
                     return;
                 }
@@ -500,6 +502,15 @@ public class WorkflowService {
                     nodeFailed = simple.failed();
                     run.setInputTokens(nz(run.getInputTokens()) + simple.inputTokens());
                     run.setOutputTokens(nz(run.getOutputTokens()) + simple.outputTokens());
+                } else if ("STATE".equals(type)) {
+                    String key = str(node.get("stateKey"));
+                    if (key == null || key.isBlank()) throw new BusinessException(400, "STATE 节点必须配置 stateKey");
+                    String template = str(node.get("valueTemplate"));
+                    String value = template == null || template.isBlank() ? lastOutput
+                            : applyStateTemplate(template, run, state, lastOutput);
+                    state.put(key, value == null ? "" : value);
+                    output = value == null ? "" : value;
+                    next = str(node.get("next"));
                 } else if ("START".equals(type)) {
                     output = run.getInputText();
                     next = str(node.get("next"));
@@ -553,7 +564,7 @@ public class WorkflowService {
                         run.setCurrentNode(nodeId);
                         run.setOutputText(truncate(output, 20000));
                         run.setUpdatedAt(LocalDateTime.now());
-                        run.setContextJson(json(Map.of("outputs", waitingOutputs)));
+                        run.setContextJson(contextJson(waitingOutputs, state));
                         runMapper.updateById(run);
                         auditService.record(run.getUserId(), "workflow.loop_limit", "workflow_run",
                                 String.valueOf(run.getId()), "WAITING_APPROVAL",
@@ -609,7 +620,7 @@ public class WorkflowService {
                     run.setCurrentNode(nodeId);
                     run.setOutputText(output);
                     run.setUpdatedAt(LocalDateTime.now());
-                    run.setContextJson(json(Map.of("outputs", outputs)));
+                    run.setContextJson(contextJson(outputs, state));
                     runMapper.updateById(run);
                     return;
                 } else {
@@ -626,7 +637,7 @@ public class WorkflowService {
                 run.setOutputText(output);
                 run.setCurrentNode(next);
                 run.setUpdatedAt(LocalDateTime.now());
-                run.setContextJson(json(Map.of("outputs", outputs)));
+                run.setContextJson(contextJson(outputs, state));
                 runMapper.updateById(run);
                 if (next == null || next.isBlank()) {
                     run.setStatus("SUCCESS");
@@ -672,9 +683,8 @@ public class WorkflowService {
             config.put("variables", parseObject(target.getVariables()));
         }
         String template = str(node.get("inputTemplate"));
-        String message = template == null || template.isBlank() ? input : template
-                .replace("{{input}}", run.getInputText() == null ? "" : run.getInputText())
-                .replace("{{last}}", input == null ? "" : input);
+        Map<String, Object> state = stateOf(run);
+        String message = template == null || template.isBlank() ? input : applyStateTemplate(template, run, state, input);
         if (message == null || message.isBlank()) message = "请接手当前任务并给出结果。";
         var viewer = KnowledgePermissionService.Viewer.of(principal.userId(), principal.roles());
         Map<String, Object> result;
@@ -723,6 +733,10 @@ public class WorkflowService {
         if (prompt != null && !prompt.isBlank()) system.append(prompt).append("\n\n");
         if (system.isEmpty()) system.append("你是工作流执行助手，请直接完成当前节点任务。");
         system.append("【用户输入】\n").append(modelInput == null ? "" : modelInput).append("\n");
+        Map<String, Object> state = stateOf(run);
+        if (!state.isEmpty()) {
+            system.append("【共享状态】\n").append(json(state)).append("\n");
+        }
         if (!outputs.isEmpty()) {
             system.append("【前序节点结果】\n");
             for (Map<String, Object> o : outputs) {
@@ -1122,6 +1136,28 @@ public class WorkflowService {
         return Map.of("list", list, "total", p.getTotal(), "page", page, "pageSize", pageSize);
     }
 
+    private String contextJson(List<Map<String, Object>> outputs, Map<String, Object> state) {
+        return json(Map.of("outputs", outputs, "state", state));
+    }
+
+    private Map<String, Object> stateOf(WorkflowRun run) {
+        if (run == null || run.getContextJson() == null) return Map.of();
+        Map<String, Object> ctx = parseMap(run.getContextJson());
+        return ctx.get("state") instanceof Map<?, ?> sm ? castMap(sm) : Map.of();
+    }
+
+    private String applyStateTemplate(String template, WorkflowRun run, Map<String, Object> state,
+                                      String lastOutput) {
+        String out = template
+                .replace("{{input}}", run.getInputText() == null ? "" : run.getInputText())
+                .replace("{{last}}", lastOutput == null ? "" : lastOutput);
+        for (Map.Entry<String, Object> e : state.entrySet()) {
+            out = out.replace("{{state." + e.getKey() + "}}",
+                    e.getValue() == null ? "" : String.valueOf(e.getValue()));
+        }
+        return out;
+    }
+
     private Map<String, Object> runView(WorkflowRun run) {
         if (run == null) throw new BusinessException(404, "运行记录不存在");
         Map<String, Object> m = new LinkedHashMap<>();
@@ -1133,6 +1169,7 @@ public class WorkflowService {
         m.put("output", run.getOutputText());
         m.put("currentNode", run.getCurrentNode());
         m.put("error", run.getErrorMessage());
+        m.put("state", stateOf(run));
         m.put("inputTokens", run.getInputTokens());
         m.put("outputTokens", run.getOutputTokens());
         m.put("createdAt", run.getCreatedAt());
@@ -1175,7 +1212,7 @@ public class WorkflowService {
             if (nodes.containsKey(id)) throw new BusinessException(400, "节点 id 重复：" + id);
             String t = type == null ? "" : type.toUpperCase();
             if (!List.of("START", "LLM", "AGENT", "TOOL", "KNOWLEDGE", "CONDITION", "APPROVAL",
-                    "PARALLEL", "LOOP", "JOIN", "HANDOFF", "END").contains(t)) {
+                    "PARALLEL", "LOOP", "JOIN", "HANDOFF", "STATE", "END").contains(t)) {
                 throw new BusinessException(400, "不支持的节点类型：" + type);
             }
             if ("START".equals(t)) hasStart = true;
@@ -1195,6 +1232,9 @@ public class WorkflowService {
             }
             if (("AGENT".equals(type) || "HANDOFF".equals(type)) && node.get("agentId") == null) {
                 throw new BusinessException(400, type + " 节点必须选择 Agent");
+            }
+            if ("STATE".equals(type) && (node.get("stateKey") == null || str(node.get("stateKey")).isBlank())) {
+                throw new BusinessException(400, "STATE 节点必须配置 stateKey");
             }
             if ("TOOL".equals(type) && node.get("toolId") == null) {
                 throw new BusinessException(400, "TOOL 节点必须选择工具");

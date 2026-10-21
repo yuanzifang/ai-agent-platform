@@ -779,6 +779,11 @@
               </el-select>
               <el-input v-model="n.prompt" type="textarea" :rows="2" placeholder="附加提示词（可选）" class="mt8" />
             </template>
+            <template v-else-if="n.type === 'STATE'">
+              <el-input v-model="n.stateKey" placeholder="状态键，如 handoff_result" style="width: 260px" />
+              <el-input v-model="n.valueTemplate" type="textarea" :rows="2" class="mt8"
+                        placeholder="值模板，支持 {{input}} / {{last}} / {{state.key}}；留空取上一节点输出" />
+            </template>
             <template v-else-if="n.type === 'HANDOFF'">
               <el-select v-model="n.agentId" filterable placeholder="选择接手 Agent" style="width: 260px">
                 <el-option v-for="a in agentCatalog" :key="a.id" :value="a.id" :label="a.name" />
@@ -1149,6 +1154,7 @@ const wfTypes = [
   { label: 'LLM 生成', value: 'LLM' },
   { label: 'Agent 调用', value: 'AGENT' },
   { label: 'Agent Handoff', value: 'HANDOFF' },
+  { label: '共享状态', value: 'STATE' },
   { label: '工具调用', value: 'TOOL' },
   { label: '知识库检索', value: 'KNOWLEDGE' },
   { label: '条件分支', value: 'CONDITION' },
@@ -1718,11 +1724,11 @@ async function openWorkflow() {
 }
 
 function wfTypeText(type: string) {
-  return ({ START: '开始', END: '结束', LLM: 'LLM 生成', AGENT: 'Agent 调用', HANDOFF: 'Agent Handoff', TOOL: '工具调用', KNOWLEDGE: '知识库检索', CONDITION: '条件分支', APPROVAL: '人工审批', PARALLEL: '并行分支', LOOP: '循环迭代', JOIN: '汇合节点' } as any)[type] || type
+  return ({ START: '开始', END: '结束', LLM: 'LLM 生成', AGENT: 'Agent 调用', HANDOFF: 'Agent Handoff', STATE: '共享状态', TOOL: '工具调用', KNOWLEDGE: '知识库检索', CONDITION: '条件分支', APPROVAL: '人工审批', PARALLEL: '并行分支', LOOP: '循环迭代', JOIN: '汇合节点' } as any)[type] || type
 }
 
 function wfTagType(type: string) {
-  return ({ START: 'info', END: 'info', LLM: 'success', AGENT: 'warning', HANDOFF: 'warning', CONDITION: 'primary', APPROVAL: 'danger' } as any)[type] || 'info'
+  return ({ START: 'info', END: 'info', LLM: 'success', AGENT: 'warning', HANDOFF: 'warning', STATE: 'info', CONDITION: 'primary', APPROVAL: 'danger' } as any)[type] || 'info'
 }
 
 function wfTargets(currentId: string) {
@@ -1916,12 +1922,13 @@ function addWorkflowNode() {
   if (wfAddType.value === 'APPROVAL') node.title = '人工审批'
   if (wfAddType.value === 'LLM') node.prompt = ''
   if (wfAddType.value === 'HANDOFF') node.inputTemplate = '{{input}}'
+  if (wfAddType.value === 'STATE') { node.stateKey = ''; node.valueTemplate = '{{last}}' }
   if (wfAddType.value === 'TOOL') node.argsTemplate = '{}'
   if (wfAddType.value === 'KNOWLEDGE') { node.mode = 'hybrid'; node.topK = 5; node.queryTemplate = '' }
   if (wfAddType.value === 'APPROVAL') { node.requiredRole = ''; node.timeoutMinutes = 0 }
   if (wfAddType.value === 'PARALLEL') { node.branches = []; node.joinNode = ''; node.next = ''; node.strategy = 'ALL_OR_NOTHING' }
   if (wfAddType.value === 'LOOP') { node.bodyNode = ''; node.loopEnd = ''; node.itemsText = '["A","B"]'; node.maxIterations = 10; node.requiredRole = ''; node.timeoutMinutes = 0 }
-  if (['LLM','AGENT','HANDOFF','TOOL','KNOWLEDGE'].includes(wfAddType.value)) { node.retryTimes = 0; node.onError = 'FAIL' }
+  if (['LLM','AGENT','HANDOFF','STATE','TOOL','KNOWLEDGE'].includes(wfAddType.value)) { node.retryTimes = 0; node.onError = 'FAIL' }
   if (wfAddType.value === 'JOIN') node.next = 'end'
   if (wfAddType.value === 'CONDITION') {
     node.conditionType = 'contains'
