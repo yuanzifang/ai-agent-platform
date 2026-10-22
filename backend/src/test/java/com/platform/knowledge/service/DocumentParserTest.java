@@ -5,6 +5,11 @@ import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xslf.usermodel.XSLFTextBox;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFTable;
+import org.apache.poi.hslf.usermodel.HSLFSlideShow;
+import org.apache.poi.hslf.usermodel.HSLFSlide;
+import org.apache.poi.hslf.usermodel.HSLFTextBox;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -107,6 +112,38 @@ class DocumentParserTest {
         String text = String.join("\n", parser.parse("price.xlsx", bytes));
         assertTrue(text.contains("企业版"));
         assertTrue(text.contains("999"));
+    }
+
+    @Test
+    void parsesDocxMergedCellsAsHtml() throws Exception {
+        byte[] bytes;
+        try (XWPFDocument doc = new XWPFDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            XWPFTable table = doc.createTable(1, 2);
+            table.getRow(0).getCell(0).setText("合并表头");
+            table.getRow(0).getCell(0).getCTTc().addNewTcPr().addNewGridSpan()
+                    .setVal(java.math.BigInteger.valueOf(2));
+            doc.write(out);
+            bytes = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("merged.docx", bytes));
+        assertTrue(text.contains("<table"), text);
+        assertTrue(text.contains("colspan=\"2\""), text);
+        assertTrue(text.contains("合并表头"), text);
+    }
+
+    @Test
+    void parsesPpt() throws Exception {
+        byte[] bytes;
+        try (HSLFSlideShow ppt = new HSLFSlideShow(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            HSLFSlide slide = ppt.createSlide();
+            HSLFTextBox box = new HSLFTextBox();
+            box.setText("旧版 PPT 内容");
+            slide.addShape(box);
+            ppt.write(out);
+            bytes = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("old.ppt", bytes));
+        assertTrue(text.contains("旧版 PPT 内容"), text);
     }
 
     @Test

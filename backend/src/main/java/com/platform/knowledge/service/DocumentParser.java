@@ -18,9 +18,16 @@ import org.apache.poi.xslf.usermodel.XSLFTableCell;
 import org.apache.poi.xslf.usermodel.XSLFTableRow;
 import org.apache.poi.xslf.usermodel.XSLFTextShape;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.hwpf.HWPFDocument;
+import org.apache.poi.hwpf.extractor.WordExtractor;
+import org.apache.poi.hslf.usermodel.HSLFSlideShow;
+import org.apache.poi.hslf.usermodel.HSLFSlide;
+import org.apache.poi.hslf.usermodel.HSLFShape;
+import org.apache.poi.hslf.usermodel.HSLFTextShape;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
+import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.pdfbox.rendering.PDFRenderer;
@@ -82,6 +89,8 @@ public class DocumentParser {
         String text;
         try {
             if (lower.endsWith(".docx")) text = parseDocx(bytes);
+            else if (lower.endsWith(".doc")) text = parseDoc(bytes);
+            else if (lower.endsWith(".ppt")) text = parsePpt(bytes);
             else if (lower.endsWith(".pdf")) {
                 text = parsePdf(bytes);
                 if (needsOcr(text)) text = parsePdfOcr(bytes, fileName);
@@ -96,7 +105,7 @@ public class DocumentParser {
                     || lower.endsWith(".csv") || lower.endsWith(".json") || lower.endsWith(".log"))
                 text = new String(bytes, StandardCharsets.UTF_8);
             else throw new BusinessException(400,
-                    "不支持的格式（支持 PDF/DOCX/XLSX/XLS/PPTX/EPUB/HTML/TXT/MD/CSV/JSON/PNG/JPG）：" + fileName);
+                    "不支持的格式（支持 PDF/DOC/DOCX/XLSX/XLS/PPT/PPTX/EPUB/HTML/TXT/MD/CSV/JSON/PNG/JPG）：" + fileName);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -117,14 +126,70 @@ public class DocumentParser {
                 if (t != null && !t.isBlank()) sb.append(t).append('\n');
             }
             for (XWPFTable table : doc.getTables()) {
-                table.getRows().forEach(row -> {
-                    List<String> cells = new ArrayList<>();
-                    for (XWPFTableCell cell : row.getTableCells()) {
-                        String t = cell.getText();
-                        cells.add(t == null ? "" : t.trim());
+                sb.append(parseDocxTable(table));
+            }
+        }
+        return sb.toString();
+    }
+
+    /** DOCX 表格转 HTML，保留 gridSpan(colspan) 与 vMerge(rowspan)。 */
+    private String parseDocxTable(XWPFTable table) {
+        StringBuilder sb = new StringBuilder("<table border=\"1\">\n");
+        List<XWPFTableRow> rows = table.getRows();
+        for (int r = 0; r < rows.size(); r++) {
+            sb.append("<tr>");
+            int col = 0;
+            for (XWPFTableCell cell : rows.get(r).getTableCells()) {
+                var pr = cell.getCTTc().getTcPr();
+                int colspan = 1;
+                if (pr != null && pr.getGridSpan() != null && pr.getGridSpan().getVal() != null) {
+                    colspan = Math.max(1, pr.getGridSpan().getVal().intValue());
+                }
+                String merge = pr != null && pr.getVMerge() != null
+                        ? String.valueOf(pr.getVMerge().getVal()) : "";
+                if ("continue".equalsIgnoreCase(merge)) {
+                    col += colspan;
+                    continue;
+                }
+                int rowspan = 1;
+                if ("restart".equalsIgnoreCase(merge)) {
+                    for (int rr = r + 1; rr < rows.size(); rr++) {
+                        if (col >= rows.get(rr).getTableCells().size()) break;
+                        var nextPr = rows.get(rr).getTableCells().get(col).getCTTc().getTcPr();
+                        String nextMerge = nextPr != null && nextPr.getVMerge() != null
+                                ? String.valueOf(nextPr.getVMerge().getVal()) : "";
+                        if (!"continue".equalsIgnoreCase(nextMerge)) break;
+                        rowspan++;
                     }
-                    sb.append("| ").append(String.join(" | ", cells)).append(" |\n");
-                });
+                }
+                String text = cell.getText() == null ? "" : cell.getText().trim();
+                sb.append("<td");
+                if (colspan > 1) sb.append(" colspan=\"").append(colspan).append("\"");
+                if (rowspan > 1) sb.append(" rowspan=\"").append(rowspan).append("\"");
+                sb.append(">").append(escapeHtml(text)).append("</td>");
+                col += colspan;
+            }
+            sb.append("</tr>\n");
+        }
+        return sb.append("</table>\n").toString();
+    }
+
+    private String parseDoc(byte[] bytes) throws Exception {
+        try (WordExtractor extractor = new WordExtractor(new ByteArrayInputStream(bytes))) {
+            return extractor.getText();
+        }
+    }
+
+    private String parsePpt(byte[] bytes) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        try (HSLFSlideShow ppt = new HSLFSlideShow(new ByteArrayInputStream(bytes))) {
+            for (HSLFSlide slide : ppt.getSlides()) {
+                for (HSLFShape shape : slide.getShapes()) {
+                    if (shape instanceof HSLFTextShape text) {
+                        String value = text.getText();
+                        if (value != null && !value.isBlank()) sb.append(value).append('\n');
+                    }
+                }
             }
         }
         return sb.toString();
