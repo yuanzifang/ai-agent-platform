@@ -981,7 +981,7 @@ public class WorkflowService {
                 nodeId = str(node.get("next"));
                 continue;
             }
-            if ("APPROVAL".equals(type) || "PARALLEL".equals(type) || "LOOP".equals(type)) {
+            if ("APPROVAL".equals(type) || "LOOP".equals(type)) {
                 throw new BusinessException(400, "分支内暂不支持 " + type + " 节点");
             }
             String name = str(node.getOrDefault("name", nodeId));
@@ -1007,6 +1007,13 @@ public class WorkflowService {
                 nodeFailed = simple.failed();
                 in += simple.inputTokens();
                 out += simple.outputTokens();
+            } else if ("PARALLEL".equals(type)) {
+                ParallelResult nested = executeParallel(node, run, nodes, outputs, principal, state);
+                output = nested.output();
+                next = str(node.get("joinNode"));
+                in += nested.inputTokens();
+                out += nested.outputTokens();
+                state.putAll(nested.state());
             } else if ("STATE".equals(type)) {
                 String key = str(node.get("stateKey"));
                 if (key == null || key.isBlank()) throw new BusinessException(400, "STATE 节点必须配置 stateKey");
