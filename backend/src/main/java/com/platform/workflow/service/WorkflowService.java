@@ -40,6 +40,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -396,6 +397,27 @@ public class WorkflowService {
             Map<String, Object> definition = parse(run.getDefinition());
             Map<String, Object> node = findNode(definition, approval.getNodeId());
             Map<String, Object> approvalPayload = parseMap(approval.getPayload());
+            if (Boolean.TRUE.equals(approvalPayload.get("branchApprovalGate"))
+                    && approvalPayload.get("approvalNodeIds") instanceof List<?> branchApprovalIds) {
+                Map<String, Object> ctx = parseMap(run.getContextJson());
+                Map<String, Object> approved = new LinkedHashMap<>();
+                if (ctx.get("branchApprovals") instanceof Map<?, ?> old) {
+                    for (Map.Entry<?, ?> e : old.entrySet()) approved.put(String.valueOf(e.getKey()), e.getValue());
+                }
+                for (Object id : branchApprovalIds) approved.put(String.valueOf(id), true);
+                ctx.put("branchApprovals", approved);
+                run.setContextJson(json(ctx));
+                run.setStatus("RUNNING");
+                run.setCurrentNode(str(approvalPayload.get("parallelNodeId")));
+                run.setUpdatedAt(LocalDateTime.now());
+                runMapper.updateById(run);
+                auditService.record(principal.userId(), "workflow.parallel_resume", "workflow_approval",
+                        String.valueOf(approvalId), "SUCCESS",
+                        Map.of("runId", run.getId(), "parallelNodeId",
+                                str(approvalPayload.get("parallelNodeId"))));
+                execute(run, str(approvalPayload.get("parallelNodeId")), principal);
+                return runView(runMapper.selectById(run.getId()));
+            }
             if (approvalPayload.get("remainingItems") instanceof List<?> remaining
                     && !remaining.isEmpty() && approval.getNodeId() != null) {
                 List<String> items = remaining.stream().map(String::valueOf).toList();
@@ -573,6 +595,7 @@ public class WorkflowService {
                         return;
                     }
                 } else if ("PARALLEL".equals(type)) {
+                    if (!ensureParallelApprovals(node, nodeId, run, nodes, nr, principal)) return;
                     ParallelResult result = executeParallel(node, run, nodes, outputs, principal, state);
                     output = result.output();
                     state.putAll(result.state());
@@ -916,6 +939,100 @@ public class WorkflowService {
         return items;
     }
 
+    /** 并行网关前置审批：收集分支内 APPROVAL，统一审批后放行；返回 false 表示已暂停。 */
+    private boolean ensureParallelApprovals(Map<String, Object> node, String parallelNodeId,
+                                            WorkflowRun run, Map<String, Map<String, Object>> nodes,
+                                            WorkflowNodeRun nr, JwtPrincipal principal) {
+        String join = str(node.get("joinNode"));
+        Set<String> approvals = new java.util.LinkedHashSet<>();
+        if (node.get("branches") instanceof List<?> branches) {
+            for (Object b : branches) {
+                collectApprovals(str(b), join, nodes, new java.util.HashSet<>(), approvals);
+            }
+        }
+        if (approvals.isEmpty()) return true;
+        Set<String> approved = approvedBranchApprovals(run);
+        if (approved.containsAll(approvals)) return true;
+
+        WorkflowApproval approval = new WorkflowApproval();
+        approval.setRunId(run.getId());
+        approval.setAgentId(run.getAgentId());
+        approval.setTenantId(run.getTenantId());
+        approval.setNodeId(parallelNodeId);
+        approval.setTitle("并行分支审批（" + approvals.size() + " 项）");
+        String requiredRole = str(node.get("requiredRole"));
+        approval.setRequiredRole(requiredRole);
+        int timeoutMinutes = toInt(node.get("timeoutMinutes"));
+        if (timeoutMinutes > 0) approval.setExpireAt(LocalDateTime.now().plusMinutes(timeoutMinutes));
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("branchApprovalGate", true);
+        payload.put("parallelNodeId", parallelNodeId);
+        payload.put("approvalNodeIds", new ArrayList<>(approvals));
+        payload.put("message", "并行分支包含人工审批节点，请统一审批后继续");
+        approval.setPayload(json(payload));
+        approval.setStatus("PENDING");
+        approval.setCreatedAt(LocalDateTime.now());
+        approvalMapper.insert(approval);
+        List<Long> recipients = requiredRole == null || requiredRole.isBlank()
+                ? userMapper.findOwnerAdminUserIds(run.getTenantId())
+                : userMapper.findUserIdsByRole(run.getTenantId(), requiredRole);
+        if (recipients.isEmpty()) recipients = userMapper.findOwnerAdminUserIds(run.getTenantId());
+        notificationService.notify(run.getTenantId(), recipients, "workflow_approval",
+                "并行分支待审批：" + approval.getTitle(), "工作流 " + run.getId() + " 需要审批",
+                "/approvals");
+        nr.setStatus("WAITING");
+        nr.setOutputText("并行分支审批中");
+        nr.setEndedAt(LocalDateTime.now());
+        nodeRunMapper.updateById(nr);
+        run.setStatus("WAITING_APPROVAL");
+        run.setCurrentNode(parallelNodeId);
+        run.setOutputText("并行分支审批中");
+        run.setUpdatedAt(LocalDateTime.now());
+        runMapper.updateById(run);
+        auditService.record(principal.userId(), "workflow.parallel_approval", "workflow_run",
+                String.valueOf(run.getId()), "WAITING_APPROVAL",
+                Map.of("parallelNodeId", parallelNodeId, "approvals", approvals.size(),
+                        "approvalId", approval.getId()));
+        return false;
+    }
+
+    private void collectApprovals(String nodeId, String joinId,
+                                  Map<String, Map<String, Object>> nodes,
+                                  Set<String> visited, Set<String> approvals) {
+        String current = nodeId;
+        while (current != null && !current.isBlank() && !current.equals(joinId) && visited.add(current)) {
+            Map<String, Object> n = nodes.get(current);
+            if (n == null) return;
+            String type = str(n.getOrDefault("type", "LLM")).toUpperCase();
+            if ("APPROVAL".equals(type)) approvals.add(current);
+            if ("PARALLEL".equals(type)) {
+                if (n.get("branches") instanceof List<?> bs) {
+                    for (Object b : bs) collectApprovals(str(b), str(n.get("joinNode")), nodes, visited, approvals);
+                }
+                current = str(n.get("joinNode"));
+                continue;
+            }
+            if ("CONDITION".equals(type)) {
+                collectApprovals(str(n.get("trueNext")), joinId, nodes, visited, approvals);
+                collectApprovals(str(n.get("falseNext")), joinId, nodes, visited, approvals);
+                return;
+            }
+            if ("END".equals(type)) return;
+            current = str(n.get("next"));
+        }
+    }
+
+    private Set<String> approvedBranchApprovals(WorkflowRun run) {
+        if (run == null || run.getContextJson() == null) return Set.of();
+        Map<String, Object> ctx = parseMap(run.getContextJson());
+        if (!(ctx.get("branchApprovals") instanceof Map<?, ?> m)) return Set.of();
+        Set<String> result = new java.util.HashSet<>();
+        for (Map.Entry<?, ?> e : m.entrySet()) {
+            if (Boolean.TRUE.equals(e.getValue())) result.add(String.valueOf(e.getKey()));
+        }
+        return result;
+    }
+
     private ParallelResult executeParallel(Map<String, Object> node, WorkflowRun run,
                                             Map<String, Map<String, Object>> nodes,
                                             List<Map<String, Object>> outputs, JwtPrincipal principal,
@@ -981,7 +1098,28 @@ public class WorkflowService {
                 nodeId = str(node.get("next"));
                 continue;
             }
-            if ("APPROVAL".equals(type) || "LOOP".equals(type)) {
+            if ("APPROVAL".equals(type)) {
+                if (!approvedBranchApprovals(run).contains(nodeId)) {
+                    throw new BusinessException(400, "并行分支审批未通过：" + nodeId);
+                }
+                String name = str(node.getOrDefault("name", nodeId));
+                WorkflowNodeRun gateNr = new WorkflowNodeRun();
+                gateNr.setRunId(run.getId());
+                gateNr.setTenantId(run.getTenantId());
+                gateNr.setNodeId(nodeId);
+                gateNr.setNodeType(type);
+                gateNr.setName(name);
+                gateNr.setStatus("SUCCESS");
+                gateNr.setInputText(truncate(lastOutput, 8000));
+                gateNr.setOutputText("APPROVED（并行分支网关）");
+                gateNr.setStartedAt(LocalDateTime.now());
+                gateNr.setEndedAt(LocalDateTime.now());
+                nodeRunMapper.insert(gateNr);
+                
+                nodeId = str(node.get("next"));
+                continue;
+            }
+            if ("LOOP".equals(type)) {
                 throw new BusinessException(400, "分支内暂不支持 " + type + " 节点");
             }
             String name = str(node.getOrDefault("name", nodeId));

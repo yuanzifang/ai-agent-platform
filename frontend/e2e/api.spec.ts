@@ -1085,6 +1085,61 @@ test('工作流嵌套并行 State 合并', async ({ request }) => {
   }
 })
 
+test('工作流并行分支审批', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E 并行审批-${Date.now()}`)
+  try {
+    await publishAgent(request, token!, agentId)
+    const workflow = {
+      name: 'E2E 并行审批', status: 'ENABLED',
+      definition: {
+        nodes: [
+          { id: 'start', type: 'START', name: '开始', next: 'parallel1' },
+          { id: 'parallel1', type: 'PARALLEL', name: '并行',
+            branches: ['a1', 'a2'], joinNode: 'join1', strategy: 'ALL_OR_NOTHING' },
+          { id: 'a1', type: 'APPROVAL', name: '分支A审批', next: 's1' },
+          { id: 'a2', type: 'APPROVAL', name: '分支B审批', next: 's2' },
+          { id: 's1', type: 'STATE', name: 'A状态', stateKey: 'pa',
+            valueTemplate: 'pa', next: 'join1' },
+          { id: 's2', type: 'STATE', name: 'B状态', stateKey: 'pb',
+            valueTemplate: 'pb', next: 'join1' },
+          { id: 'join1', type: 'JOIN', name: '汇合', next: 'end' },
+          { id: 'end', type: 'END', name: '结束' }
+        ]
+      }
+    }
+    expect((await (await request.put(`${P}/agent/${agentId}/workflow`, {
+      headers: auth(token!), data: workflow
+    })).json()).code).toBe(0)
+    const waiting = await (await request.post(`${P}/agent/${agentId}/workflow/run`, {
+      headers: auth(token!), data: { input: '并行审批测试' }, timeout: 60_000
+    })).json()
+    expect(waiting.code, JSON.stringify(waiting)).toBe(0)
+    expect(waiting.data.status).toBe('WAITING_APPROVAL')
+    const approvals = await (await request.get(`${P}/workflow/approvals`, {
+      headers: auth(token!), params: { status: 'PENDING', pageSize: 50 }
+    })).json()
+    const approval = (approvals.data.list || []).find((a: any) => a.runId === waiting.data.id)
+    expect(approval, '并行分支应产生统一审批').toBeTruthy()
+    const admin = await login(request, 'admin', process.env.PLATFORM_ADMIN_PASSWORD || 'Admin@123456')
+    expect(admin).toBeTruthy()
+    const decided = await (await request.post(`${P}/workflow/approvals/${approval.id}/decide`, {
+      headers: { ...auth(admin!), 'X-Tenant-Id': '1' },
+      data: { approve: true, comment: '并行审批通过' }
+    })).json()
+    expect(decided.code, JSON.stringify(decided)).toBe(0)
+    const detail = await (await request.get(`${P}/workflow/runs/${waiting.data.id}`, {
+      headers: auth(token!)
+    })).json()
+    expect(detail.data.status).toBe('SUCCESS')
+    expect(detail.data.state?.pa).toBe('pa')
+    expect(detail.data.state?.pb).toBe('pb')
+  } finally {
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
 test('工作流并行 HANDOFF fan-out/fan-in', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()
