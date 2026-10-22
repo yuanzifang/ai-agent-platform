@@ -1042,6 +1042,49 @@ test('工作流并行分支 State 合并', async ({ request }) => {
   }
 })
 
+test('工作流嵌套并行 State 合并', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E 嵌套并行-${Date.now()}`)
+  try {
+    await publishAgent(request, token!, agentId)
+    const workflow = {
+      name: 'E2E 嵌套并行', status: 'ENABLED',
+      definition: {
+        nodes: [
+          { id: 'start', type: 'START', name: '开始', next: 'outer' },
+          { id: 'outer', type: 'PARALLEL', name: '外层并行',
+            branches: ['inner', 's3'], joinNode: 'join1', strategy: 'ALL_OR_NOTHING' },
+          { id: 'inner', type: 'PARALLEL', name: '内层并行',
+            branches: ['n1', 'n2'], joinNode: 'join2', strategy: 'ALL_OR_NOTHING' },
+          { id: 'n1', type: 'STATE', name: '内层A', stateKey: 'nested_a',
+            valueTemplate: 'na', next: 'join2' },
+          { id: 'n2', type: 'STATE', name: '内层B', stateKey: 'nested_b',
+            valueTemplate: 'nb', next: 'join2' },
+          { id: 'join2', type: 'JOIN', name: '内层汇合', next: 'join1' },
+          { id: 's3', type: 'STATE', name: '外层C', stateKey: 'outer_c',
+            valueTemplate: 'oc', next: 'join1' },
+          { id: 'join1', type: 'JOIN', name: '外层汇合', next: 'end' },
+          { id: 'end', type: 'END', name: '结束' }
+        ]
+      }
+    }
+    expect((await (await request.put(`${P}/agent/${agentId}/workflow`, {
+      headers: auth(token!), data: workflow
+    })).json()).code).toBe(0)
+    const body = await (await request.post(`${P}/agent/${agentId}/workflow/run`, {
+      headers: auth(token!), data: { input: '嵌套并行测试' }, timeout: 60_000
+    })).json()
+    expect(body.code, JSON.stringify(body)).toBe(0)
+    expect(body.data.status).toBe('SUCCESS')
+    expect(body.data.state?.nested_a).toBe('na')
+    expect(body.data.state?.nested_b).toBe('nb')
+    expect(body.data.state?.outer_c).toBe('oc')
+  } finally {
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
 test('工作流并行 HANDOFF fan-out/fan-in', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()
@@ -1426,6 +1469,24 @@ test('对话用例库：反馈沉淀与模型回归', async ({ request }) => {
     expect(runBody.data.total).toBe(2)
     expect(runBody.data.passed).toBe(2)
     expect(runBody.data.items.length).toBe(2)
+
+    const promote = await request.put(`${P}/cases/${bad.id}`, {
+      headers: auth(token!),
+      data: { status: 'APPROVED', datasetTier: 'GOLDEN', riskLevel: 'HIGH',
+        coverageTags: ['安全', '坏例'], expiresAt: '2027-12-31T23:59:59' }
+    })
+    expect((await promote.json()).code).toBe(0)
+    const golden = await (await request.get(`${P}/cases`, {
+      headers: auth(token!), params: { tier: 'GOLDEN' }
+    })).json()
+    expect(golden.data.total).toBe(1)
+    const goldenRun = await (await request.post(`${P}/cases/run`, {
+      headers: auth(token!),
+      data: { modelName: 'deepseek-flash', judgeModel: 'deepseek-flash', tier: 'GOLDEN', caseIds: [bad.id] },
+      timeout: 120_000
+    })).json()
+    expect(goldenRun.code, JSON.stringify(goldenRun)).toBe(0)
+    expect(goldenRun.data.total).toBe(1)
 
     const cal = await (await request.get(`${P}/cases/calibrations`, {
       headers: auth(token!), params: { status: 'PENDING' }

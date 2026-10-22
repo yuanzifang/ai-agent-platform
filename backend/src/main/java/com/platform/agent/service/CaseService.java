@@ -184,10 +184,11 @@ public class CaseService {
     }
 
     public Map<String, Object> list(JwtPrincipal principal, String status, String source,
-                                    Long agentId, String keyword) {
+                                    Long agentId, String keyword, String tier) {
         List<TestCase> rows = caseMapper.selectList(new LambdaQueryWrapper<TestCase>()
                 .eq(TestCase::getTenantId, principal.tenantId())
                 .eq(status != null && !status.isBlank(), TestCase::getStatus, status)
+                .eq(tier != null && !tier.isBlank(), TestCase::getDatasetTier, tier)
                 .eq(source != null && !source.isBlank(), TestCase::getSource, source)
                 .eq(agentId != null, TestCase::getAgentId, agentId)
                 .like(keyword != null && !keyword.isBlank(), TestCase::getQuestion, keyword)
@@ -244,6 +245,10 @@ public class CaseService {
         c.setNote(str(req.get("note")));
         c.setTags(tagsJson(req.get("tags")));
         c.setStatus("CANDIDATE");
+        c.setDatasetTier("CANDIDATE");
+        c.setRiskLevel(str(req.get("riskLevel")));
+        c.setCoverageTags(tagsJson(req.get("coverageTags")));
+        c.setExpiresAt(dateTime(req.get("expiresAt")));
         c.setUpdatedAt(LocalDateTime.now());
         if (isNew) caseMapper.insert(c); else caseMapper.updateById(c);
         auditService.record(principal.userId(), "case.create", "test_case", String.valueOf(c.getId()),
@@ -266,6 +271,39 @@ public class CaseService {
         if (req.get("kind") != null) {
             c.setKind("CLASSIC".equalsIgnoreCase(str(req.get("kind"))) ? "CLASSIC" : "BAD");
         }
+        if (req.get("datasetTier") != null) {
+            String tier = str(req.get("datasetTier")).toUpperCase();
+            if (!List.of("CANDIDATE", "APPROVED", "GOLDEN", "ARCHIVED").contains(tier)) {
+                throw new BusinessException(400, "非法数据集层级");
+            }
+            c.setDatasetTier(tier);
+        }
+        if (req.get("riskLevel") != null) c.setRiskLevel(str(req.get("riskLevel")));
+        if (req.get("coverageTags") != null) c.setCoverageTags(tagsJson(req.get("coverageTags")));
+        if (req.get("expiresAt") != null) c.setExpiresAt(dateTime(req.get("expiresAt")));
+        if (c.getDatasetTier() == null) c.setDatasetTier("CANDIDATE");
+        if ("CANDIDATE".equals(c.getStatus()) && !"GOLDEN".equals(c.getDatasetTier())) {
+            c.setDatasetTier("CANDIDATE");
+        }
+        if ("ARCHIVED".equals(c.getStatus())) c.setDatasetTier("ARCHIVED");
+        if ("APPROVED".equals(c.getStatus()) && "CANDIDATE".equals(c.getDatasetTier())) {
+            c.setDatasetTier("APPROVED");
+        }
+        if ("GOLDEN".equals(c.getDatasetTier())) {
+            if (!"APPROVED".equals(c.getStatus())) {
+                throw new BusinessException(400, "只有已审核用例才能晋升黄金集");
+            }
+            if (c.getRiskLevel() == null || c.getRiskLevel().isBlank()) {
+                throw new BusinessException(400, "黄金用例必须设置风险等级");
+            }
+            if (c.getCoverageTags() == null || c.getCoverageTags().isBlank()
+                    || "[]".equals(c.getCoverageTags().replace(" ", ""))) {
+                throw new BusinessException(400, "黄金用例必须设置覆盖标签");
+            }
+            if (c.getExpiresAt() != null && c.getExpiresAt().isBefore(LocalDateTime.now())) {
+                throw new BusinessException(400, "黄金用例已过期，请更新有效期");
+            }
+        }
         if ("APPROVED".equals(c.getStatus()) && "BAD".equals(c.getKind())
                 && (c.getExpectedAnswer() == null || c.getExpectedAnswer().isBlank())) {
             throw new BusinessException(400, "坏例审核通过前必须填写正确的期望答案");
@@ -282,7 +320,7 @@ public class CaseService {
 
     /** 将审核通过的用例导出为评测数据集（复用现有 Eval 数据模型）。 */
     public Map<String, Object> export(Map<String, Object> req, JwtPrincipal principal) {
-        List<TestCase> cases = selectForRun(req.get("caseIds"), principal);
+        List<TestCase> cases = selectForRun(req.get("caseIds"), principal, str(req.get("tier")));
         if (cases.isEmpty()) throw new BusinessException(400, "没有可导出的已审核用例");
         String name = str(req.get("name"));
         if (name == null || name.isBlank()) name = "用例库导出-" + LocalDateTime.now();
@@ -307,7 +345,7 @@ public class CaseService {
         if (modelName == null || modelName.isBlank()) throw new BusinessException(400, "请选择候选模型");
         String judgeModel = str(req.getOrDefault("judgeModel",
                 chatModelRouter.defaultModelName()));
-        List<TestCase> cases = selectForRun(req.get("caseIds"), principal);
+        List<TestCase> cases = selectForRun(req.get("caseIds"), principal, str(req.get("tier")));
         if (cases.isEmpty()) throw new BusinessException(400, "没有可回归的已审核用例");
         if (cases.size() > MAX_RUN_CASES) cases = cases.subList(0, MAX_RUN_CASES);
 
@@ -567,6 +605,19 @@ public class CaseService {
         return m;
     }
 
+    private LocalDateTime dateTime(Object raw) {
+        if (raw == null || String.valueOf(raw).isBlank()) return null;
+        try {
+            return LocalDateTime.parse(String.valueOf(raw).replace("Z", ""));
+        } catch (Exception e) {
+            try {
+                return java.time.OffsetDateTime.parse(String.valueOf(raw)).toLocalDateTime();
+            } catch (Exception ex) {
+                throw new BusinessException(400, "expiresAt 不是合法日期时间");
+            }
+        }
+    }
+
     private BigDecimal decimal(Object raw) {
         if (raw == null || String.valueOf(raw).isBlank()) return null;
         try {
@@ -603,6 +654,10 @@ public class CaseService {
     // ---------- helpers ----------
 
     private List<TestCase> selectForRun(Object caseIdsRaw, JwtPrincipal principal) {
+        return selectForRun(caseIdsRaw, principal, null);
+    }
+
+    private List<TestCase> selectForRun(Object caseIdsRaw, JwtPrincipal principal, String tier) {
         List<Long> ids = new ArrayList<>();
         if (caseIdsRaw instanceof List<?> list) {
             for (Object o : list) {
@@ -613,6 +668,7 @@ public class CaseService {
         return caseMapper.selectList(new LambdaQueryWrapper<TestCase>()
                 .eq(TestCase::getTenantId, principal.tenantId())
                 .eq(TestCase::getStatus, "APPROVED")
+                .eq(tier != null && !tier.isBlank(), TestCase::getDatasetTier, tier)
                 .in(!ids.isEmpty(), TestCase::getId, ids)
                 .orderByDesc(TestCase::getId));
     }
@@ -693,6 +749,10 @@ public class CaseService {
         m.put("kind", c.getKind());
         m.put("source", c.getSource());
         m.put("status", c.getStatus());
+        m.put("datasetTier", c.getDatasetTier());
+        m.put("riskLevel", c.getRiskLevel());
+        m.put("coverageTags", parseJson(c.getCoverageTags()));
+        m.put("expiresAt", c.getExpiresAt());
         m.put("tags", parseJson(c.getTags()));
         m.put("note", c.getNote());
         m.put("traceId", c.getTraceId());

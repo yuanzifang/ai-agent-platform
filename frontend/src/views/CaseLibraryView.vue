@@ -10,6 +10,11 @@
         <el-option label="已归档" value="ARCHIVED" />
         <el-option label="全部" value="" />
       </el-select>
+      <el-select v-model="tier" clearable placeholder="数据集层级" style="width: 140px" @change="load">
+        <el-option label="候选" value="CANDIDATE" />
+        <el-option label="已审核" value="APPROVED" />
+        <el-option label="黄金集" value="GOLDEN" />
+      </el-select>
       <el-select v-model="kind" clearable placeholder="类型" style="width: 110px" @change="load">
         <el-option label="经典" value="CLASSIC" />
         <el-option label="坏例" value="BAD" />
@@ -27,12 +32,16 @@
         <el-option v-for="m in chatModels" :key="m.modelName" :value="m.modelName"
                    :label="m.displayName || m.modelName" />
       </el-select>
+      <el-select v-model="runTier" style="width: 130px">
+        <el-option label="已审核集" value="APPROVED" />
+        <el-option label="黄金集" value="GOLDEN" />
+      </el-select>
       <el-select v-model="judgeModel" filterable placeholder="裁判模型" style="width: 220px">
         <el-option v-for="m in chatModels" :key="'j' + m.modelName" :value="m.modelName"
                    :label="m.displayName || m.modelName" />
       </el-select>
-      <el-button type="primary" :loading="running" :disabled="!approved.length || !modelName"
-                 @click="runRegression">运行已审核用例（{{ approved.length }}）</el-button>
+      <el-button type="primary" :loading="running" :disabled="!runnable.length || !modelName"
+                 @click="runRegression">运行{{ runTier === 'GOLDEN' ? '黄金集' : '已审核用例' }}（{{ approved.length }}）</el-button>
       <span class="hint">classic 与 bad 同批执行；坏例必须已填写期望答案</span>
     </div>
 
@@ -47,6 +56,7 @@
           <el-tag size="small" :type="c.status === 'APPROVED' ? 'success' : c.status === 'ARCHIVED' ? 'info' : 'warning'">
             {{ statusText(c.status) }}
           </el-tag>
+          <el-tag v-if="c.datasetTier === 'GOLDEN'" size="small" type="warning">GOLDEN</el-tag>
           <span class="case-id">#{{ c.id }}</span>
           <div class="spacer" />
           <el-button size="small" text @click="openReview(c)">审核 / 修正</el-button>
@@ -83,6 +93,27 @@
             <el-option label="通过（可用于回归）" value="APPROVED" />
             <el-option label="归档" value="ARCHIVED" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="数据集层级">
+          <el-select v-model="form.datasetTier" style="width: 180px">
+            <el-option label="候选" value="CANDIDATE" />
+            <el-option label="已审核" value="APPROVED" />
+            <el-option label="黄金集（需风险/覆盖标签）" value="GOLDEN" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="风险等级">
+          <el-select v-model="form.riskLevel" clearable style="width: 160px">
+            <el-option label="LOW" value="LOW" />
+            <el-option label="MEDIUM" value="MEDIUM" />
+            <el-option label="HIGH" value="HIGH" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="覆盖标签">
+          <el-input v-model="form.coverageTagsText" placeholder="逗号分隔，如：主流程,工具,RAG" />
+        </el-form-item>
+        <el-form-item label="有效期">
+          <el-date-picker v-model="form.expiresAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss"
+                          placeholder="黄金集建议设置到期日" style="width: 220px" />
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="form.note" maxlength="512" />
@@ -188,6 +219,8 @@ const saving = ref(false)
 const running = ref(false)
 const status = ref('CANDIDATE')
 const kind = ref('')
+const tier = ref('')
+const runTier = ref('APPROVED')
 const keyword = ref('')
 const reviewVisible = ref(false)
 const resultVisible = ref(false)
@@ -195,8 +228,9 @@ const currentRun = ref<any>(null)
 const modelName = ref('')
 const judgeModel = ref('')
 const form = reactive({ id: 0, question: '', actualAnswer: '', expectedAnswer: '', kind: 'BAD',
-  status: 'CANDIDATE', note: '' })
+  status: 'CANDIDATE', datasetTier: 'CANDIDATE', riskLevel: '', coverageTagsText: '', expiresAt: '', note: '' })
 const approved = computed(() => approvedRows.value)
+const runnable = computed(() => approved.value.filter(c => runTier.value !== 'GOLDEN' || c.datasetTier === 'GOLDEN'))
 const calVisible = ref(false)
 const calLoading = ref(false)
 const calStatus = ref('PENDING')
@@ -219,7 +253,7 @@ async function load() {
     const [data, approvedData] = await Promise.all([
       http.get('/cases', {
         params: { status: status.value || undefined, kind: kind.value || undefined,
-          keyword: keyword.value || undefined }
+          keyword: keyword.value || undefined, tier: tier.value || undefined }
       }),
       http.get('/cases', { params: { status: 'APPROVED' } })
     ]) as any[]
@@ -233,7 +267,11 @@ async function load() {
 function openReview(c: any) {
   Object.assign(form, {
     id: c.id, question: c.question, actualAnswer: c.actualAnswer || '',
-    expectedAnswer: c.expectedAnswer || '', kind: c.kind, status: c.status, note: c.note || ''
+    expectedAnswer: c.expectedAnswer || '', kind: c.kind, status: c.status,
+    datasetTier: c.datasetTier || (c.status === 'APPROVED' ? 'APPROVED' : 'CANDIDATE'),
+    riskLevel: c.riskLevel || '',
+    coverageTagsText: Array.isArray(c.coverageTags) ? c.coverageTags.join(',') : (c.coverageTags || ''),
+    expiresAt: c.expiresAt || '', note: c.note || ''
   })
   reviewVisible.value = true
 }
@@ -245,8 +283,11 @@ async function saveReview() {
   }
   saving.value = true
   try {
+    const coverageTags = form.coverageTagsText.split(',').map(v => v.trim()).filter(Boolean)
     await http.put(`/cases/${form.id}`, {
-      expectedAnswer: form.expectedAnswer, kind: form.kind, status: form.status, note: form.note
+      expectedAnswer: form.expectedAnswer, kind: form.kind, status: form.status,
+      datasetTier: form.datasetTier, riskLevel: form.riskLevel,
+      coverageTags, expiresAt: form.expiresAt || null, note: form.note
     })
     ElMessage.success('已保存')
     reviewVisible.value = false
@@ -280,7 +321,8 @@ async function runRegression() {
     currentRun.value = await http.post('/cases/run', {
       modelName: modelName.value,
       judgeModel: judgeModel.value || modelName.value,
-      caseIds: approved.value.map(c => c.id)
+      tier: runTier.value,
+      caseIds: approved.value.filter(c => runTier.value !== 'GOLDEN' || c.datasetTier === 'GOLDEN').map(c => c.id)
     }, { timeout: 300000 }) as any
     resultVisible.value = true
     ElMessage.success(`回归完成：通过 ${currentRun.value.passed}/${currentRun.value.total}`)

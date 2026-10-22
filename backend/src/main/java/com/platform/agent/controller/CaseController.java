@@ -24,8 +24,9 @@ public class CaseController {
                                                  @RequestParam(required = false) String source,
                                                  @RequestParam(required = false) Long agentId,
                                                  @RequestParam(required = false) String keyword,
+                                                 @RequestParam(required = false) String tier,
                                                  @AuthenticationPrincipal JwtPrincipal principal) {
-        return ApiResponse.ok(service.list(principal, status, source, agentId, keyword));
+        return ApiResponse.ok(service.list(principal, status, source, agentId, keyword, tier));
     }
 
     @PostMapping

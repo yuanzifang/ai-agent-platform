@@ -23,6 +23,10 @@ public class TestCase {
     private String kind;
     private String source;
     private String status;
+    private String datasetTier;
+    private String riskLevel;
+    private String coverageTags;
+    private LocalDateTime expiresAt;
     private String tags;
     private String note;
     private String modelName;
