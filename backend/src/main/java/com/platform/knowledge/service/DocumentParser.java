@@ -18,6 +18,7 @@ import org.apache.poi.xslf.usermodel.XSLFTableCell;
 import org.apache.poi.xslf.usermodel.XSLFTableRow;
 import org.apache.poi.xslf.usermodel.XSLFTextShape;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
@@ -37,7 +38,11 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * 文档解析与分段（架构 6.1/6.2/6.3）：MD/TXT/CSV/JSON、DOCX/XLSX/XLS/PPTX(POI)、PDF(PDFBox)、HTML(Jsoup)、图片；
@@ -83,6 +88,7 @@ public class DocumentParser {
             } else if (lower.endsWith(".xlsx")) text = parseExcel(bytes, false);
             else if (lower.endsWith(".xls")) text = parseExcel(bytes, true);
             else if (lower.endsWith(".pptx")) text = parsePptx(bytes);
+            else if (lower.endsWith(".epub")) text = parseEpub(bytes);
             else if (lower.endsWith(".html") || lower.endsWith(".htm")) text = Jsoup.parse(
                     new String(bytes, StandardCharsets.UTF_8)).text();
             else if (isImage(lower)) text = ocrImage(bytes, lower);
@@ -90,7 +96,7 @@ public class DocumentParser {
                     || lower.endsWith(".csv") || lower.endsWith(".json") || lower.endsWith(".log"))
                 text = new String(bytes, StandardCharsets.UTF_8);
             else throw new BusinessException(400,
-                    "不支持的格式（支持 PDF/DOCX/XLSX/XLS/PPTX/HTML/TXT/MD/CSV/JSON/PNG/JPG）：" + fileName);
+                    "不支持的格式（支持 PDF/DOCX/XLSX/XLS/PPTX/EPUB/HTML/TXT/MD/CSV/JSON/PNG/JPG）：" + fileName);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -137,14 +143,70 @@ public class DocumentParser {
                 : new XSSFWorkbook(new ByteArrayInputStream(bytes))) {
             for (Sheet sheet : workbook) {
                 sb.append("## ").append(sheet.getSheetName()).append('\n');
-                for (Row row : sheet) {
-                    List<String> cells = new ArrayList<>();
-                    for (Cell cell : row) {
-                        cells.add(formatter.formatCellValue(cell).trim());
+                Map<String, CellRangeAddress> starts = new LinkedHashMap<>();
+                for (CellRangeAddress range : sheet.getMergedRegions()) {
+                    starts.put(range.getFirstRow() + ":" + range.getFirstColumn(), range);
+                }
+                int lastRow = Math.min(sheet.getLastRowNum(), 999);
+                sb.append("<table border=\"1\">\n");
+                for (int r = 0; r <= lastRow; r++) {
+                    Row row = sheet.getRow(r);
+                    if (row == null) continue;
+                    sb.append("<tr>");
+                    int lastCol = Math.min(Math.max(row.getLastCellNum(), 0), 100);
+                    for (int c = 0; c < lastCol; c++) {
+                        CellRangeAddress merged = starts.get(r + ":" + c);
+                        if (merged == null && inMerged(sheet, r, c)) continue;
+                        int colspan = 1;
+                        int rowspan = 1;
+                        if (merged != null) {
+                            colspan = merged.getLastColumn() - merged.getFirstColumn() + 1;
+                            rowspan = merged.getLastRow() - merged.getFirstRow() + 1;
+                        }
+                        Cell cell = row.getCell(c);
+                        String value = cell == null ? "" : formatter.formatCellValue(cell).trim();
+                        if (value.isEmpty() && merged == null) continue;
+                        sb.append("<td");
+                        if (colspan > 1) sb.append(" colspan=\"").append(colspan).append("\"");
+                        if (rowspan > 1) sb.append(" rowspan=\"").append(rowspan).append("\"");
+                        sb.append(">").append(escapeHtml(value)).append("</td>");
                     }
-                    if (cells.stream().anyMatch(c -> !c.isBlank())) {
-                        sb.append("| ").append(String.join(" | ", cells)).append(" |\n");
-                    }
+                    sb.append("</tr>\n");
+                }
+                sb.append("</table>\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    private boolean inMerged(Sheet sheet, int row, int col) {
+        for (CellRangeAddress range : sheet.getMergedRegions()) {
+            if (range.isInRange(row, col)
+                    && !(range.getFirstRow() == row && range.getFirstColumn() == col)) return true;
+        }
+        return false;
+    }
+
+    private String escapeHtml(String text) {
+        if (text == null) return "";
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    /** EPUB 本质是 ZIP + XHTML；提取 XHTML/HTML 正文，图片等二进制条目忽略。 */
+    private String parseEpub(byte[] bytes) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(bytes))) {
+            ZipEntry entry;
+            int count = 0;
+            while ((entry = zip.getNextEntry()) != null && count < 500) {
+                String name = entry.getName().toLowerCase(Locale.ROOT);
+                if (entry.isDirectory() || !(name.endsWith(".xhtml") || name.endsWith(".html")
+                        || name.endsWith(".htm"))) continue;
+                String html = new String(zip.readAllBytes(), StandardCharsets.UTF_8);
+                String text = Jsoup.parse(html).text();
+                if (!text.isBlank()) {
+                    sb.append(text).append('\n');
+                    count++;
                 }
             }
         }

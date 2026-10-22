@@ -3,6 +3,7 @@ package com.platform.knowledge.service;
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
 import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xslf.usermodel.XSLFTextBox;
+import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import javax.imageio.ImageIO;
 
@@ -104,6 +107,41 @@ class DocumentParserTest {
         String text = String.join("\n", parser.parse("price.xlsx", bytes));
         assertTrue(text.contains("企业版"));
         assertTrue(text.contains("999"));
+    }
+
+    @Test
+    void parsesXlsxMergedCellsAsHtml() throws Exception {
+        byte[] bytes;
+        try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            var sheet = wb.createSheet("合并");
+            var row = sheet.createRow(0);
+            row.createCell(0).setCellValue("合并表头");
+            row.createCell(1).setCellValue("隐藏值");
+            sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, 1));
+            wb.write(out);
+            bytes = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("merged.xlsx", bytes));
+        assertTrue(text.contains("<table"), text);
+        assertTrue(text.contains("colspan=\"2\""), text);
+        assertTrue(text.contains("合并表头"), text);
+    }
+
+    @Test
+    void parsesEpub() throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(out)) {
+            zip.putNextEntry(new ZipEntry("mimetype"));
+            zip.write("application/epub+zip".getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+            zip.putNextEntry(new ZipEntry("OEBPS/chapter1.xhtml"));
+            zip.write("<html><body><h1>电子书标题</h1><p>EPUB 正文内容</p></body></html>"
+                    .getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+        String text = String.join("\n", parser.parse("book.epub", out.toByteArray()));
+        assertTrue(text.contains("电子书标题"), text);
+        assertTrue(text.contains("EPUB 正文内容"), text);
     }
 
     @Test
