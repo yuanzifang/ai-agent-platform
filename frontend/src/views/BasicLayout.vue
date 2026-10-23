@@ -49,63 +49,80 @@
     <el-container class="body">
       <el-aside width="200px" class="aside">
         <el-menu :default-active="$route.path" router>
-          <el-menu-item index="/agents">
-            <el-icon><ChatDotRound /></el-icon>Agent 列表
-          </el-menu-item>
-          <el-menu-item index="/memories">
-            <el-icon><Reading /></el-icon>长期记忆
-          </el-menu-item>
-          <el-menu-item index="/cases">
-            <el-icon><Files /></el-icon>用例库
-          </el-menu-item>
-          <el-menu-item index="/square">
-            <el-icon><Star /></el-icon>Agent 广场
-          </el-menu-item>
-          <el-menu-item index="/templates">
-            <el-icon><Grid /></el-icon>模板库
-          </el-menu-item>
-          <el-menu-item index="/knowledge">
-            <el-icon><Collection /></el-icon>知识库
-          </el-menu-item>
-          <el-menu-item index="/skills">
-            <el-icon><MagicStick /></el-icon>技能管理
-          </el-menu-item>
-          <el-menu-item index="/tools">
-            <el-icon><SetUp /></el-icon>工具管理
-          </el-menu-item>
-          <el-menu-item index="/mcp-servers">
-            <el-icon><Link /></el-icon>MCP Server
-          </el-menu-item>
-          <el-menu-item v-if="can('agent:edit')" index="/approvals">
-            <el-icon><Checked /></el-icon>审批箱
-          </el-menu-item>
-          <el-menu-item v-if="can('prompt:manage')" index="/prompt-templates">
-            <el-icon><DocumentCopy /></el-icon>Prompt 模板
-          </el-menu-item>
-          <el-menu-item index="/provider">
-            <el-icon><Connection /></el-icon>模型接入
-          </el-menu-item>
-          <el-menu-item v-if="can('billing:read')" index="/settings/usage">
-            <el-icon><DataLine /></el-icon>用量看板
-          </el-menu-item>
-          <el-menu-item v-if="can('billing:read')" index="/billing">
-            <el-icon><Money /></el-icon>计费管理
-          </el-menu-item>
-          <el-menu-item v-if="can('user:manage')" index="/admin/users">
-            <el-icon><UserFilled /></el-icon>成员管理
-          </el-menu-item>
-          <el-menu-item v-if="can('tenant:manage')" index="/admin/tenant">
-            <el-icon><Setting /></el-icon>租户设置
-          </el-menu-item>
-          <el-menu-item v-if="can('audit:read')" index="/audit">
-            <el-icon><Document /></el-icon>审计日志
-          </el-menu-item>
-          <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/platform">
-            <el-icon><OfficeBuilding /></el-icon>平台管理
-          </el-menu-item>
-          <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/settings">
-            <el-icon><Tools /></el-icon>系统设置
-          </el-menu-item>
+          <el-menu-item-group title="工作台">
+            <el-menu-item index="/agents">
+              <el-icon><ChatDotRound /></el-icon>Agent 列表
+            </el-menu-item>
+            <el-menu-item index="/square">
+              <el-icon><Star /></el-icon>Agent 广场
+            </el-menu-item>
+            <el-menu-item index="/templates">
+              <el-icon><Grid /></el-icon>模板库
+            </el-menu-item>
+            <el-menu-item v-if="can('agent:edit')" index="/approvals">
+              <el-icon><Checked /></el-icon>审批箱
+            </el-menu-item>
+          </el-menu-item-group>
+          <el-menu-item-group title="资产">
+            <el-menu-item index="/knowledge">
+              <el-icon><Collection /></el-icon>知识库
+            </el-menu-item>
+            <el-menu-item index="/memories">
+              <el-icon><Reading /></el-icon>长期记忆
+            </el-menu-item>
+            <el-menu-item index="/cases">
+              <el-icon><Files /></el-icon>用例库
+            </el-menu-item>
+            <el-menu-item index="/skills">
+              <el-icon><MagicStick /></el-icon>技能管理
+            </el-menu-item>
+            <el-menu-item index="/tools">
+              <el-icon><SetUp /></el-icon>工具管理
+            </el-menu-item>
+            <el-menu-item index="/mcp-servers">
+              <el-icon><Link /></el-icon>MCP Server
+            </el-menu-item>
+            <el-menu-item v-if="can('prompt:manage')" index="/prompt-templates">
+              <el-icon><DocumentCopy /></el-icon>Prompt 模板
+            </el-menu-item>
+          </el-menu-item-group>
+          <el-menu-item-group title="评测与运营">
+            <el-menu-item v-if="can('eval:manage')" index="/eval">
+              <el-icon><DataAnalysis /></el-icon>评测中心
+            </el-menu-item>
+            <el-menu-item index="/metrics">
+              <el-icon><TrendCharts /></el-icon>监控统计
+            </el-menu-item>
+            <el-menu-item index="/observability">
+              <el-icon><View /></el-icon>可观测
+            </el-menu-item>
+            <el-menu-item v-if="can('audit:read')" index="/audit">
+              <el-icon><Document /></el-icon>审计日志
+            </el-menu-item>
+          </el-menu-item-group>
+          <el-menu-item-group title="管理">
+            <el-menu-item index="/provider">
+              <el-icon><Connection /></el-icon>模型接入
+            </el-menu-item>
+            <el-menu-item v-if="can('billing:read')" index="/settings/usage">
+              <el-icon><DataLine /></el-icon>用量看板
+            </el-menu-item>
+            <el-menu-item v-if="can('billing:read')" index="/billing">
+              <el-icon><Money /></el-icon>计费管理
+            </el-menu-item>
+            <el-menu-item v-if="can('user:manage')" index="/admin/users">
+              <el-icon><UserFilled /></el-icon>成员管理
+            </el-menu-item>
+            <el-menu-item v-if="can('tenant:manage')" index="/admin/tenant">
+              <el-icon><Setting /></el-icon>租户管理
+            </el-menu-item>
+            <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/platform">
+              <el-icon><OfficeBuilding /></el-icon>平台管理
+            </el-menu-item>
+            <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/settings">
+              <el-icon><Tools /></el-icon>系统设置
+            </el-menu-item>
+          </el-menu-item-group>
         </el-menu>
       </el-aside>
       <el-main class="main">
@@ -184,7 +201,7 @@ import http from '../api/http'
 import { setLocale, type Locale } from '../i18n'
 import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
   UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp, DocumentCopy, Grid, Star, Link, Money,
-  Checked, Bell, Moon, Sunny } from '@element-plus/icons-vue'
+  Checked, Bell, Moon, Sunny, DataAnalysis, TrendCharts, View} from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -400,6 +417,11 @@ async function copyText(text: string) {
 }
 .body {
   height: calc(100vh - 60px);
+}
+.aside :deep(.el-menu-item-group__title) {
+  font-size: 11px;
+  color: #a8abb2;
+  padding: 10px 0 4px 14px;
 }
 .aside {
   border-right: 1px solid #e4e7ed;

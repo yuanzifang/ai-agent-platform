@@ -112,6 +112,46 @@ public class PlatformAdminService {
         });
     }
 
+    /** 当前配额（无记录时返回默认值，供编辑弹窗预填）。平台管理员无租户上下文，显式还原。 */
+    public SysTenantQuota quotaOf(Long tenantId) {
+        return com.platform.common.context.TenantContext.runWith(tenantId, () -> {
+        SysTenantQuota q = quotaMapper.selectOne(new LambdaQueryWrapper<SysTenantQuota>()
+                .eq(SysTenantQuota::getTenantId, tenantId));
+        if (q != null) return q;
+        SysTenantQuota def = new SysTenantQuota();
+        def.setTenantId(tenantId);
+        def.setMaxAgents(10);
+        def.setMaxKnowledgeBases(5);
+        def.setMaxTokensPerDay(1_000_000L);
+        def.setMaxStorageBytes(10_737_418_240L);
+        def.setMaxApiCallsPerMin(60);
+        return def;
+        });
+    }
+
+    /** 配额调整（需求 3.8 租户管理核心动作；此前只能改库）。 */
+    public void updateQuota(Long tenantId, SysTenantQuota req) {
+        if (tenantMapper.selectById(tenantId) == null) throw new BusinessException(404, "租户不存在");
+        if (req.getMaxAgents() == null || req.getMaxAgents() < 0
+                || req.getMaxKnowledgeBases() == null || req.getMaxKnowledgeBases() < 0
+                || req.getMaxTokensPerDay() == null || req.getMaxTokensPerDay() < 0
+                || req.getMaxStorageBytes() == null || req.getMaxStorageBytes() < 0
+                || req.getMaxApiCallsPerMin() == null || req.getMaxApiCallsPerMin() < 0) {
+            throw new BusinessException(400, "配额必须为非负整数");
+        }
+        com.platform.common.context.TenantContext.run(tenantId, () -> {
+            SysTenantQuota existing = quotaMapper.selectOne(new LambdaQueryWrapper<SysTenantQuota>()
+                    .eq(SysTenantQuota::getTenantId, tenantId));
+            req.setTenantId(tenantId);
+            if (existing == null) {
+                quotaMapper.insert(req);
+            } else {
+                req.setId(existing.getId());
+                quotaMapper.updateById(req);
+            }
+        });
+    }
+
     public void updateStatus(Long tenantId, String status, Long operatorId) {
         if (!List.of("TRIAL", "ACTIVE", "SUSPENDED", "CLOSED").contains(status)) {
             throw new BusinessException(400, "非法状态");

@@ -223,6 +223,7 @@
 </template>
 
 <script setup lang="ts">
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -237,6 +238,8 @@ const loading = ref(false)
 const saving = ref(false)
 const running = ref(false)
 const status = ref('CANDIDATE')
+const route = useRoute()
+const filterAgentId = ref<number | null>(route.query.agentId ? Number(route.query.agentId) : null)
 const kind = ref('')
 const tier = ref('')
 const runTier = ref('APPROVED')
@@ -275,7 +278,8 @@ async function load() {
     const [data, approvedData] = await Promise.all([
       http.get('/cases', {
         params: { status: status.value || undefined, kind: kind.value || undefined,
-          keyword: keyword.value || undefined, tier: tier.value || undefined }
+          keyword: keyword.value || undefined, tier: tier.value || undefined,
+          agentId: filterAgentId.value || undefined }
       }),
       http.get('/cases', { params: { status: 'APPROVED' } })
     ]) as any[]

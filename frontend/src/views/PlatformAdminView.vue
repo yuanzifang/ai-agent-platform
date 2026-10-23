@@ -23,12 +23,28 @@
         </el-table-column>
         <el-table-column :label="t('platformPage.actions')" min-width="160">
           <template #default="{ row }">
+            <el-button size="small" @click="editQuota(row)">{{ t('platformPage.quota') }}</el-button>
             <el-button v-if="row.status !== 'ACTIVE'" size="small" type="success" plain @click="setStatus(row, 'ACTIVE')">{{ t('platformPage.enable') }}</el-button>
             <el-button v-if="row.status === 'ACTIVE'" size="small" type="danger" plain @click="setStatus(row, 'SUSPENDED')">{{ t('platformPage.disable') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-dialog v-model="quotaVisible" :title="t('platformPage.quotaTitle') + (quotaTarget.name || '')" width="520px">
+      <el-form label-width="160px">
+        <el-form-item :label="t('platformPage.quotaAgents')"><el-input-number v-model="quotaForm.maxAgents" :min="0" /></el-form-item>
+        <el-form-item :label="t('platformPage.quotaKb')"><el-input-number v-model="quotaForm.maxKnowledgeBases" :min="0" /></el-form-item>
+        <el-form-item :label="t('platformPage.quotaTokens')"><el-input-number v-model="quotaForm.maxTokensPerDay" :min="0" :step="10000" /></el-form-item>
+        <el-form-item :label="t('platformPage.quotaStorage')"><el-input-number v-model="quotaForm.maxStorageBytes" :min="0" :step="1073741824" /></el-form-item>
+        <el-form-item :label="t('platformPage.quotaRpm')"><el-input-number v-model="quotaForm.maxApiCallsPerMin" :min="0" /></el-form-item>
+      </el-form>
+      <div class="quota-hint">{{ t('platformPage.quotaHint') }}</div>
+      <template #footer>
+        <el-button @click="quotaVisible = false">{{ t('platformPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="quotaSaving" @click="saveQuota">{{ t('platformPage.quota') }}</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="createVisible" :title="t('platformPage.createTitle')" width="520px">
       <el-form label-width="110px">
@@ -93,10 +109,39 @@ async function setStatus(row: any, status: string) {
   await load()
 }
 
+const quotaVisible = ref(false)
+const quotaSaving = ref(false)
+const quotaTarget = reactive<any>({})
+const quotaForm = reactive({ maxAgents: 10, maxKnowledgeBases: 5, maxTokensPerDay: 1000000,
+  maxStorageBytes: 10737418240, maxApiCallsPerMin: 60 })
+
+async function editQuota(row: any) {
+  Object.assign(quotaTarget, row)
+  const q = await http.get(`/platform/tenants/${row.id}/quota`) as any
+  Object.assign(quotaForm, {
+    maxAgents: q.maxAgents ?? 10, maxKnowledgeBases: q.maxKnowledgeBases ?? 5,
+    maxTokensPerDay: q.maxTokensPerDay ?? 1000000, maxStorageBytes: q.maxStorageBytes ?? 10737418240,
+    maxApiCallsPerMin: q.maxApiCallsPerMin ?? 60
+  })
+  quotaVisible.value = true
+}
+
+async function saveQuota() {
+  quotaSaving.value = true
+  try {
+    await http.put(`/platform/tenants/${quotaTarget.id}/quota`, { ...quotaForm })
+    ElMessage.success('配额已更新，即时生效')
+    quotaVisible.value = false
+  } finally {
+    quotaSaving.value = false
+  }
+}
+
 function fmt(t?: string) { return t ? String(t).replace('T', ' ').slice(0, 16) : '-' }
 </script>
 
 <style scoped>
+.quota-hint { font-size: 12px; color: #909399; }
 .page { max-width: 1000px; margin: 0 auto; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .page-title { font-size: 16px; font-weight: 600; }

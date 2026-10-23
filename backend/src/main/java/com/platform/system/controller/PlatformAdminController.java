@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -47,6 +48,22 @@ public class PlatformAdminController {
         platformAdminService.requirePlatformAdmin(principal);
         return ApiResponse.ok(platformAdminService.createTenant(
                 req.tenantKey(), req.name(), req.ownerUsername(), req.ownerPassword()));
+    }
+
+    @GetMapping("/tenants/{id}/quota")
+    public ApiResponse<com.platform.system.entity.SysTenantQuota> quota(@PathVariable Long id,
+                                                                        @AuthenticationPrincipal JwtPrincipal principal) {
+        platformAdminService.requirePlatformAdmin(principal);
+        return ApiResponse.ok(platformAdminService.quotaOf(id));
+    }
+
+    @PutMapping("/tenants/{id}/quota")
+    public ApiResponse<Void> updateQuota(@PathVariable Long id,
+                                         @RequestBody com.platform.system.entity.SysTenantQuota req,
+                                         @AuthenticationPrincipal JwtPrincipal principal) {
+        platformAdminService.requirePlatformAdmin(principal);
+        platformAdminService.updateQuota(id, req);
+        return ApiResponse.ok();
     }
 
     @PatchMapping("/tenants/{id}/status")

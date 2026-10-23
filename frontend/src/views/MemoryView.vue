@@ -68,6 +68,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 
@@ -81,6 +82,8 @@ const saving = ref(false)
 const keyword = ref('')
 const dialogVisible = ref(false)
 const form = reactive({ id: 0, content: '', category: 'FACT', agentId: null as number | null })
+const route = useRoute()
+const filterAgentId = ref<number | null>(route.query.agentId ? Number(route.query.agentId) : null)
 
 onMounted(async () => {
   const data = await http.get('/agent', { params: { pageSize: 100 } }) as any
@@ -92,7 +95,7 @@ async function load() {
   loading.value = true
   try {
     const [data, profileData] = await Promise.all([
-      http.get('/memories', { params: { keyword: keyword.value || undefined } }),
+      http.get('/memories', { params: { keyword: keyword.value || undefined, agentId: filterAgentId.value || undefined } }),
       http.get('/memories/profile')
     ]) as any[]
     rows.value = data.list || []

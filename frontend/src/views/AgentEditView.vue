@@ -311,7 +311,7 @@
         <span class="hint">凭证加密存储、界面不回显明文；绑定工具后运行时自动注入（API_KEY→X-API-Key / OAUTH→Bearer / BASIC→Basic）</span>
       </div>
       <el-table :data="credentials" size="small" empty-text="暂无凭证">
-        <el-table-column prop="name" label="名称" width="150" />
+        <el-table-column prop="name" :label="t('wf.name')" width="150" />
         <el-table-column prop="type" label="类型" width="100" />
         <el-table-column label="绑定工具" width="170">
           <template #default="{ row }">{{ toolName(row.toolId) }}</template>
@@ -329,7 +329,7 @@
         <el-table-column label="操作" width="150">
           <template #default="{ row }">
             <el-button size="small" text @click="openCredentialEdit(row)">编辑</el-button>
-            <el-button size="small" text type="danger" @click="removeCredential(row)">删除</el-button>
+            <el-button size="small" text type="danger" @click="removeCredential(row)">{{ t('wf.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -337,7 +337,7 @@
 
     <el-dialog v-model="credentialFormVisible" :title="credentialForm.id ? '编辑凭证' : '新建凭证'" width="520px">
       <el-form label-width="90px">
-        <el-form-item label="名称" required><el-input v-model="credentialForm.name" maxlength="64" /></el-form-item>
+        <el-form-item :label="t('wf.name')" required><el-input v-model="credentialForm.name" maxlength="64" /></el-form-item>
         <el-form-item label="类型">
           <el-select v-model="credentialForm.type" style="width: 160px">
             <el-option label="API Key" value="API_KEY" />
@@ -373,7 +373,7 @@
         <span class="hint">Cron 6 段（秒 分 时 日 月 周），兼容 5 段；系统身份执行，Trace tags=scheduled</span>
       </div>
       <el-table :data="schedules" size="small">
-        <el-table-column prop="name" label="名称" width="150" />
+        <el-table-column prop="name" :label="t('wf.name')" width="150" />
         <el-table-column prop="cronExpr" label="Cron" width="150" />
         <el-table-column label="下次执行" width="160">
           <template #default="{ row }">{{ fmtTime(row.nextRunAt) }}</template>
@@ -400,7 +400,7 @@
             <el-button size="small" text @click="openResults(row)">结果</el-button>
             <el-button size="small" text @click="openScheduleEdit(row)">编辑</el-button>
             <el-button size="small" text @click="toggleSchedule(row)">{{ row.status === 'ENABLED' ? '停用' : '启用' }}</el-button>
-            <el-button size="small" text type="danger" @click="removeSchedule(row)">删除</el-button>
+            <el-button size="small" text type="danger" @click="removeSchedule(row)">{{ t('wf.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -409,7 +409,7 @@
 
     <el-dialog v-model="scheduleFormVisible" :title="scheduleForm.id ? '编辑定时任务' : '新建定时任务'" width="560px">
       <el-form label-width="100px">
-        <el-form-item label="名称" required><el-input v-model="scheduleForm.name" maxlength="64" /></el-form-item>
+        <el-form-item :label="t('wf.name')" required><el-input v-model="scheduleForm.name" maxlength="64" /></el-form-item>
         <el-form-item label="Cron" required>
           <el-input v-model="scheduleForm.cronExpr" placeholder="0 */5 * * * *（每 5 分钟）" />
         </el-form-item>
@@ -441,7 +441,7 @@
 
     <el-drawer v-model="resultsVisible" :title="resultsTitle" size="620px">
       <el-table :data="scheduleResults" size="small">
-        <el-table-column label="时间" width="160">
+        <el-table-column :label="t('wf.time')" width="160">
           <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
         </el-table-column>
         <el-table-column label="状态" width="90">
@@ -469,7 +469,7 @@
         <el-button size="small" @click="openChannels">刷新</el-button>
       </div>
       <el-table :data="channels" size="small">
-        <el-table-column prop="name" label="名称" width="140" />
+        <el-table-column prop="name" :label="t('wf.name')" width="140" />
         <el-table-column prop="type" label="类型" width="100" />
         <el-table-column label="入站地址" min-width="240" show-overflow-tooltip>
           <template #default="{ row }">{{ inboundUrl(row) }}</template>
@@ -489,7 +489,7 @@
             <el-button size="small" text @click="toggleChannel(row)">
               {{ row.status === 'ENABLED' ? '停用' : '启用' }}
             </el-button>
-            <el-button size="small" text type="danger" @click="removeChannel(row)">删除</el-button>
+            <el-button size="small" text type="danger" @click="removeChannel(row)">{{ t('wf.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -546,7 +546,7 @@
 
     <el-drawer v-model="channelMessagesVisible" :title="`渠道消息：${messagesChannelName}`" size="640px">
       <el-table :data="channelMessages" size="small" empty-text="暂无消息">
-        <el-table-column label="时间" width="160">
+        <el-table-column :label="t('wf.time')" width="160">
           <template #default="{ row }">{{ String(row.createdAt || '').replace('T',' ').slice(0,19) }}</template>
         </el-table-column>
         <el-table-column prop="direction" label="方向" width="70" />
@@ -572,7 +572,7 @@
         <span class="hint">每个 Agent 最多 10 个；0 表示不限制</span>
       </div>
       <el-table :data="apiKeys" size="small">
-        <el-table-column prop="name" label="名称" width="150" />
+        <el-table-column prop="name" :label="t('wf.name')" width="150" />
         <el-table-column prop="keyPrefix" label="Key" width="180" />
         <el-table-column prop="channel" label="渠道" width="100" />
         <el-table-column label="限额（日/分钟）" width="140">
@@ -593,7 +593,7 @@
             <el-button size="small" text @click="toggleKey(row)">
               {{ row.status === 'ENABLED' ? '禁用' : '启用' }}
             </el-button>
-            <el-button size="small" text type="danger" @click="removeKey(row)">删除</el-button>
+            <el-button size="small" text type="danger" @click="removeKey(row)">{{ t('wf.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -621,7 +621,7 @@
     <!-- 创建 API Key -->
     <el-dialog v-model="keyCreateVisible" title="创建 API Key" width="520px">
       <el-form label-width="110px">
-        <el-form-item label="名称" required><el-input v-model="keyForm.name" maxlength="64" /></el-form-item>
+        <el-form-item :label="t('wf.name')" required><el-input v-model="keyForm.name" maxlength="64" /></el-form-item>
         <el-form-item label="调用渠道">
           <el-select v-model="keyForm.channel" style="width: 180px">
             <el-option label="API" value="API" />
@@ -729,30 +729,30 @@
     </el-dialog>
 
     <!-- 工作流编排 -->
-    <el-dialog v-model="workflowVisible" title="工作流编排 / 人工审批" width="900px" top="4vh">
+    <el-dialog v-model="workflowVisible" :title="t('wf.title')" width="900px" top="4vh">
       <div class="wf-head">
-        <el-input v-model="workflowForm.name" placeholder="工作流名称" style="width: 220px" />
+        <el-input v-model="workflowForm.name" :placeholder="t('wf.namePh')" style="width: 220px" />
         <el-select v-model="workflowForm.status" style="width: 110px">
-          <el-option label="启用" value="ENABLED" />
-          <el-option label="停用" value="DISABLED" />
+          <el-option :label="t('wf.enabled')" value="ENABLED" />
+          <el-option :label="t('wf.disabled')" value="DISABLED" />
         </el-select>
-        <el-tag v-if="workflowPublishedVersion" type="success" size="small">已发布 {{ workflowPublishedVersion }}</el-tag>
-        <el-tag v-else type="info" size="small">未发布</el-tag>
-        <el-tag v-if="workflowHasUnpublishedChanges" type="warning" size="small">有未发布修改</el-tag>
+        <el-tag v-if="workflowPublishedVersion" type="success" size="small">{{ t('wf.published') }}{{ workflowPublishedVersion }}</el-tag>
+        <el-tag v-else type="info" size="small">{{ t('wf.unpublished') }}</el-tag>
+        <el-tag v-if="workflowHasUnpublishedChanges" type="warning" size="small">{{ t('wf.dirty') }}</el-tag>
         <el-select v-model="wfAddType" style="width: 130px">
           <el-option v-for="t in wfTypes" :key="t.value" :label="t.label" :value="t.value" />
         </el-select>
-        <el-button @click="addWorkflowNode">添加节点</el-button>
-        <el-button @click="rewireWorkflow">整理连线</el-button>
-        <el-button @click="openWorkflowTemplates">模板</el-button>
+        <el-button @click="addWorkflowNode">{{ t('wf.addNode') }}</el-button>
+        <el-button @click="rewireWorkflow">{{ t('wf.rewire') }}</el-button>
+        <el-button @click="openWorkflowTemplates">{{ t('wf.templates') }}</el-button>
         <el-button @click="openWorkflowVersions">{{ t('agentEdit.versions') }}</el-button>
         <el-button type="success" :loading="workflowPublishing" @click="publishWorkflow">{{ t('agentEdit.publish') }}</el-button>
-        <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow">保存草稿</el-button>
+        <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow">{{ t('wf.saveDraft') }}</el-button>
       </div>
 
       <el-radio-group v-model="wfMode" size="small" class="wf-mode">
-        <el-radio-button value="list">列表编辑</el-radio-button>
-        <el-radio-button value="canvas">画布布局</el-radio-button>
+        <el-radio-button value="list">{{ t('wf.listMode') }}</el-radio-button>
+        <el-radio-button value="canvas">{{ t('wf.canvasMode') }}</el-radio-button>
       </el-radio-group>
 
       <div v-show="wfMode === 'list'" class="wf-flow">
@@ -766,56 +766,56 @@
             <el-button text :disabled="idx === workflowForm.nodes.length - 1"
                        @click="moveWorkflowNode(idx, 1)">↓</el-button>
             <el-button v-if="!['START', 'END'].includes(n.type)" text type="danger"
-                       @click="removeWorkflowNode(idx)">删除</el-button>
+                       @click="removeWorkflowNode(idx)">{{ t('wf.delete') }}</el-button>
           </div>
           <div class="wf-node-body">
             <template v-if="n.type === 'LLM'">
-              <el-input v-model="n.prompt" type="textarea" :rows="2" placeholder="节点提示词" />
-              <el-input v-model="n.modelName" placeholder="模型（留空用 Agent 默认）" style="width: 240px" class="mt8" />
+              <el-input v-model="n.prompt" type="textarea" :rows="2" :placeholder="t('wf.nodePromptPh')" />
+              <el-input v-model="n.modelName" :placeholder="t('wf.modelPh')" style="width: 240px" class="mt8" />
             </template>
             <template v-else-if="n.type === 'AGENT'">
-              <el-select v-model="n.agentId" filterable placeholder="选择 Agent" style="width: 240px">
+              <el-select v-model="n.agentId" filterable :placeholder="t('wf.selectAgent')" style="width: 240px">
                 <el-option v-for="a in agentCatalog" :key="a.id" :value="a.id" :label="a.name" />
               </el-select>
-              <el-input v-model="n.prompt" type="textarea" :rows="2" placeholder="附加提示词（可选）" class="mt8" />
+              <el-input v-model="n.prompt" type="textarea" :rows="2" :placeholder="t('wf.extraPromptPh')" class="mt8" />
             </template>
             <template v-else-if="n.type === 'STATE'">
-              <el-input v-model="n.stateKey" placeholder="状态键，如 handoff_result" style="width: 260px" />
+              <el-input v-model="n.stateKey" :placeholder="t('wf.stateKeyPh')" style="width: 260px" />
               <el-input v-model="n.valueTemplate" type="textarea" :rows="2" class="mt8"
-                        placeholder="值模板，支持 {{input}} / {{last}} / {{state.key}}；留空取上一节点输出" />
+                        :placeholder="t('wf.valuePh')" />
             </template>
             <template v-else-if="n.type === 'HANDOFF'">
-              <el-select v-model="n.agentId" filterable placeholder="选择接手 Agent" style="width: 260px">
+              <el-select v-model="n.agentId" filterable :placeholder="t('wf.handoffAgent')" style="width: 260px">
                 <el-option v-for="a in agentCatalog" :key="a.id" :value="a.id" :label="a.name" />
               </el-select>
               <el-input v-model="n.inputTemplate" type="textarea" :rows="2" class="mt8"
-                        placeholder="交接任务模板（支持 {{input}} / {{last}}；留空直接传上一节点输出）" />
+                        :placeholder="t('wf.handoffPh')" />
               <div class="wf-line mt8">
-                <el-select v-model="n.returnAgentId" filterable clearable placeholder="回传 Agent（可选）" style="width: 260px">
+                <el-select v-model="n.returnAgentId" filterable clearable :placeholder="t('wf.returnAgent')" style="width: 260px">
                   <el-option v-for="a in agentCatalog" :key="a.id" :value="a.id" :label="a.name" />
                 </el-select>
-                <span class="hint">A→B→A 往返</span>
+                <span class="hint">{{ t('wf.returnHint') }}</span>
               </div>
               <el-input v-if="n.returnAgentId" v-model="n.returnTemplate" type="textarea" :rows="2" class="mt8"
-                        placeholder="回传任务模板（支持 {{input}} / {{last}} / {{state.key}}；留空直接用目标 Agent 输出来回传）" />
+                        :placeholder="t('wf.returnPh')" />
               <div v-if="n.returnAgentId" class="wf-line mt8">
-                <span>往返轮数</span>
+                <span>{{ t('wf.rounds') }}</span>
                 <el-input-number v-model="n.returnRounds" :min="1" :max="3" size="small" />
-                <span class="hint">1= A→B→A；2= A→B→A→B→A</span>
+                <span class="hint">{{ t('wf.roundsHint') }}</span>
               </div>
-              <div class="hint">调用目标 Agent 的完整发布配置（工具/RAG/技能/子 Agent）；配置回传 Agent 后由其继续处理并输出最终结果</div>
+              <div class="hint">{{ t('wf.handoffDesc') }}</div>
             </template>
             <template v-else-if="n.type === 'TOOL'">
-              <el-select v-model="n.toolId" filterable placeholder="选择工具" style="width: 260px">
+              <el-select v-model="n.toolId" filterable :placeholder="t('wf.selectTool')" style="width: 260px">
                 <el-option v-for="t in toolCatalog" :key="t.id" :value="t.id"
                            :label="t.name + (t.toolType === 'MCP' ? '（MCP）' : '')" />
               </el-select>
               <el-input v-model="n.argsTemplate" type="textarea" :rows="2" class="mt8"
-                        placeholder='参数 JSON，支持 {{input}} / {{last}}，如 {"expression":"{{last}}"}' />
+                        :placeholder="t('wf.argsPh')" />
             </template>
             <template v-else-if="n.type === 'KNOWLEDGE'">
               <div class="wf-line">
-                <el-select v-model="n.knowledgeBaseId" filterable placeholder="选择知识库" style="width: 240px">
+                <el-select v-model="n.knowledgeBaseId" filterable :placeholder="t('wf.selectKb')" style="width: 240px">
                   <el-option v-for="k in kbRows" :key="k.knowledgeBaseId" :value="k.knowledgeBaseId" :label="k.name" />
                 </el-select>
                 <el-select v-model="n.mode" style="width: 110px">
@@ -826,91 +826,91 @@
                 topK <el-input-number v-model="n.topK" :min="1" :max="20" size="small" />
               </div>
               <el-input v-model="n.queryTemplate" class="mt8"
-                        placeholder="查询语句（留空用运行输入），支持 {{input}} / {{last}}" />
+                        :placeholder="t('wf.queryPh')" />
             </template>
             <template v-else-if="n.type === 'CONDITION'">
               <div class="wf-line">
                 <el-select v-model="n.conditionType" style="width: 130px">
-                  <el-option label="包含" value="contains" />
-                  <el-option label="不包含" value="notContains" />
-                  <el-option label="等于" value="equals" />
-                  <el-option label="长度 >" value="lengthGt" />
+                  <el-option :label="t('wf.contains')" value="contains" />
+                  <el-option :label="t('wf.notContains')" value="notContains" />
+                  <el-option :label="t('wf.equals')" value="equals" />
+                  <el-option :label="t('wf.lengthGt')" value="lengthGt" />
                 </el-select>
-                <el-input v-model="n.conditionValue" placeholder="条件值" style="width: 220px" />
+                <el-input v-model="n.conditionValue" :placeholder="t('wf.conditionPh')" style="width: 220px" />
               </div>
             </template>
             <template v-else-if="n.type === 'PARALLEL'">
               <div class="wf-line">
-                <el-select v-model="n.branches" multiple filterable placeholder="选择分支起点（可多选）" style="width: 420px">
+                <el-select v-model="n.branches" multiple filterable :placeholder="t('wf.branchesPh')" style="width: 420px">
                   <el-option v-for="o in wfBranchTargets(n.id)" :key="o.id" :value="o.id"
                              :label="wfTypeText(o.type) + ' · ' + o.name" />
                 </el-select>
-                <el-select v-model="n.joinNode" placeholder="汇合节点" style="width: 200px">
+                <el-select v-model="n.joinNode" :placeholder="t('wf.joinPh')" style="width: 200px">
                   <el-option v-for="o in workflowForm.nodes.filter((x: any) => x.type === 'JOIN')"
                              :key="o.id" :value="o.id" :label="'JOIN · ' + o.name" />
                 </el-select>
                 <el-select v-model="n.strategy" style="width: 170px">
-                  <el-option label="任一失败即终止" value="ALL_OR_NOTHING" />
-                  <el-option label="尽力执行（跳过失败）" value="BEST_EFFORT" />
+                  <el-option :label="t('wf.strategyAll')" value="ALL_OR_NOTHING" />
+                  <el-option :label="t('wf.strategyBest')" value="BEST_EFFORT" />
                 </el-select>
               </div>
             </template>
             <template v-else-if="n.type === 'LOOP'">
               <div class="wf-line">
-                <span>循环体起点</span>
+                <span>{{ t('wf.loopBody') }}</span>
                 <el-select v-model="n.bodyNode" style="width: 190px">
                   <el-option v-for="o in wfBranchTargets(n.id)" :key="o.id" :value="o.id"
                              :label="wfTypeText(o.type) + ' · ' + o.name" />
                 </el-select>
-                <span>循环结束于</span>
+                <span>{{ t('wf.loopEnd') }}</span>
                 <el-select v-model="n.loopEnd" clearable style="width: 180px">
                   <el-option v-for="o in wfTargets(n.id)" :key="o.id" :value="o.id"
                              :label="wfTypeText(o.type) + ' · ' + o.name" />
                 </el-select>
-                最大次数 <el-input-number v-model="n.maxIterations" :min="1" :max="50" size="small" />
+                {{ t('wf.maxIter') }} <el-input-number v-model="n.maxIterations" :min="1" :max="50" size="small" />
               </div>
               <el-input v-model="n.itemsText" type="textarea" :rows="2" class="mt8"
-                        placeholder='JSON 数组（如 ["A","B"]）或每行/逗号分隔；支持 {{input}} / {{last}}' />
+                        :placeholder="t('wf.itemsPh')" />
               <div class="wf-line mt8">
-                <span class="hint">超过最大次数将暂停并转人工审批</span>
-                审批角色
+                <span class="hint">{{ t('wf.loopHint') }}</span>
+                {{ t('wf.approvalRole') }}
                 <el-select v-model="n.requiredRole" clearable placeholder="OWNER/ADMIN" size="small" style="width: 150px">
                   <el-option label="OWNER" value="OWNER" />
                   <el-option label="ADMIN" value="ADMIN" />
                   <el-option label="EDITOR" value="EDITOR" />
                 </el-select>
-                超时(分钟) <el-input-number v-model="n.timeoutMinutes" :min="0" :max="10080" size="small" />
+                {{ t('wf.timeoutMin') }} <el-input-number v-model="n.timeoutMinutes" :min="0" :max="10080" size="small" />
               </div>
             </template>
             <template v-else-if="n.type === 'JOIN'">
-              <span class="hint">汇合节点：等待所有并行分支完成后继续</span>
+              <span class="hint">{{ t('wf.joinHint') }}</span>
             </template>
             <template v-else-if="n.type === 'APPROVAL'">
               <div class="wf-line">
-                <el-input v-model="n.title" placeholder="审批标题" style="width: 300px" />
-                <el-select v-model="n.requiredRole" clearable placeholder="审批角色（可选）" style="width: 180px">
+                <el-input v-model="n.title" :placeholder="t('wf.approvalTitlePh')" style="width: 300px" />
+                <el-select v-model="n.requiredRole" clearable :placeholder="t('wf.approvalRolePh')" style="width: 180px">
                   <el-option label="OWNER" value="OWNER" />
                   <el-option label="ADMIN" value="ADMIN" />
                   <el-option label="EDITOR" value="EDITOR" />
                 </el-select>
-                超时(分钟)
+                {{ t('wf.timeoutMin') }}
                 <el-input-number v-model="n.timeoutMinutes" :min="0" :max="10080" size="small" />
-                <span class="hint">0=不限</span>
+                <span class="hint">{{ t('wf.unlimited') }}</span>
               </div>
             </template>
             <template v-else>
-              <span class="hint">开始 / 结束节点无需配置</span>
+              <span class="hint">{{ t('wf.noConfig') }}</span>
             </template>
             <div v-if="['LLM','AGENT','HANDOFF','TOOL','KNOWLEDGE'].includes(n.type)" class="wf-line mt8">
-              <span class="hint">失败策略</span>
-              重试 <el-input-number v-model="n.retryTimes" :min="0" :max="3" size="small" />
+              <span class="hint">{{ t('wf.failStrategy') }}</span>
+              {{ t('wf.retry') }} <el-input-number v-model="n.retryTimes" :min="0" :max="3" size="small" />
               <el-select v-model="n.onError" size="small" style="width: 160px">
-                <el-option label="终止工作流" value="FAIL" />
-                <el-option label="继续下一节点" value="CONTINUE" />
-                <el-option label="走失败分支" value="BRANCH" />
+                <el-option :label="t('wf.fail')" value="FAIL" />
+                <el-option :label="t('wf.continue')" value="CONTINUE" />
+                <el-option :label="t('wf.branch')" value="BRANCH" />
               </el-select>
               <template v-if="n.onError === 'BRANCH'">
-                失败分支 →
+                {{ t('wf.failBranch') }}
                 <el-select v-model="n.errorNext" size="small" style="width: 170px">
                   <el-option v-for="o in wfTargets(n.id)" :key="o.id" :value="o.id"
                              :label="wfTypeText(o.type) + ' · ' + o.name" />
@@ -920,19 +920,19 @@
           </div>
           <div v-if="n.type !== 'END' && n.type !== 'PARALLEL'" class="wf-node-next">
             <template v-if="n.type === 'CONDITION'">
-              命中 →
+              {{ t('wf.trueBranch') }}
               <el-select v-model="n.trueNext" size="small" style="width: 150px">
                 <el-option v-for="o in wfTargets(n.id)" :key="o.id" :value="o.id"
                            :label="wfTypeText(o.type) + ' · ' + o.name" />
               </el-select>
-              未命中 →
+              未{{ t('wf.trueBranch') }}
               <el-select v-model="n.falseNext" size="small" style="width: 150px">
                 <el-option v-for="o in wfTargets(n.id)" :key="o.id" :value="o.id"
                            :label="wfTypeText(o.type) + ' · ' + o.name" />
               </el-select>
             </template>
             <template v-else>
-              下一步 →
+              {{ t('wf.nextStep') }}
               <el-select v-model="n.next" size="small" style="width: 180px">
                 <el-option v-for="o in wfTargets(n.id)" :key="o.id" :value="o.id"
                            :label="wfTypeText(o.type) + ' · ' + o.name" />
@@ -948,9 +948,9 @@
           <span class="hint">{{ Math.round(wfZoom * 100) }}%</span>
           <el-button size="small" @click="zoomCanvas(0.1)">＋</el-button>
           <el-button size="small" @click="wfZoom = 1">100%</el-button>
-          <el-button size="small" @click="autoLayoutWorkflow">自动布局</el-button>
+          <el-button size="small" @click="autoLayoutWorkflow">{{ t('wf.autoLayout') }}</el-button>
           <el-button size="small" :type="wfLinkMode ? 'warning' : 'default'" @click="toggleLinkMode">
-            {{ wfLinkMode ? '退出连线' : '连线模式' }}
+            {{ wfLinkMode ? t('wf.exitLink') : t('wf.linkMode') }}
           </el-button>
         </div>
         <div ref="wfCanvasEl" class="wf-canvas-wrap" @mousedown="startCanvasPan">
@@ -977,19 +977,19 @@
             <div class="wf-cn-id">#{{ n.id }}</div>
           </div>
         </div>
-        <div class="hint mt8">拖拽节点调整布局，滚轮/按钮缩放，空白处拖拽平移，双击节点回列表编辑；连线{{ t('agentEdit.mode') }}点击起点再点终点创建 Graph 边；其余连线按 next / 条件分支 / 并行分支自动绘制。</div>
+        <div class="hint mt8">{{ t('wf.canvasHint') }}</div>
         </div>
       </div>
 
       <el-collapse class="mt8">
-        <el-collapse-item title="Graph 有向边（可选，优先于节点 next）" name="graph-edges">
+        <el-collapse-item :title="t('wf.graphEdges')" name="graph-edges">
           <div v-for="(e, i) in workflowForm.edges" :key="'edge' + i" class="wf-line">
-            <el-select v-model="e.from" filterable placeholder="起点" style="width: 190px">
+            <el-select v-model="e.from" filterable :placeholder="t('wf.from')" style="width: 190px">
               <el-option v-for="n in workflowForm.nodes.filter((x: any) => x.type !== 'END')"
                          :key="n.id" :value="n.id" :label="wfTypeText(n.type) + ' · ' + n.name" />
             </el-select>
             <span>→</span>
-            <el-select v-model="e.to" filterable placeholder="终点" style="width: 190px">
+            <el-select v-model="e.to" filterable :placeholder="t('wf.to')" style="width: 190px">
               <el-option v-for="n in workflowForm.nodes" :key="n.id" :value="n.id"
                          :label="wfTypeText(n.type) + ' · ' + n.name" />
             </el-select>
@@ -997,90 +997,90 @@
               <el-option label="true" value="true" />
               <el-option label="false" value="false" />
             </el-select>
-            <el-button text type="danger" @click="workflowForm.edges.splice(i, 1)">删除</el-button>
+            <el-button text type="danger" @click="workflowForm.edges.splice(i, 1)">{{ t('wf.delete') }}</el-button>
           </div>
-          <el-button size="small" @click="addGraphEdge">添加边</el-button>
-          <div class="hint">配置边后保存/运行会归一化为跳转；普通节点只能一条出边，CONDITION 需 true/false 两条。PARALLEL 分支仍用节点上的分支机构。</div>
+          <el-button size="small" @click="addGraphEdge">{{ t('wf.addEdge') }}</el-button>
+          <div class="hint">{{ t('wf.graphHint') }}</div>
         </el-collapse-item>
       </el-collapse>
 
-      <el-divider content-position="left">运行测试</el-divider>
-      <el-input v-model="workflowRunInput" type="textarea" :rows="2" placeholder="输入测试内容" />
-      <div class="hint mt8">运行优先使用已发布版本；未发布时使用当前草稿。</div>
+      <el-divider content-position="left">{{ t('wf.runTest') }}</el-divider>
+      <el-input v-model="workflowRunInput" type="textarea" :rows="2" :placeholder="t('wf.runInputPh')" />
+      <div class="hint mt8">{{ t('wf.runHint') }}</div>
       <div class="mt8">
-        <el-button type="primary" :loading="workflowRunning" @click="runWorkflow">运行</el-button>
+        <el-button type="primary" :loading="workflowRunning" @click="runWorkflow">{{ t('wf.run') }}</el-button>
         <el-link v-if="workflowRunResult?.status === 'WAITING_APPROVAL'" type="warning"
-                 @click="goApprovals">待审批，去审批箱处理</el-link>
+                 @click="goApprovals">{{ t('wf.waitingApproval') }}</el-link>
       </div>
       <div v-if="workflowRunResult" class="wf-run">
         <div>
-          状态：{{ workflowRunResult.status }} · 当前节点：{{ workflowRunResult.currentNode || '-' }}
-          · Token：{{ workflowRunResult.inputTokens || 0 }}/{{ workflowRunResult.outputTokens || 0 }}
+          {{ t('wf.status') }}{{ workflowRunResult.status }}{{ t('wf.currentNode') }}{{ workflowRunResult.currentNode || '-' }}
+          · {{ t('wf.tokenLabel') }}{{ workflowRunResult.inputTokens || 0 }}/{{ workflowRunResult.outputTokens || 0 }}
         </div>
         <pre>{{ workflowRunResult.output || workflowRunResult.error || '' }}</pre>
         <div v-if="workflowRunResult.nodeRuns?.length" class="hint mt8">
-          节点：
+          {{ t('wf.nodes') }}
           {{ workflowRunResult.nodeRuns.map((x: any) => `${x.name || x.nodeId}(${x.status})`).join(' → ') }}
         </div>
       </div>
       <template #footer>
-        <el-button @click="workflowVisible = false">关闭</el-button>
-        <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow">保存工作流</el-button>
+        <el-button @click="workflowVisible = false">{{ t('wf.close') }}</el-button>
+        <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow">{{ t('wf.saveWorkflow') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-drawer v-model="wfVersionsVisible" title="工作流版本" size="480px">
-      <el-table :data="wfVersions" size="small" empty-text="暂无已发布版本">
-        <el-table-column prop="version" label="版本" width="80" />
-        <el-table-column prop="name" label="名称" min-width="140" />
-        <el-table-column label="发布时间" width="170">
+    <el-drawer v-model="wfVersionsVisible" :title="t('wf.versionTitle')" size="480px">
+      <el-table :data="wfVersions" size="small" :empty-text="t('wf.noVersions')">
+        <el-table-column prop="version" :label="t('wf.versionCol')" width="80" />
+        <el-table-column prop="name" :label="t('wf.name')" min-width="140" />
+        <el-table-column :label="t('wf.publishedAt')" width="170">
           <template #default="{ row }">{{ String(row.createdAt || '').replace('T',' ').slice(0,19) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="140">
+        <el-table-column :label="t('wf.actions')" width="140">
           <template #default="{ row }">
-            <el-button size="small" text @click="compareVersion(row)">对比</el-button>
-            <el-button size="small" text type="primary" @click="rollbackWorkflow(row.version)">回滚</el-button>
+            <el-button size="small" text @click="compareVersion(row)">{{ t('wf.compare') }}</el-button>
+            <el-button size="small" text type="primary" @click="rollbackWorkflow(row.version)">{{ t('wf.rollback') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-drawer>
 
-    <el-dialog v-model="wfTemplatesVisible" title="工作流模板" width="680px">
+    <el-dialog v-model="wfTemplatesVisible" :title="t('wf.templateTitle')" width="680px">
       <el-table :data="wfTemplates" size="small" @row-click="applyWorkflowTemplate">
-        <el-table-column prop="name" label="模板" width="140" />
-        <el-table-column prop="description" label="说明" min-width="320" show-overflow-tooltip />
-        <el-table-column label="操作" width="90">
+        <el-table-column prop="name" :label="t('wf.templateCol')" width="140" />
+        <el-table-column prop="description" :label="t('wf.desc')" min-width="320" show-overflow-tooltip />
+        <el-table-column :label="t('wf.actions')" width="90">
           <template #default="{ row }">
-            <el-button size="small" text type="primary" @click.stop="applyWorkflowTemplate(row)">使用</el-button>
+            <el-button size="small" text type="primary" @click.stop="applyWorkflowTemplate(row)">{{ t('wf.use') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-dialog>
 
     <el-dialog v-model="wfDiffVisible" :title="wfDiffTitle" width="680px">
-      <el-table :data="wfDiffRows" size="small" empty-text="无差异">
-        <el-table-column prop="id" label="节点" width="120" />
-        <el-table-column prop="name" label="名称" width="180" show-overflow-tooltip />
-        <el-table-column label="变更" width="90">
+      <el-table :data="wfDiffRows" size="small" :empty-text="t('wf.noDiff')">
+        <el-table-column prop="id" :label="t('wf.nodeCol')" width="120" />
+        <el-table-column prop="name" :label="t('wf.name')" width="180" show-overflow-tooltip />
+        <el-table-column :label="t('wf.change')" width="90">
           <template #default="{ row }">
             <el-tag size="small" :type="diffTag(row.change)">{{ row.change }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="detail" label="差异字段" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="detail" :label="t('wf.diffField')" min-width="220" show-overflow-tooltip />
       </el-table>
       <template #footer>
-        <el-button @click="wfDiffVisible = false">关闭</el-button>
+        <el-button @click="wfDiffVisible = false">{{ t('wf.close') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- 版本抽屉 -->
-    <el-drawer v-model="versionsVisible" title="版本历史" size="420px">
+    <el-drawer v-model="versionsVisible" :title="t('wf.versionHistory')" size="420px">
       <el-table :data="versions" size="small">
-        <el-table-column prop="version" label="版本" width="80" />
-        <el-table-column prop="createdAt" label="时间" />
-        <el-table-column label="操作" width="90">
+        <el-table-column prop="version" :label="t('wf.versionCol')" width="80" />
+        <el-table-column prop="createdAt" :label="t('wf.time')" />
+        <el-table-column :label="t('wf.actions')" width="90">
           <template #default="{ row }">
-            <el-button size="small" text type="primary" @click="rollback(row.version)">回滚</el-button>
+            <el-button size="small" text type="primary" @click="rollback(row.version)">{{ t('wf.rollback') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -1193,17 +1193,17 @@ const workflowSaving = ref(false)
 const workflowRunning = ref(false)
 const wfAddType = ref('LLM')
 const wfTypes = [
-  { label: 'LLM 生成', value: 'LLM' },
-  { label: 'Agent 调用', value: 'AGENT' },
+  { label: t('wf.typeLlm'), value: 'LLM' },
+  { label: t('wf.typeAgent'), value: 'AGENT' },
   { label: 'Agent Handoff', value: 'HANDOFF' },
-  { label: '共享状态', value: 'STATE' },
-  { label: '工具调用', value: 'TOOL' },
-  { label: '知识库检索', value: 'KNOWLEDGE' },
-  { label: '条件分支', value: 'CONDITION' },
-  { label: '并行分支', value: 'PARALLEL' },
-  { label: '循环迭代', value: 'LOOP' },
-  { label: '汇合节点', value: 'JOIN' },
-  { label: '人工审批', value: 'APPROVAL' }
+  { label: t('wf.typeState'), value: 'STATE' },
+  { label: t('wf.typeTool'), value: 'TOOL' },
+  { label: t('wf.typeKnowledge'), value: 'KNOWLEDGE' },
+  { label: t('wf.typeCondition'), value: 'CONDITION' },
+  { label: t('wf.typeParallel'), value: 'PARALLEL' },
+  { label: t('wf.typeLoop'), value: 'LOOP' },
+  { label: t('wf.typeJoin'), value: 'JOIN' },
+  { label: t('wf.typeApproval'), value: 'APPROVAL' }
 ]
 const workflowForm = reactive({ name: '', status: 'ENABLED', nodes: [] as any[], edges: [] as any[] })
 const workflowRunInput = ref('')
@@ -1228,8 +1228,8 @@ const wfTemplates = ref<any[]>([])
 const enabledSkillCount = computed(() => skillRows.value.filter(r => r.enabled && !r.missing).length)
 const enabledToolCount = computed(() => toolRows.value.filter(r => r.enabled && !r.missing).length)
 const enabledSubCount = computed(() => subRows.value.filter(r => r.enabled && !r.missing).length)
-const pickerTitle = computed(() => ({ skill: '添加技能', tool: '添加工具', sub: '添加子 Agent' }[picker.type]))
-const pickerPlaceholder = computed(() => ({ skill: '选择技能', tool: '选择工具', sub: '选择本租户 Agent' }[picker.type]))
+const pickerTitle = computed(() => ({ skill: t('wf.pickerAddSkill'), tool: t('wf.pickerAddTool'), sub: t('wf.pickerAddSub') }[picker.type]))
+const pickerPlaceholder = computed(() => ({ skill: t('wf.pickerSelectSkill'), tool: t('wf.pickerSelectTool'), sub: t('wf.pickerSelectSub') }[picker.type]))
 const pickerOptions = computed(() => {
   const rows = picker.type === 'skill' ? skillRows.value : picker.type === 'tool' ? toolRows.value : subRows.value
   const existing = new Set(rows.map(r => r.id))
@@ -1769,7 +1769,7 @@ async function openWorkflow() {
 }
 
 function wfTypeText(type: string) {
-  return ({ START: '开始', END: '结束', LLM: 'LLM 生成', AGENT: 'Agent 调用', HANDOFF: 'Agent Handoff', STATE: '共享状态', TOOL: '工具调用', KNOWLEDGE: '知识库检索', CONDITION: '条件分支', APPROVAL: '人工审批', PARALLEL: '并行分支', LOOP: '循环迭代', JOIN: '汇合节点' } as any)[type] || type
+  return ({ START: t('wf.typeStart'), END: t('wf.typeEnd'), LLM: t('wf.typeLlm'), AGENT: t('wf.typeAgent'), HANDOFF: t('wf.typeHandoff'), STATE: t('wf.typeState'), TOOL: t('wf.typeTool'), KNOWLEDGE: t('wf.typeKnowledge'), CONDITION: t('wf.typeCondition'), APPROVAL: t('wf.typeApproval'), PARALLEL: t('wf.typeParallel'), LOOP: t('wf.typeLoop'), JOIN: t('wf.typeJoin') } as any)[type] || type
 }
 
 function wfTagType(type: string) {
