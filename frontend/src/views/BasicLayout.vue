@@ -4,11 +4,11 @@
       <div class="brand" @click="$router.push('/agents')">{{ t('app.name') }}</div>
       <div class="spacer" />
       <el-select v-model="currentLocale" size="small" style="width: 92px" :aria-label="t('common.language')">
-        <el-option label="中文" value="zh-CN" />
+        <el-option :label="t('common.chinese')" value="zh-CN" />
         <el-option label="English" value="en-US" />
       </el-select>
-      <el-tooltip :content="dark ? '切换浅色模式' : '切换深色模式'">
-        <el-button text circle class="theme-btn" aria-label="切换主题" @click="toggleDark">
+      <el-tooltip :content="dark ? t('layout.lightMode') : t('layout.darkMode')">
+        <el-button text circle class="theme-btn" :aria-label="t('layout.theme')" @click="toggleDark">
           <el-icon size="18"><Sunny v-if="dark" /><Moon v-else /></el-icon>
         </el-button>
       </el-tooltip>
@@ -48,81 +48,42 @@
     </el-header>
     <el-container class="body">
       <el-aside width="200px" class="aside">
-        <el-menu :default-active="$route.path" router>
-          <el-menu-item-group title="工作台">
-            <el-menu-item index="/agents">
-              <el-icon><ChatDotRound /></el-icon>Agent 列表
-            </el-menu-item>
-            <el-menu-item index="/square">
-              <el-icon><Star /></el-icon>Agent 广场
-            </el-menu-item>
-            <el-menu-item index="/templates">
-              <el-icon><Grid /></el-icon>模板库
-            </el-menu-item>
-            <el-menu-item v-if="can('agent:edit')" index="/approvals">
-              <el-icon><Checked /></el-icon>审批箱
-            </el-menu-item>
-          </el-menu-item-group>
-          <el-menu-item-group title="资产">
-            <el-menu-item index="/knowledge">
-              <el-icon><Collection /></el-icon>知识库
-            </el-menu-item>
-            <el-menu-item index="/memories">
-              <el-icon><Reading /></el-icon>长期记忆
-            </el-menu-item>
-            <el-menu-item index="/cases">
-              <el-icon><Files /></el-icon>用例库
-            </el-menu-item>
-            <el-menu-item index="/skills">
-              <el-icon><MagicStick /></el-icon>技能管理
-            </el-menu-item>
-            <el-menu-item index="/tools">
-              <el-icon><SetUp /></el-icon>工具管理
-            </el-menu-item>
-            <el-menu-item index="/mcp-servers">
-              <el-icon><Link /></el-icon>MCP Server
-            </el-menu-item>
-            <el-menu-item v-if="can('prompt:manage')" index="/prompt-templates">
-              <el-icon><DocumentCopy /></el-icon>Prompt 模板
-            </el-menu-item>
-          </el-menu-item-group>
-          <el-menu-item-group title="评测与运营">
-            <el-menu-item v-if="can('eval:manage')" index="/eval">
-              <el-icon><DataAnalysis /></el-icon>评测中心
-            </el-menu-item>
-            <el-menu-item index="/metrics">
-              <el-icon><TrendCharts /></el-icon>监控统计
-            </el-menu-item>
-            <el-menu-item index="/observability">
-              <el-icon><View /></el-icon>可观测
-            </el-menu-item>
-            <el-menu-item v-if="can('audit:read')" index="/audit">
-              <el-icon><Document /></el-icon>审计日志
-            </el-menu-item>
-          </el-menu-item-group>
-          <el-menu-item-group title="管理">
-            <el-menu-item index="/provider">
-              <el-icon><Connection /></el-icon>模型接入
-            </el-menu-item>
-            <el-menu-item v-if="can('billing:read')" index="/settings/usage">
-              <el-icon><DataLine /></el-icon>用量看板
-            </el-menu-item>
-            <el-menu-item v-if="can('billing:read')" index="/billing">
-              <el-icon><Money /></el-icon>计费管理
-            </el-menu-item>
-            <el-menu-item v-if="can('user:manage')" index="/admin/users">
-              <el-icon><UserFilled /></el-icon>成员管理
-            </el-menu-item>
-            <el-menu-item v-if="can('tenant:manage')" index="/admin/tenant">
-              <el-icon><Setting /></el-icon>租户管理
-            </el-menu-item>
-            <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/platform">
-              <el-icon><OfficeBuilding /></el-icon>平台管理
-            </el-menu-item>
-            <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/settings">
-              <el-icon><Tools /></el-icon>系统设置
-            </el-menu-item>
-          </el-menu-item-group>
+        <el-menu :default-active="$route.path" router :default-openeds="openedGroups">
+          <el-sub-menu index="g-work">
+            <template #title><el-icon><ChatDotRound /></el-icon>{{ t('layout.workbench') }}</template>
+            <el-menu-item index="/agents">{{ t('menu.agents') }}</el-menu-item>
+            <el-menu-item index="/square">{{ t('menu.square') }}</el-menu-item>
+            <el-menu-item index="/templates">{{ t('menu.templates') }}</el-menu-item>
+            <el-menu-item v-if="can('agent:edit')" index="/approvals">{{ t('menu.approvals') }}</el-menu-item>
+          </el-sub-menu>
+          <el-sub-menu index="g-asset">
+            <template #title><el-icon><FolderOpened /></el-icon>{{ t('layout.assets') }}</template>
+            <el-menu-item index="/knowledge">{{ t('menu.knowledge') }}</el-menu-item>
+            <el-menu-item index="/memories">{{ t('menu.memories') }}</el-menu-item>
+            <el-menu-item index="/cases">{{ t('menu.cases') }}</el-menu-item>
+            <el-menu-item index="/skills">{{ t('menu.skills') }}</el-menu-item>
+            <el-menu-item index="/tools">{{ t('menu.tools') }}</el-menu-item>
+            <el-menu-item index="/mcp-servers">{{ t('menu.mcp') }}</el-menu-item>
+            <el-menu-item v-if="can('prompt:manage')" index="/prompt-templates">{{ t('menu.prompts') }}</el-menu-item>
+          </el-sub-menu>
+          <el-sub-menu index="g-ops">
+            <template #title><el-icon><DataAnalysis /></el-icon>{{ t('layout.evalOps') }}</template>
+            <el-menu-item index="/metrics">{{ t('menu.metrics') }}</el-menu-item>
+            <el-menu-item index="/observability">{{ t('menu.observability') }}</el-menu-item>
+            <el-menu-item v-if="can('eval:manage')" index="/eval">{{ t('menu.eval') }}</el-menu-item>
+            <el-menu-item v-if="can('audit:read')" index="/audit">{{ t('menu.audit') }}</el-menu-item>
+          </el-sub-menu>
+          <el-sub-menu index="g-admin">
+            <template #title><el-icon><Setting /></el-icon>{{ t('layout.management') }}</template>
+            <el-menu-item index="/provider">{{ t('menu.provider') }}</el-menu-item>
+            <el-menu-item v-if="can('billing:read')" index="/settings/usage">{{ t('menu.usage') }}</el-menu-item>
+            <el-menu-item v-if="can('billing:read')" index="/billing">{{ t('menu.billing') }}</el-menu-item>
+            <el-menu-item v-if="can('user:manage')" index="/admin/users">{{ t('menu.users') }}</el-menu-item>
+            <el-menu-item v-if="can('tenant:manage')" index="/admin/tenant">{{ t('menu.tenant') }}</el-menu-item>
+            <el-menu-item v-if="can('audit:read')" index="/audit">{{ t('menu.audit') }}</el-menu-item>
+            <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/platform">{{ t('menu.platform') }}</el-menu-item>
+            <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/settings">{{ t('menu.settings') }}</el-menu-item>
+          </el-sub-menu>
         </el-menu>
       </el-aside>
       <el-main class="main">
@@ -130,62 +91,62 @@
       </el-main>
     </el-container>
 
-    <el-dialog v-model="securityVisible" title="安全设置" width="560px">
+    <el-dialog v-model="securityVisible" :title="t('layout.security')" width="560px">
       <div class="sec-row">
-        <span class="sec-label">多因素认证（MFA / TOTP）</span>
-        <el-tag :type="mfaEnabled ? 'success' : 'info'">{{ mfaEnabled ? '已启用' : '未启用' }}</el-tag>
+        <span class="sec-label">{{ t('layout.mfa') }}</span>
+        <el-tag :type="mfaEnabled ? 'success' : 'info'">{{ mfaEnabled ? t('layout.enabled') : t('layout.disabled') }}</el-tag>
       </div>
       <template v-if="!mfaEnabled">
-        <div v-if="!mfaSetup" class="hint">启用后登录需要输入身份验证器中的 6 位动态码。</div>
+        <div v-if="!mfaSetup" class="hint">{{ t('layout.mfaHint') }}</div>
         <div v-else class="setup-box">
-          <div class="step">1. 在身份验证器（Google Authenticator / 1Password 等）添加账户，密钥：</div>
+          <div class="step">{{ t('layout.step1') }}</div>
           <div class="secret-row">
             <code class="secret">{{ mfaSetup.secret }}</code>
-            <el-button size="small" @click="copyText(mfaSetup.secret)">复制</el-button>
+            <el-button size="small" @click="copyText(mfaSetup.secret)">{{ t('layout.copy') }}</el-button>
           </div>
           <div class="hint">otpauth：{{ mfaSetup.otpauthUri }}</div>
-          <div class="step mt8">2. 输入验证器生成的 6 位动态码：</div>
-          <el-input v-model="mfaCode" placeholder="6 位动态码" maxlength="6" class="mt8" />
-          <el-button type="primary" class="mt8" :loading="mfaLoading" @click="enableMfa">启用 MFA</el-button>
+          <div class="step mt8">{{ t('layout.step2') }}</div>
+          <el-input v-model="mfaCode" :placeholder="t('layout.codePh')" maxlength="6" class="mt8" />
+          <el-button type="primary" class="mt8" :loading="mfaLoading" @click="enableMfa">{{ t('layout.enableMfa') }}</el-button>
         </div>
-        <el-button v-if="!mfaSetup" type="primary" @click="setupMfa">初始化 MFA</el-button>
+        <el-button v-if="!mfaSetup" type="primary" @click="setupMfa">{{ t('layout.setupMfa') }}</el-button>
       </template>
       <template v-else>
-        <div class="hint">已启用；剩余恢复码 {{ recoveryLeft }} 个。关闭 MFA 需输入动态码或恢复码。</div>
-        <el-input v-model="mfaCode" placeholder="动态码或恢复码" class="mt8" />
-        <el-button type="danger" class="mt8" :loading="mfaLoading" @click="disableMfa">关闭 MFA</el-button>
+        <div class="hint">{{ t('layout.recoveryLeft') }}{{ recoveryLeft }}{{ t('layout.recoveryLeftSuffix') }}</div>
+        <el-input v-model="mfaCode" :placeholder="t('layout.codeOrRecoveryPh')" class="mt8" />
+        <el-button type="danger" class="mt8" :loading="mfaLoading" @click="disableMfa">{{ t('layout.disableMfa') }}</el-button>
       </template>
-      <el-divider content-position="left">修改密码</el-divider>
+      <el-divider content-position="left">{{ t('layout.changePassword') }}</el-divider>
       <el-form label-width="90px">
-        <el-form-item label="原密码">
+        <el-form-item :label="t('layout.oldPassword')">
           <el-input v-model="pwdForm.oldPassword" type="password" show-password />
         </el-form-item>
-        <el-form-item label="新密码">
-          <el-input v-model="pwdForm.newPassword" type="password" show-password placeholder="至少 8 位，含字母与数字" />
+        <el-form-item :label="t('layout.newPassword')">
+          <el-input v-model="pwdForm.newPassword" type="password" show-password :placeholder="t('layout.newPasswordPh')" />
         </el-form-item>
-        <el-form-item label="确认新密码">
+        <el-form-item :label="t('layout.confirmPassword')">
           <el-input v-model="pwdForm.confirm" type="password" show-password />
         </el-form-item>
-        <el-button :loading="pwdSaving" @click="changePassword">修改密码</el-button>
-        <span class="hint" style="margin-left: 8px">修改成功后需重新登录</span>
+        <el-button :loading="pwdSaving" @click="changePassword">{{ t('layout.changeBtn') }}</el-button>
+        <span class="hint" style="margin-left: 8px">{{ t('layout.changeHint') }}</span>
       </el-form>
-      <el-divider content-position="left">数据与账号</el-divider>
+      <el-divider content-position="left">{{ t('layout.dataAccount') }}</el-divider>
       <div class="account-row">
-        <el-button size="small" @click="exportData">导出我的数据（JSON）</el-button>
+        <el-button size="small" @click="exportData">{{ t('layout.exportData') }}</el-button>
       </div>
       <div class="danger-zone">
-        <div class="danger-title">注销账号</div>
-        <div class="hint">注销前需清空名下 Agent/知识库；非唯一所有者。注销后账号禁用并匿名化，消息/审计按合规保留。</div>
-        <el-input v-model="delForm.password" type="password" show-password placeholder="当前密码" class="mt8" />
-        <el-input v-model="delForm.confirmText" placeholder="输入“注销”确认" class="mt8" />
-        <el-button type="danger" class="mt8" :loading="deleting" @click="deleteAccount">注销账号</el-button>
+        <div class="danger-title">{{ t('layout.deleteTitle') }}</div>
+        <div class="hint">{{ t('layout.deleteDesc') }}</div>
+        <el-input v-model="delForm.password" type="password" show-password :placeholder="t('layout.currentPassword')" class="mt8" />
+        <el-input v-model="delForm.confirmText" :placeholder="t('layout.confirmDeletePh')" class="mt8" />
+        <el-button type="danger" class="mt8" :loading="deleting" @click="deleteAccount">{{ t('layout.deleteBtn') }}</el-button>
       </div>
       <div v-if="recoveryCodes.length" class="recovery-box">
-        <div class="recovery-title">恢复码（仅显示一次，请妥善保存）</div>
+        <div class="recovery-title">{{ t('layout.recoveryTitle') }}</div>
         <div class="recovery-grid">
           <code v-for="c in recoveryCodes" :key="c">{{ c }}</code>
         </div>
-        <el-button size="small" @click="copyText(recoveryCodes.join('\n'))">复制全部</el-button>
+        <el-button size="small" @click="copyText(recoveryCodes.join('\n'))">{{ t('layout.copyAll') }}</el-button>
       </div>
     </el-dialog>
   </el-container>
@@ -193,7 +154,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '../stores/user'
@@ -201,13 +162,24 @@ import http from '../api/http'
 import { setLocale, type Locale } from '../i18n'
 import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
   UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp, DocumentCopy, Grid, Star, Link, Money,
-  Checked, Bell, Moon, Sunny, DataAnalysis, TrendCharts, View} from '@element-plus/icons-vue'
+  Checked, Bell, Moon, Sunny, DataAnalysis, TrendCharts, View, FolderOpened } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
 const { t, locale } = useI18n()
 const currentLocale = computed({ get: () => locale.value, set: (v: Locale) => setLocale(v) })
 const userName = computed(() => userStore.userInfo?.displayName || t('common.user'))
+
+// 侧栏二级菜单：默认只展开当前路由所在分组（切换路由时 el-sub-menu 自动跟随激活项）
+const route = useRoute()
+const openedGroups = ref<string[]>([groupOf(route.path)])
+function groupOf(path: string): string {
+  if (/^\/(agents|square|templates|approvals)\b/.test(path)) return 'g-work'
+  if (/^\/(knowledge|memories|cases|skills|tools|mcp-servers|prompt-templates)\b/.test(path)) return 'g-asset'
+  if (/^\/(eval|metrics|observability|audit)\b/.test(path)) return 'g-ops'
+  if (/^\/(provider|billing|settings|admin)\b/.test(path)) return 'g-admin'
+  return 'g-work'
+}
 const notifications = ref<any[]>([])
 const unreadCount = ref(0)
 const dark = ref(localStorage.getItem('theme') === 'dark')
@@ -303,7 +275,7 @@ async function setupMfa() {
 }
 
 async function enableMfa() {
-  if (!mfaCode.value.trim()) { ElMessage.warning('请输入动态码'); return }
+  if (!mfaCode.value.trim()) { ElMessage.warning(t('layout.codeRequired')); return }
   mfaLoading.value = true
   try {
     const res = await http.post('/auth/mfa/enable', { code: mfaCode.value.trim() }) as any
@@ -312,14 +284,14 @@ async function enableMfa() {
     recoveryLeft.value = recoveryCodes.value.length
     mfaSetup.value = null
     mfaCode.value = ''
-    ElMessage.success('MFA 已启用')
+    ElMessage.success(t('layout.mfaEnabled'))
   } finally {
     mfaLoading.value = false
   }
 }
 
 async function disableMfa() {
-  if (!mfaCode.value.trim()) { ElMessage.warning('请输入动态码或恢复码'); return }
+  if (!mfaCode.value.trim()) { ElMessage.warning(t('layout.codeOrRecoveryRequired')); return }
   mfaLoading.value = true
   try {
     await http.post('/auth/mfa/disable', { code: mfaCode.value.trim() })
@@ -327,7 +299,7 @@ async function disableMfa() {
     recoveryCodes.value = []
     recoveryLeft.value = 0
     mfaCode.value = ''
-    ElMessage.success('MFA 已关闭')
+    ElMessage.success(t('layout.mfaDisabled'))
   } finally {
     mfaLoading.value = false
   }
@@ -335,17 +307,17 @@ async function disableMfa() {
 
 async function changePassword() {
   if (!pwdForm.value.oldPassword || pwdForm.value.newPassword.length < 8) {
-    ElMessage.warning('请填写原密码，新密码至少 8 位'); return
+    ElMessage.warning(t('layout.pwdInvalid')); return
   }
   if (pwdForm.value.newPassword !== pwdForm.value.confirm) {
-    ElMessage.warning('两次输入的新密码不一致'); return
+    ElMessage.warning(t('layout.pwdMismatch')); return
   }
   pwdSaving.value = true
   try {
     await http.post('/auth/change-password', {
       oldPassword: pwdForm.value.oldPassword, newPassword: pwdForm.value.newPassword
     })
-    ElMessage.success('密码已修改，请重新登录')
+    ElMessage.success(t('layout.pwdChanged'))
     securityVisible.value = false
     userStore.clear()
     router.push('/login')
@@ -362,16 +334,16 @@ async function exportData() {
   a.download = 'my-data.json'
   a.click()
   URL.revokeObjectURL(url)
-  ElMessage.success('已导出')
+  ElMessage.success(t('layout.exported'))
 }
 
 async function deleteAccount() {
-  if (!delForm.value.password) { ElMessage.warning('请输入密码'); return }
-  if (delForm.value.confirmText !== '注销') { ElMessage.warning('请输入“注销”确认'); return }
+  if (!delForm.value.password) { ElMessage.warning(t('layout.passwordRequired')); return }
+  if (delForm.value.confirmText !== t('layout.confirmDeleteWord')) { ElMessage.warning(t('layout.deleteConfirmRequired')); return }
   deleting.value = true
   try {
     await http.delete('/auth/me', { data: { password: delForm.value.password, confirmText: '注销' } })
-    ElMessage.success('账号已注销')
+    ElMessage.success(t('layout.accountDeleted'))
     userStore.clear()
     router.push('/login')
   } finally {
@@ -382,9 +354,9 @@ async function deleteAccount() {
 async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text)
-    ElMessage.success('已复制')
+    ElMessage.success(t('layout.copied'))
   } catch {
-    ElMessage.warning('复制失败，请手动复制')
+    ElMessage.warning(t('layout.copyFail'))
   }
 }
 </script>
@@ -417,11 +389,6 @@ async function copyText(text: string) {
 }
 .body {
   height: calc(100vh - 60px);
-}
-.aside :deep(.el-menu-item-group__title) {
-  font-size: 11px;
-  color: #a8abb2;
-  padding: 10px 0 4px 14px;
 }
 .aside {
   border-right: 1px solid #e4e7ed;

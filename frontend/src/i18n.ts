@@ -7,8 +7,8 @@ const messages = {
       agents: 'Agent 列表', memories: '长期记忆', cases: '用例库', square: 'Agent 广场',
       templates: '模板库', knowledge: '知识库', skills: '技能管理', tools: '工具管理',
       mcp: 'MCP Server', approvals: '审批箱', prompts: 'Prompt 模板', provider: '模型接入',
-      usage: '用量看板', billing: '计费管理', users: '成员管理', tenant: '租户设置',
-      audit: '审计日志', platform: '平台管理', settings: '系统设置'
+      usage: '用量看板', billing: '计费管理', users: '成员管理', tenant: '租户管理',
+      metrics: '监控统计', observability: '可观测', audit: '审计日志', eval: '评测中心', platform: '平台管理', settings: '系统设置'
     },
     agentList: {
       search: '搜索 Agent 名称', fromTemplate: '从模板创建', create: '新建 Agent',
@@ -712,7 +712,7 @@ const messages = {
       templates: 'Templates', knowledge: 'Knowledge Base', skills: 'Skills', tools: 'Tools',
       mcp: 'MCP Server', approvals: 'Approvals', prompts: 'Prompt Templates', provider: 'Model Providers',
       usage: 'Usage', billing: 'Billing', users: 'Members', tenant: 'Tenant Settings',
-      audit: 'Audit Log', platform: 'Platform Admin', settings: 'System Settings'
+      metrics: 'Metrics', observability: 'Observability', audit: 'Audit Log', eval: 'Evaluation', platform: 'Platform Admin', settings: 'System Settings'
     },
     agentList: {
       search: 'Search agents', fromTemplate: 'From template', create: 'New Agent',
