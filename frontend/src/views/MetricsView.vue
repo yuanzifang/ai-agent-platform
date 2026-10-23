@@ -2,19 +2,19 @@
   <div class="page">
     <div class="toolbar">
       <el-button text @click="$router.push('/agents')">
-        <el-icon><ArrowLeft /></el-icon> 返回
+        <el-icon><ArrowLeft /></el-icon> {{ t('metricsPage.back') }}
       </el-button>
       <span class="page-title">{{ t('page.metrics') }} {{ agentName ? '· ' + agentName : '' }}</span>
       <el-select v-model="period" style="width: 150px" @change="onPeriodChange">
-        <el-option value="24h" label="最近 24 小时" />
-        <el-option value="7d" label="最近 7 天" />
-        <el-option value="30d" label="最近 30 天" />
-        <el-option value="custom" label="自定义" />
+        <el-option value="24h" :label="t('metricsPage.last24')" />
+        <el-option value="7d" :label="t('metricsPage.last7')" />
+        <el-option value="30d" :label="t('metricsPage.last30')" />
+        <el-option value="custom" :label="t('metricsPage.custom')" />
       </el-select>
       <el-date-picker v-if="period === 'custom'" v-model="customRange" type="datetimerange"
-                      value-format="YYYY-MM-DD HH:mm:ss" start-placeholder="开始时间" end-placeholder="结束时间"
+                      value-format="YYYY-MM-DD HH:mm:ss" :start-placeholder="t('metricsPage.start')" :end-placeholder="t('metricsPage.end')"
                       style="width: 360px" @change="load" />
-      <el-button size="small" :loading="loading" @click="load">刷新</el-button>
+      <el-button size="small" :loading="loading" @click="load">{{ t('metricsPage.refresh') }}</el-button>
     </div>
 
     <div class="cards">
@@ -23,7 +23,7 @@
           <div class="k">{{ c.label }}</div>
           <div class="v">{{ c.fmt(metrics[c.key]?.value) }}</div>
           <div class="ratio" :class="ratioClass(metrics[c.key]?.changeRatio)">
-            <template v-if="metrics[c.key]">环比 {{ ratioText(metrics[c.key].changeRatio) }}</template>
+            <template v-if="metrics[c.key]">{{ t('metricsPage.changePrefix') }}{{ ratioText(metrics[c.key].changeRatio) }}</template>
             <template v-else>—</template>
           </div>
         </el-card>
@@ -32,20 +32,20 @@
 
     <div class="charts">
       <el-card shadow="never">
-        <template #header>活跃用户趋势（按{{ trends.bucket === 'hour' ? '小时' : '天' }}去重 UserId）</template>
-        <el-empty v-if="emptyTrend(trends.activeUsers)" description="暂无数据" :image-size="50" />
+        <template #header>{{ t('metricsPage.activeTrend') }} ({{ trends.bucket === 'hour' ? t('metricsPage.byHour') : t('metricsPage.byDay') }} {{ t('metricsPage.dedupUser') }})</template>
+        <el-empty v-if="emptyTrend(trends.activeUsers)" :description="t('metricsPage.noData')" :image-size="50" />
         <EChart v-else :option="activeUsersOption" height="240px" />
       </el-card>
       <el-card shadow="never">
-        <template #header>调用与错误趋势（Traces / {{ trends.bucket === 'hour' ? '小时' : '天' }}）</template>
-        <el-empty v-if="emptyTrend(trends.calls)" description="暂无数据" :image-size="50" />
+        <template #header>{{ t('metricsPage.callsTrend') }} ({{ t('metricsPage.tracesPer') }}{{ trends.bucket === 'hour' ? t('metricsPage.byHour') : t('metricsPage.byDay') }})</template>
+        <el-empty v-if="emptyTrend(trends.calls)" :description="t('metricsPage.noData')" :image-size="50" />
         <EChart v-else :option="callsErrorsOption" height="240px" />
       </el-card>
     </div>
 
     <div class="hint-line">
-      数据来源：agent_trace 明细实时聚合 + agent_metrics_daily 日汇总（历史日）；
-      指标卡可点击下钻到可观测性 Trace 明细（需求 3.3）。
+      {{ t('metricsPage.source') }}
+      {{ t('metricsPage.drill') }}
     </div>
   </div>
 </template>
@@ -72,15 +72,15 @@ const metrics = reactive<Record<string, any>>({})
 const trends = reactive<any>({ bucket: 'hour', buckets: [], activeUsers: [], calls: [], errors: [] })
 
 const cardDefs = [
-  { key: 'cost', label: '总成本', tip: 'SUM(cost)：时间范围内成本汇总', fmt: (v: any) => costFmt(v) },
-  { key: 'sessions', label: '对话数', tip: 'COUNT(DISTINCT session_id)：SessionId 去重会话数', fmt: (v: any) => intFmt(v) },
-  { key: 'dau', label: '日均活跃用户', tip: '按天去重 UserId 后取平均', fmt: (v: any) => num(v).toFixed(1) },
-  { key: 'sessionsPerUser', label: '人均会话数', tip: '对话数 / 期间去重活跃用户数', fmt: (v: any) => num(v).toFixed(2) },
-  { key: 'calls', label: '调用量', tip: 'COUNT(DISTINCT trace_id)：Trace 去重调用数', fmt: (v: any) => intFmt(v) },
-  { key: 'successRate', label: '成功率', tip: '1 - 错误数 / 总数', fmt: (v: any) => pct(v) },
-  { key: 'p99LatencyMs', label: 'P99 延迟', tip: '根 Span 响应耗时（应用层分位数计算）', fmt: (v: any) => num(v) + ' ms' },
+  { key: 'cost', label: t('metricsPage.cost'), tip: t('metricsPage.costTip'), fmt: (v: any) => costFmt(v) },
+  { key: 'sessions', label: t('metricsPage.sessions'), tip: t('metricsPage.sessionsTip'), fmt: (v: any) => intFmt(v) },
+  { key: 'dau', label: t('metricsPage.dau'), tip: t('metricsPage.dauTip'), fmt: (v: any) => num(v).toFixed(1) },
+  { key: 'sessionsPerUser', label: t('metricsPage.sessionsPerUser'), tip: t('metricsPage.spuTip'), fmt: (v: any) => num(v).toFixed(2) },
+  { key: 'calls', label: t('metricsPage.calls'), tip: t('metricsPage.callsTip'), fmt: (v: any) => intFmt(v) },
+  { key: 'successRate', label: t('metricsPage.successRate'), tip: t('metricsPage.successTip'), fmt: (v: any) => pct(v) },
+  { key: 'p99LatencyMs', label: t('metricsPage.p99'), tip: t('metricsPage.p99Tip'), fmt: (v: any) => num(v) + ' ms' },
   { key: 'tokens', label: 'Token', tip: 'SUM(input_tokens + output_tokens)', fmt: (v: any) => intFmt(v) },
-  { key: 'errorCount', label: '错误数', tip: "COUNT(*) WHERE status='ERROR'", fmt: (v: any) => intFmt(v) }
+  { key: 'errorCount', label: t('metricsPage.errorCount'), tip: t('metricsPage.errorTip'), fmt: (v: any) => intFmt(v) }
 ]
 
 const xLabels = computed(() =>
@@ -92,23 +92,23 @@ const activeUsersOption = computed(() => ({
   xAxis: { type: 'category', data: xLabels.value },
   yAxis: { type: 'value', minInterval: 1 },
   series: [{
-    name: '活跃用户', type: 'line', smooth: true, data: trends.activeUsers || [],
+    name: t('metricsPage.activeUsers'), type: 'line', smooth: true, data: trends.activeUsers || [],
     itemStyle: { color: '#409EFF' }, areaStyle: { opacity: 0.12 }
   }]
 }))
 
 const callsErrorsOption = computed(() => ({
   tooltip: { trigger: 'axis' },
-  legend: { data: ['调用量', '错误数'] },
+  legend: { data: [t('metricsPage.callsSeries'), t('metricsPage.errorsSeries')] },
   grid: { left: 40, right: 40, top: 30, bottom: 26 },
   xAxis: { type: 'category', data: xLabels.value },
   yAxis: [
-    { type: 'value', name: '调用量', minInterval: 1 },
-    { type: 'value', name: '错误数', minInterval: 1 }
+    { type: 'value', name: t('metricsPage.callsSeries'), minInterval: 1 },
+    { type: 'value', name: t('metricsPage.errorsSeries'), minInterval: 1 }
   ],
   series: [
-    { name: '调用量', type: 'bar', data: trends.calls || [], itemStyle: { color: '#409EFF' }, yAxisIndex: 0 },
-    { name: '错误数', type: 'line', data: trends.errors || [], itemStyle: { color: '#F56C6C' }, yAxisIndex: 1 }
+    { name: t('metricsPage.callsSeries'), type: 'bar', data: trends.calls || [], itemStyle: { color: '#409EFF' }, yAxisIndex: 0 },
+    { name: t('metricsPage.errorsSeries'), type: 'line', data: trends.errors || [], itemStyle: { color: '#F56C6C' }, yAxisIndex: 1 }
   ]
 }))
 
