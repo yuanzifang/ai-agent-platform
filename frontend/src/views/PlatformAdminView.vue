@@ -130,7 +130,7 @@ async function saveQuota() {
   quotaSaving.value = true
   try {
     await http.put(`/platform/tenants/${quotaTarget.id}/quota`, { ...quotaForm })
-    ElMessage.success('配额已更新，即时生效')
+    ElMessage.success(t('platformPage.quotaUpdated'))
     quotaVisible.value = false
   } finally {
     quotaSaving.value = false

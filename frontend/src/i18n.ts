@@ -265,7 +265,7 @@ const messages = {
       password: '初始密码', passwordPh: '至少 8 位', cancel: '取消', create: '开通',
       fillAll: '请完整填写', created: '租户已开通（含 OWNER 账号与默认配额）',
       confirmPrefix: '确认', confirmEnable: '启用', confirmDisable: '停用', confirmMid: '租户「',
-      confirmSuffix: '」？', confirmTitle: '确认', statusUpdated: '状态已更新',
+      confirmSuffix: '」？', confirmTitle: '确认', statusUpdated: '状态已更新', quotaUpdated: '配额已更新，即时生效',
       quota: '配额', quotaTitle: '配额管理 · ', quotaAgents: 'Agent 数上限', quotaKb: '知识库数上限',
       quotaTokens: '每日 Token 上限', quotaStorage: '存储上限（字节）', quotaRpm: 'API 限流（次/分钟）',
       quotaHint: '调整即时生效于新请求的配额校验', quotaSaved: '配额已更新，即时生效'
@@ -976,7 +976,7 @@ const messages = {
       password: 'Initial password', passwordPh: 'At least 8 characters', cancel: 'Cancel', create: 'Create',
       fillAll: 'Please fill in all fields', created: 'Tenant created (OWNER account and default quota included)',
       confirmPrefix: 'Are you sure you want to ', confirmEnable: 'enable', confirmDisable: 'disable', confirmMid: ' tenant "',
-      confirmSuffix: '"?', confirmTitle: 'Confirm', statusUpdated: 'Status updated',
+      confirmSuffix: '"?', confirmTitle: 'Confirm', statusUpdated: 'Status updated', quotaUpdated: 'Quota updated and effective immediately',
       quota: 'Quota', quotaTitle: 'Quota · ', quotaAgents: 'Max agents', quotaKb: 'Max knowledge bases',
       quotaTokens: 'Daily token limit', quotaStorage: 'Storage limit (bytes)', quotaRpm: 'API rate (per min)',
       quotaHint: 'Takes effect immediately for new requests', quotaSaved: 'Quota updated'
