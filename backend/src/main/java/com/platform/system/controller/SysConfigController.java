@@ -23,6 +23,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/admin/config")
 @RequiredArgsConstructor
+
+@io.swagger.v3.oas.annotations.tags.Tag(name = "系统设置")
 public class SysConfigController {
 
     private final SysConfigMapper configMapper;

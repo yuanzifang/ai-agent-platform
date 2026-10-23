@@ -37,6 +37,7 @@ public class SecurityConfig {
                                 "/api/v1/auth/invitations/accept", "/api/v1/auth/mfa/verify",
                                 "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password",
                                 "/api/v1/share/**", "/api/v1/open/**", "/api/v1/channels/**", "/api/v1/auth/sso/**",
+                                "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html",
                                 // OAuth 2.1 浏览器回调（一次性 state 校验）
                                 "/api/v1/mcp-servers/oauth/callback",
                                 // 平台自身作为 MCP Server（API Key 在控制器内校验）

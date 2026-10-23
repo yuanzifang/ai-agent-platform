@@ -27,6 +27,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/eval")
 @RequiredArgsConstructor
+
+@io.swagger.v3.oas.annotations.tags.Tag(name = "评测")
 public class EvalController {
 
     private final EvalService evalService;

@@ -26,6 +26,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
+
+@io.swagger.v3.oas.annotations.tags.Tag(name = "成员管理")
 public class UserAdminController {
 
     private final UserAdminService userAdminService;

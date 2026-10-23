@@ -29,6 +29,8 @@ import java.util.TreeMap;
 @RestController
 @RequestMapping("/api/v1/billing")
 @RequiredArgsConstructor
+
+@io.swagger.v3.oas.annotations.tags.Tag(name = "用量计费")
 public class BillingController {
 
     private final BillingUsageMapper usageMapper;

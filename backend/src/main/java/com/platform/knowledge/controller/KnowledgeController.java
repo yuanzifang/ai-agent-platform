@@ -23,6 +23,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/knowledge-base")
 @RequiredArgsConstructor
+
+@io.swagger.v3.oas.annotations.tags.Tag(name = "知识库")
 public class KnowledgeController {
 
     private final KnowledgeService knowledgeService;

@@ -26,6 +26,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/platform")
 @RequiredArgsConstructor
+
+@io.swagger.v3.oas.annotations.tags.Tag(name = "平台管理")
 public class PlatformAdminController {
 
     private final PlatformAdminService platformAdminService;

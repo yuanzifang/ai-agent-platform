@@ -44,6 +44,7 @@ public class QuotaService {
     private final com.platform.conversation.mapper.ChatAttachmentMapper attachmentMapper;
     private final KnowledgeDocumentMapper documentMapper;
     private final BillingAccountMapper accountMapper;
+    private final com.platform.system.service.AlertWebhookService alertWebhook;
     private final SysUserMapper userMapper;
     private final MailService mailService;
     private final StringRedisTemplate redis;
@@ -141,6 +142,8 @@ public class QuotaService {
         }
         int percent = (int) Math.min(100, used * 100 / max);
         log.warn("配额告警：租户 {} {} 使用率 {}%（{}/{}）", tenantId, metric, percent, used, max);
+        alertWebhook.alert("配额告警：租户 " + tenantId + " 的 " + metric + " 已用 " + percent + "%",
+                metric + " " + used + "/" + max + "，请调整配额或充值。");
         try {
             for (SysUser u : userMapper.selectList(new LambdaQueryWrapper<SysUser>()
                     .eq(SysUser::getTenantId, tenantId).eq(SysUser::getStatus, "ENABLED"))) {

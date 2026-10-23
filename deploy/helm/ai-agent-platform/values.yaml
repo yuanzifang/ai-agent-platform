@@ -92,6 +92,11 @@ config:
   ollamaEndpoint: http://ollama:11434
   deepseekBaseUrl: https://api.deepseek.com
   toolAllowPrivate: "false"
+  alertWebhookEnabled: "false"
+  alertWebhookUrl: ""
+  alertWebhookSecret: ""
+  alertWebhookEnv: "prod"
+  apiDocsEnabled: "false"
   toolAllowedHosts: ""
   # 生产必须改为对外域名（OAuth 回调 / 前端跳转）
   publicBase: "http://localhost:8080"

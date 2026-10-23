@@ -19,6 +19,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/tenant")
 @RequiredArgsConstructor
+
+@io.swagger.v3.oas.annotations.tags.Tag(name = "租户设置")
 public class TenantAdminController {
 
     private final TenantAdminService tenantAdminService;

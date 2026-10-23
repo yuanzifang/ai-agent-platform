@@ -224,3 +224,22 @@ app:
   public-base: ${APP_PUBLIC_BASE:http://localhost:8080}
   mail:
     from: ${SMTP_FROM:no-reply@ai-agent.local}
+
+# 开发者文档（生产置 api-docs.enabled=false 关闭对外暴露）
+springdoc:
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:true}
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:true}
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: method
+
+# 运维告警推送（钉钉/企微/飞书群机器人 webhook；url 空则不推送）
+alert:
+  webhook:
+    enabled: ${ALERT_WEBHOOK_ENABLED:false}
+    url: ${ALERT_WEBHOOK_URL:}
+    secret: ${ALERT_WEBHOOK_SECRET:}
+    env: ${ALERT_WEBHOOK_ENV:dev}

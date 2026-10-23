@@ -19,6 +19,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/mcp-servers")
 @RequiredArgsConstructor
+
+@io.swagger.v3.oas.annotations.tags.Tag(name = "MCP Server")
 public class McpServerController {
 
     private final McpServerService service;

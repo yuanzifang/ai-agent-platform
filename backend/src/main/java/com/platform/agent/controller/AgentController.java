@@ -23,6 +23,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/agent")
 @RequiredArgsConstructor
+
+@io.swagger.v3.oas.annotations.tags.Tag(name = "Agent 管理")
 public class AgentController {
 
     private final AgentService agentService;

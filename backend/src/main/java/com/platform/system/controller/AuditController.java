@@ -16,6 +16,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/audit")
 @RequiredArgsConstructor
+
+@io.swagger.v3.oas.annotations.tags.Tag(name = "审计")
 public class AuditController {
 
     private final AuditService auditService;

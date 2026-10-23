@@ -24,6 +24,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
+
+@io.swagger.v3.oas.annotations.tags.Tag(name = "模型接入")
 public class ProviderController {
 
     private final ProviderMapper providerMapper;

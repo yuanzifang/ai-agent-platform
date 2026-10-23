@@ -19,6 +19,11 @@ data:
   DEEPSEEK_BASE_URL: {{ .Values.config.deepseekBaseUrl | quote }}
   TOOL_ALLOW_PRIVATE: {{ .Values.config.toolAllowPrivate | quote }}
   TOOL_ALLOWED_HOSTS: {{ .Values.config.toolAllowedHosts | quote }}
+  ALERT_WEBHOOK_ENABLED: {{ .Values.config.alertWebhookEnabled | quote }}
+  ALERT_WEBHOOK_URL: {{ .Values.config.alertWebhookUrl | quote }}
+  ALERT_WEBHOOK_SECRET: {{ .Values.config.alertWebhookSecret | quote }}
+  ALERT_WEBHOOK_ENV: {{ .Values.config.alertWebhookEnv | quote }}
+  API_DOCS_ENABLED: {{ .Values.config.apiDocsEnabled | quote }}
   APP_PUBLIC_BASE: {{ .Values.config.publicBase | quote }}
   APP_FRONTEND_BASE: {{ .Values.config.frontendBase | quote }}
   APP_ENV: {{ .Values.config.appEnv | quote }}

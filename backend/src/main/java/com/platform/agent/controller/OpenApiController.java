@@ -36,6 +36,7 @@ import java.util.UUID;
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/open")
+@io.swagger.v3.oas.annotations.tags.Tag(name = "开放 API", description = "第三方集成：网页挂件与对话补全（X-API-Key 鉴权）")
 @RequiredArgsConstructor
 public class OpenApiController {
 
@@ -47,6 +48,7 @@ public class OpenApiController {
     private final ObjectMapper objectMapper;
 
     /** 网页挂件初始化：返回 Agent 展示信息（API Key 鉴权）。 */
+    @io.swagger.v3.oas.annotations.Operation(summary = "挂件初始化", description = "返回 Agent 名称/描述/欢迎语等展示信息")
     @GetMapping("/agent/info")
     public com.platform.common.response.ApiResponse<Map<String, Object>> agentInfo(
             @RequestHeader(value = "X-Api-Key", required = false) String xApiKey,
@@ -67,6 +69,8 @@ public class OpenApiController {
         return com.platform.common.response.ApiResponse.ok(info);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(summary = "对话补全（OpenAI 兼容）",
+            description = "stream=true 时返回 SSE chunk 流（role/content/finish_reason/usage/[DONE]）")
     @PostMapping(value = "/chat/completions",
             produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_EVENT_STREAM_VALUE})
     public Object chatCompletions(

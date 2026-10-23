@@ -32,6 +32,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/conversations")
 @RequiredArgsConstructor
+
+@io.swagger.v3.oas.annotations.tags.Tag(name = "会话对话")
 public class ConversationController {
 
     private final ConversationService conversationService;

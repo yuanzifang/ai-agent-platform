@@ -15,6 +15,12 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private final com.platform.system.service.AlertWebhookService alertWebhook;
+
+    public GlobalExceptionHandler(com.platform.system.service.AlertWebhookService alertWebhook) {
+        this.alertWebhook = alertWebhook;
+    }
+
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException e) {
         int code = e.getCode();
@@ -62,8 +68,31 @@ public class GlobalExceptionHandler {
             return ResponseEntity.status(http).body(ApiResponse.error(business.getCode(), business.getMessage()));
         }
         log.error("unhandled exception", e);
+        try {
+            alertWebhook.alert("服务异常 500：" + rootMessage(e),
+                    "uri=" + currentUri() + "，type=" + e.getClass().getSimpleName());
+        } catch (Exception ignored) { }
+        // 非业务异常统一脱敏：内部细节（SQL/HTTP 报文/类名路径）不透给调用方
         return ResponseEntity.internalServerError()
                 .body(ApiResponse.error(500, "系统异常，请稍后重试"));
+    }
+
+    private String rootMessage(Throwable e) {
+        Throwable t = e;
+        while (t.getCause() != null) t = t.getCause();
+        String msg = t.getMessage() == null || t.getMessage().isBlank()
+                ? t.getClass().getSimpleName() : t.getMessage();
+        return msg.length() > 120 ? msg.substring(0, 120) : msg;
+    }
+
+    private String currentUri() {
+        try {
+            var attrs = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+            if (attrs instanceof org.springframework.web.context.request.ServletRequestAttributes sra) {
+                return sra.getRequest().getMethod() + " " + sra.getRequest().getRequestURI();
+            }
+        } catch (Exception ignored) { }
+        return "-";
     }
 
     private BusinessException findBusiness(Throwable t) {

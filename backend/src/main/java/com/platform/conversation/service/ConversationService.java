@@ -343,8 +343,7 @@ public class ConversationService {
     /** 对象存储路径安全文件名：去路径分隔符与控制字符，防目录穿越，限长。 */
     private String sanitizeFileName(String name, int max) {
         if (name == null || name.isBlank()) return "file";
-        String cleaned = name.replaceAll("[\\\\/:*?\\\"<>|\\p{Cntrl}]", "_").trim();
-        return cleaned.length() > max ? cleaned.substring(0, max) : cleaned;
+        String cleaned = name.replaceAll("[\\\\/:*?\\\"<>|\\p{Cntrl}]", "_").trim();        return cleaned.length() > max ? cleaned.substring(0, max) : cleaned;
     }
 
     private String truncate(String s, int max) {

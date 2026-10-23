@@ -11,7 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** 5xx 对外统一脱敏，避免底层 HTTP/堆栈细节泄露。 */
 class GlobalExceptionHandlerTest {
 
-    private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
+    private final GlobalExceptionHandler handler = new GlobalExceptionHandler(
+            new com.platform.system.service.AlertWebhookService(new com.fasterxml.jackson.databind.ObjectMapper()));
 
     @Test
     void business500IsSanitized() {

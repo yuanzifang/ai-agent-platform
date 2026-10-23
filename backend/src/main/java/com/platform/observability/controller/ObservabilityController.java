@@ -21,6 +21,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/observability")
 @RequiredArgsConstructor
+
+@io.swagger.v3.oas.annotations.tags.Tag(name = "可观测")
 public class ObservabilityController {
 
     private final ObservabilityService observabilityService;
