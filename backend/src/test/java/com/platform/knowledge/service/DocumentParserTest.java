@@ -183,6 +183,26 @@ class DocumentParserTest {
     }
 
     @Test
+    void extractsDocxImages() throws Exception {
+        BufferedImage image = new BufferedImage(200, 100, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        g.setColor(Color.WHITE); g.fillRect(0, 0, 200, 100);
+        g.setColor(Color.BLACK); g.drawString("IMG", 20, 60); g.dispose();
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", png);
+        byte[] bytes;
+        try (XWPFDocument doc = new XWPFDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            var run = doc.createParagraph().createRun();
+            run.addPicture(new ByteArrayInputStream(png.toByteArray()), Document.PICTURE_TYPE_PNG,
+                    "image.png", Units.toEMU(200), Units.toEMU(100));
+            doc.write(out);
+            bytes = out.toByteArray();
+        }
+        List<DocumentParser.ExtractedImage> images = parser.extractImages("image.docx", bytes);
+        assertTrue(images.size() >= 1, "应提取 DOCX 内嵌图片");
+    }
+
+    @Test
     void parsesDocxMergedCellsAsHtml() throws Exception {
         byte[] bytes;
         try (XWPFDocument doc = new XWPFDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {

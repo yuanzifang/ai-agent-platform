@@ -160,6 +160,16 @@
         <el-button type="primary" :loading="savingPerm" @click="savePermission">保存</el-button>
       </template>
     </el-dialog>
+    <el-dialog v-model="imagesVisible" :title="`文档图片：${imagesDocName}`" width="760px">
+      <el-empty v-if="!documentImages.length" description="该文档未提取到内嵌图片" :image-size="60" />
+      <div v-else class="image-grid">
+        <div v-for="img in documentImages" :key="img.id" class="image-card">
+          <el-image :src="img.url" fit="contain" style="width: 100%; height: 150px" />
+          <div class="hint">{{ img.fileName }} · {{ img.mimeType }}</div>
+        </div>
+      </div>
+    </el-dialog>
+
     <el-dialog v-model="aclVisible" title="分段独立授权" width="520px">
       <el-form label-width="100px">
         <el-form-item label="租户可见">
@@ -207,6 +217,9 @@ const search = reactive({ query: '', topK: 5, scoreThreshold: 0.5, mode: 'hybrid
 const chunks = reactive<{ docId: number | null; docName: string; list: any[]; total: number }>({
   docId: null, docName: '', list: [], total: 0
 })
+const imagesVisible = ref(false)
+const documentImages = ref<any[]>([])
+const imagesDocName = ref('')
 const aclVisible = ref(false)
 const aclSaving = ref(false)
 const aclChunk = ref<any>(null)
@@ -364,6 +377,16 @@ async function toggleChunks(row: any) {
   chunks.docName = row.fileName
   chunks.list = data.list || []
   chunks.total = data.total || 0
+}
+
+async function openImages(row: any) {
+  imagesDocName.value = row.fileName
+  try {
+    documentImages.value = (await http.get(`/knowledge-base/${kbId}/documents/${row.id}/images`) as any) || []
+    imagesVisible.value = true
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '加载图片失败')
+  }
 }
 
 async function openChunkAcl(c: any) {

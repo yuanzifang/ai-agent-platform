@@ -59,6 +59,20 @@ public class StorageService {
         }
     }
 
+    /** 预签名 GET，用于文档内嵌图片预览。 */
+    public String presignGet(String objectName) {
+        try {
+            return client.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+                    .method(io.minio.http.Method.GET)
+                    .bucket(bucket)
+                    .object(objectName)
+                    .expiry(10, TimeUnit.MINUTES)
+                    .build());
+        } catch (Exception e) {
+            throw new BusinessException(502, "生成图片地址失败：" + e.getMessage());
+        }
+    }
+
     /** 回调校验：对象必须真实存在（防伪造元数据，需求文档 7.2）。 */
     public boolean exists(String objectName) {
         try {

@@ -85,6 +85,61 @@ public class DocumentParser {
     public record ParsedChunk(String content, int parentIndex, String parentContent) {
     }
 
+    public record ExtractedImage(byte[] data, String extension) {
+    }
+
+    /** 提取文档内嵌图片原文件（不依赖 OCR 开关）；失败时返回空列表，不阻断正文解析。 */
+    public List<ExtractedImage> extractImages(String fileName, byte[] bytes) {
+        List<ExtractedImage> images = new ArrayList<>();
+        if (bytes == null || bytes.length == 0) return images;
+        String lower = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT);
+        try {
+            if (lower.endsWith(".docx")) {
+                try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes))) {
+                    for (XWPFPictureData picture : doc.getAllPictures()) {
+                        addImage(images, picture.getData(), picture.suggestFileExtension());
+                    }
+                }
+            } else if (lower.endsWith(".pptx")) {
+                try (XMLSlideShow ppt = new XMLSlideShow(new ByteArrayInputStream(bytes))) {
+                    for (XSLFSlide slide : ppt.getSlides()) {
+                        for (XSLFShape shape : slide.getShapes()) {
+                            if (shape instanceof XSLFPictureShape picture) {
+                                addImage(images, picture.getPictureData().getData(),
+                                        picture.getPictureData().suggestFileExtension());
+                            }
+                        }
+                    }
+                }
+            } else if (lower.endsWith(".pdf")) {
+                try (PDDocument doc = org.apache.pdfbox.Loader.loadPDF(bytes)) {
+                    int count = 0;
+                    for (int p = 0; p < doc.getNumberOfPages() && count < 20; p++) {
+                        PDResources resources = doc.getPage(p).getResources();
+                        if (resources == null) continue;
+                        for (var name : resources.getXObjectNames()) {
+                            if (count >= 20) break;
+                            PDXObject x = resources.getXObject(name);
+                            if (!(x instanceof PDImageXObject image)) continue;
+                            ByteArrayOutputStream out = new ByteArrayOutputStream();
+                            ImageIO.write(image.getImage(), "png", out);
+                            addImage(images, out.toByteArray(), "png");
+                            count++;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("提取文档图片失败（忽略）：{}", e.getMessage());
+        }
+        return images;
+    }
+
+    private void addImage(List<ExtractedImage> images, byte[] data, String extension) {
+        if (data == null || data.length == 0 || data.length > 10 * 1024 * 1024 || images.size() >= 20) return;
+        images.add(new ExtractedImage(data, extension));
+    }
+
     public List<String> parse(String fileName, byte[] bytes) {
         return parseWithParents(fileName, bytes).stream().map(ParsedChunk::content).toList();
     }

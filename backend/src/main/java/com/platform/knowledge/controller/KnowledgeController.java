@@ -166,6 +166,13 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.retryDocument(id, docId, viewer(principal)));
     }
 
+    @GetMapping("/{id}/documents/{docId}/images")
+    public ApiResponse<List<Map<String, Object>>> documentImages(@PathVariable Long id,
+                                                                  @PathVariable Long docId,
+                                                                  @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(knowledgeService.documentImages(id, docId, viewer(principal)));
+    }
+
     @GetMapping("/{id}/documents/{docId}/chunks")
     public ApiResponse<Map<String, Object>> chunks(@PathVariable Long id, @PathVariable Long docId,
                                                    @RequestParam(defaultValue = "1") long page,

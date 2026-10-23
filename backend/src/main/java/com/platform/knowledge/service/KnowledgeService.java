@@ -16,9 +16,11 @@ import com.platform.common.exception.BusinessException;
 import com.platform.common.security.NetworkPolicyService;
 import com.platform.knowledge.entity.KnowledgeBase;
 import com.platform.knowledge.entity.KnowledgeChunk;
+import com.platform.knowledge.entity.KnowledgeDocumentImage;
 import com.platform.knowledge.entity.KnowledgeDocument;
 import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.knowledge.mapper.KnowledgeChunkMapper;
+import com.platform.knowledge.mapper.KnowledgeDocumentImageMapper;
 import com.platform.knowledge.mapper.KnowledgeDocumentMapper;
 import com.platform.system.entity.SysUser;
 import com.platform.system.mapper.SysUserMapper;
@@ -53,6 +55,7 @@ public class KnowledgeService {
     private final KnowledgeBaseMapper kbMapper;
     private final KnowledgeDocumentMapper docMapper;
     private final KnowledgeChunkMapper chunkMapper;
+    private final KnowledgeDocumentImageMapper documentImageMapper;
     private final BillingUsageMapper billingMapper;
     private final PricingService pricingService;
     private final QuotaService quotaService;
@@ -259,6 +262,7 @@ public class KnowledgeService {
         for (KnowledgeDocument doc : docs) {
             deleteVectorsQuietly(tenantId, doc.getId());
             storage.remove(doc.getObjectName());
+            deleteDocumentImages(doc);
         }
         try {
             vectorRepository.deleteByKnowledgeBase(tenantId, id);
@@ -286,6 +290,7 @@ public class KnowledgeService {
         }
         deleteVectorsQuietly(kb.getTenantId(), docId);
         storage.remove(doc.getObjectName());
+        deleteDocumentImages(doc);
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getDocumentId, docId));
         docMapper.deleteById(docId);
@@ -324,6 +329,7 @@ public class KnowledgeService {
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getDocumentId, docId));
         deleteVectorsQuietly(kb.getTenantId(), docId);
+        deleteDocumentImages(doc);
         triggerParse(kb.getTenantId(), docId);
         auditService.record(viewer.userId(), "kb.document.retry", "knowledge_document",
                 String.valueOf(docId), "SUCCESS", Map.of("kbId", kbId, "retryTimes", used + 1));
@@ -569,6 +575,7 @@ public class KnowledgeService {
             rows.add(row);
         }
         vectorRepository.saveBatch(doc.getTenantId(), rows, embeddingDimensions);
+        storeDocumentImages(doc, bytes);
         updateStatus(doc, "DONE", chunks.size(), null);
         recordEmbeddingUsage(doc, chunks.size(), embeddingModel);
         log.info("文档解析完成：doc={} chunks={}", doc.getId(), chunks.size());
@@ -673,6 +680,69 @@ public class KnowledgeService {
         // MySQL JSON_CONTAINS 与 PgVector jsonb_array_elements_text 都按字符串匹配 userId
         return users.stream().map(String::valueOf).map(id -> "\"" + id + "\"")
                 .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+    }
+
+    private void storeDocumentImages(KnowledgeDocument doc, byte[] bytes) {
+        try {
+            deleteDocumentImages(doc);
+            List<DocumentParser.ExtractedImage> images = parser.extractImages(doc.getFileName(), bytes);
+            int index = 1;
+            for (DocumentParser.ExtractedImage image : images) {
+                String ext = image.extension() == null || image.extension().isBlank()
+                        ? "png" : image.extension().toLowerCase(Locale.ROOT);
+                if (ext.startsWith(".")) ext = ext.substring(1);
+                String objectName = doc.getTenantId() + "/knowledge/" + doc.getKnowledgeBaseId() + "/"
+                        + doc.getId() + "/images/" + UUID.randomUUID().toString().replace("-", "")
+                        .substring(0, 12) + "." + ext;
+                String mime = "image/" + ("jpg".equals(ext) ? "jpeg" : ext);
+                storage.put(objectName, image.data(), mime);
+                KnowledgeDocumentImage row = new KnowledgeDocumentImage();
+                row.setTenantId(doc.getTenantId());
+                row.setDocumentId(doc.getId());
+                row.setObjectName(objectName);
+                row.setFileName("image-" + index++ + "." + ext);
+                row.setMimeType(mime);
+                row.setSizeBytes((long) image.data().length);
+                row.setCreatedAt(LocalDateTime.now());
+                documentImageMapper.insert(row);
+            }
+        } catch (Exception e) {
+            log.warn("文档图片保存失败（不影响正文）doc={}：{}", doc.getId(), e.getMessage());
+        }
+    }
+
+    private void deleteDocumentImages(KnowledgeDocument doc) {
+        if (doc == null || doc.getId() == null) return;
+        List<KnowledgeDocumentImage> rows = documentImageMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeDocumentImage>()
+                        .eq(KnowledgeDocumentImage::getDocumentId, doc.getId()));
+        for (KnowledgeDocumentImage row : rows) {
+            storage.remove(row.getObjectName());
+        }
+        documentImageMapper.delete(new LambdaQueryWrapper<KnowledgeDocumentImage>()
+                .eq(KnowledgeDocumentImage::getDocumentId, doc.getId()));
+    }
+
+    /** 文档图片列表（预签名 URL；需知识库可见权限）。 */
+    public List<Map<String, Object>> documentImages(Long kbId, Long docId,
+                                                     KnowledgePermissionService.Viewer viewer) {
+        permissionService.requireView(kbId, viewer);
+        KnowledgeDocument doc = docMapper.selectById(docId);
+        if (doc == null || !Objects.equals(doc.getKnowledgeBaseId(), kbId)) {
+            throw new BusinessException(404, "文档不存在");
+        }
+        return documentImageMapper.selectList(new LambdaQueryWrapper<KnowledgeDocumentImage>()
+                        .eq(KnowledgeDocumentImage::getDocumentId, docId)
+                        .orderByAsc(KnowledgeDocumentImage::getId))
+                .stream().map(row -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", row.getId());
+                    m.put("fileName", row.getFileName());
+                    m.put("mimeType", row.getMimeType());
+                    m.put("sizeBytes", row.getSizeBytes());
+                    m.put("url", storage.presignGet(row.getObjectName()));
+                    return m;
+                }).toList();
     }
 
     private void updateStatus(KnowledgeDocument doc, String status, Integer chunkCount, String error) {
