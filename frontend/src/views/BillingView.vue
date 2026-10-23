@@ -2,152 +2,152 @@
   <div class="page">
     <div class="toolbar">
       <span class="title">{{ t('page.billing') }}</span>
-      <span class="sub">规则/账单/充值/配额；成本口径：billing_rule 优先，未配置回落模型单价</span>
+      <span class="sub">{{ t('billingPage.sub') }}</span>
       <div class="spacer" />
-      <el-button v-if="canManage" type="primary" @click="openRecharge">充值</el-button>
+      <el-button v-if="canManage" type="primary" @click="openRecharge">{{ t('billingPage.recharge') }}</el-button>
     </div>
 
     <el-alert v-if="account.lowBalance" type="warning" show-icon :closable="false" class="mb">
-      <template #title>可用余额 ¥{{ money(account.balance) }} 低于阈值 ¥{{ money(account.threshold) }}，请及时充值</template>
+      <template #title>{{ t('billingPage.lowBalancePrefix') }}{{ money(account.balance) }}{{ t('billingPage.lowBalanceMid') }}{{ money(account.threshold) }}{{ t('billingPage.lowBalanceSuffix') }}</template>
     </el-alert>
 
     <el-tabs v-model="tab">
       <!-- 概览 -->
-      <el-tab-pane label="概览" name="overview">
+      <el-tab-pane :label="t('billingPage.overview')" name="overview">
         <div class="cards">
-          <el-card shadow="never"><div class="k">累计充值/调整</div><div class="v">¥{{ money(account.totalRecharged) }}</div></el-card>
-          <el-card shadow="never"><div class="k">已消耗</div><div class="v">¥{{ money(account.totalCost) }}</div></el-card>
-          <el-card shadow="never"><div class="k">可用余额</div>
+          <el-card shadow="never"><div class="k">{{ t('billingPage.totalRecharged') }}</div><div class="v">¥{{ money(account.totalRecharged) }}</div></el-card>
+          <el-card shadow="never"><div class="k">{{ t('billingPage.consumed') }}</div><div class="v">¥{{ money(account.totalCost) }}</div></el-card>
+          <el-card shadow="never"><div class="k">{{ t('billingPage.balance') }}</div>
             <div class="v" :class="{ danger: account.lowBalance }">¥{{ money(account.balance) }}</div>
           </el-card>
-          <el-card shadow="never"><div class="k">币种 / 低余额阈值</div><div class="v small">{{ account.currency }} / ¥{{ money(account.threshold) }}</div></el-card>
+          <el-card shadow="never"><div class="k">{{ t('billingPage.currencyThreshold') }}</div><div class="v small">{{ account.currency }} / ¥{{ money(account.threshold) }}</div></el-card>
         </div>
         <el-card shadow="never" class="mt">
-          <template #header>最近账单</template>
+          <template #header>{{ t('billingPage.recentBills') }}</template>
           <el-table :data="bills.slice(0, 5)" size="small">
-            <el-table-column prop="period" label="账期" width="100" />
-            <el-table-column prop="calls" label="调用次数" width="100" />
+            <el-table-column prop="period" :label="t('billingPage.period')" width="100" />
+            <el-table-column prop="calls" :label="t('billingPage.calls')" width="100" />
             <el-table-column label="Tokens" width="120">
               <template #default="{ row }">{{ fmt(row.totalTokens) }}</template>
             </el-table-column>
-            <el-table-column label="成本" width="120">
+            <el-table-column :label="t('billingPage.cost')" width="120">
               <template #default="{ row }">¥{{ money(row.cost) }}</template>
             </el-table-column>
-            <el-table-column label="生成时间">
+            <el-table-column :label="t('billingPage.generatedAt')">
               <template #default="{ row }">{{ fmtTime(row.generatedAt) }}</template>
             </el-table-column>
           </el-table>
-          <el-empty v-if="bills.length === 0" description="暂无账单，请在「账单」页生成" :image-size="60" />
+          <el-empty v-if="bills.length === 0" :description="t('billingPage.noBillsGenerate')" :image-size="60" />
         </el-card>
       </el-tab-pane>
 
       <!-- 计费规则 -->
-      <el-tab-pane label="计费规则" name="rules">
+      <el-tab-pane :label="t('billingPage.rules')" name="rules">
         <div class="tab-actions">
-          <span class="hint">精确模型规则优先；空模型名 = 租户默认规则；规则变更后下次调用生效</span>
+          <span class="hint">{{ t('billingPage.rulesHint') }}</span>
           <div class="spacer" />
-          <el-button v-if="canRuleManage" type="primary" size="small" @click="openRuleCreate">新增规则</el-button>
+          <el-button v-if="canRuleManage" type="primary" size="small" @click="openRuleCreate">{{ t('billingPage.addRule') }}</el-button>
         </div>
         <el-table :data="rules" size="small">
-          <el-table-column label="模型" width="180">
-            <template #default="{ row }">{{ row.modelName || '（默认规则）' }}</template>
+          <el-table-column :label="t('billingPage.model')" width="180">
+            <template #default="{ row }">{{ row.modelName || t('billingPage.defaultRule') }}</template>
           </el-table-column>
-          <el-table-column prop="billingMode" label="计费方式" width="100" />
-          <el-table-column label="输入单价" width="120">
-            <template #default="{ row }">{{ row.billingMode === 'COUNT' ? '-' : '¥' + money(row.inputPrice) + '/千Token' }}</template>
+          <el-table-column prop="billingMode" :label="t('billingPage.mode')" width="100" />
+          <el-table-column :label="t('billingPage.inputPrice')" width="120">
+            <template #default="{ row }">{{ row.billingMode === 'COUNT' ? '-' : '¥' + money(row.inputPrice) + t('billingPage.perKShort') }}</template>
           </el-table-column>
-          <el-table-column label="输出单价" width="120">
-            <template #default="{ row }">{{ row.billingMode === 'COUNT' ? '-' : '¥' + money(row.outputPrice) + '/千Token' }}</template>
+          <el-table-column :label="t('billingPage.outputPrice')" width="120">
+            <template #default="{ row }">{{ row.billingMode === 'COUNT' ? '-' : '¥' + money(row.outputPrice) + t('billingPage.perKShort') }}</template>
           </el-table-column>
-          <el-table-column label="缓存命中/写入" width="150">
+          <el-table-column :label="t('billingPage.cache')" width="150">
             <template #default="{ row }">
               {{ row.billingMode === 'COUNT' ? '-' : '¥' + money(row.cacheReadPrice) + ' / ¥' + money(row.cacheWritePrice) }}
             </template>
           </el-table-column>
-          <el-table-column label="单次价格" width="110">
-            <template #default="{ row }">{{ row.billingMode === 'COUNT' ? '¥' + money(row.pricePerCall) + '/次' : '-' }}</template>
+          <el-table-column :label="t('billingPage.perCall')" width="110">
+            <template #default="{ row }">{{ row.billingMode === 'COUNT' ? '¥' + money(row.pricePerCall) + t('billingPage.perCallShort') : '-' }}</template>
           </el-table-column>
-          <el-table-column prop="currency" label="币种" width="80" />
-          <el-table-column label="状态" width="90">
+          <el-table-column prop="currency" :label="t('billingPage.currency')" width="80" />
+          <el-table-column :label="t('billingPage.status')" width="90">
             <template #default="{ row }">
               <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">
-                {{ row.status === 'ENABLED' ? '启用' : '停用' }}
+                {{ row.status === 'ENABLED' ? t('billingPage.enabled') : t('billingPage.disabled') }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column v-if="canRuleManage" label="操作" width="130">
+          <el-table-column v-if="canRuleManage" :label="t('billingPage.actions')" width="130">
             <template #default="{ row }">
-              <el-button size="small" text @click="openRuleEdit(row)">编辑</el-button>
-              <el-button size="small" text type="danger" @click="removeRule(row)">删除</el-button>
+              <el-button size="small" text @click="openRuleEdit(row)">{{ t('billingPage.edit') }}</el-button>
+              <el-button size="small" text type="danger" @click="removeRule(row)">{{ t('billingPage.delete') }}</el-button>
             </template>
           </el-table-column>
         </el-table>
       </el-tab-pane>
 
       <!-- 账单 -->
-      <el-tab-pane label="账单" name="bills">
+      <el-tab-pane :label="t('billingPage.bills')" name="bills">
         <div class="tab-actions">
           <el-select v-model="billPeriodType" style="width: 90px" @change="switchPeriodType">
-            <el-option label="月账单" value="month" />
-            <el-option label="周账单" value="week" />
+            <el-option :label="t('billingPage.month')" value="month" />
+            <el-option :label="t('billingPage.week')" value="week" />
           </el-select>
           <el-date-picker v-if="billPeriodType === 'month'" v-model="billPeriod" type="month"
-                          value-format="YYYY-MM" placeholder="账期" style="width: 150px" />
-          <el-date-picker v-else v-model="billPeriod" type="week" format="YYYY 第 ww 周"
-                          value-format="YYYY-[W]WW" placeholder="账期" style="width: 170px" />
-          <el-button v-if="canManage" type="primary" size="small" :loading="generating" @click="generateBill">生成账单</el-button>
-          <span class="hint">按月生成；同账期重复生成将覆盖汇总</span>
+                          value-format="YYYY-MM" :placeholder="t('billingPage.period')" style="width: 150px" />
+          <el-date-picker v-else v-model="billPeriod" type="week" format="YYYY-Www"
+                          value-format="YYYY-[W]WW" :placeholder="t('billingPage.period')" style="width: 170px" />
+          <el-button v-if="canManage" type="primary" size="small" :loading="generating" @click="generateBill">{{ t('billingPage.generate') }}</el-button>
+          <span class="hint">{{ t('billingPage.generateHint') }}</span>
         </div>
         <el-table :data="bills" size="small">
-          <el-table-column prop="period" label="账期" width="100" />
-          <el-table-column prop="calls" label="调用次数" width="100" />
-          <el-table-column label="输入 Tokens" width="130">
+          <el-table-column prop="period" :label="t('billingPage.period')" width="100" />
+          <el-table-column prop="calls" :label="t('billingPage.calls')" width="100" />
+          <el-table-column :label="t('billingPage.inputTokens')" width="130">
             <template #default="{ row }">{{ fmt(row.inputTokens) }}</template>
           </el-table-column>
-          <el-table-column label="输出 Tokens" width="130">
+          <el-table-column :label="t('billingPage.outputTokens')" width="130">
             <template #default="{ row }">{{ fmt(row.outputTokens) }}</template>
           </el-table-column>
-          <el-table-column label="成本" width="120">
+          <el-table-column :label="t('billingPage.cost')" width="120">
             <template #default="{ row }">¥{{ money(row.cost) }}</template>
           </el-table-column>
-          <el-table-column label="生成时间" width="170">
+          <el-table-column :label="t('billingPage.generatedAt')" width="170">
             <template #default="{ row }">{{ fmtTime(row.generatedAt) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="180">
+          <el-table-column :label="t('billingPage.actions')" width="180">
             <template #default="{ row }">
-              <el-button size="small" text @click="openBill(row)">明细</el-button>
-              <el-button size="small" text type="primary" @click="exportBill(row)">导出 CSV</el-button>
+              <el-button size="small" text @click="openBill(row)">{{ t('billingPage.detail') }}</el-button>
+              <el-button size="small" text type="primary" @click="exportBill(row)">{{ t('billingPage.exportCsv') }}</el-button>
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-if="bills.length === 0" description="暂无账单" :image-size="60" />
+        <el-empty v-if="bills.length === 0" :description="t('billingPage.noBills')" :image-size="60" />
       </el-tab-pane>
 
       <!-- 充值记录 -->
-      <el-tab-pane label="充值记录" name="transactions">
+      <el-tab-pane :label="t('billingPage.transactions')" name="transactions">
         <el-table :data="transactions" size="small">
-          <el-table-column label="时间" width="170">
+          <el-table-column :label="t('billingPage.time')" width="170">
             <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
           </el-table-column>
-          <el-table-column prop="type" label="类型" width="100" />
-          <el-table-column label="金额" width="120">
+          <el-table-column prop="type" :label="t('billingPage.type')" width="100" />
+          <el-table-column :label="t('billingPage.amount')" width="120">
             <template #default="{ row }">¥{{ money(row.amount) }}</template>
           </el-table-column>
-          <el-table-column label="累计充值后" width="140">
+          <el-table-column :label="t('billingPage.balanceAfter')" width="140">
             <template #default="{ row }">¥{{ money(row.balanceAfter) }}</template>
           </el-table-column>
-          <el-table-column prop="operatorId" label="操作人" width="90" />
-          <el-table-column prop="note" label="备注" min-width="200" />
+          <el-table-column prop="operatorId" :label="t('billingPage.operator')" width="90" />
+          <el-table-column prop="note" :label="t('billingPage.note')" min-width="200" />
         </el-table>
-        <el-empty v-if="transactions.length === 0" description="暂无充值记录" :image-size="60" />
+        <el-empty v-if="transactions.length === 0" :description="t('billingPage.noTx')" :image-size="60" />
       </el-tab-pane>
 
       <!-- 配额 -->
-      <el-tab-pane label="配额" name="quota">
+      <el-tab-pane :label="t('billingPage.quota')" name="quota">
         <div class="tab-actions">
-          <span class="hint">0 表示不限制；使用率达到 80% 触发告警</span>
+          <span class="hint">{{ t('billingPage.quotaHint') }}</span>
           <div class="spacer" />
-          <el-button v-if="canManage" size="small" type="primary" @click="openQuota">调整配额</el-button>
+          <el-button v-if="canManage" size="small" type="primary" @click="openQuota">{{ t('billingPage.adjustQuota') }}</el-button>
         </div>
         <el-alert v-for="(w, i) in quota.warnings || []" :key="i" type="warning" :title="w"
                   show-icon :closable="false" class="mb6" />
@@ -162,111 +162,111 @@
           </div>
         </div>
         <div class="cards mt">
-          <el-card shadow="never"><div class="k">Agent 数量</div><div class="v">{{ quota.usage?.agents ?? 0 }} / {{ limitText(quota.quota?.maxAgents) }}</div></el-card>
-          <el-card shadow="never"><div class="k">知识库数量</div><div class="v">{{ quota.usage?.knowledgeBases ?? 0 }} / {{ limitText(quota.quota?.maxKnowledgeBases) }}</div></el-card>
-          <el-card shadow="never"><div class="k">今日 Tokens</div><div class="v">{{ fmt(quota.usage?.tokensToday) }} / {{ fmt(quota.quota?.maxTokensPerDay) }}</div></el-card>
-          <el-card shadow="never"><div class="k">存储</div><div class="v">{{ mb(quota.usage?.storageBytes) }} / {{ mb(quota.quota?.maxStorageBytes) }}</div></el-card>
+          <el-card shadow="never"><div class="k">{{ t('billingPage.agentCount') }}</div><div class="v">{{ quota.usage?.agents ?? 0 }} / {{ limitText(quota.quota?.maxAgents) }}</div></el-card>
+          <el-card shadow="never"><div class="k">{{ t('billingPage.kbCount') }}</div><div class="v">{{ quota.usage?.knowledgeBases ?? 0 }} / {{ limitText(quota.quota?.maxKnowledgeBases) }}</div></el-card>
+          <el-card shadow="never"><div class="k">{{ t('billingPage.todayTokens') }}</div><div class="v">{{ fmt(quota.usage?.tokensToday) }} / {{ fmt(quota.quota?.maxTokensPerDay) }}</div></el-card>
+          <el-card shadow="never"><div class="k">{{ t('billingPage.storage') }}</div><div class="v">{{ mb(quota.usage?.storageBytes) }} / {{ mb(quota.quota?.maxStorageBytes) }}</div></el-card>
         </div>
       </el-tab-pane>
     </el-tabs>
 
     <!-- 规则弹窗 -->
-    <el-dialog v-model="ruleVisible" :title="ruleForm.id ? '编辑计费规则' : '新增计费规则'" width="560px">
+    <el-dialog v-model="ruleVisible" :title="ruleForm.id ? t('billingPage.ruleEdit') : t('billingPage.ruleNew')" width="560px">
       <el-form label-width="100px">
-        <el-form-item label="模型">
-          <el-input v-model="ruleForm.modelName" placeholder="留空 = 租户默认规则（如 deepseek-flash）" />
+        <el-form-item :label="t('billingPage.model')">
+          <el-input v-model="ruleForm.modelName" :placeholder="t('billingPage.modelPh')" />
         </el-form-item>
-        <el-form-item label="计费方式">
+        <el-form-item :label="t('billingPage.mode')">
           <el-select v-model="ruleForm.billingMode" style="width: 160px">
-            <el-option label="按 Token" value="TOKEN" />
-            <el-option label="按次数" value="COUNT" />
+            <el-option :label="t('billingPage.modeToken')" value="TOKEN" />
+            <el-option :label="t('billingPage.modeCount')" value="COUNT" />
           </el-select>
         </el-form-item>
         <template v-if="ruleForm.billingMode === 'TOKEN'">
-          <el-form-item label="输入单价">
+          <el-form-item :label="t('billingPage.inputPrice')">
             <el-input-number v-model="ruleForm.inputPrice" :min="0" :precision="6" :step="0.001" />
-            <span class="unit">元 / 千 Token</span>
+            <span class="unit">{{ t('billingPage.inputUnit') }}</span>
           </el-form-item>
-          <el-form-item label="输出单价">
+          <el-form-item :label="t('billingPage.outputPrice')">
             <el-input-number v-model="ruleForm.outputPrice" :min="0" :precision="6" :step="0.001" />
-            <span class="unit">元 / 千 Token</span>
+            <span class="unit">{{ t('billingPage.inputUnit') }}</span>
           </el-form-item>
-          <el-form-item label="缓存命中单价">
+          <el-form-item :label="t('billingPage.cacheReadPrice')">
             <el-input-number v-model="ruleForm.cacheReadPrice" :min="0" :precision="6" :step="0.001" />
-            <span class="unit">元 / 千 Token（未配置则按输入单价）</span>
+            <span class="unit">{{ t('billingPage.cacheReadUnit') }}</span>
           </el-form-item>
-          <el-form-item label="缓存写入单价">
+          <el-form-item :label="t('billingPage.cacheWritePrice')">
             <el-input-number v-model="ruleForm.cacheWritePrice" :min="0" :precision="6" :step="0.001" />
-            <span class="unit">元 / 千 Token（未配置则 0）</span>
+            <span class="unit">{{ t('billingPage.cacheWriteUnit') }}</span>
           </el-form-item>
         </template>
-        <el-form-item v-else label="单次价格">
+        <el-form-item v-else :label="t('billingPage.perCall')">
           <el-input-number v-model="ruleForm.pricePerCall" :min="0" :precision="6" :step="0.01" />
-          <span class="unit">元 / 次</span>
+          <span class="unit">{{ t('billingPage.perCallUnit') }}</span>
         </el-form-item>
-        <el-form-item label="币种">
+        <el-form-item :label="t('billingPage.currency')">
           <el-input v-model="ruleForm.currency" style="width: 120px" maxlength="3" />
         </el-form-item>
-        <el-form-item label="状态">
-          <el-switch v-model="ruleForm.enabled" active-text="启用" inactive-text="停用" />
+        <el-form-item :label="t('billingPage.status')">
+          <el-switch v-model="ruleForm.enabled" :active-text="t('billingPage.enabled')" :inactive-text="t('billingPage.disabled')" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="ruleVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveRule">保存</el-button>
+        <el-button @click="ruleVisible = false">{{ t('billingPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="saveRule">{{ t('billingPage.save') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- 充值弹窗 -->
-    <el-dialog v-model="rechargeVisible" title="账户充值" width="440px">
+    <el-dialog v-model="rechargeVisible" :title="t('billingPage.rechargeTitle')" width="440px">
       <el-form label-width="80px">
-        <el-form-item label="金额" required>
+        <el-form-item :label="t('billingPage.amount')" required>
           <el-input-number v-model="rechargeForm.amount" :min="0.01" :precision="2" :step="10" />
-          <span class="unit">元</span>
+          <span class="unit">{{ t('billingPage.yuan') }}</span>
         </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="rechargeForm.note" placeholder="如：对公转账 / 测试充值" />
+        <el-form-item :label="t('billingPage.note')">
+          <el-input v-model="rechargeForm.note" :placeholder="t('billingPage.notePh')" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="rechargeVisible = false">取消</el-button>
-        <el-button type="primary" :loading="recharging" @click="doRecharge">确认充值</el-button>
+        <el-button @click="rechargeVisible = false">{{ t('billingPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="recharging" @click="doRecharge">{{ t('billingPage.confirmRecharge') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- 账单明细 -->
-    <el-drawer v-model="billVisible" :title="`账单明细：${bill?.period || ''}`" size="640px">
+    <el-drawer v-model="billVisible" :title="`${t('billingPage.billDetail')}${bill?.period || ''}`" size="640px">
       <div v-if="bill" class="bill-summary">
-        <span>调用 {{ bill.calls }} 次</span>
-        <span>Tokens {{ fmt(bill.totalTokens) }}</span>
-        <span>成本 ¥{{ money(bill.cost) }}</span>
+        <span>{{ t('billingPage.calls') }} {{ bill.calls }}{{ t('billingPage.callsUnit') }}</span>
+        <span>{{ t('billingPage.billTokens') }}{{ fmt(bill.totalTokens) }}</span>
+        <span>{{ t('billingPage.billCost') }}{{ money(bill.cost) }}</span>
       </div>
       <el-table :data="billRows" size="small" max-height="520">
-        <el-table-column label="时间" width="160">
+        <el-table-column :label="t('billingPage.time')" width="160">
           <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column prop="source" label="来源" width="80" />
-        <el-table-column prop="modelName" label="模型" width="130" />
-        <el-table-column prop="inputTokens" label="输入" width="90" />
-        <el-table-column prop="outputTokens" label="输出" width="90" />
-        <el-table-column label="成本" width="100">
+        <el-table-column prop="source" :label="t('billingPage.source')" width="80" />
+        <el-table-column prop="modelName" :label="t('billingPage.model')" width="130" />
+        <el-table-column prop="inputTokens" :label="t('billingPage.inputTokens')" width="90" />
+        <el-table-column prop="outputTokens" :label="t('billingPage.outputTokens')" width="90" />
+        <el-table-column :label="t('billingPage.cost')" width="100">
           <template #default="{ row }">¥{{ money(row.cost) }}</template>
         </el-table-column>
       </el-table>
     </el-drawer>
 
     <!-- 配额调整 -->
-    <el-dialog v-model="quotaVisible" title="调整配额（0 = 不限制）" width="520px">
+    <el-dialog v-model="quotaVisible" :title="t('billingPage.quotaTitle')" width="520px">
       <el-form label-width="130px">
-        <el-form-item label="Agent 上限"><el-input-number v-model="quotaForm.maxAgents" :min="0" /></el-form-item>
-        <el-form-item label="知识库上限"><el-input-number v-model="quotaForm.maxKnowledgeBases" :min="0" /></el-form-item>
-        <el-form-item label="每日 Token 上限"><el-input-number v-model="quotaForm.maxTokensPerDay" :min="0" :step="100000" /></el-form-item>
-        <el-form-item label="存储上限(字节)"><el-input-number v-model="quotaForm.maxStorageBytes" :min="0" :step="1073741824" /></el-form-item>
-        <el-form-item label="每分钟 API 调用"><el-input-number v-model="quotaForm.maxApiCallsPerMin" :min="0" /></el-form-item>
+        <el-form-item :label="t('billingPage.agentLimit')"><el-input-number v-model="quotaForm.maxAgents" :min="0" /></el-form-item>
+        <el-form-item :label="t('billingPage.kbLimit')"><el-input-number v-model="quotaForm.maxKnowledgeBases" :min="0" /></el-form-item>
+        <el-form-item :label="t('billingPage.dailyTokenLimit')"><el-input-number v-model="quotaForm.maxTokensPerDay" :min="0" :step="100000" /></el-form-item>
+        <el-form-item :label="t('billingPage.storageLimitBytes')"><el-input-number v-model="quotaForm.maxStorageBytes" :min="0" :step="1073741824" /></el-form-item>
+        <el-form-item :label="t('billingPage.apiRate')"><el-input-number v-model="quotaForm.maxApiCallsPerMin" :min="0" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="quotaVisible = false">取消</el-button>
-        <el-button type="primary" :loading="savingQuota" @click="saveQuota">保存</el-button>
+        <el-button @click="quotaVisible = false">{{ t('billingPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="savingQuota" @click="saveQuota">{{ t('billingPage.save') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -328,14 +328,14 @@ const quotaItems = computed(() => {
   const u = quota.usage || {}
   const items = [
     { label: 'Agent', used: u.agents || 0, max: q.maxAgents || 0 },
-    { label: '知识库', used: u.knowledgeBases || 0, max: q.maxKnowledgeBases || 0 },
-    { label: '今日 Token', used: u.tokensToday || 0, max: q.maxTokensPerDay || 0 },
-    { label: '存储（MB）', used: Math.round((u.storageBytes || 0) / 1048576), max: Math.round((q.maxStorageBytes || 0) / 1048576) }
+    { label: t('billingPage.kbQuota'), used: u.knowledgeBases || 0, max: q.maxKnowledgeBases || 0 },
+    { label: t('billingPage.todayQuota'), used: u.tokensToday || 0, max: q.maxTokensPerDay || 0 },
+    { label: t('billingPage.storage') + ' (MB)', used: Math.round((u.storageBytes || 0) / 1048576), max: Math.round((q.maxStorageBytes || 0) / 1048576) }
   ]
   return items.map(it => ({
     ...it,
     percent: it.max > 0 ? Math.min(100, Math.round(it.used * 100 / it.max)) : 0,
-    text: it.max > 0 ? `${it.used} / ${it.max}` : `${it.used} / 不限制`
+    text: it.max > 0 ? `${it.used} / ${it.max}` : `${it.used} / ${t('billingPage.unlimited')}`
   }))
 })
 
@@ -370,12 +370,12 @@ function fmtTime(v?: string) {
 }
 
 function limitText(v?: number) {
-  return v ? v : '不限制'
+  return v ? v : t('billingPage.unlimited')
 }
 
 function mb(v?: number) {
   const n = Number(v || 0)
-  if (n <= 0) return '不限制'
+  if (n <= 0) return t('billingPage.unlimited')
   if (n < 1048576) return (n / 1024).toFixed(1) + ' KB'
   if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB'
   return (n / 1073741824).toFixed(2) + ' GB'
@@ -414,7 +414,7 @@ async function saveRule() {
     }
     if (ruleForm.id) await http.put(`/billing/rules/${ruleForm.id}`, payload)
     else await http.post('/billing/rules', payload)
-    ElMessage.success('已保存')
+    ElMessage.success(t('billingPage.saved'))
     ruleVisible.value = false
     rules.value = (await http.get('/billing/rules') as any)?.list || []
   } finally {
@@ -423,10 +423,10 @@ async function saveRule() {
 }
 
 async function removeRule(row: any) {
-  await ElMessageBox.confirm(`删除模型「${row.modelName || '默认规则'}」的计费规则？删除后回落到模型单价。`,
-    '删除计费规则', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  await ElMessageBox.confirm(`${t('billingPage.deleteRulePrefix')}${row.modelName || t('billingPage.defaultRule')}${t('billingPage.deleteRuleMid')}`,
+    t('billingPage.deleteTitle'), { type: 'warning', confirmButtonText: t('billingPage.delete'), cancelButtonText: t('billingPage.cancel') })
   await http.delete(`/billing/rules/${row.id}`)
-  ElMessage.success('已删除')
+  ElMessage.success(t('billingPage.deleted'))
   rules.value = (await http.get('/billing/rules') as any)?.list || []
 }
 
@@ -444,7 +444,7 @@ async function doRecharge() {
     }) as any
     Object.assign(account, acc || {})
     rechargeVisible.value = false
-    ElMessage.success('充值成功')
+    ElMessage.success(t('billingPage.rechargeSuccess'))
     transactions.value = ((await http.get('/billing/transactions', { params: { pageSize: 50 } })) as any)?.list || []
   } finally {
     recharging.value = false
@@ -452,11 +452,11 @@ async function doRecharge() {
 }
 
 async function generateBill() {
-  if (!billPeriod.value) { ElMessage.warning('请选择账期'); return }
+  if (!billPeriod.value) { ElMessage.warning(t('billingPage.selectPeriod')); return }
   generating.value = true
   try {
     const res = await http.post('/billing/bills/generate', { period: billPeriod.value }) as any
-    ElMessage.success(`已生成 ${res.period} 账单：¥${money(res.cost)}`)
+    ElMessage.success(`${t('billingPage.generatedBill')}${res.period}${t('billingPage.generatedBillMid')}${money(res.cost)}`)
     bills.value = (await http.get('/billing/bills') as any)?.list || []
   } finally {
     generating.value = false
@@ -498,7 +498,7 @@ async function saveQuota() {
     const res = await http.put('/billing/quota', { ...quotaForm }) as any
     Object.assign(quota, res || {})
     quotaVisible.value = false
-    ElMessage.success('配额已更新')
+    ElMessage.success(t('billingPage.quotaUpdated'))
   } finally {
     savingQuota.value = false
   }
