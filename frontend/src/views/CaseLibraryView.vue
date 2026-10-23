@@ -155,6 +155,8 @@
         <el-statistic title="标注者一致率" :value="(calStats.interAnnotatorAgreement || 0) * 100">
           <template #suffix>%</template>
         </el-statistic>
+        <el-statistic title="已抽检" :value="calStats.sampled || 0" />
+        <el-statistic title="已指派" :value="calStats.assigned || 0" />
       </div>
       <div class="toolbar">
         <el-radio-group v-model="calStatus" @change="loadCalibration">
@@ -163,7 +165,10 @@
           <el-radio-button value="ALL">全部</el-radio-button>
         </el-radio-group>
         <el-button @click="loadCalibration">刷新</el-button>
+        <el-button @click="sampleCalibration">抽检 20%</el-button>
         <el-checkbox v-model="calBlind" @change="loadCalibration">盲标（隐藏裁判分/参考）</el-checkbox>
+        <el-checkbox v-model="calMine" @change="loadCalibration">仅我的</el-checkbox>
+        <el-checkbox v-model="calSampled" @change="loadCalibration">仅抽检</el-checkbox>
         <span class="hint">人工标签与 LLM 裁判分开保存；一致率仅统计已标注项</span>
       </div>
       <el-table :data="calRows" size="small" v-loading="calLoading" max-height="560">
@@ -173,6 +178,12 @@
         <el-table-column prop="answer" label="候选回答" min-width="220" show-overflow-tooltip />
         <el-table-column prop="referenceAnswer" label="参考/期望" min-width="180" show-overflow-tooltip />
         <el-table-column prop="labelCount" label="标注数" width="75" />
+        <el-table-column label="抽检/指派" width="110">
+          <template #default="{ row }">
+            <el-tag v-if="row.sampled" type="warning" size="small">抽检</el-tag>
+            <el-tag v-if="row.assigneeId" type="success" size="small">已指派</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="裁判" width="90">
           <template #default="{ row }">
             <el-tag size="small" :type="row.judgePassed ? 'success' : 'danger'">
@@ -196,8 +207,9 @@
         <el-table-column label="备注" width="140">
           <template #default="{ row }"><el-input v-model="row.reviewNote" size="small" /></template>
         </el-table-column>
-        <el-table-column label="操作" width="80" fixed="right">
+        <el-table-column label="操作" width="170" fixed="right">
           <template #default="{ row }">
+            <el-button size="small" text @click="assignToMe(row)">指派给我</el-button>
             <el-button size="small" type="primary" text @click="saveCalibration(row)">保存</el-button>
           </template>
         </el-table-column>
@@ -239,6 +251,8 @@ const calVisible = ref(false)
 const calLoading = ref(false)
 const calStatus = ref('PENDING')
 const calBlind = ref(false)
+const calMine = ref(false)
+const calSampled = ref(false)
 const calRows = ref<any[]>([])
 const calStats = ref<any>({})
 const calPage = ref(1)
@@ -347,7 +361,8 @@ async function loadCalibration() {
   try {
     const [data, stats] = await Promise.all([
       http.get('/cases/calibrations', {
-        params: { status: calStatus.value, page: calPage.value, pageSize: 20, blind: calBlind.value }
+        params: { status: calStatus.value, page: calPage.value, pageSize: 20, blind: calBlind.value,
+          mine: calMine.value, sampledOnly: calSampled.value }
       }),
       http.get('/cases/calibrations/stats')
     ]) as any[]
@@ -356,6 +371,26 @@ async function loadCalibration() {
     calStats.value = stats || {}
   } finally {
     calLoading.value = false
+  }
+}
+
+async function sampleCalibration() {
+  try {
+    const res = await http.post('/cases/calibrations/sample', { percent: 20 }) as any
+    ElMessage.success(`已抽检 ${res.sampled}/${res.total} 条`)
+    await loadCalibration()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '抽检失败')
+  }
+}
+
+async function assignToMe(row: any) {
+  try {
+    await http.put(`/cases/calibrations/${row.id}/assign`, {})
+    ElMessage.success('已指派给我')
+    await loadCalibration()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '指派失败')
   }
 }
 

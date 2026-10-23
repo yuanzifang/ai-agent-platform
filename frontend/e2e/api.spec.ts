@@ -1707,7 +1707,21 @@ test('对话用例库：反馈沉淀与模型回归', async ({ request }) => {
     })).json()
     expect(blind.data.list[0].judgeScore).toBeNull()
     expect(blind.data.list[0].referenceAnswer).toBeNull()
+    const sample = await (await request.post(`${P}/cases/calibrations/sample`, {
+      headers: auth(token!), data: { percent: 100 }
+    })).json()
+    expect(sample.code, JSON.stringify(sample)).toBe(0)
+    expect(sample.data.sampled).toBeGreaterThanOrEqual(2)
     const item = cal.data.list[0]
+    const assigned = await (await request.put(`${P}/cases/calibrations/${item.id}/assign`, {
+      headers: auth(token!), data: {}
+    })).json()
+    expect(assigned.code, JSON.stringify(assigned)).toBe(0)
+    expect(assigned.data.assigneeId).toBeTruthy()
+    const mine = await (await request.get(`${P}/cases/calibrations`, {
+      headers: auth(token!), params: { status: 'PENDING', mine: true, sampledOnly: true }
+    })).json()
+    expect(mine.data.list.some((x: any) => x.id === item.id)).toBe(true)
     const savedCal = await (await request.put(`${P}/cases/calibrations/${item.id}`, {
       headers: auth(token!), data: { humanScore: 1, humanLabel: 'PASS', note: 'E2E 人工校准' }
     })).json()
@@ -1728,6 +1742,8 @@ test('对话用例库：反馈沉淀与模型回归', async ({ request }) => {
     })).json()
     expect(calStats.data.labeled).toBeGreaterThanOrEqual(1)
     expect(calStats.data.interAnnotatorAgreement).toBe(1)
+    expect(calStats.data.sampled).toBeGreaterThanOrEqual(2)
+    expect(calStats.data.assigned).toBeGreaterThanOrEqual(1)
     const done = await (await request.get(`${P}/cases/calibrations`, {
       headers: auth(token!), params: { status: 'DONE' }
     })).json()

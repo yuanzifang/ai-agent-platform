@@ -949,6 +949,9 @@
           <el-button size="small" @click="zoomCanvas(0.1)">＋</el-button>
           <el-button size="small" @click="wfZoom = 1">100%</el-button>
           <el-button size="small" @click="autoLayoutWorkflow">自动布局</el-button>
+          <el-button size="small" :type="wfLinkMode ? 'warning' : 'default'" @click="toggleLinkMode">
+            {{ wfLinkMode ? '退出连线' : '连线模式' }}
+          </el-button>
         </div>
         <div ref="wfCanvasEl" class="wf-canvas-wrap" @mousedown="startCanvasPan">
         <div class="wf-canvas"
@@ -968,13 +971,13 @@
                :style="{ left: nodeX(n) + 'px', top: nodeY(n) + 'px' }"
                @mousedown.stop="startNodeDrag($event, n)"
                @dblclick="editWorkflowNode(n.id)"
-               @click="wfSelected = n.id">
+               @click="onCanvasNodeClick(n)">
             <el-tag size="small" :type="wfTagType(n.type)">{{ wfTypeText(n.type) }}</el-tag>
             <div class="wf-cn-name">{{ n.name }}</div>
             <div class="wf-cn-id">#{{ n.id }}</div>
           </div>
         </div>
-        <div class="hint mt8">拖拽节点调整布局，滚轮/按钮缩放，空白处拖拽平移，双击节点回列表编辑；连线按 next / 条件分支 / 并行分支自动绘制。</div>
+        <div class="hint mt8">拖拽节点调整布局，滚轮/按钮缩放，空白处拖拽平移，双击节点回列表编辑；连线模式点击起点再点终点创建 Graph 边；其余连线按 next / 条件分支 / 并行分支自动绘制。</div>
         </div>
       </div>
 
@@ -1209,6 +1212,8 @@ const wfVersionsVisible = ref(false)
 const wfVersions = ref<any[]>([])
 const wfMode = ref<'list' | 'canvas'>('list')
 const wfSelected = ref('')
+const wfLinkMode = ref(false)
+const wfLinkFrom = ref('')
 const wfCanvasEl = ref<HTMLElement>()
 const wfDiffVisible = ref(false)
 const wfDiffTitle = ref('')
@@ -1819,6 +1824,10 @@ const wfEdges = computed(() => {
     const y2 = nodeY(to) + 34
     edges.push({ color, d: `M ${x1} ${y1} C ${x1 + 60} ${y1}, ${x2 - 60} ${y2}, ${x2} ${y2}` })
   }
+  for (const e of workflowForm.edges) {
+    const color = e.label === 'false' ? '#f56c6c' : e.label === 'true' ? '#67c23a' : '#409eff'
+    add(map.get(e.from), map.get(e.to), color)
+  }
   for (const n of nodes) {
     if (n.type === 'END') continue
     if (n.type === 'CONDITION') {
@@ -1839,6 +1848,32 @@ const wfEdges = computed(() => {
   }
   return edges
 })
+
+function toggleLinkMode() {
+  wfLinkMode.value = !wfLinkMode.value
+  wfLinkFrom.value = ''
+}
+
+function onCanvasNodeClick(n: any) {
+  wfSelected.value = n.id
+  if (!wfLinkMode.value) return
+  if (!wfLinkFrom.value) {
+    wfLinkFrom.value = n.id
+    ElMessage.info(`已选择起点：${n.name}，请点击终点`)
+    return
+  }
+  if (wfLinkFrom.value === n.id) {
+    wfLinkFrom.value = ''
+    return
+  }
+  const from = workflowForm.nodes.find((x: any) => x.id === wfLinkFrom.value)
+  const fromType = String(from?.type || '')
+  const label = fromType === 'CONDITION' ? 'true' : ''
+  const exists = workflowForm.edges.some((e: any) => e.from === wfLinkFrom.value && e.to === n.id)
+  if (!exists) workflowForm.edges.push({ from: wfLinkFrom.value, to: n.id, label })
+  wfLinkFrom.value = ''
+  ElMessage.success('已添加 Graph 边，可在下方编辑标签或删除')
+}
 
 function zoomCanvas(delta: number) {
   wfZoom.value = Math.min(1.6, Math.max(0.5, Number((wfZoom.value + delta).toFixed(2))))

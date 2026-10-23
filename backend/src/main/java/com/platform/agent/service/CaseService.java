@@ -15,6 +15,7 @@ import com.platform.agent.mapper.TestCaseMapper;
 import com.platform.agent.mapper.CaseCalibrationLabelMapper;
 import com.platform.agent.mapper.TestCaseRunItemMapper;
 import com.platform.agent.mapper.TestCaseRunMapper;
+import com.platform.system.mapper.SysUserMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
 import com.platform.conversation.entity.Conversation;
@@ -31,6 +32,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -62,6 +64,7 @@ public class CaseService {
     private final ConversationMapper conversationMapper;
     private final AgentVersionMapper versionMapper;
     private final AgentRegistryMapper agentMapper;
+    private final SysUserMapper userMapper;
     private final ChatService chatService;
     private final ChatModelRouter chatModelRouter;
     private final EvalService evalService;
@@ -431,7 +434,8 @@ public class CaseService {
 
     /** 裁判校准队列：回归明细的人工标注/校准。 */
     public Map<String, Object> calibrations(JwtPrincipal principal, String status, Long runId,
-                                            int page, int pageSize, boolean blind) {
+                                            int page, int pageSize, boolean blind,
+                                            boolean mine, boolean sampledOnly) {
         int size = Math.max(1, Math.min(pageSize <= 0 ? 20 : pageSize, 100));
         int current = Math.max(1, page);
         List<TestCaseRun> tenantRuns = runMapper.selectList(new LambdaQueryWrapper<TestCaseRun>()
@@ -449,6 +453,8 @@ public class CaseService {
                 .lt("PENDING".equalsIgnoreCase(status), TestCaseRunItem::getLabelCount, Math.max(1, minAnnotators))
                 .ge("DONE".equalsIgnoreCase(status), TestCaseRunItem::getLabelCount, Math.max(1, minAnnotators))
                 .orderByDesc(TestCaseRunItem::getId);
+        if (mine) wrapper.eq(TestCaseRunItem::getAssigneeId, principal.userId());
+        if (sampledOnly) wrapper.eq(TestCaseRunItem::getSampled, 1);
         if (!"ALL".equalsIgnoreCase(status) && !"PENDING".equalsIgnoreCase(status)
                 && !"DONE".equalsIgnoreCase(status)) {
             wrapper.lt(TestCaseRunItem::getLabelCount, Math.max(1, minAnnotators));
@@ -468,6 +474,52 @@ public class CaseService {
         return Map.of("list", rows, "total", total, "page", current, "pageSize", size);
     }
 
+    /** 随机抽检：按当前租户回归明细的比例置 sampled=1（至少 1 条）。 */
+    @Transactional
+    public Map<String, Object> sampleCalibrations(int percent, JwtPrincipal principal) {
+        int rate = Math.max(1, Math.min(percent <= 0 ? 20 : percent, 100));
+        List<Long> runIds = runMapper.selectList(new LambdaQueryWrapper<TestCaseRun>()
+                        .eq(TestCaseRun::getTenantId, principal.tenantId()))
+                .stream().map(TestCaseRun::getId).toList();
+        if (runIds.isEmpty()) return Map.of("sampled", 0, "total", 0, "percent", rate);
+        List<TestCaseRunItem> items = runItemMapper.selectList(new LambdaQueryWrapper<TestCaseRunItem>()
+                .in(TestCaseRunItem::getRunId, runIds));
+        if (items.isEmpty()) return Map.of("sampled", 0, "total", 0, "percent", rate);
+        List<Long> ids = new ArrayList<>(items.stream().map(TestCaseRunItem::getId).toList());
+        java.util.Collections.shuffle(ids);
+        int count = Math.max(1, (int) Math.ceil(ids.size() * rate / 100.0));
+        List<Long> selected = ids.subList(0, Math.min(count, ids.size()));
+        runItemMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<TestCaseRunItem>()
+                .in(TestCaseRunItem::getId, selected)
+                .set(TestCaseRunItem::getSampled, 1));
+        auditService.record(principal.userId(), "case.calibration.sample", "test_case_run_item",
+                String.valueOf(runIds.get(0)), "SUCCESS",
+                Map.of("percent", rate, "sampled", selected.size(), "total", ids.size()));
+        return Map.of("sampled", selected.size(), "total", ids.size(), "percent", rate);
+    }
+
+    /** 指派标注任务；不传 assigneeId 表示指派给自己。 */
+    @Transactional
+    public Map<String, Object> assignCalibration(Long itemId, Long assigneeId, JwtPrincipal principal) {
+        TestCaseRunItem item = runItemMapper.selectById(itemId);
+        if (item == null) throw new BusinessException(404, "回归明细不存在");
+        TestCaseRun run = runMapper.selectById(item.getRunId());
+        if (run == null || !java.util.Objects.equals(run.getTenantId(), principal.tenantId())) {
+            throw new BusinessException(404, "回归明细不存在");
+        }
+        Long target = assigneeId == null ? principal.userId() : assigneeId;
+        com.platform.system.entity.SysUser user = userMapper.selectById(target);
+        if (user == null || !java.util.Objects.equals(user.getTenantId(), principal.tenantId())) {
+            throw new BusinessException(400, "指派成员不存在或不属于当前租户");
+        }
+        runItemMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<TestCaseRunItem>()
+                .eq(TestCaseRunItem::getId, itemId)
+                .set(TestCaseRunItem::getAssigneeId, target));
+        auditService.record(principal.userId(), "case.calibration.assign", "test_case_run_item",
+                String.valueOf(itemId), "SUCCESS", Map.of("assigneeId", target));
+        return Map.of("id", itemId, "assigneeId", target);
+    }
+
     public Map<String, Object> calibrationStats(JwtPrincipal principal) {
         List<Long> runIds = runMapper.selectList(new LambdaQueryWrapper<TestCaseRun>()
                         .eq(TestCaseRun::getTenantId, principal.tenantId()))
@@ -478,7 +530,7 @@ public class CaseService {
         }
         List<TestCaseRunItem> items = runItemMapper.selectList(new LambdaQueryWrapper<TestCaseRunItem>()
                 .in(TestCaseRunItem::getRunId, runIds));
-        int labeled = 0, pending = 0, agree = 0;
+        int labeled = 0, pending = 0, agree = 0, sampled = 0, assigned = 0;
         double errorSum = 0;
         int errorCount = 0;
         Map<Long, List<CaseCalibrationLabel>> labelsByItem = new java.util.HashMap<>();
@@ -491,6 +543,8 @@ public class CaseService {
             }
         }
         for (TestCaseRunItem i : items) {
+            if (i.getSampled() != null && i.getSampled() == 1) sampled++;
+            if (i.getAssigneeId() != null) assigned++;
             if (i.getLabelCount() == null || i.getLabelCount() < Math.max(1, minAnnotators)) {
                 pending++;
                 continue;
@@ -521,7 +575,7 @@ public class CaseService {
                 "agreementRate", labeled == 0 ? 0 : round4(agree / (double) labeled),
                 "meanAbsError", errorCount == 0 ? 0 : round4(errorSum / errorCount),
                 "interAnnotatorAgreement", pairs == 0 ? 0 : round4(pairAgree / (double) pairs),
-                "interAnnotatorPairs", pairs);
+                "interAnnotatorPairs", pairs, "sampled", sampled, "assigned", assigned);
     }
 
     public Map<String, Object> calibrate(Long itemId, Map<String, Object> req, JwtPrincipal principal) {
@@ -631,6 +685,8 @@ public class CaseService {
         m.put("reviewerId", i.getReviewerId());
         m.put("reviewedAt", i.getReviewedAt());
         m.put("reviewNote", i.getReviewNote());
+        m.put("sampled", i.getSampled() != null && i.getSampled() == 1);
+        m.put("assigneeId", i.getAssigneeId());
         m.put("error", i.getError());
         return m;
     }

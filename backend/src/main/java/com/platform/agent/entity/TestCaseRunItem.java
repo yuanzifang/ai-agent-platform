@@ -24,6 +24,8 @@ public class TestCaseRunItem {
     private LocalDateTime reviewedAt;
     private String reviewNote;
     private Integer labelCount;
+    private Integer sampled;
+    private Long assigneeId;
     private Integer passed;
     private Long latencyMs;
     private String error;

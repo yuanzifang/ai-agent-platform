@@ -70,8 +70,28 @@ public class CaseController {
                                                          @RequestParam(defaultValue = "1") int page,
                                                          @RequestParam(defaultValue = "20") int pageSize,
                                                          @RequestParam(defaultValue = "false") boolean blind,
+                                                         @RequestParam(defaultValue = "false") boolean mine,
+                                                         @RequestParam(defaultValue = "false") boolean sampledOnly,
                                                          @AuthenticationPrincipal JwtPrincipal principal) {
-        return ApiResponse.ok(service.calibrations(principal, status, runId, page, pageSize, blind));
+        return ApiResponse.ok(service.calibrations(principal, status, runId, page, pageSize, blind, mine, sampledOnly));
+    }
+
+    @PostMapping("/calibrations/sample")
+    @PreAuthorize("hasAuthority('eval:manage')")
+    public ApiResponse<Map<String, Object>> sampleCalibrations(@RequestBody(required = false) Map<String, Object> req,
+                                                               @AuthenticationPrincipal JwtPrincipal principal) {
+        int percent = req == null || req.get("percent") == null ? 20 : ((Number) req.get("percent")).intValue();
+        return ApiResponse.ok(service.sampleCalibrations(percent, principal));
+    }
+
+    @PutMapping("/calibrations/{id}/assign")
+    @PreAuthorize("hasAuthority('eval:manage')")
+    public ApiResponse<Map<String, Object>> assignCalibration(@PathVariable Long id,
+                                                              @RequestBody(required = false) Map<String, Object> req,
+                                                              @AuthenticationPrincipal JwtPrincipal principal) {
+        Long assigneeId = req == null || req.get("assigneeId") == null ? null
+                : ((Number) req.get("assigneeId")).longValue();
+        return ApiResponse.ok(service.assignCalibration(id, assigneeId, principal));
     }
 
     @GetMapping("/calibrations/stats")
