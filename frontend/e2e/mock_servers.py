@@ -53,6 +53,8 @@ def answer_for(body):
         return "这是正常的流式内容。" * 10 + "赌博内容"
     if "触发审核" in last_user:
         return "这是模拟回答：赌博内容示例。"
+    if last_user.startswith("基于交接结果复核"):
+        return "回传复核完成：已接收目标 Agent 结果。"
     if "只回答OK" in system or "只回答OK" in last_user:
         return "OK"
     if "markdown测试" in last_user:

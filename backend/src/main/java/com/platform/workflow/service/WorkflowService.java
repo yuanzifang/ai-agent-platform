@@ -679,6 +679,24 @@ public class WorkflowService {
         }
     }
 
+    private Map<String, Object> agentConfig(AgentRegistry agent) {
+        com.platform.agent.entity.AgentVersion published = agentVersionMapper.selectList(
+                        new LambdaQueryWrapper<com.platform.agent.entity.AgentVersion>()
+                                .eq(com.platform.agent.entity.AgentVersion::getAgentId, agent.getId())
+                                .orderByDesc(com.platform.agent.entity.AgentVersion::getId)
+                                .last("LIMIT 1"))
+                .stream().findFirst().orElse(null);
+        if (published != null && published.getSnapshot() != null) {
+            return parseMap(published.getSnapshot());
+        }
+        Map<String, Object> config = new LinkedHashMap<>();
+        config.put("systemPrompt", agent.getSystemPrompt());
+        config.put("modelConfig", parseMap(agent.getModelConfig()));
+        config.put("agentCapabilities", parseMap(agent.getAgentCapabilities()));
+        config.put("variables", parseObject(agent.getVariables()));
+        return config;
+    }
+
     /**
      * Agent handoff：调用目标 Agent 的完整发布配置（工具/RAG/技能/子 Agent），
      * 输出作为当前节点的 lastOutput，并进入后续节点的共享「前序节点结果」上下文。
@@ -691,22 +709,7 @@ public class WorkflowService {
         if (target == null || "DELETED".equals(target.getStatus())) {
             throw new BusinessException(400, "HANDOFF 目标 Agent 不可用");
         }
-        com.platform.agent.entity.AgentVersion published = agentVersionMapper.selectList(
-                        new LambdaQueryWrapper<com.platform.agent.entity.AgentVersion>()
-                                .eq(com.platform.agent.entity.AgentVersion::getAgentId, targetId)
-                                .orderByDesc(com.platform.agent.entity.AgentVersion::getId)
-                                .last("LIMIT 1"))
-                .stream().findFirst().orElse(null);
-        Map<String, Object> config;
-        if (published != null && published.getSnapshot() != null) {
-            config = parseMap(published.getSnapshot());
-        } else {
-            config = new LinkedHashMap<>();
-            config.put("systemPrompt", target.getSystemPrompt());
-            config.put("modelConfig", parseMap(target.getModelConfig()));
-            config.put("agentCapabilities", parseMap(target.getAgentCapabilities()));
-            config.put("variables", parseObject(target.getVariables()));
-        }
+        Map<String, Object> config = agentConfig(target);
         String template = str(node.get("inputTemplate"));
         Map<String, Object> state = stateOf(run);
         String message = template == null || template.isBlank() ? input : applyStateTemplate(template, run, state, input);
@@ -723,6 +726,31 @@ public class WorkflowService {
         if (result.get("usage") instanceof Map<?, ?> usage) {
             in = toLong(usage.get("inputTokens")) == null ? 0 : toLong(usage.get("inputTokens"));
             out = toLong(usage.get("outputTokens")) == null ? 0 : toLong(usage.get("outputTokens"));
+        }
+
+        // 可选 A→B→A：目标 Agent 完成后回传给指定 Agent，形成真实 handoff 往返
+        Long returnId = toLong(node.get("returnAgentId"));
+        if (returnId != null) {
+            AgentRegistry returnAgent = agentMapper.selectById(returnId);
+            if (returnAgent == null || "DELETED".equals(returnAgent.getStatus())) {
+                throw new BusinessException(400, "HANDOFF 回传 Agent 不可用");
+            }
+            Map<String, Object> returnConfig = agentConfig(returnAgent);
+            String returnTemplate = str(node.get("returnTemplate"));
+            String returnMessage = returnTemplate == null || returnTemplate.isBlank()
+                    ? "请基于以下交接结果继续处理并给出最终答复：\n" + answer
+                    : applyStateTemplate(returnTemplate, run, stateOf(run), answer);
+            Map<String, Object> returned;
+            try {
+                returned = chatService.debugChat(returnConfig, returnMessage, viewer, principal);
+            } catch (Exception e) {
+                throw new BusinessException(502, "HANDOFF 回传失败：" + rootMessage(e));
+            }
+            answer = str(returned.get("answer"));
+            if (returned.get("usage") instanceof Map<?, ?> usage) {
+                in += toLong(usage.get("inputTokens")) == null ? 0 : toLong(usage.get("inputTokens"));
+                out += toLong(usage.get("outputTokens")) == null ? 0 : toLong(usage.get("outputTokens"));
+            }
         }
         return new SimpleResult(answer, str(node.get("next")), in, out, false);
     }

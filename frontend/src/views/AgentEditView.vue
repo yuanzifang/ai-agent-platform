@@ -790,7 +790,15 @@
               </el-select>
               <el-input v-model="n.inputTemplate" type="textarea" :rows="2" class="mt8"
                         placeholder="交接任务模板（支持 {{input}} / {{last}}；留空直接传上一节点输出）" />
-              <div class="hint">调用目标 Agent 的完整发布配置（工具/RAG/技能/子 Agent），输出进入后续节点共享上下文</div>
+              <div class="wf-line mt8">
+                <el-select v-model="n.returnAgentId" filterable clearable placeholder="回传 Agent（可选）" style="width: 260px">
+                  <el-option v-for="a in agentCatalog" :key="a.id" :value="a.id" :label="a.name" />
+                </el-select>
+                <span class="hint">A→B→A 往返</span>
+              </div>
+              <el-input v-if="n.returnAgentId" v-model="n.returnTemplate" type="textarea" :rows="2" class="mt8"
+                        placeholder="回传任务模板（支持 {{input}} / {{last}} / {{state.key}}；留空直接用目标 Agent 输出来回传）" />
+              <div class="hint">调用目标 Agent 的完整发布配置（工具/RAG/技能/子 Agent）；配置回传 Agent 后由其继续处理并输出最终结果</div>
             </template>
             <template v-else-if="n.type === 'TOOL'">
               <el-select v-model="n.toolId" filterable placeholder="选择工具" style="width: 260px">

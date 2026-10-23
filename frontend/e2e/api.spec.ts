@@ -37,6 +37,24 @@ async function createAgent(request: APIRequestContext, token: string, name: stri
   return body.data.id as number
 }
 
+async function createAgentWithoutTools(request: APIRequestContext, token: string, name: string): Promise<number> {
+  const res = await request.post(`${P}/agent`, {
+    headers: auth(token),
+    data: {
+      name,
+      description: 'E2E 回传 Agent（无工具）',
+      systemPrompt: '你负责复核交接结果，简洁回答。',
+      modelConfig: { modelName: 'deepseek-flash', temperature: 0.2 },
+      agentCapabilities: { functionCall: false },
+      tools: [],
+      visibility: 'PRIVATE'
+    }
+  })
+  const body = await res.json()
+  expect(body.code, JSON.stringify(body)).toBe(0)
+  return body.data.id as number
+}
+
 async function publishAgent(request: APIRequestContext, token: string, agentId: number) {
   const res = await request.post(`${P}/agent/${agentId}/publish`, {
     headers: auth(token), data: { force: true }
@@ -963,16 +981,19 @@ test('工作流 Agent Handoff 与共享上下文', async ({ request }) => {
   expect(token).toBeTruthy()
   const targetId = await createAgent(request, token!, `E2E Handoff 目标-${Date.now()}`)
   const sourceId = await createAgent(request, token!, `E2E Handoff 源-${Date.now()}`)
+  const returnId = await createAgentWithoutTools(request, token!, `E2E Handoff 回传-${Date.now()}`)
   try {
     await publishAgent(request, token!, targetId)
     await publishAgent(request, token!, sourceId)
+    await publishAgent(request, token!, returnId)
     const workflow = {
       name: 'E2E Handoff', status: 'ENABLED',
       definition: {
         nodes: [
           { id: 'start', type: 'START', name: '开始', next: 'handoff1' },
-          { id: 'handoff1', type: 'HANDOFF', name: '交给目标 Agent',
-            agentId: targetId, inputTemplate: '{{input}}', next: 'state1' },
+          { id: 'handoff1', type: 'HANDOFF', name: '交给目标 Agent 并回传',
+            agentId: targetId, inputTemplate: '{{input}}',
+            returnAgentId: returnId, returnTemplate: '基于交接结果复核：{{last}}', next: 'state1' },
           { id: 'state1', type: 'STATE', name: '记录 handoff 结果',
             stateKey: 'handoff_result', valueTemplate: '{{last}}', next: 'llm1' },
           { id: 'llm1', type: 'LLM', name: '读取共享上下文', prompt: '总结前序结果', next: 'end' },
@@ -993,13 +1014,14 @@ test('工作流 Agent Handoff 与共享上下文', async ({ request }) => {
     expect(String(body.data.output).length).toBeGreaterThan(0)
     const nodeTypes = (body.data.nodeRuns || []).map((n: any) => n.nodeType)
     expect(nodeTypes).toContain('HANDOFF')
-    expect(body.data.state?.handoff_result).toBeTruthy()
+    expect(body.data.state?.handoff_result).toContain('回传复核完成')
     const last = await (await request.get(`${OPENAI_MOCK}/last-chat`)).json()
     const systemText = (last.messages || []).filter((m: any) => m.role === 'system')
       .map((m: any) => String(m.content)).join('\n')
     expect(systemText).toContain('前序节点结果')
     expect(systemText).toContain('共享状态')
   } finally {
+    await deleteAgent(request, token!, returnId)
     await deleteAgent(request, token!, sourceId)
     await deleteAgent(request, token!, targetId)
   }
