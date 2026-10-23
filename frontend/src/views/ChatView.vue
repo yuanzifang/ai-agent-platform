@@ -2,36 +2,36 @@
   <div class="chat-page">
     <!-- 左侧：会话列表 -->
     <div class="sessions">
-      <el-button type="primary" class="new-btn" @click="newConversation">＋ 新会话</el-button>
+      <el-button type="primary" class="new-btn" @click="newConversation">{{ t('chatPage.newChat') }}</el-button>
       <div class="session-list">
         <div v-for="s in sessions" :key="s.id" class="session-item"
              :class="{ active: s.id === conversationId }" @click="openConversation(s.id)">
           <div class="s-row">
             <span v-if="s.pinned" class="s-pin">📌</span>
-            <div class="s-title">{{ s.title || '新会话' }}</div>
+            <div class="s-title">{{ s.title || t('chatPage.newSession') }}</div>
             <el-dropdown trigger="click" @command="(cmd: string) => sessionCommand(cmd, s)" @click.stop>
               <span class="s-more" @click.stop>⋯</span>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item command="rename">重命名</el-dropdown-item>
-                  <el-dropdown-item command="pin">{{ s.pinned ? '取消置顶' : '置顶' }}</el-dropdown-item>
+                  <el-dropdown-item command="rename">{{ t('chatPage.rename') }}</el-dropdown-item>
+                  <el-dropdown-item command="pin">{{ s.pinned ? t('chatPage.unpin') : t('chatPage.pin') }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
           </div>
           <div class="s-sub">{{ formatTime(s.lastActiveAt) }}</div>
         </div>
-        <el-empty v-if="sessions.length === 0" description="暂无会话" :image-size="60" />
+        <el-empty v-if="sessions.length === 0" :description="t('chatPage.noSessions')" :image-size="60" />
       </div>
     </div>
 
     <!-- 右侧：消息区 -->
     <div class="chat-main" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false"
          @drop.prevent="onDrop">
-      <div v-if="dragging" class="drop-mask">松开以上传附件</div>
+      <div v-if="dragging" class="drop-mask">{{ t('chatPage.dropMask') }}</div>
       <div class="chat-head">
         <span class="agent-name">{{ agentName }}</span>
-        <el-button size="small" :disabled="messages.length === 0" @click="share">分享</el-button>
+        <el-button size="small" :disabled="messages.length === 0" @click="share">{{ t('chatPage.share') }}</el-button>
       </div>
 
       <div class="messages" ref="msgBox">
@@ -40,7 +40,7 @@
             <div class="bubble"><MarkdownContent :content="openingStatement" /></div>
           </div>
           <div class="suggestions">
-            <span class="suggestions-label">猜你想问</span>
+            <span class="suggestions-label">{{ t('chatPage.suggestions') }}</span>
             <el-button v-for="q in suggestedQuestions" :key="q" size="small" round
                        :disabled="streaming" @click="askSuggestion(q)">{{ q }}</el-button>
           </div>
@@ -51,17 +51,17 @@
             <div v-else class="content">{{ m.content }}</div>
             <span v-if="m.streaming" class="cursor">▍</span>
             <div v-if="(m.tools || []).length" class="tool-steps">
-              <div v-for="(t, i) in m.tools" :key="i" class="tool-step" :class="toolStatusClass(t.status)">
+              <div v-for="(step, i) in m.tools" :key="i" class="tool-step" :class="toolStatusClass(step.status)">
                 <span class="tool-dot" />
                 <div class="tool-body">
                   <div class="tool-title">
-                    <span>{{ t.subAgentName || t.name }}</span>
-                    <el-tag size="small" effect="plain" class="tool-type">{{ toolTypeText(t.toolType) }}</el-tag>
+                    <span>{{ step.subAgentName || step.name }}</span>
+                    <el-tag size="small" effect="plain" class="tool-type">{{ toolTypeText(step.toolType) }}</el-tag>
                   </div>
                   <div class="tool-meta">
-                    <template v-if="t.status === 'RUNNING'">执行中…</template>
+                    <template v-if="step.status === 'RUNNING'">{{ t('chatPage.running') }}</template>
                     <template v-else>
-                      {{ toolStatusText(t.status) }}<span v-if="t.durationMs"> · {{ t.durationMs }}ms</span>
+                      {{ toolStatusText(step.status) }}<span v-if="step.durationMs"> · {{ step.durationMs }}ms</span>
                     </template>
                   </div>
                 </div>
@@ -70,17 +70,17 @@
             <div v-if="(m.attachments || []).length" class="msg-attachments">
               <span v-for="(a, i) in m.attachments" :key="i" class="attach-chip">📎 {{ a.fileName }}</span>
             </div>
-            <div v-if="m.status === 'STOPPED'" class="stopped-tag">已停止</div>
-            <div v-if="m.status === 'BLOCKED'" class="blocked-tag">已按安全策略拦截</div>
+            <div v-if="m.status === 'STOPPED'" class="stopped-tag">{{ t('chatPage.stopped') }}</div>
+            <div v-if="m.status === 'BLOCKED'" class="blocked-tag">{{ t('chatPage.blocked') }}</div>
             <div v-if="(m.citations || []).length" class="citations">
               <el-collapse>
-                <el-collapse-item :title="`引用来源 ${m.citations?.length ?? 0} 条`">
+                <el-collapse-item :title="`${t('chatPage.citationsPrefix')}${m.citations?.length ?? 0}${t('chatPage.citationsSuffix')}`">
                   <div v-for="(c, i) in m.citations" :key="i" class="citation">
                     <div class="c-head">
                       <span class="score">{{ (c.score * 100).toFixed(0) }}%</span>
-                      <span class="c-doc">{{ c.documentName || c.knowledgeBaseName || '知识片段' }}</span>
+                      <span class="c-doc">{{ c.documentName || c.knowledgeBaseName || t('chatPage.knowledgeSnippet') }}</span>
                       <el-button v-if="c.knowledgeBaseId" text size="small"
-                                 @click="openCitation(c)">查看原文</el-button>
+                                 @click="openCitation(c)">{{ t('chatPage.viewSource') }}</el-button>
                     </div>
                     <div class="c-text">{{ c.content }}</div>
                   </div>
@@ -88,14 +88,14 @@
               </el-collapse>
             </div>
             <div v-if="m.role === 'USER' && !m.streaming" class="msg-ops user-ops">
-              <el-button size="small" text @click="editResend(m)">编辑重发</el-button>
+              <el-button size="small" text @click="editResend(m)">{{ t('chatPage.editResend') }}</el-button>
             </div>
             <div v-if="m.role === 'ASSISTANT' && m.id && !m.streaming" class="msg-ops">
               <el-button size="small" text :type="m.feedback === 'UP' ? 'primary' : ''" @click="feedback(m, 'UP')">👍</el-button>
               <el-button size="small" text :type="m.feedback === 'DOWN' ? 'danger' : ''" @click="feedback(m, 'DOWN')">👎</el-button>
-              <el-button size="small" text @click="copyMessage(m)">复制</el-button>
-              <el-button size="small" text @click="openCaseDialog(m)">收藏用例</el-button>
-              <el-button v-if="isLastAssistant(m)" size="small" text @click="regenerate(m)">重新生成</el-button>
+              <el-button size="small" text @click="copyMessage(m)">{{ t('chatPage.copy') }}</el-button>
+              <el-button size="small" text @click="openCaseDialog(m)">{{ t('chatPage.saveCase') }}</el-button>
+              <el-button v-if="isLastAssistant(m)" size="small" text @click="regenerate(m)">{{ t('chatPage.regenerate') }}</el-button>
             </div>
           </div>
         </div>
@@ -109,59 +109,59 @@
           </el-tag>
         </div>
         <div class="write-gate">
-          <el-checkbox v-model="allowWriteTools" size="small">允许写操作工具（本次）</el-checkbox>
-          <span class="hint">默认阻断 POST/PUT/DELETE、MCP 写工具与脚本；仅本次消息生效</span>
+          <el-checkbox v-model="allowWriteTools" size="small">{{ t('chatPage.allowWrite') }}</el-checkbox>
+          <span class="hint">{{ t('chatPage.writeHint') }}</span>
         </div>
         <div class="input-row">
           <el-button circle :type="recording ? (recordCancel ? 'info' : 'danger') : ''"
-                     :title="recording ? '松开结束，移出按钮取消' : '按住说话'"
+                     :title="recording ? t('chatPage.recordRelease') : t('chatPage.recordHold')"
                      @mousedown="startRecord($event)" @mouseup="stopRecord($event)"
                      @mouseleave="recording && stopRecord($event)">
             <el-icon><Microphone /></el-icon>
           </el-button>
-          <label class="attach-btn" title="附件">
+          <label class="attach-btn" :title="t('chatPage.attach')">
             <el-icon><Paperclip /></el-icon>
             <input type="file" hidden @change="uploadAttachment" />
           </label>
-          <el-input v-model="input" type="textarea" :rows="2" resize="none" placeholder="输入消息，Enter 发送（Shift+Enter 换行）"
+          <el-input v-model="input" type="textarea" :rows="2" resize="none" :placeholder="t('chatPage.inputPh')"
                     @keydown.enter.exact.prevent="send" @paste="onPaste" :disabled="streaming" />
-          <el-button v-if="streaming" type="warning" @click="stopGen">停止</el-button>
-          <el-button v-else type="primary" :disabled="!input.trim() || !conversationId" @click="send">发送</el-button>
+          <el-button v-if="streaming" type="warning" @click="stopGen">{{ t('chatPage.stop') }}</el-button>
+          <el-button v-else type="primary" :disabled="!input.trim() || !conversationId" @click="send">{{ t('chatPage.send') }}</el-button>
         </div>
         <div v-if="recording" class="recording-bar" :class="{ cancel: recordCancel }">
           <div class="wave">
             <span v-for="(h, i) in volumeBars" :key="i" :style="{ height: h + 'px' }" />
           </div>
-          <span>{{ recordCancel ? '松开取消录音' : '录音中…松开转文字（移出按钮取消）' }}</span>
+          <span>{{ recordCancel ? t('chatPage.recordingCancel') : t('chatPage.recording') }}</span>
         </div>
       </div>
     </div>
 
-    <el-dialog v-model="caseVisible" title="收藏为回归用例" width="560px">
+    <el-dialog v-model="caseVisible" :title="t('chatPage.caseTitle')" width="560px">
       <el-form label-width="90px">
-        <el-form-item label="类型">
+        <el-form-item :label="t('chatPage.type')">
           <el-radio-group v-model="caseForm.kind">
-            <el-radio value="CLASSIC">经典（回答质量好，作金样例）</el-radio>
-            <el-radio value="BAD">坏例（回答有问题）</el-radio>
+            <el-radio value="CLASSIC">{{ t('chatPage.classicOption') }}</el-radio>
+            <el-radio value="BAD">{{ t('chatPage.badOption') }}</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="期望答案" :required="caseForm.kind === 'BAD'">
+        <el-form-item :label="t('chatPage.expected')" :required="caseForm.kind === 'BAD'">
           <el-input v-model="caseForm.expectedAnswer" type="textarea" :rows="3"
-                    placeholder="坏例建议填写正确期望答案；后续审核通过后才会进入模型回归" />
+                    :placeholder="t('chatPage.expectedPh')" />
         </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="caseForm.note" maxlength="512" placeholder="如：答非所问 / 编造事实" />
+        <el-form-item :label="t('chatPage.note')">
+          <el-input v-model="caseForm.note" maxlength="512" :placeholder="t('chatPage.notePh')" />
         </el-form-item>
       </el-form>
-      <div class="hint">收藏后进入用例库「待审核」，人工确认/修正后才会用于模型切换回归。</div>
+      <div class="hint">{{ t('chatPage.caseHint') }}</div>
       <template #footer>
-        <el-button @click="caseVisible = false">取消</el-button>
-        <el-button type="primary" :loading="caseSaving" @click="saveCase">收藏</el-button>
+        <el-button @click="caseVisible = false">{{ t('chatPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="caseSaving" @click="saveCase">{{ t('chatPage.save') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="variablesVisible" title="填写对话变量" width="520px">
-      <div class="hint mb8">该 Agent 配置了必填变量，填写后开始对话。</div>
+    <el-dialog v-model="variablesVisible" :title="t('chatPage.variablesTitle')" width="520px">
+      <div class="hint mb8">{{ t('chatPage.variablesHint') }}</div>
       <el-form label-width="130px">
         <el-form-item v-for="def in variableDefs" :key="def.key" :required="def.required === true || String(def.required) === 'true'"
                       :label="variableLabel(def)">
@@ -170,23 +170,24 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="variablesVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmVariables">开始对话</el-button>
+        <el-button @click="variablesVisible = false">{{ t('chatPage.cancel') }}</el-button>
+        <el-button type="primary" @click="confirmVariables">{{ t('chatPage.startChat') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="shareVisible" title="分享只读链接" width="480px">
+    <el-dialog v-model="shareVisible" :title="t('chatPage.shareTitle')" width="480px">
       <el-input :model-value="shareUrl" readonly>
         <template #append>
-          <el-button @click="copyShare">复制</el-button>
+          <el-button @click="copyShare">{{ t('chatPage.copy') }}</el-button>
         </template>
       </el-input>
-      <div class="share-tip">链接 7 天内有效，打开可只读本会话（需后台 /share/{token} 页面或直接调接口）。</div>
+      <div class="share-tip">{{ t('chatPage.shareTip') }}</div>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -194,6 +195,8 @@ import { Microphone, Paperclip } from '@element-plus/icons-vue'
 import http from '../api/http'
 import MarkdownContent from '../components/MarkdownContent.vue'
 import { useUserStore } from '../stores/user'
+
+const { t } = useI18n()
 
 interface SessionItem { id: number; agentId: number; agentName: string; title: string; lastActiveAt: string; pinned?: boolean }
 interface ChatMessage {
@@ -244,7 +247,7 @@ const suggestedQuestions = computed(() => {
   const text = openingStatement.value || ''
   const questions = (text.match(/[^。！？!?\n]{6,60}[？?]/g) || []).map(s => s.trim())
   if (questions.length) return questions.slice(0, 3)
-  return [`${agentName.value}能做什么？`, '给我一个使用示例', '使用前需要注意什么？']
+  return [`${agentName.value}${t('chatPage.sug1')}`, t('chatPage.sug2'), t('chatPage.sug3')]
 })
 
 watch(input, (value) => {
@@ -255,7 +258,7 @@ onMounted(async () => {
   window.addEventListener('mousemove', onRecordMove)
   const agents = await http.get('/agent', { params: { pageSize: 100 } }) as any
   const agent = (agents.list || []).find((a: any) => a.id === agentId)
-  agentName.value = agent?.name || '对话'
+  agentName.value = agent?.name || t('chatPage.newSession')
   // 能力配置：关闭流式输出时走非流式 JSON
   const detail = await http.get(`/agent/${agentId}`) as any
   agentStreamEnabled.value = detail?.agentCapabilities?.streamOutput !== false
@@ -357,7 +360,7 @@ async function doSend(text: string) {
 function confirmVariables() {
   const missing = missingVariables()
   if (missing.length) {
-    ElMessage.warning(`请填写必填变量：${missing.map(variableLabel).join('、')}`)
+    ElMessage.warning(`${t('chatPage.requiredVars')}${missing.map(variableLabel).join(', ')}`)
     return
   }
   const payload = pendingSend.value
@@ -368,11 +371,11 @@ function confirmVariables() {
 
 async function editResend(m: ChatMessage) {
   try {
-    const { value } = await ElMessageBox.prompt('编辑后将在新会话中发送（保留原对话，形成分支）',
-      '编辑重发', { inputValue: m.content, confirmButtonText: '发送', cancelButtonText: '取消' })
+    const { value } = await ElMessageBox.prompt(t('chatPage.editPrompt'),
+      t('chatPage.editPromptTitle'), { inputValue: m.content, confirmButtonText: t('chatPage.send'), cancelButtonText: t('chatPage.cancel') })
     if (!value?.trim()) return
     const data = await http.post('/conversations', {
-      agentId, title: `分支：${value.trim().slice(0, 30)}`
+      agentId, title: `${t('chatPage.branchPrefix')}${value.trim().slice(0, 30)}`
     }) as any
     await loadSessions()
     await openConversation(data.id)
@@ -407,13 +410,13 @@ async function streamCall(url: string, body: any, pending: ChatMessage) {
     })
     if (!resp.ok || !resp.body) {
       const errText = await resp.text().catch(() => '')
-      throw new Error(`请求失败 ${resp.status} ${errText.slice(0, 200)}`)
+      throw new Error(`${t('chatPage.requestFailed')}${resp.status} ${errText.slice(0, 200)}`)
     }
     // 非流式分支（Agent 关闭流式输出 / stream=false）：直接消费 JSON
     const contentType = resp.headers.get('content-type') || ''
     if (contentType.includes('application/json')) {
       const json = await resp.json()
-      if (json.code !== 0) throw new Error(json.message || '发送失败')
+      if (json.code !== 0) throw new Error(json.message || t('chatPage.sendFail'))
       const data = json.data || {}
       pending.content = data.answer || ''
       ;(pending.citations ||= []).push(...(data.citations || []))
@@ -447,7 +450,7 @@ async function streamCall(url: string, body: any, pending: ChatMessage) {
     }
   } catch (e: any) {
     if (e.name !== 'AbortError' && !userStopped) {
-      ElMessage.warning('连接中断，正在续传…')
+      ElMessage.warning(t('chatPage.connectionResume'))
       const resumed = await resumeStream(pending)
       if (!resumed) await recoverStream()
     }
@@ -471,7 +474,7 @@ function handleEvent(event: string, data: any, pending: ChatMessage) {
     upsertTool(pending, data, false)
     scrollToBottom()
   } else if (event === 'moderation') {
-    ElMessage.warning(data.tip || '内容审核提示')
+    ElMessage.warning(data.tip || t('chatPage.auditTip'))
   } else if (event === 'meta') {
     if (data.traceId) pending.traceId = data.traceId
   } else if (event === 'usage') {
@@ -481,7 +484,7 @@ function handleEvent(event: string, data: any, pending: ChatMessage) {
     if (data.status === 'STOPPED' || data.status === 'BLOCKED') pending.status = data.status
     loadSessions()
   } else if (event === 'error') {
-    ElMessage.error(data.message || '生成失败')
+    ElMessage.error(data.message || t('chatPage.genFail'))
   }
 }
 
@@ -498,17 +501,17 @@ function upsertTool(pending: ChatMessage, data: any, running: boolean) {
 
 function toolTypeText(type?: string) {
   const map: Record<string, string> = {
-    RAG: '知识库', API: 'API', MCP: 'MCP', SKILL: '技能',
-    BUILTIN: '内置', SUB_AGENT: '子 Agent'
+    RAG: t('chatPage.toolRag'), API: t('chatPage.toolApi'), MCP: t('chatPage.toolMcp'), SKILL: t('chatPage.toolSkill'),
+    BUILTIN: t('chatPage.toolBuiltin'), SUB_AGENT: t('chatPage.toolSubAgent')
   }
-  return map[type || ''] || (type || '工具')
+  return map[type || ''] || (type || t('chatPage.toolGeneric'))
 }
 
 function toolStatusText(status?: string) {
-  if (status === 'RUNNING') return '执行中'
-  if (status === 'ERROR') return '失败'
-  if (status === 'CANCELLED') return '已取消'
-  return '完成'
+  if (status === 'RUNNING') return t('chatPage.statusRunning')
+  if (status === 'ERROR') return t('chatPage.statusError')
+  if (status === 'CANCELLED') return t('chatPage.statusCancelled')
+  return t('chatPage.statusDone')
 }
 
 function toolStatusClass(status?: string) {
@@ -552,7 +555,7 @@ async function resumeStream(pending: ChatMessage): Promise<boolean> {
     }
     return gotDone
   } catch (e: any) {
-    if (e.name !== 'AbortError') console.warn('续传失败', e?.message)
+    if (e.name !== 'AbortError') console.warn('resume failed', e?.message)
     return false
   }
 }
@@ -571,20 +574,20 @@ async function recoverStream() {
           id: m.id, role: m.role, content: m.content, status: m.status,
           feedback: m.feedback, citations: [], attachments: m.attachments || []
         }))
-        ElMessage.info('连接中断，已恢复已生成内容')
+        ElMessage.info(t('chatPage.resumeDone'))
         await loadSessions()
         scrollToBottom()
         return
       }
     } catch (e: any) {
-      console.warn('断线恢复失败', e?.message)
+      console.warn('resume failed', e?.message)
     }
   }
-  ElMessage.error('连接中断，请重新发送或刷新页面')
+  ElMessage.error(t('chatPage.resumeFail'))
 }
 
 function openCaseDialog(m: ChatMessage) {
-  if (!m.id) { ElMessage.warning('消息尚未保存完成'); return }
+  if (!m.id) { ElMessage.warning(t('chatPage.msgNotSaved')); return }
   Object.assign(caseForm, {
     assistantMessageId: m.id, kind: 'BAD', expectedAnswer: '', note: ''
   })
@@ -593,7 +596,7 @@ function openCaseDialog(m: ChatMessage) {
 
 async function saveCase() {
   if (caseForm.kind === 'BAD' && !caseForm.expectedAnswer.trim()) {
-    ElMessage.warning('坏例建议填写期望答案；也可先收藏，稍后在用例库审核时补充')
+    ElMessage.warning(t('chatPage.badExpectedHint'))
   }
   caseSaving.value = true
   try {
@@ -603,7 +606,7 @@ async function saveCase() {
       expectedAnswer: caseForm.expectedAnswer || null,
       note: caseForm.note || null
     })
-    ElMessage.success('已收藏到用例库（待审核）')
+    ElMessage.success(t('chatPage.caseSaved'))
     caseVisible.value = false
   } finally {
     caseSaving.value = false
@@ -613,9 +616,9 @@ async function saveCase() {
 async function copyMessage(m: ChatMessage) {
   try {
     await navigator.clipboard.writeText(m.content || '')
-    ElMessage.success('已复制')
+    ElMessage.success(t('chatPage.copied'))
   } catch {
-    ElMessage.error('复制失败')
+    ElMessage.error(t('chatPage.copyFail'))
   }
 }
 
@@ -628,12 +631,12 @@ function openCitation(c: any) {
 async function sessionCommand(command: string, session: SessionItem) {
   if (command === 'rename') {
     try {
-      const { value } = await ElMessageBox.prompt('输入新的会话名称', '重命名会话',
-        { inputValue: session.title, confirmButtonText: '保存', cancelButtonText: '取消' })
+      const { value } = await ElMessageBox.prompt(t('chatPage.renamePrompt'), t('chatPage.renameTitle'),
+        { inputValue: session.title, confirmButtonText: t('chatPage.save'), cancelButtonText: t('chatPage.cancel') })
       if (!value?.trim()) return
       await http.put(`/conversations/${session.id}`, { title: value.trim() })
       await loadSessions()
-      ElMessage.success('已重命名')
+      ElMessage.success(t('chatPage.renamed'))
     } catch { /* 取消 */ }
   } else if (command === 'pin') {
     await http.put(`/conversations/${session.id}`, { pinned: !session.pinned })
@@ -655,8 +658,8 @@ async function feedback(m: ChatMessage, type: string) {
   await http.post(`/conversations/${conversationId.value}/messages/${m.id}/feedback`, { type })
   // 后端 upsert：重复提交同类型 = 取消，不同类型 = 切换
   m.feedback = m.feedback === type ? null : type
-  if (m.feedback) ElMessage.success(m.feedback === 'UP' ? '已点赞' : '已点踩')
-  else ElMessage.info('已取消反馈')
+  if (m.feedback) ElMessage.success(m.feedback === 'UP' ? t('chatPage.upvoted') : t('chatPage.downvoted'))
+  else ElMessage.info(t('chatPage.feedbackCancelled'))
 }
 
 async function share() {
@@ -667,13 +670,13 @@ async function share() {
 
 function copyShare() {
   navigator.clipboard.writeText(shareUrl.value)
-  ElMessage.success('已复制')
+  ElMessage.success(t('chatPage.copied'))
 }
 
 async function uploadFile(file: File) {
   if (!file || !conversationId.value) return
   if (file.size > 20 * 1024 * 1024) {
-    ElMessage.warning('附件不能超过 20MB')
+    ElMessage.warning(t('chatPage.attachmentTooLarge'))
     return
   }
   const fd = new FormData()
@@ -683,7 +686,7 @@ async function uploadFile(file: File) {
   }) as any
   const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined
   attachments.value.push({ attachmentId: data.attachmentId, fileName: data.fileName, previewUrl })
-  ElMessage.success(`附件已上传：${data.fileName}`)
+  ElMessage.success(`${t('chatPage.attachmentUploaded')}${data.fileName}`)
 }
 
 async function uploadAttachment(e: Event) {
@@ -732,7 +735,7 @@ async function startRecord(event: MouseEvent) {
       volumeBars.value = Array.from({ length: 18 }, () => 3)
       if (recordCancel.value) {
         audioChunks = []
-        ElMessage.info('已取消录音')
+        ElMessage.info(t('chatPage.recordingCancelled'))
         return
       }
       await transcribe()
@@ -755,7 +758,7 @@ async function startRecord(event: MouseEvent) {
     recording.value = true
     tick()
   } catch {
-    ElMessage.error('无法访问麦克风，请检查浏览器权限')
+    ElMessage.error(t('chatPage.micDenied'))
   }
 }
 
@@ -784,10 +787,10 @@ async function transcribe() {
     }) as any
     if (data?.text) {
       input.value = (input.value ? input.value + ' ' : '') + data.text
-      ElMessage.success('语音已转文字')
+      ElMessage.success(t('chatPage.speechDone'))
     }
   } catch (e: any) {
-    ElMessage.error('转写失败：' + (e.message || '未知错误'))
+    ElMessage.error(t('chatPage.speechFail') + (e.message || t('chatPage.unknownError')))
   }
 }
 
