@@ -172,6 +172,34 @@ const messages = {
       cancel: '取消', save: '保存', contentRequired: '记忆内容不能为空', saved: '已保存',
       deleteConfirm: '删除后该记忆不再注入对话，确认？', deleteTitle: '删除记忆', deleted: '已删除'
     },
+    userAdmin: {
+      invite: '邀请成员', members: '成员（', username: '用户名', displayName: '显示名', role: '角色',
+      status: '状态', lastLogin: '最近登录', actions: '操作', save: '保存', cancel: '取消',
+      adjustRole: '调整角色', remove: '移除', invitations: '邀请记录', email: '邮箱',
+      preRole: '预分配角色', expires: '过期时间', copyLink: '复制链接', inviteTitle: '邀请成员',
+      emailLabel: '邮箱/标识', emailPh: '对方邮箱（记录用，暂不发邮件）', roleLabel: '角色',
+      createInvite: '生成邀请', rolesUpdated: '角色已更新', removeConfirmPrefix: '确认移除成员「',
+      removeConfirmMid: '」？移除后该账号将被禁用并退出登录。', removeTitle: '移除成员', removed: '已移除',
+      inviteCreated: '邀请已生成，链接已复制：', linkCopied: '邀请链接已复制',
+      accepted: '已接受', expiredStatus: '已过期', pending: '待接受'
+    },
+    tenantAdmin: {
+      save: '保存', basic: '基本信息', tenantKey: '租户标识', name: '名称', status: '状态',
+      createdAt: '创建时间', quota: '配额', agentLimit: 'Agent 上限', kbLimit: '知识库上限',
+      dailyTokens: '每日 Token', storageLimit: '存储上限', apiRate: 'API 限流/分',
+      quotaHint: '配额由平台管理员调整（配额变更流程见需求 3.8）', ownerTransfer: '所有者转让',
+      selectOwner: '选择新所有者', transfer: '转让所有者', transferHint: '转让后当前所有者转为管理员；需二次确认。',
+      sso: '单点登录（SSO / OIDC）', enableSso: '启用 SSO', buttonName: '按钮名称',
+      issuerPh: 'https://idp.example.com（OIDC 发现根地址）', secretSetPh: '已配置（留空或 ****** 不修改）',
+      secretPh: '请输入 Client Secret', redirect: '回调地址', autoProvision: '自动开通用户',
+      defaultRole: '默认角色', member: '普通成员', editor: '编辑者', saveSso: '保存 SSO 配置',
+      ssoHint: 'Client Secret 加密存储；留空或填 ****** 表示不修改。启用后登录页可使用「企业 SSO 登录」。',
+      config: '租户配置（config_key → 值）', key: '配置项', value: '值', remove: '删',
+      newKeyPh: '新配置项 key，如 defaultModel', valuePh: '值', add: '添加',
+      selectOwnerWarn: '请选择新所有者', transferConfirmPrefix: '确认将所有者转让给「',
+      transferConfirmMid: '」？你将变为管理员。', transferTitle: '转让所有者', confirmTransfer: '确认转让',
+      transferred: '已转让所有者', ssoSaved: 'SSO 配置已保存', saved: '已保存'
+    },
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
       templates: '模板库', approvals: '人工审批箱', audit: '审计日志', billing: '计费管理',
@@ -361,6 +389,34 @@ const messages = {
       fact: 'Fact', preference: 'Preference', profile: 'Profile', other: 'Other', scope: 'Scope',
       cancel: 'Cancel', save: 'Save', contentRequired: 'Memory content is required', saved: 'Saved',
       deleteConfirm: 'This memory will no longer be injected. Continue?', deleteTitle: 'Delete memory', deleted: 'Deleted'
+    },
+    userAdmin: {
+      invite: 'Invite member', members: 'Members (', username: 'Username', displayName: 'Display name', role: 'Role',
+      status: 'Status', lastLogin: 'Last login', actions: 'Actions', save: 'Save', cancel: 'Cancel',
+      adjustRole: 'Adjust roles', remove: 'Remove', invitations: 'Invitations', email: 'Email',
+      preRole: 'Assigned role', expires: 'Expires', copyLink: 'Copy link', inviteTitle: 'Invite member',
+      emailLabel: 'Email / identifier', emailPh: 'Email for record only; no email is sent', roleLabel: 'Role',
+      createInvite: 'Create invite', rolesUpdated: 'Roles updated', removeConfirmPrefix: 'Remove member "',
+      removeConfirmMid: '"? The account will be disabled and signed out.', removeTitle: 'Remove member', removed: 'Removed',
+      inviteCreated: 'Invite created; link copied: ', linkCopied: 'Invite link copied',
+      accepted: 'Accepted', expiredStatus: 'Expired', pending: 'Pending'
+    },
+    tenantAdmin: {
+      save: 'Save', basic: 'Basic info', tenantKey: 'Tenant key', name: 'Name', status: 'Status',
+      createdAt: 'Created', quota: 'Quota', agentLimit: 'Agent limit', kbLimit: 'Knowledge base limit',
+      dailyTokens: 'Daily tokens', storageLimit: 'Storage limit', apiRate: 'API rate/min',
+      quotaHint: 'Quota is managed by platform admins', ownerTransfer: 'Owner transfer',
+      selectOwner: 'Select new owner', transfer: 'Transfer ownership', transferHint: 'Current owner becomes admin; confirmation required.',
+      sso: 'Single sign-on (SSO / OIDC)', enableSso: 'Enable SSO', buttonName: 'Button label',
+      issuerPh: 'https://idp.example.com (OIDC discovery root)', secretSetPh: 'Configured (leave blank or ****** to keep)',
+      secretPh: 'Enter Client Secret', redirect: 'Redirect URI', autoProvision: 'Auto-provision users',
+      defaultRole: 'Default role', member: 'Member', editor: 'Editor', saveSso: 'Save SSO config',
+      ssoHint: 'Client Secret is encrypted. Leave blank or ****** to keep it. Enabling shows Enterprise SSO on login.',
+      config: 'Tenant config (config_key → value)', key: 'Key', value: 'Value', remove: 'Remove',
+      newKeyPh: 'New key, e.g. defaultModel', valuePh: 'Value', add: 'Add',
+      selectOwnerWarn: 'Please select a new owner', transferConfirmPrefix: 'Transfer ownership to "',
+      transferConfirmMid: '"? You will become an admin.', transferTitle: 'Transfer ownership', confirmTransfer: 'Confirm transfer',
+      transferred: 'Ownership transferred', ssoSaved: 'SSO config saved', saved: 'Saved'
     },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',

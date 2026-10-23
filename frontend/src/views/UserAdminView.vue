@@ -2,15 +2,15 @@
   <div class="page">
     <div class="toolbar">
       <span class="page-title">{{ t('page.users') }}</span>
-      <el-button type="primary" @click="inviteVisible = true">邀请成员</el-button>
+      <el-button type="primary" @click="inviteVisible = true">{{ t('userAdmin.invite') }}</el-button>
     </div>
 
     <el-card shadow="never" class="mb">
-      <template #header>成员（{{ members.length }}）</template>
+      <template #header>{{ t('userAdmin.members') }}{{ members.length }}）</template>
       <el-table :data="members" size="small">
-        <el-table-column prop="username" label="用户名" width="140" />
-        <el-table-column prop="displayName" label="显示名" width="140" />
-        <el-table-column label="角色" min-width="220">
+        <el-table-column prop="username" :label="t('userAdmin.username')" width="140" />
+        <el-table-column prop="displayName" :label="t('userAdmin.displayName')" width="140" />
+        <el-table-column :label="t('userAdmin.role')" min-width="220">
           <template #default="{ row }">
             <el-select v-if="row.id === editingId" v-model="editingRoles" multiple size="small" style="width: 100%">
               <el-option v-for="r in editableRoles" :key="r" :value="r" :label="r" />
@@ -20,19 +20,19 @@
             </template>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="80" />
-        <el-table-column label="最近登录" width="150">
+        <el-table-column prop="status" :label="t('userAdmin.status')" width="80" />
+        <el-table-column :label="t('userAdmin.lastLogin')" width="150">
           <template #default="{ row }">{{ fmt(row.lastLoginAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="210">
+        <el-table-column :label="t('userAdmin.actions')" width="210">
           <template #default="{ row }">
             <template v-if="row.id === editingId">
-              <el-button size="small" type="primary" @click="saveRoles(row)">保存</el-button>
-              <el-button size="small" @click="editingId = null">取消</el-button>
+              <el-button size="small" type="primary" @click="saveRoles(row)">{{ t('userAdmin.save') }}</el-button>
+              <el-button size="small" @click="editingId = null">{{ t('userAdmin.cancel') }}</el-button>
             </template>
             <template v-else>
-              <el-button size="small" @click="startEdit(row)">调整角色</el-button>
-              <el-button size="small" text type="danger" @click="removeMember(row)">移除</el-button>
+              <el-button size="small" @click="startEdit(row)">{{ t('userAdmin.adjustRole') }}</el-button>
+              <el-button size="small" text type="danger" @click="removeMember(row)">{{ t('userAdmin.remove') }}</el-button>
             </template>
           </template>
         </el-table-column>
@@ -40,42 +40,42 @@
     </el-card>
 
     <el-card shadow="never">
-      <template #header>邀请记录</template>
+      <template #header>{{ t('userAdmin.invitations') }}</template>
       <el-table :data="invitations" size="small">
-        <el-table-column prop="email" label="邮箱" min-width="180" />
-        <el-table-column prop="role" label="预分配角色" width="110" />
-        <el-table-column label="状态" width="90">
+        <el-table-column prop="email" :label="t('userAdmin.email')" min-width="180" />
+        <el-table-column prop="role" :label="t('userAdmin.preRole')" width="110" />
+        <el-table-column :label="t('userAdmin.status')" width="90">
           <template #default="{ row }">
             <el-tag size="small" :type="row.status === 'ACCEPTED' ? 'success' : row.status === 'EXPIRED' ? 'info' : 'warning'">
               {{ statusText(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="过期时间" width="150">
+        <el-table-column :label="t('userAdmin.expires')" width="150">
           <template #default="{ row }">{{ fmt(row.expiresAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="120">
+        <el-table-column :label="t('userAdmin.actions')" width="120">
           <template #default="{ row }">
-            <el-button v-if="row.status === 'PENDING'" size="small" text type="primary" @click="copyLink(row)">复制链接</el-button>
+            <el-button v-if="row.status === 'PENDING'" size="small" text type="primary" @click="copyLink(row)">{{ t('userAdmin.copyLink') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
 
-    <el-dialog v-model="inviteVisible" title="邀请成员" width="460px">
+    <el-dialog v-model="inviteVisible" :title="t('userAdmin.inviteTitle')" width="460px">
       <el-form label-width="90px">
-        <el-form-item label="邮箱/标识">
-          <el-input v-model="inviteForm.email" placeholder="对方邮箱（记录用，暂不发邮件）" />
+        <el-form-item :label="t('userAdmin.emailLabel')">
+          <el-input v-model="inviteForm.email" :placeholder="t('userAdmin.emailPh')" />
         </el-form-item>
-        <el-form-item label="角色">
+        <el-form-item :label="t('userAdmin.role')">
           <el-select v-model="inviteForm.role" style="width: 100%">
             <el-option v-for="r in editableRoles" :key="r" :value="r" :label="r" />
           </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="inviteVisible = false">取消</el-button>
-        <el-button type="primary" @click="createInvite">生成邀请</el-button>
+        <el-button @click="inviteVisible = false">{{ t('userAdmin.cancel') }}</el-button>
+        <el-button type="primary" @click="createInvite">{{ t('userAdmin.createInvite') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -111,17 +111,17 @@ function startEdit(row: any) {
 
 async function saveRoles(row: any) {
   await http.put(`/users/${row.id}/roles`, { roles: editingRoles.value })
-  ElMessage.success('角色已更新')
+  ElMessage.success(t('userAdmin.rolesUpdated'))
   editingId.value = null
   await load()
 }
 
 async function removeMember(row: any) {
   await ElMessageBox.confirm(
-    `确认移除成员「${row.displayName || row.username}」？移除后该账号将被禁用并退出登录。`,
-    '移除成员', { type: 'warning', confirmButtonText: '移除', cancelButtonText: '取消' })
+    `${t('userAdmin.removeConfirmPrefix')}${row.displayName || row.username}${t('userAdmin.removeConfirmMid')}`,
+    t('userAdmin.removeTitle'), { type: 'warning', confirmButtonText: t('userAdmin.remove'), cancelButtonText: t('userAdmin.cancel') })
   await http.delete(`/users/${row.id}`)
-  ElMessage.success('已移除')
+  ElMessage.success(t('userAdmin.removed'))
   await load()
 }
 
@@ -129,7 +129,7 @@ async function createInvite() {
   const res = await http.post('/auth/invitations', inviteForm) as any
   const link = `${location.origin}/login?invite=${res.token}`
   navigator.clipboard.writeText(link).catch(() => {})
-  ElMessage.success(`邀请已生成，链接已复制：${link}`)
+  ElMessage.success(`${t('userAdmin.inviteCreated')}${link}`)
   inviteVisible.value = false
   await load()
 }
@@ -137,12 +137,12 @@ async function createInvite() {
 function copyLink(row: any) {
   const link = `${location.origin}/login?invite=${row.token}`
   navigator.clipboard.writeText(link).catch(() => {})
-  ElMessage.success('邀请链接已复制')
+  ElMessage.success(t('userAdmin.linkCopied'))
 }
 
 function fmt(t?: string) { return t ? String(t).replace('T', ' ').slice(0, 16) : '-' }
 function statusText(s: string) {
-  return s === 'ACCEPTED' ? '已接受' : s === 'EXPIRED' ? '已过期' : '待接受'
+  return s === 'ACCEPTED' ? t('userAdmin.accepted') : s === 'EXPIRED' ? t('userAdmin.expiredStatus') : t('userAdmin.pending')
 }
 </script>
 
