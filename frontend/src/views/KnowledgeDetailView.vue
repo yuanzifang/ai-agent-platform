@@ -2,83 +2,83 @@
   <div class="page">
     <div class="toolbar">
       <el-button text @click="$router.push('/knowledge')">
-        <el-icon><ArrowLeft /></el-icon> 返回
+        <el-icon><ArrowLeft /></el-icon> {{ t('kbDetail.back') }}
       </el-button>
       <span class="kb-title">{{ detail.name }}</span>
       <el-tag size="small" :type="visTag(detail.visibility)">{{ visText(detail.visibility) }}</el-tag>
-      <span class="kb-meta">文档 {{ detail.documentCount }} · 分段 {{ detail.chunkCount }} · 创建人 {{ detail.creatorName || '-' }}</span>
-      <el-button v-if="detail.canEdit" @click="openEdit">编辑</el-button>
-      <el-button v-if="detail.canEdit" @click="openPermission">权限设置</el-button>
+      <span class="kb-meta">{{ t('kbDetail.metaDocs') }}{{ detail.documentCount }}{{ t('kbDetail.metaChunks') }}{{ detail.chunkCount }}{{ t('kbDetail.creator') }}{{ detail.creatorName || '-' }}</span>
+      <el-button v-if="detail.canEdit" @click="openEdit">{{ t('kbDetail.edit') }}</el-button>
+      <el-button v-if="detail.canEdit" @click="openPermission">{{ t('kbDetail.permission') }}</el-button>
       <el-upload v-if="detail.canEdit" :show-file-list="false" :before-upload="upload" :disabled="uploading"
                  accept=".md,.txt,.docx,.pdf,.xlsx,.xls,.pptx,.html,.htm,.csv,.json,.png,.jpg,.jpeg,.bmp,.tif,.tiff">
         <el-button type="primary" :loading="uploading">
-          {{ uploading ? '上传中…' : '上传文档' }}
+          {{ uploading ? t('kbDetail.uploading') : t('kbDetail.upload') }}
         </el-button>
       </el-upload>
-      <el-button v-if="detail.canEdit" @click="urlVisible = true">URL 导入</el-button>
-      <el-button v-if="detail.canEdit" type="danger" plain @click="removeKb">删除</el-button>
+      <el-button v-if="detail.canEdit" @click="urlVisible = true">{{ t('kbDetail.urlImport') }}</el-button>
+      <el-button v-if="detail.canEdit" type="danger" plain @click="removeKb">{{ t('kbDetail.deleteKb') }}</el-button>
     </div>
 
     <div v-if="detail.canEdit" class="upload-hint">
-      支持 PDF/DOCX/XLSX/XLS/PPTX/HTML/MD/TXT/CSV/JSON；扫描版 PDF/图片需后端启用 OCR（tesseract）。
+      {{ t('kbDetail.uploadHint') }}
     </div>
 
     <div class="body">
       <!-- 文档列表 + 分段 -->
       <div class="docs">
-        <div class="sec-title">文档（{{ documents.length }}）</div>
+        <div class="sec-title">{{ t('kbDetail.docs') }}{{ documents.length }}）</div>
         <el-table :data="documents" size="small" @row-click="toggleChunks">
-          <el-table-column prop="fileName" label="文件名" min-width="180" />
-          <el-table-column label="状态" width="100">
+          <el-table-column prop="fileName" :label="t('kbDetail.fileName')" min-width="180" />
+          <el-table-column :label="t('kbDetail.status')" width="100">
             <template #default="{ row }">
               <el-tag size="small" :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="chunkCount" label="分段" width="70" />
-          <el-table-column label="错误" min-width="160">
+          <el-table-column prop="chunkCount" :label="t('kbDetail.chunks')" width="70" />
+          <el-table-column :label="t('kbDetail.error')" min-width="160">
             <template #default="{ row }">
               <span class="err">{{ row.errorMessage || '' }}</span>
-              <span v-if="row.retryTimes > 0" class="retry-tip">（已重试 {{ row.retryTimes }} 次）</span>
+              <span v-if="row.retryTimes > 0" class="retry-tip">{{ t('kbDetail.retriedPrefix') }}{{ row.retryTimes }}{{ t('kbDetail.retriedSuffix') }}</span>
             </template>
           </el-table-column>
-          <el-table-column v-if="detail.canEdit" label="操作" width="150">
+          <el-table-column v-if="detail.canEdit" :label="t('kbDetail.actions')" width="150">
             <template #default="{ row }">
               <el-button v-if="row.status === 'FAILED'" size="small" text type="warning"
-                         @click.stop="retryDoc(row)">重试</el-button>
-              <el-button size="small" text type="danger" @click.stop="removeDoc(row)">删除</el-button>
+                         @click.stop="retryDoc(row)">{{ t('kbDetail.retry') }}</el-button>
+              <el-button size="small" text type="danger" @click.stop="removeDoc(row)">{{ t('kbDetail.deleteKb') }}</el-button>
             </template>
           </el-table-column>
         </el-table>
 
         <div v-if="chunks.docId" class="chunks">
           <div class="sec-title">
-            分段预览（{{ chunks.docName }}，共 {{ chunks.total }} 段）
-            <el-button size="small" text @click="chunks.docId = null">收起</el-button>
+            {{ t('kbDetail.chunkPreview') }}{{ chunks.docName }}{{ t('kbDetail.totalChunks') }}{{ chunks.total }}{{ t('kbDetail.totalSuffix') }}
+            <el-button size="small" text @click="chunks.docId = null">{{ t('kbDetail.collapse') }}</el-button>
           </div>
           <div v-for="c in chunks.list" :key="c.id" class="chunk">
             <span class="idx">#{{ c.chunkIndex }}</span>
             <span class="text">{{ c.content }}</span>
             <el-button v-if="detail.canEdit" size="small" text type="primary"
-                       @click="openChunkAcl(c)">授权</el-button>
+                       @click="openChunkAcl(c)">{{ t('kbDetail.authorize') }}</el-button>
           </div>
         </div>
       </div>
 
       <!-- 检索测试 -->
       <div class="retrieval">
-        <div class="sec-title">检索测试</div>
-        <el-input v-model="search.query" placeholder="输入查询文本，验证召回效果" @keydown.enter="doSearch" />
+        <div class="sec-title">{{ t('kbDetail.searchTitle') }}</div>
+        <el-input v-model="search.query" :placeholder="t('kbDetail.searchPh')" @keydown.enter="doSearch" />
         <div class="params">
           <el-select v-model="search.mode" size="small" style="width: 100px">
-            <el-option label="混合" value="hybrid" />
-            <el-option label="向量" value="vector" />
-            <el-option label="关键字" value="keyword" />
+            <el-option :label="t('kbDetail.hybrid')" value="hybrid" />
+            <el-option :label="t('kbDetail.vector')" value="vector" />
+            <el-option :label="t('kbDetail.keyword')" value="keyword" />
           </el-select>
           topK <el-input-number v-model="search.topK" :min="1" :max="20" size="small" />
-          阈值 <el-input-number v-model="search.scoreThreshold" :min="0" :max="1" :step="0.05" size="small" />
-          <el-button size="small" type="primary" :loading="searching" @click="doSearch">检索</el-button>
+          {{ t('kbDetail.threshold') }} <el-input-number v-model="search.scoreThreshold" :min="0" :max="1" :step="0.05" size="small" />
+          <el-button size="small" type="primary" :loading="searching" @click="doSearch">{{ t('kbDetail.search') }}</el-button>
         </div>
-        <el-empty v-if="searched && results.length === 0" description="无命中（阈值过高或未入库）" :image-size="60" />
+        <el-empty v-if="searched && results.length === 0" :description="t('kbDetail.noHits')" :image-size="60" />
         <div v-for="(r, i) in results" :key="i" class="hit">
           <div class="hit-head">
             <el-progress :percentage="Math.round(r.score * 100)" :stroke-width="10"
@@ -90,78 +90,78 @@
       </div>
     </div>
 
-    <el-dialog v-model="editVisible" title="编辑知识库" width="480px">
+    <el-dialog v-model="editVisible" :title="t('kbDetail.editTitle')" width="480px">
       <el-form label-width="70px">
-        <el-form-item label="名称" required>
+        <el-form-item :label="t('kbDetail.name')" required>
           <el-input v-model="editForm.name" maxlength="128" />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="t('kbDetail.desc')">
           <el-input v-model="editForm.description" type="textarea" :rows="2" maxlength="512" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" :loading="editSaving" @click="saveEdit">保存</el-button>
+        <el-button @click="editVisible = false">{{ t('kbDetail.cancel') }}</el-button>
+        <el-button type="primary" :loading="editSaving" @click="saveEdit">{{ t('kbDetail.save') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- 权限设置（需求 3.6.3(5)：只有我 / 所有团队成员 / 部分团队成员） -->
-    <el-dialog v-model="urlVisible" title="从 URL 导入" width="540px">
+    <el-dialog v-model="urlVisible" :title="t('kbDetail.urlTitle')" width="540px">
       <el-form label-width="70px">
         <el-form-item label="URL" required>
           <el-input v-model="urlForm.url" placeholder="https://example.com/manual.html" />
         </el-form-item>
       </el-form>
-      <div class="hint">支持网页/PDF/文本/JSON/CSV；生产建议 TOOL_ALLOW_PRIVATE=false，防止抓取内网地址。</div>
+      <div class="hint">{{ t('kbDetail.urlHint') }}</div>
       <template #footer>
-        <el-button @click="urlVisible = false">取消</el-button>
-        <el-button type="primary" :loading="urlImporting" @click="importUrl">导入</el-button>
+        <el-button @click="urlVisible = false">{{ t('kbDetail.cancel') }}</el-button>
+        <el-button type="primary" :loading="urlImporting" @click="importUrl">{{ t('kbDetail.import') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="permVisible" title="权限设置" width="620px">
+    <el-dialog v-model="permVisible" :title="t('kbDetail.permTitle')" width="620px">
       <el-form label-width="90px">
-        <el-form-item label="可见范围">
+        <el-form-item :label="t('kbDetail.visibility')">
           <el-radio-group v-model="perm.visibility">
-            <el-radio value="PRIVATE">只有我</el-radio>
-            <el-radio value="TENANT">所有团队成员</el-radio>
-            <el-radio value="PARTIAL">部分团队成员</el-radio>
+            <el-radio value="PRIVATE">{{ t('kbDetail.private') }}</el-radio>
+            <el-radio value="TENANT">{{ t('kbDetail.tenantAll') }}</el-radio>
+            <el-radio value="PARTIAL">{{ t('kbDetail.partial') }}</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item v-if="perm.visibility === 'PARTIAL'" label="授权成员">
+        <el-form-item v-if="perm.visibility === 'PARTIAL'" :label="t('kbDetail.grantedMembers')">
           <el-table :data="grantableMembers" size="small" max-height="300" class="member-table">
             <el-table-column width="46">
               <template #default="{ row }">
                 <el-checkbox :model-value="isGranted(row.id)" @change="toggleGrant(row.id)" />
               </template>
             </el-table-column>
-            <el-table-column label="成员">
+            <el-table-column :label="t('kbDetail.member')">
               <template #default="{ row }">{{ memberLabel(row) }}</template>
             </el-table-column>
-            <el-table-column label="权限" width="130">
+            <el-table-column :label="t('kbDetail.perm')" width="130">
               <template #default="{ row }">
                 <el-select :model-value="permOf(row.id)" :disabled="!isGranted(row.id)"
                            size="small" @change="(v: string) => setPerm(row.id, v)">
-                  <el-option label="可查看" value="VIEW" />
-                  <el-option label="可编辑" value="EDIT" />
+                  <el-option :label="t('kbDetail.view')" value="VIEW" />
+                  <el-option :label="t('kbDetail.editPerm')" value="EDIT" />
                 </el-select>
               </template>
             </el-table-column>
           </el-table>
-          <el-empty v-if="grantableMembers.length === 0" description="暂无可授权成员" :image-size="50" />
+          <el-empty v-if="grantableMembers.length === 0" :description="t('kbDetail.noGrantable')" :image-size="50" />
         </el-form-item>
         <div class="perm-tip">
-          <div>· 管理员/编辑者需先被授予可见权限，方可编辑；「只有我」仅创建者可访问。</div>
-          <div>· 「所有团队成员」不含受限成员；权限变更在检索入口实时生效。</div>
+          <div>{{ t('kbDetail.permTip1') }}</div>
+          <div>{{ t('kbDetail.permTip2') }}</div>
         </div>
       </el-form>
       <template #footer>
-        <el-button @click="permVisible = false">取消</el-button>
-        <el-button type="primary" :loading="savingPerm" @click="savePermission">保存</el-button>
+        <el-button @click="permVisible = false">{{ t('kbDetail.cancel') }}</el-button>
+        <el-button type="primary" :loading="savingPerm" @click="savePermission">{{ t('kbDetail.save') }}</el-button>
       </template>
     </el-dialog>
-    <el-dialog v-model="imagesVisible" :title="`文档图片：${imagesDocName}`" width="760px">
-      <el-empty v-if="!documentImages.length" description="该文档未提取到内嵌图片" :image-size="60" />
+    <el-dialog v-model="imagesVisible" :title="`${t('kbDetail.imagesTitle')}${imagesDocName}`" width="760px">
+      <el-empty v-if="!documentImages.length" :description="t('kbDetail.noImages')" :image-size="60" />
       <div v-else class="image-grid">
         <div v-for="img in documentImages" :key="img.id" class="image-card">
           <el-image :src="img.url" fit="contain" style="width: 100%; height: 150px" />
@@ -170,34 +170,37 @@
       </div>
     </el-dialog>
 
-    <el-dialog v-model="aclVisible" title="分段独立授权" width="520px">
+    <el-dialog v-model="aclVisible" :title="t('kbDetail.aclTitle')" width="520px">
       <el-form label-width="100px">
-        <el-form-item label="租户可见">
+        <el-form-item :label="t('kbDetail.tenantVisible')">
           <el-switch v-model="aclForm.tenantVisible" />
-          <span class="hint" style="margin-left:8px">开启后租户内非受限成员可检索该分段</span>
+          <span class="hint" style="margin-left:8px">{{ t('kbDetail.tenantVisibleHint') }}</span>
         </el-form-item>
-        <el-form-item label="指定用户">
+        <el-form-item :label="t('kbDetail.assignedUsers')">
           <el-select v-model="aclForm.users" multiple filterable style="width:100%"
-                     :disabled="aclForm.tenantVisible" placeholder="选择额外授权用户">
+                     :disabled="aclForm.tenantVisible" :placeholder="t('kbDetail.selectUsers')">
             <el-option v-for="m in aclMembers" :key="m.id" :value="m.id"
                        :label="(m.displayName || m.username) + ' (' + m.id + ')'" />
           </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="aclVisible = false">取消</el-button>
-        <el-button type="primary" :loading="aclSaving" @click="saveChunkAcl">保存</el-button>
+        <el-button @click="aclVisible = false">{{ t('kbDetail.cancel') }}</el-button>
+        <el-button type="primary" :loading="aclSaving" @click="saveChunkAcl">{{ t('kbDetail.save') }}</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import http from '../api/http'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -272,13 +275,13 @@ function openEdit() {
 }
 
 async function saveEdit() {
-  if (!editForm.name.trim()) { ElMessage.warning('名称必填'); return }
+  if (!editForm.name.trim()) { ElMessage.warning(t('kbDetail.nameRequired')); return }
   editSaving.value = true
   try {
     await http.put(`/knowledge-base/${kbId}`, {
       name: editForm.name.trim(), description: editForm.description
     })
-    ElMessage.success('已保存')
+    ElMessage.success(t('kbDetail.saved'))
     editVisible.value = false
     await loadDetail()
   } finally {
@@ -291,13 +294,13 @@ async function removeKb() {
     const refs = await http.get(`/knowledge-base/${kbId}/references`) as any
     const agents: string[] = refs?.agents || []
     const msg = agents.length
-      ? `该知识库被 ${agents.length} 个 Agent 引用（${agents.join('、')}），删除后这些 Agent 将无法再检索它。确认删除？`
-      : `确认删除知识库「${detail.name}」？文档、分段与向量数据将一并删除，不可恢复。`
-    await ElMessageBox.confirm(msg, '删除知识库', {
+      ? `${t('kbDetail.deleteKbRefsPrefix')}${agents.length}${t('kbDetail.deleteKbRefsMid')}${agents.join('、')}${t('kbDetail.deleteKbRefsSuffix')}`
+      : `${t('kbDetail.deleteKbConfirmPrefix')}${detail.name}${t('kbDetail.deleteKbConfirmMid')}`
+    await ElMessageBox.confirm(msg, t('kbDetail.deleteKbTitle'), {
       type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消'
     })
     await http.delete(`/knowledge-base/${kbId}`, { params: { force: agents.length > 0 } })
-    ElMessage.success('已删除')
+    ElMessage.success(t('kbDetail.deleted'))
     router.push('/knowledge')
   } catch {
     // 用户取消或请求失败（拦截器已提示）
@@ -306,10 +309,10 @@ async function removeKb() {
 
 async function removeDoc(row: any) {
   try {
-    await ElMessageBox.confirm(`确认删除文档「${row.fileName}」？分段与向量数据将一并删除。`,
-      '删除文档', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+    await ElMessageBox.confirm(`${t('kbDetail.deleteDocPrefix')}${row.fileName}${t('kbDetail.deleteDocMid')}`,
+      t('kbDetail.deleteDocTitle'), { type: 'warning', confirmButtonText: t('kbDetail.delete'), cancelButtonText: t('kbDetail.cancel') })
     await http.delete(`/knowledge-base/${kbId}/documents/${row.id}`)
-    ElMessage.success('已删除')
+    ElMessage.success(t('kbDetail.deleted'))
     if (chunks.docId === row.id) chunks.docId = null
     await Promise.all([loadDocs(), loadDetail()])
   } catch {
@@ -320,7 +323,7 @@ async function removeDoc(row: any) {
 async function retryDoc(row: any) {
   try {
     await http.post(`/knowledge-base/${kbId}/documents/${row.id}/retry`)
-    ElMessage.success('已提交重试解析')
+    ElMessage.success(t('kbDetail.retrySubmitted'))
     if (chunks.docId === row.id) chunks.docId = null
     await loadDocs()
     pollDocs()
@@ -341,13 +344,13 @@ async function upload(file: File) {
       headers: { 'Content-Type': file.type || 'application/octet-stream' },
       body: file
     })
-    if (!putResp.ok) throw new Error('对象存储上传失败 ' + putResp.status)
+    if (!putResp.ok) throw new Error(t('kbDetail.uploadFailed') + putResp.status)
     await http.post(`/knowledge-base/${kbId}/documents/callback`, { objectName: presign.objectName })
-    ElMessage.success('已上传，后台解析分段中…')
+    ElMessage.success(t('kbDetail.uploaded'))
     await loadDocs()
     pollDocs()
   } catch (e: any) {
-    ElMessage.error('上传失败：' + (e.message || e))
+    ElMessage.error(t('kbDetail.uploadError') + (e.message || e))
   } finally {
     uploading.value = false
   }
@@ -355,11 +358,11 @@ async function upload(file: File) {
 }
 
 async function importUrl() {
-  if (!urlForm.url.trim()) { ElMessage.warning('请输入 URL'); return }
+  if (!urlForm.url.trim()) { ElMessage.warning(t('kbDetail.urlRequired')); return }
   urlImporting.value = true
   try {
     await http.post(`/knowledge-base/${kbId}/documents/url`, { url: urlForm.url.trim() })
-    ElMessage.success('已提交抓取，后台解析分段中…')
+    ElMessage.success(t('kbDetail.urlSubmitted'))
     urlVisible.value = false
     urlForm.url = ''
     await loadDocs()
@@ -385,7 +388,7 @@ async function openImages(row: any) {
     documentImages.value = (await http.get(`/knowledge-base/${kbId}/documents/${row.id}/images`) as any) || []
     imagesVisible.value = true
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '加载图片失败')
+    ElMessage.error(e?.response?.data?.message || t('kbDetail.imageLoadFailed'))
   }
 }
 
@@ -408,7 +411,7 @@ async function saveChunkAcl() {
     await http.put(`/knowledge-base/${kbId}/chunks/${aclChunk.value.id}/acl`, {
       allowedUsers: aclForm.users, tenantVisible: aclForm.tenantVisible
     })
-    ElMessage.success('分段授权已保存')
+    ElMessage.success(t('kbDetail.chunkAclSaved'))
     aclVisible.value = false
     await toggleChunks({ id: chunks.docId, fileName: chunks.docName })
   } finally {
@@ -441,7 +444,7 @@ async function openPermission() {
     members.value = ms || []
     permVisible.value = true
   } catch (e: any) {
-    ElMessage.error('加载权限失败：' + (e.message || e))
+    ElMessage.error(t('kbDetail.permissionLoadFailed') + (e.message || e))
   }
 }
 
@@ -470,7 +473,7 @@ async function savePermission() {
     await http.put(`/knowledge-base/${kbId}/permissions`, {
       visibility: perm.visibility, members: membersPayload
     })
-    ElMessage.success('权限已保存，立即生效')
+    ElMessage.success(t('kbDetail.permissionSaved'))
     permVisible.value = false
     await loadDetail()
   } finally {
@@ -479,7 +482,7 @@ async function savePermission() {
 }
 
 function visText(v: string) {
-  return v === 'PRIVATE' ? '只有我' : v === 'PARTIAL' ? '部分成员' : '所有团队成员'
+  return v === 'PRIVATE' ? t('kbDetail.visPrivate') : v === 'PARTIAL' ? t('kbDetail.visPartial') : t('kbDetail.visTenant')
 }
 function visTag(v: string) {
   return v === 'PRIVATE' ? 'info' : v === 'PARTIAL' ? 'warning' : 'success'
@@ -488,7 +491,7 @@ function statusType(s: string) {
   return s === 'DONE' ? 'success' : s === 'PARSING' ? 'warning' : s === 'FAILED' ? 'danger' : 'info'
 }
 function statusText(s: string) {
-  return s === 'DONE' ? '已完成' : s === 'PARSING' ? '解析中' : s === 'FAILED' ? '失败' : '待处理'
+  return s === 'DONE' ? t('kbDetail.done') : s === 'PARSING' ? t('kbDetail.parsing') : s === 'FAILED' ? t('kbDetail.failed') : t('kbDetail.pending')
 }
 </script>
 
