@@ -6,10 +6,10 @@
         <span v-else>{{ (info.name || 'AI').slice(0, 1) }}</span>
       </div>
       <div class="w-title">
-        <div class="w-name">{{ info.name || 'AI 助手' }}</div>
-        <div class="w-status"><span class="dot" /> 在线</div>
+        <div class="w-name">{{ info.name || t('widget.defaultName') }}</div>
+        <div class="w-status"><span class="dot" /> {{ t('widget.online') }}</div>
       </div>
-      <el-button size="small" text @click="reset">新对话</el-button>
+      <el-button size="small" text @click="reset">{{ t('widget.newChat') }}</el-button>
     </header>
 
     <main ref="listEl" class="w-body">
@@ -20,16 +20,19 @@
     </main>
 
     <footer class="w-foot">
-      <textarea v-model="input" rows="1" placeholder="输入问题，Enter 发送，Shift+Enter 换行"
+      <textarea v-model="input" rows="1" :placeholder="t('widget.inputPh')"
                 :disabled="!!fatal" @keydown.enter.exact.prevent="send" />
-      <el-button type="primary" :loading="sending" :disabled="!!fatal || !input.trim()" @click="send">发送</el-button>
+      <el-button type="primary" :loading="sending" :disabled="!!fatal || !input.trim()" @click="send">{{ t('widget.send') }}</el-button>
     </footer>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const key = String(route.query.key || '')
@@ -50,15 +53,15 @@ function newSession() {
 }
 
 async function loadInfo() {
-  if (!key) { fatal.value = '缺少挂件 Key，请在 Agent 集成中生成网页挂件链接。'; return }
+  if (!key) { fatal.value = t('widget.missingKey'); return }
   try {
     const res = await fetch('/api/v1/open/agent/info', { headers: { 'X-Api-Key': key } })
     const body = await res.json()
-    if (!res.ok || body.code !== 0) throw new Error(body.message || '加载失败')
+    if (!res.ok || body.code !== 0) throw new Error(body.message || t('widget.loadFail'))
     Object.assign(info, body.data || {})
-    messages.value = [{ role: 'assistant', content: info.openingStatement || `你好，我是${info.name || 'AI 助手'}，有什么可以帮你？` }]
+    messages.value = [{ role: 'assistant', content: info.openingStatement || `${t('widget.greetingPrefix')}${info.name || t('widget.defaultName')}${t('widget.greetingSuffix')}` }]
   } catch (e: any) {
-    fatal.value = e.message || '挂件配置无效'
+    fatal.value = e.message || t('widget.invalidConfig')
   }
 }
 
@@ -81,7 +84,7 @@ async function send() {
         messages: [{ role: 'user', content: text }]
       })
     })
-    if (!res.ok || !res.body) throw new Error(`请求失败（HTTP ${res.status}）`)
+    if (!res.ok || !res.body) throw new Error(`${t('widget.requestFail')}${res.status}）`)
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
@@ -98,7 +101,7 @@ async function send() {
         if (!payload || payload === '[DONE]') continue
         try {
           const chunk = JSON.parse(payload)
-          if (chunk.error) throw new Error(chunk.error.message || '生成失败')
+          if (chunk.error) throw new Error(chunk.error.message || t('widget.generateFail'))
           const content = chunk.choices?.[0]?.delta?.content
           if (content) {
             messages.value[index].content += content
@@ -110,7 +113,7 @@ async function send() {
       }
     }
   } catch (e: any) {
-    messages.value[index].content = messages.value[index].content || `抱歉，暂时无法回复：${e.message || '服务异常'}`
+    messages.value[index].content = messages.value[index].content || `${t('widget.replyFailPrefix')}${e.message || t('widget.serviceError')}`
   } finally {
     sending.value = false
     await scrollBottom()
@@ -124,7 +127,7 @@ async function scrollBottom() {
 
 function reset() {
   newSession()
-  messages.value = [{ role: 'assistant', content: info.openingStatement || `你好，我是${info.name || 'AI 助手'}，有什么可以帮你？` }]
+  messages.value = [{ role: 'assistant', content: info.openingStatement || `${t('widget.greetingPrefix')}${info.name || t('widget.defaultName')}${t('widget.greetingSuffix')}` }]
   input.value = ''
 }
 

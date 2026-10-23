@@ -3,26 +3,29 @@
     <div class="share-card">
       <div class="head">
         <div class="title">{{ detail.title }}</div>
-        <div class="sub">Agent：{{ detail.agentName }} · 只读分享 · 失效时间 {{ fmtTime(detail.expiresAt) }}</div>
+        <div class="sub">{{ t('sharePage.agent') }}{{ detail.agentName }}{{ t('sharePage.readonly') }}{{ fmtTime(detail.expiresAt) }}</div>
       </div>
       <div class="msgs">
         <div v-for="(m, i) in detail.messages" :key="i" class="msg" :class="m.role.toLowerCase()">
           <div class="bubble">
             <div class="content">{{ m.content }}</div>
-            <div v-if="m.isAiGenerated" class="ai-tag">AI 生成</div>
+            <div v-if="m.isAiGenerated" class="ai-tag">{{ t('sharePage.aiGenerated') }}</div>
           </div>
         </div>
-        <el-empty v-if="detail.messages.length === 0" description="会话暂无消息" />
+        <el-empty v-if="detail.messages.length === 0" :description="t('sharePage.noMessages')" />
       </div>
-      <div class="foot">由 AI Agent 平台生成 · 内容由 AI 生成，仅供参考</div>
+      <div class="foot">{{ t('sharePage.footer') }}</div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onMounted, reactive } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const detail = reactive<any>({ title: '', agentName: '', expiresAt: '', messages: [] })
