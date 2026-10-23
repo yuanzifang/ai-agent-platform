@@ -658,6 +658,34 @@ const messages = {
       workflowNameSuffix: ' 工作流', defaultStart: '开始', defaultEnd: '结束', approvalTitle: '人工审批',
       typeSkill: '技能', typeTool: '工具', typeAgent: 'Agent', invalidSuffix: '已失效（', invalidSuffix2: '）'
     },
+    layout: {
+      workbench: '工作台', assets: '资产', evalOps: '评测与运营', management: '管理',
+      lightMode: '切换浅色模式', darkMode: '切换深色模式', theme: '切换主题',
+      security: '安全设置', mfa: '多因素认证（MFA / TOTP）', enabled: '已启用', disabled: '未启用',
+      mfaHint: '启用后登录需要输入身份验证器中的 6 位动态码。', step1: '1. 在身份验证器（Google Authenticator / 1Password 等）添加账户，密钥：',
+      copy: '复制', step2: '2. 输入验证器生成的 6 位动态码：', codePh: '6 位动态码', enableMfa: '启用 MFA',
+      setupMfa: '初始化 MFA', recoveryLeft: '已启用；剩余恢复码 ', recoveryLeftSuffix: ' 个。关闭 MFA 需输入动态码或恢复码。',
+      codeOrRecoveryPh: '动态码或恢复码', disableMfa: '关闭 MFA', changePassword: '修改密码',
+      oldPassword: '原密码', newPassword: '新密码', newPasswordPh: '至少 8 位，含字母与数字', confirmPassword: '确认新密码',
+      changeBtn: '修改密码', changeHint: '修改成功后需重新登录', dataAccount: '数据与账号',
+      exportData: '导出我的数据（JSON）', deleteTitle: '注销账号',
+      deleteDesc: '注销前需清空名下 Agent/知识库；非唯一所有者。注销后账号禁用并匿名化，消息/审计按合规保留。',
+      currentPassword: '当前密码', confirmDeletePh: '输入“注销”确认', deleteBtn: '注销账号',
+      recoveryTitle: '恢复码（仅显示一次，请妥善保存）', copyAll: '复制全部',
+      codeRequired: '请输入动态码', mfaEnabled: 'MFA 已启用', codeOrRecoveryRequired: '请输入动态码或恢复码',
+      mfaDisabled: 'MFA 已关闭', pwdInvalid: '请填写原密码，新密码至少 8 位', pwdMismatch: '两次输入的新密码不一致',
+      pwdChanged: '密码已修改，请重新登录', exported: '已导出', passwordRequired: '请输入密码',
+      deleteConfirmRequired: '请输入“注销”确认', confirmDeleteWord: '注销', accountDeleted: '账号已注销', copied: '已复制', copyFail: '复制失败，请手动复制'
+    },
+    loginExtra: {
+      inviteUsernamePh: '设置你的用户名', usernamePh: '用户名', passwordPh: '密码', tenantPh: '平台管理员可留空',
+      mfaDesc: '请输入身份验证器中的 6 位动态码（或使用恢复码）', mfaCodePh: '6 位数字或恢复码',
+      required: '请输入用户名和密码', forgotPrompt: '请输入用户名，系统将生成重置链接', forgotTitle: '忘记密码',
+      submit: '提交', cancel: '取消', resetSent: '如账号存在，重置链接已生成（开发环境请查看后端日志）',
+      tenantRequired: '请先填写租户标识', ssoDisabled: '该租户未启用 SSO', mfaRequired: '请输入验证码',
+      activateInvalid: '用户名必填，密码至少 8 位', activated: '激活成功，请登录'
+    },
+
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
       templates: '模板库', approvals: '人工审批箱', audit: '审计日志', billing: '计费管理',
@@ -1335,6 +1363,34 @@ const messages = {
       workflowNameSuffix: ' workflow', defaultStart: 'Start', defaultEnd: 'End', approvalTitle: 'Approval',
       typeSkill: 'Skill', typeTool: 'Tool', typeAgent: 'Agent', invalidSuffix: 'Invalid (', invalidSuffix2: ')'
     },
+    layout: {
+      workbench: 'Workspace', assets: 'Assets', evalOps: 'Evaluation & Ops', management: 'Management',
+      lightMode: 'Switch to light mode', darkMode: 'Switch to dark mode', theme: 'Toggle theme',
+      security: 'Security', mfa: 'Multi-factor authentication (MFA / TOTP)', enabled: 'Enabled', disabled: 'Disabled',
+      mfaHint: 'When enabled, sign-in requires a 6-digit code from your authenticator.', step1: '1. Add the account in your authenticator (Google Authenticator / 1Password); secret:',
+      copy: 'Copy', step2: '2. Enter the 6-digit code from the authenticator:', codePh: '6-digit code', enableMfa: 'Enable MFA',
+      setupMfa: 'Set up MFA', recoveryLeft: 'Enabled; recovery codes left: ', recoveryLeftSuffix: '. Disabling requires a code or recovery code.',
+      codeOrRecoveryPh: 'Code or recovery code', disableMfa: 'Disable MFA', changePassword: 'Change password',
+      oldPassword: 'Current password', newPassword: 'New password', newPasswordPh: 'At least 8 characters with letters and numbers', confirmPassword: 'Confirm password',
+      changeBtn: 'Change password', changeHint: 'You will need to sign in again', dataAccount: 'Data & account',
+      exportData: 'Export my data (JSON)', deleteTitle: 'Delete account',
+      deleteDesc: 'Remove your Agents/knowledge bases first; you must not be the sole owner. The account is disabled and anonymized; messages/audit are retained for compliance.',
+      currentPassword: 'Current password', confirmDeletePh: 'Type "DELETE" to confirm', deleteBtn: 'Delete account',
+      recoveryTitle: 'Recovery codes (shown once; store them safely)', copyAll: 'Copy all',
+      codeRequired: 'Please enter a code', mfaEnabled: 'MFA enabled', codeOrRecoveryRequired: 'Enter a code or recovery code',
+      mfaDisabled: 'MFA disabled', pwdInvalid: 'Enter the current password and a new password of at least 8 characters', pwdMismatch: 'New passwords do not match',
+      pwdChanged: 'Password changed; sign in again', exported: 'Exported', passwordRequired: 'Please enter the password',
+      deleteConfirmRequired: 'Type "DELETE" to confirm', confirmDeleteWord: 'DELETE', accountDeleted: 'Account deleted', copied: 'Copied', copyFail: 'Copy failed; copy manually'
+    },
+    loginExtra: {
+      inviteUsernamePh: 'Choose a username', usernamePh: 'Username', passwordPh: 'Password', tenantPh: 'Optional for platform admins',
+      mfaDesc: 'Enter the 6-digit code from your authenticator (or a recovery code)', mfaCodePh: '6-digit code or recovery code',
+      required: 'Enter username and password', forgotPrompt: 'Enter your username to generate a reset link', forgotTitle: 'Forgot password',
+      submit: 'Submit', cancel: 'Cancel', resetSent: 'If the account exists, a reset link was generated (check backend logs in dev)',
+      tenantRequired: 'Enter the tenant key', ssoDisabled: 'SSO is not enabled for this tenant', mfaRequired: 'Enter the verification code',
+      activateInvalid: 'Username required; password must be at least 8 characters', activated: 'Activated; please sign in'
+    },
+
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',
       templates: 'Templates', approvals: 'Approvals', audit: 'Audit Log', billing: 'Billing',

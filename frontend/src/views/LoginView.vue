@@ -3,7 +3,7 @@
     <el-card class="login-card">
       <div class="login-lang">
         <el-select v-model="currentLocale" size="small" style="width: 92px">
-          <el-option label="中文" value="zh-CN" />
+          <el-option :label="t('common.chinese')" value="zh-CN" />
           <el-option label="English" value="en-US" />
         </el-select>
       </div>
@@ -15,7 +15,7 @@
                   :title="t('login.invite')" :description="t('login.inviteDesc')" />
         <el-form label-position="top" @keyup.enter="accept">
           <el-form-item :label="t('login.username')">
-            <el-input v-model="inviteForm.username" placeholder="设置你的用户名" />
+            <el-input v-model="inviteForm.username" :placeholder="t('loginExtra.inviteUsernamePh')" />
           </el-form-item>
           <el-form-item :label="t('login.password')+' (8+)'">
             <el-input v-model="inviteForm.password" type="password" show-password />
@@ -32,13 +32,13 @@
       <!-- 登录模式 -->
       <el-form v-else :model="form" label-position="top" @keyup.enter="submit">
         <el-form-item :label="t('login.username')">
-          <el-input v-model="form.username" placeholder="用户名" />
+          <el-input v-model="form.username" :placeholder="t('loginExtra.usernamePh')" />
         </el-form-item>
         <el-form-item :label="t('login.password')">
-          <el-input v-model="form.password" type="password" placeholder="密码" show-password />
+          <el-input v-model="form.password" type="password" :placeholder="t('loginExtra.passwordPh')" show-password />
         </el-form-item>
         <el-form-item :label="t('login.tenant')">
-          <el-input v-model="form.tenantKey" placeholder="平台管理员可留空" />
+          <el-input v-model="form.tenantKey" :placeholder="t('loginExtra.tenantPh')" />
         </el-form-item>
         <el-button type="primary" style="width: 100%" :loading="loading" @click="submit">
           {{ t('login.login') }}
@@ -52,9 +52,9 @@
       <!-- MFA 二次验证 -->
       <el-form v-if="mfaMode" label-position="top" @keyup.enter="verifyMfa" class="mt12">
         <el-alert type="info" :closable="false" :title="t('login.mfa')"
-                  description="请输入身份验证器中的 6 位动态码（或使用恢复码）" />
+                  :description="t('loginExtra.mfaDesc')" />
         <el-form-item :label="t('login.code')" class="mt8">
-          <el-input v-model="mfaCode" placeholder="6 位数字或恢复码" maxlength="11" />
+          <el-input v-model="mfaCode" :placeholder="t('loginExtra.mfaCodePh')" maxlength="11" />
         </el-form-item>
         <el-button type="primary" style="width: 100%" :loading="loading" @click="verifyMfa">
           {{ t('login.verify') }}
@@ -91,7 +91,7 @@ const mfaCode = ref('')
 
 async function submit() {
   if (!form.username || !form.password) {
-    ElMessage.warning('请输入用户名和密码')
+    ElMessage.warning(t('loginExtra.required'))
     return
   }
   loading.value = true
@@ -110,25 +110,25 @@ async function submit() {
 
 async function forgotPassword() {
   try {
-    const { value } = await ElMessageBox.prompt('请输入用户名，系统将生成重置链接', '忘记密码', {
-      inputPlaceholder: '用户名', confirmButtonText: '提交', cancelButtonText: '取消'
+    const { value } = await ElMessageBox.prompt(t('loginExtra.forgotPrompt'), t('loginExtra.forgotTitle'), {
+      inputPlaceholder: t('loginExtra.usernamePh'), confirmButtonText: t('loginExtra.submit'), cancelButtonText: t('loginExtra.cancel')
     })
     if (!value) return
     await http.post('/auth/forgot-password', { username: value })
-    ElMessage.success('如账号存在，重置链接已生成（开发环境请查看后端日志）')
+    ElMessage.success(t('loginExtra.resetSent'))
   } catch { /* 取消 */ }
 }
 
 async function ssoLogin() {
   if (!form.tenantKey.trim()) {
-    ElMessage.warning('请先填写租户标识')
+    ElMessage.warning(t('loginExtra.tenantRequired'))
     return
   }
   const available = await http.get('/auth/sso/available', {
     params: { tenantKey: form.tenantKey.trim() }
   }) as any
   if (!available?.enabled) {
-    ElMessage.warning('该租户未启用 SSO')
+    ElMessage.warning(t('loginExtra.ssoDisabled'))
     return
   }
   const res = await http.get('/auth/sso/authorize', {
@@ -138,7 +138,7 @@ async function ssoLogin() {
 }
 
 async function verifyMfa() {
-  if (!mfaCode.value.trim()) { ElMessage.warning('请输入验证码'); return }
+  if (!mfaCode.value.trim()) { ElMessage.warning(t('loginExtra.mfaRequired')); return }
   loading.value = true
   try {
     const data = await http.post('/auth/mfa/verify', {
@@ -153,7 +153,7 @@ async function verifyMfa() {
 
 async function accept() {
   if (!inviteForm.username || inviteForm.password.length < 8) {
-    ElMessage.warning('用户名必填，密码至少 8 位')
+    ElMessage.warning(t('loginExtra.activateInvalid'))
     return
   }
   loading.value = true
@@ -163,7 +163,7 @@ async function accept() {
       username: inviteForm.username,
       password: inviteForm.password
     })
-    ElMessage.success('激活成功，请登录')
+    ElMessage.success(t('loginExtra.activated'))
     inviteToken.value = ''
     form.username = inviteForm.username
   } finally {
