@@ -252,6 +252,15 @@ const messages = {
       generatedBillMid: ' 账单：¥', quotaUpdated: '配额已更新', rulesLabel: '计费规则',
       agentQuota: 'Agent 数量', kbQuota: '知识库数量', todayQuota: '今日 Tokens', storageQuota: '存储'
     },
+    platformPage: {
+      createTenant: '开通租户', tenantKey: '租户标识', name: '名称', status: '状态', members: '成员数',
+      createdAt: '创建时间', actions: '操作', enable: '启用', disable: '停用', createTitle: '开通租户',
+      keyPh: '如 acme（登录时填写）', owner: '所有者账号', ownerPh: '如 acme-owner',
+      password: '初始密码', passwordPh: '至少 8 位', cancel: '取消', create: '开通',
+      fillAll: '请完整填写', created: '租户已开通（含 OWNER 账号与默认配额）',
+      confirmPrefix: '确认', confirmEnable: '启用', confirmDisable: '停用', confirmMid: '租户「',
+      confirmSuffix: '」？', confirmTitle: '确认', statusUpdated: '状态已更新'
+    },
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
       templates: '模板库', approvals: '人工审批箱', audit: '审计日志', billing: '计费管理',
@@ -522,6 +531,15 @@ const messages = {
       rechargeSuccess: 'Recharge successful', selectPeriod: 'Please select a period', generatedBill: 'Generated ',
       generatedBillMid: ' bill: ¥', quotaUpdated: 'Quota updated', rulesLabel: 'Billing rules',
       agentQuota: 'Agents', kbQuota: 'Knowledge bases', todayQuota: 'Tokens today', storageQuota: 'Storage'
+    },
+    platformPage: {
+      createTenant: 'Create tenant', tenantKey: 'Tenant key', name: 'Name', status: 'Status', members: 'Members',
+      createdAt: 'Created', actions: 'Actions', enable: 'Enable', disable: 'Disable', createTitle: 'Create tenant',
+      keyPh: 'e.g. acme (used at login)', owner: 'Owner account', ownerPh: 'e.g. acme-owner',
+      password: 'Initial password', passwordPh: 'At least 8 characters', cancel: 'Cancel', create: 'Create',
+      fillAll: 'Please fill in all fields', created: 'Tenant created (OWNER account and default quota included)',
+      confirmPrefix: 'Are you sure you want to ', confirmEnable: 'enable', confirmDisable: 'disable', confirmMid: ' tenant "',
+      confirmSuffix: '"?', confirmTitle: 'Confirm', statusUpdated: 'Status updated'
     },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',

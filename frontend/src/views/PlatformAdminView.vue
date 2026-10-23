@@ -2,50 +2,50 @@
   <div class="page">
     <div class="toolbar">
       <span class="page-title">{{ t('page.platform') }}</span>
-      <el-button type="primary" @click="createVisible = true">开通租户</el-button>
+      <el-button type="primary" @click="createVisible = true">{{ t('platformPage.createTenant') }}</el-button>
     </div>
 
     <el-card shadow="never">
       <el-table :data="tenants" size="small">
         <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="tenantKey" label="租户标识" width="140" />
-        <el-table-column prop="name" label="名称" width="180" />
-        <el-table-column label="状态" width="110">
+        <el-table-column prop="tenantKey" :label="t('platformPage.tenantKey')" width="140" />
+        <el-table-column prop="name" :label="t('platformPage.name')" width="180" />
+        <el-table-column :label="t('platformPage.status')" width="110">
           <template #default="{ row }">
             <el-tag size="small" :type="row.status === 'ACTIVE' ? 'success' : row.status === 'SUSPENDED' ? 'danger' : 'info'">
               {{ row.status }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="members" label="成员数" width="80" />
-        <el-table-column label="创建时间" width="150">
+        <el-table-column prop="members" :label="t('platformPage.members')" width="80" />
+        <el-table-column :label="t('platformPage.createdAt')" width="150">
           <template #default="{ row }">{{ fmt(row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" min-width="160">
+        <el-table-column :label="t('platformPage.actions')" min-width="160">
           <template #default="{ row }">
-            <el-button v-if="row.status !== 'ACTIVE'" size="small" type="success" plain @click="setStatus(row, 'ACTIVE')">启用</el-button>
-            <el-button v-if="row.status === 'ACTIVE'" size="small" type="danger" plain @click="setStatus(row, 'SUSPENDED')">停用</el-button>
+            <el-button v-if="row.status !== 'ACTIVE'" size="small" type="success" plain @click="setStatus(row, 'ACTIVE')">{{ t('platformPage.enable') }}</el-button>
+            <el-button v-if="row.status === 'ACTIVE'" size="small" type="danger" plain @click="setStatus(row, 'SUSPENDED')">{{ t('platformPage.disable') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
 
-    <el-dialog v-model="createVisible" title="开通租户" width="520px">
+    <el-dialog v-model="createVisible" :title="t('platformPage.createTitle')" width="520px">
       <el-form label-width="110px">
-        <el-form-item label="租户标识" required>
-          <el-input v-model="form.tenantKey" placeholder="如 acme（登录时填写）" />
+        <el-form-item :label="t('platformPage.tenantKey')" required>
+          <el-input v-model="form.tenantKey" :placeholder="t('platformPage.keyPh')" />
         </el-form-item>
-        <el-form-item label="名称" required><el-input v-model="form.name" /></el-form-item>
-        <el-form-item label="所有者账号" required>
-          <el-input v-model="form.ownerUsername" placeholder="如 acme-owner" />
+        <el-form-item :label="t('platformPage.name')" required><el-input v-model="form.name" /></el-form-item>
+        <el-form-item :label="t('platformPage.owner')" required>
+          <el-input v-model="form.ownerUsername" :placeholder="t('platformPage.ownerPh')" />
         </el-form-item>
-        <el-form-item label="初始密码" required>
-          <el-input v-model="form.ownerPassword" type="password" show-password placeholder="至少 8 位" />
+        <el-form-item :label="t('platformPage.password')" required>
+          <el-input v-model="form.ownerPassword" type="password" show-password :placeholder="t('platformPage.passwordPh')" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="create">开通</el-button>
+        <el-button @click="createVisible = false">{{ t('platformPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="creating" @click="create">{{ t('platformPage.create') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -72,12 +72,12 @@ async function load() {
 
 async function create() {
   for (const k of ['tenantKey', 'name', 'ownerUsername', 'ownerPassword'] as const) {
-    if (!form[k].trim()) { ElMessage.warning('请完整填写'); return }
+    if (!form[k].trim()) { ElMessage.warning(t('platformPage.fillAll')); return }
   }
   creating.value = true
   try {
     await http.post('/platform/tenants', { ...form })
-    ElMessage.success('租户已开通（含 OWNER 账号与默认配额）')
+    ElMessage.success(t('platformPage.created'))
     createVisible.value = false
     Object.assign(form, { tenantKey: '', name: '', ownerUsername: '', ownerPassword: '' })
     await load()
@@ -87,9 +87,9 @@ async function create() {
 }
 
 async function setStatus(row: any, status: string) {
-  await ElMessageBox.confirm(`确认${status === 'ACTIVE' ? '启用' : '停用'}租户「${row.name}」？`, '确认', { type: 'warning' })
+  await ElMessageBox.confirm(`${t('platformPage.confirmPrefix')}${status === 'ACTIVE' ? t('platformPage.confirmEnable') : t('platformPage.confirmDisable')}${t('platformPage.confirmMid')}${row.name}${t('platformPage.confirmSuffix')}`, t('platformPage.confirmTitle'), { type: 'warning' })
   await http.patch(`/platform/tenants/${row.id}/status`, { status })
-  ElMessage.success('状态已更新')
+  ElMessage.success(t('platformPage.statusUpdated'))
   await load()
 }
 
