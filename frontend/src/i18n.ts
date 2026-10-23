@@ -68,6 +68,23 @@ const messages = {
       copyTitle: 'Fork Agent', copied: '已创建副本', ratingSubmitted: '评价已提交',
       replyRequired: '请输入回复内容', replied: '已回复', resolved: '已处理', dismissed: '已驳回'
     },
+    prompt: {
+      sub: '模板内容支持双花括号变量，在 Agent 提示词中可一键插入', searchPh: '搜索名称/内容', category: '分类',
+      search: '搜索', create: '新建模板', name: '名称', variables: '变量', contentPreview: '内容预览',
+      updated: '更新时间', actions: '操作', edit: '编辑', delete: '删除', editTitle: '编辑模板', newTitle: '新建模板',
+      namePh: '如：客服话术生成', categoryPh: '如：客服 / 营销 / 分析', content: '内容',
+      contentPh: '模板内容，使用 {{key}} 定义变量', optimize: 'AI 优化',
+      optimizeHint: '保留原有变量占位，优化结果需手动应用', noVars: '未检测到变量', cancel: '取消', save: '保存',
+      optTitle: 'AI 优化模板内容', optHint: '保留双花括号变量与原始业务意图；优化结果需手动应用，不会自动保存。',
+      optDirection: '优化方向', optional: '可选', structured: '结构化', concise: '更简洁', professional: '更专业',
+      serviceTone: '客服语气', extraReq: '额外要求', extraPh: '如：保留变量；补充拒答边界；不要改变语言',
+      currentContent: '当前内容', chars: '字', empty: '（空）', start: '开始优化', result: '优化结果',
+      replace: '替换原内容', append: '追加到末尾', clear: '清除结果', contentRequired: '请先填写模板内容',
+      optDone: '优化完成，请确认后应用', replaced: '已替换模板内容（尚未保存）',
+      appended: '已追加到模板内容末尾（尚未保存）', nameRequired: '名称必填', saved: '已保存',
+      deleteConfirm: '确认删除该模板？', deleteTitle: '删除模板', deleted: '已删除',
+      deleteRefsPrefix: '以下 Agent 的提示词包含该模板内容：', deleteRefsSuffix: '。删除后请检查其提示词。'
+    },
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
       templates: '模板库', approvals: '人工审批箱', audit: '审计日志', billing: '计费管理',
@@ -153,6 +170,23 @@ const messages = {
       copyConfirmPrefix: 'Copy the configuration and bindings of "', copyConfirmSuffix: '" into your own Agent. Continue?',
       copyTitle: 'Fork Agent', copied: 'Copy created', ratingSubmitted: 'Rating submitted',
       replyRequired: 'Please enter a reply', replied: 'Reply submitted', resolved: 'Resolved', dismissed: 'Dismissed'
+    },
+    prompt: {
+      sub: 'Template content supports double-brace variables and can be inserted into Agent prompts', searchPh: 'Search name/content', category: 'Category',
+      search: 'Search', create: 'New template', name: 'Name', variables: 'Variables', contentPreview: 'Preview',
+      updated: 'Updated', actions: 'Actions', edit: 'Edit', delete: 'Delete', editTitle: 'Edit template', newTitle: 'New template',
+      namePh: 'e.g. Support script generator', categoryPh: 'e.g. Support / Marketing / Analysis', content: 'Content',
+      contentPh: 'Template content; use {{key}} for variables', optimize: 'AI optimize',
+      optimizeHint: 'Existing variable placeholders are kept; apply the result manually', noVars: 'No variables detected', cancel: 'Cancel', save: 'Save',
+      optTitle: 'AI optimize template', optHint: 'Keep double-brace variables and original intent; the result is not saved automatically.',
+      optDirection: 'Optimization goal', optional: 'Optional', structured: 'Structured', concise: 'More concise', professional: 'More professional',
+      serviceTone: 'Support tone', extraReq: 'Extra requirements', extraPh: 'e.g. keep variables; add refusal boundaries; keep the language',
+      currentContent: 'Current content', chars: 'chars', empty: '(empty)', start: 'Start optimizing', result: 'Optimized result',
+      replace: 'Replace content', append: 'Append', clear: 'Clear result', contentRequired: 'Please enter template content first',
+      optDone: 'Optimization complete; review and apply', replaced: 'Template content replaced (not saved yet)',
+      appended: 'Appended to template content (not saved yet)', nameRequired: 'Name is required', saved: 'Saved',
+      deleteConfirm: 'Delete this template?', deleteTitle: 'Delete template', deleted: 'Deleted',
+      deleteRefsPrefix: 'These Agents reference this template content: ', deleteRefsSuffix: '. Check their prompts after deletion.'
     },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',
