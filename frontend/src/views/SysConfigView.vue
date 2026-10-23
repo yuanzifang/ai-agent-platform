@@ -5,23 +5,23 @@
     </div>
 
     <el-card shadow="never">
-      <template #header>全局配置项（sys_config，实时生效于新请求）</template>
+      <template #header>{{ t('sysConfig.header') }}</template>
       <el-table :data="rows" size="small">
-        <el-table-column prop="configKey" label="配置项" width="240" />
-        <el-table-column label="值" width="220">
+        <el-table-column prop="configKey" :label="t('sysConfig.key')" width="240" />
+        <el-table-column :label="t('sysConfig.value')" width="220">
           <template #default="{ row }">
             <el-input v-if="editing === row.configKey" v-model="row.configValue" size="small" />
             <span v-else class="val">{{ row.configValue }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="description" label="说明" min-width="200" />
-        <el-table-column label="操作" width="130">
+        <el-table-column prop="description" :label="t('sysConfig.desc')" min-width="200" />
+        <el-table-column :label="t('sysConfig.actions')" width="130">
           <template #default="{ row }">
             <template v-if="editing === row.configKey">
-              <el-button size="small" type="primary" @click="save(row)">保存</el-button>
-              <el-button size="small" @click="editing = ''">取消</el-button>
+              <el-button size="small" type="primary" @click="save(row)">{{ t('sysConfig.save') }}</el-button>
+              <el-button size="small" @click="editing = ''">{{ t('sysConfig.cancel') }}</el-button>
             </template>
-            <el-button v-else size="small" @click="editing = row.configKey">编辑</el-button>
+            <el-button v-else size="small" @click="editing = row.configKey">{{ t('sysConfig.edit') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -48,7 +48,7 @@ async function load() {
 
 async function save(row: any) {
   await http.put('/admin/config', { configKey: row.configKey, configValue: row.configValue })
-  ElMessage.success(`已更新 ${row.configKey}`)
+  ElMessage.success(`${t('sysConfig.updated')}${row.configKey}`)
   editing.value = ''
 }
 </script>

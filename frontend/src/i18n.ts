@@ -285,6 +285,19 @@ const messages = {
       questionRequired: '问题必填', imported: '已导入 ', importedSuffix: ' 条', done: '已完成', running: '执行中',
       failedStatus: '失败', pending: '待执行', sampleSuffix: ' 样本', contextSuffix: ' 上下文'
     },
+    sysConfig: {
+      header: '全局配置项（sys_config，实时生效于新请求）', key: '配置项', value: '值', desc: '说明',
+      actions: '操作', save: '保存', cancel: '取消', edit: '编辑', updated: '已更新 '
+    },
+    resetPassword: {
+      title: '重置密码', newPassword: '新密码（至少 8 位，含字母与数字）', confirm: '确认新密码',
+      reset: '重置密码', back: '返回登录', missingToken: '重置链接缺少 token',
+      min8: '密码至少 8 位', mismatch: '两次输入的密码不一致', success: '密码已重置，请使用新密码登录'
+    },
+    ssoCallback: {
+      title: '企业 SSO 登录', failed: 'SSO 登录失败', back: '返回登录',
+      missingParams: '缺少 code/state 参数', exchangeFailed: 'SSO 交换失败'
+    },
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
       templates: '模板库', approvals: '人工审批箱', audit: '审计日志', billing: '计费管理',
@@ -588,6 +601,19 @@ const messages = {
       deleteDsPrefix: 'Delete dataset "', deleteDsMid: '"? Deletion is rejected if referenced by a task', confirm: 'Confirm',
       questionRequired: 'Question is required', imported: 'Imported ', importedSuffix: ' items', done: 'Completed', running: 'Running',
       failedStatus: 'Failed', pending: 'Pending', sampleSuffix: ' samples', contextSuffix: ' context'
+    },
+    sysConfig: {
+      header: 'Global config (sys_config, applies to new requests immediately)', key: 'Key', value: 'Value', desc: 'Description',
+      actions: 'Actions', save: 'Save', cancel: 'Cancel', edit: 'Edit', updated: 'Updated '
+    },
+    resetPassword: {
+      title: 'Reset password', newPassword: 'New password (8+ chars, letters and numbers)', confirm: 'Confirm password',
+      reset: 'Reset password', back: 'Back to login', missingToken: 'Reset link is missing a token',
+      min8: 'Password must be at least 8 characters', mismatch: 'Passwords do not match', success: 'Password reset; sign in with the new password'
+    },
+    ssoCallback: {
+      title: 'Enterprise SSO', failed: 'SSO login failed', back: 'Back to login',
+      missingParams: 'Missing code/state parameter', exchangeFailed: 'SSO exchange failed'
     },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',

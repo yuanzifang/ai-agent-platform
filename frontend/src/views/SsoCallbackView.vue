@@ -1,11 +1,11 @@
 <template>
   <div class="sso-wrap">
     <el-card class="sso-card">
-      <h2>企业 SSO 登录</h2>
+      <h2>{{ t('ssoCallback.title') }}</h2>
       <div v-if="loading" class="loading"><el-skeleton :rows="3" animated /></div>
-      <el-result v-else-if="error" icon="error" title="SSO 登录失败" :sub-title="error">
+      <el-result v-else-if="error" icon="error" :title="t('ssoCallback.failed')" :sub-title="error">
         <template #extra>
-          <el-button type="primary" @click="$router.push('/login')">返回登录</el-button>
+          <el-button type="primary" @click="$router.push('/login')">{{ t('ssoCallback.back') }}</el-button>
         </template>
       </el-result>
     </el-card>
@@ -13,10 +13,13 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import http from '../api/http'
 import { useUserStore } from '../stores/user'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -34,7 +37,7 @@ onMounted(async () => {
     return
   }
   if (!code || !state) {
-    error.value = '缺少 code/state 参数'
+    error.value = t('ssoCallback.missingParams')
     loading.value = false
     return
   }
@@ -43,7 +46,7 @@ onMounted(async () => {
     userStore.applyLogin(data)
     router.push(userStore.userInfo?.isPlatformAdmin ? '/admin/platform' : '/agents')
   } catch (e: any) {
-    error.value = e?.message || 'SSO 交换失败'
+    error.value = e?.message || t('ssoCallback.exchangeFailed')
   } finally {
     loading.value = false
   }
