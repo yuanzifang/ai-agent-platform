@@ -3,23 +3,23 @@
     <!-- 顶栏 -->
     <div class="topbar">
       <el-button @click="$router.push('/agents')" text>
-        <el-icon><ArrowLeft /></el-icon> 返回列表
+        <el-icon><ArrowLeft /></el-icon> {{ t('agentEdit.back') }}
       </el-button>
       <div class="title">
         {{ t('page.agentEdit') }}
         <el-tag size="small" :type="form.status === 'PUBLISHED' ? 'success' : 'info'" class="ml8">
-          {{ form.status === 'PUBLISHED' ? '已发布' : '草稿' }}
+          {{ form.status === 'PUBLISHED' ? t('agentEdit.published') : t('agentEdit.draft') }}
         </el-tag>
       </div>
       <div class="actions">
-        <el-button @click="openVersions">版本</el-button>
-        <el-button @click="openIntegration">集成</el-button>
-        <el-button @click="openChannels">渠道</el-button>
-        <el-button @click="openSchedules">定时</el-button>
-        <el-button @click="openCredentials">凭证</el-button>
-        <el-button @click="evalEntry">评测</el-button>
-        <el-button type="success" plain @click="publish()">发布</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <el-button @click="openVersions">{{ t('agentEdit.versions') }}</el-button>
+        <el-button @click="openIntegration">{{ t('agentEdit.integration') }}</el-button>
+        <el-button @click="openChannels">{{ t('agentEdit.channels') }}</el-button>
+        <el-button @click="openSchedules">{{ t('agentEdit.schedules') }}</el-button>
+        <el-button @click="openCredentials">{{ t('agentEdit.credentials') }}</el-button>
+        <el-button @click="evalEntry">{{ t('agentEdit.eval') }}</el-button>
+        <el-button type="success" plain @click="publish()">{{ t('agentEdit.publish') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="save">{{ t('agentEdit.save') }}</el-button>
       </div>
     </div>
 
@@ -28,159 +28,159 @@
       <div class="panels">
         <el-collapse v-model="activePanels">
           <el-collapse-item name="base">
-            <template #title><span class="p-title">基本信息</span></template>
+            <template #title><span class="p-title">{{ t('agentEdit.basic') }}</span></template>
             <el-form label-width="70px">
-              <el-form-item label="名称"><el-input v-model="form.name" maxlength="64" /></el-form-item>
-              <el-form-item label="描述"><el-input v-model="form.description" type="textarea" :rows="2" /></el-form-item>
-              <el-form-item label="分类"><el-input v-model="form.category" placeholder="如：客服" style="width: 200px" /></el-form-item>
-              <el-form-item label="标签"><el-input v-model="tagsStr" placeholder="逗号分隔，如：售后,售前" /></el-form-item>
+              <el-form-item :label="t('agentEdit.name')"><el-input v-model="form.name" maxlength="64" /></el-form-item>
+              <el-form-item :label="t('agentEdit.desc')"><el-input v-model="form.description" type="textarea" :rows="2" /></el-form-item>
+              <el-form-item :label="t('agentEdit.category')"><el-input v-model="form.category" :placeholder="t('agentEdit.categoryPh')" style="width: 200px" /></el-form-item>
+              <el-form-item :label="t('agentEdit.tags')"><el-input v-model="tagsStr" :placeholder="t('agentEdit.tagsPh')" /></el-form-item>
             </el-form>
           </el-collapse-item>
 
           <el-collapse-item name="model">
-            <template #title><span class="p-title">模型选择</span></template>
+            <template #title><span class="p-title">{{ t('agentEdit.modelSection') }}</span></template>
             <el-form label-width="70px">
-              <el-form-item label="模型" required>
+              <el-form-item :label="t('agentEdit.model')" required>
                 <el-select v-model="form.modelName" style="width: 320px">
                   <el-option v-for="m in models" :key="m.modelName" :value="m.modelName"
                              :label="modelLabel(m)" />
                 </el-select>
               </el-form-item>
-              <el-form-item label="备用模型">
-                <el-select v-model="form.fallbackModelName" clearable placeholder="不启用（失败直接报错）"
+              <el-form-item :label="t('agentEdit.fallback')">
+                <el-select v-model="form.fallbackModelName" clearable :placeholder="t('agentEdit.fallbackPh')"
                            style="width: 320px">
                   <el-option v-for="m in models.filter(x => x.modelName !== form.modelName)"
                              :key="m.modelName" :value="m.modelName" :label="modelLabel(m)" />
                 </el-select>
-                <span class="hint">主模型 402/429/5xx/超时自动切换，切换记录在 Trace</span>
+                <span class="hint">{{ t('agentEdit.fallbackHint') }}</span>
               </el-form-item>
-              <el-form-item label="温度">
+              <el-form-item :label="t('agentEdit.temperature')">
                 <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" style="width: 320px" />
               </el-form-item>
             </el-form>
           </el-collapse-item>
 
           <el-collapse-item name="prompt">
-            <template #title><span class="p-title">提示词</span><span class="req">*</span></template>
+            <template #title><span class="p-title">{{ t('agentEdit.prompts') }}</span><span class="req">*</span></template>
             <div class="prompt-actions">
-              <el-button size="small" @click="openTemplatePicker">从模板插入</el-button>
-              <el-button size="small" type="primary" plain @click="openOptimize">AI 优化提示词</el-button>
-              <span class="hint">插入后仍可编辑；双花括号变量由「占位变量」面板统一替换</span>
+              <el-button size="small" @click="openTemplatePicker">{{ t('agentEdit.insertTemplate') }}</el-button>
+              <el-button size="small" type="primary" plain @click="openOptimize">{{ t('agentEdit.optimize') }}</el-button>
+              <span class="hint">{{ t('agentEdit.promptHint') }}</span>
             </div>
             <el-input v-model="form.systemPrompt" type="textarea" :rows="8"
-                      placeholder="系统提示词，可用双花括号变量占位（见「占位变量」面板）" />
+                      :placeholder="t('agentEdit.systemPromptPh')" />
           </el-collapse-item>
 
           <el-collapse-item name="welcome">
-            <template #title><span class="p-title">欢迎语</span></template>
+            <template #title><span class="p-title">{{ t('agentEdit.welcome') }}</span></template>
             <el-input v-model="form.openingStatement" type="textarea" :rows="3"
-                      placeholder="对话开始时展示给用户的第一句话，支持 {{变量key}}" />
+                      :placeholder="t('agentEdit.welcomePh')" />
           </el-collapse-item>
 
           <el-collapse-item name="capability">
-            <template #title><span class="p-title">Agent 能力</span></template>
+            <template #title><span class="p-title">{{ t('agentEdit.capabilities') }}</span></template>
             <el-form label-width="90px">
-              <el-form-item label="流式输出"><el-switch v-model="form.capabilities.streamOutput" /></el-form-item>
-              <el-form-item label="函数调用"><el-switch v-model="form.capabilities.functionCall" /></el-form-item>
-              <el-form-item label="自我纠正">
+              <el-form-item :label="t('agentEdit.stream')"><el-switch v-model="form.capabilities.streamOutput" /></el-form-item>
+              <el-form-item :label="t('agentEdit.functionCall')"><el-switch v-model="form.capabilities.functionCall" /></el-form-item>
+              <el-form-item :label="t('agentEdit.selfCorrection')">
                 <el-switch v-model="form.capabilities.selfCorrection" />
-                <span class="hint">生成后由审查模型校验，低分时自动修订</span>
+                <span class="hint">{{ t('agentEdit.correctionHint') }}</span>
               </el-form-item>
-              <el-form-item label="审查轮数">
+              <el-form-item :label="t('agentEdit.reviewRounds')">
                 <el-input-number v-model="form.capabilities.selfCorrectionRounds" :min="1" :max="3"
                                  :disabled="!form.capabilities.selfCorrection" />
-                <span class="hint">1~3 轮，每轮增加一次审查模型调用</span>
+                <span class="hint">{{ t('agentEdit.reviewHint') }}</span>
               </el-form-item>
-              <el-form-item label="多模态输入"><el-switch v-model="form.capabilities.multimodal" /></el-form-item>
+              <el-form-item :label="t('agentEdit.multimodal')"><el-switch v-model="form.capabilities.multimodal" /></el-form-item>
             </el-form>
           </el-collapse-item>
 
           <el-collapse-item name="memory">
-            <template #title><span class="p-title">记忆</span></template>
+            <template #title><span class="p-title">{{ t('agentEdit.memory') }}</span></template>
             <el-form label-width="90px">
-              <el-form-item label="启用记忆"><el-switch v-model="form.memory.enabled" /></el-form-item>
-              <el-form-item label="窗口条数">
+              <el-form-item :label="t('agentEdit.memoryEnabled')"><el-switch v-model="form.memory.enabled" /></el-form-item>
+              <el-form-item :label="t('agentEdit.windowSize')">
                 <el-input-number v-model="form.memory.windowSize" :min="2" :max="50" :disabled="!form.memory.enabled" />
               </el-form-item>
-              <el-form-item label="自动抽取">
+              <el-form-item :label="t('agentEdit.autoExtract')">
                 <el-switch v-model="form.memory.autoExtract" :disabled="!form.memory.enabled" />
-                <span class="hint">对话后异步抽取长期记忆；关闭仅影响本 Agent</span>
+                <span class="hint">{{ t('agentEdit.autoExtractHint') }}</span>
               </el-form-item>
             </el-form>
           </el-collapse-item>
 
           <el-collapse-item name="knowledge">
-            <template #title><span class="p-title">知识库</span>
-              <el-tag size="small" class="ml8">{{ enabledKbCount ? `已绑定 ${enabledKbCount} 个` : '未绑定' }}</el-tag>
+            <template #title><span class="p-title">{{ t('agentEdit.kb') }}</span>
+              <el-tag size="small" class="ml8">{{ enabledKbCount ? `${t('agentEdit.boundCount')}${enabledKbCount}${t('agentEdit.countSuffix')}` : t('agentEdit.unbound') }}</el-tag>
             </template>
-            <div v-if="kbRows.length === 0" class="hint">暂无知识库，请先在知识库模块创建并上传文档</div>
+            <div v-if="kbRows.length === 0" class="hint">{{ t('agentEdit.noKb') }}</div>
             <div v-for="kb in kbRows" :key="kb.knowledgeBaseId" class="kb-row">
               <el-switch v-model="kb.enabled" :disabled="kb.missing" />
               <div class="kb-name">{{ kb.name }}</div>
-              <el-tag v-if="kb.missing" size="small" type="danger">已失效</el-tag>
+              <el-tag v-if="kb.missing" size="small" type="danger">{{ t('agentEdit.invalid') }}</el-tag>
               <div class="kb-params" v-if="kb.enabled">
-                模式
+                {{ t('agentEdit.mode') }}
                 <el-select v-model="kb.mode" size="small" style="width: 100px">
-                  <el-option label="混合" value="hybrid" />
-                  <el-option label="向量" value="vector" />
-                  <el-option label="关键字" value="keyword" />
+                  <el-option :label="t('agentEdit.hybrid')" value="hybrid" />
+                  <el-option :label="t('agentEdit.vector')" value="vector" />
+                  <el-option :label="t('agentEdit.keyword')" value="keyword" />
                 </el-select>
                 topK <el-input-number v-model="kb.topK" :min="1" :max="20" size="small" />
-                阈值 <el-input-number v-model="kb.scoreThreshold" :min="0" :max="1" :step="0.05" size="small" />
+                {{ t('agentEdit.threshold') }} <el-input-number v-model="kb.scoreThreshold" :min="0" :max="1" :step="0.05" size="small" />
               </div>
             </div>
           </el-collapse-item>
 
           <el-collapse-item name="variable">
-            <template #title><span class="p-title">占位变量</span>
-              <el-tag size="small" class="ml8">{{ form.variables.length }} 个</el-tag>
+            <template #title><span class="p-title">{{ t('agentEdit.vars') }}</span>
+              <el-tag size="small" class="ml8">{{ form.variables.length }}{{ t('agentEdit.varsSuffix') }}</el-tag>
             </template>
-            <el-button size="small" @click="addVariable">＋ 添加变量</el-button>
+            <el-button size="small" @click="addVariable">{{ t('agentEdit.addVar') }}</el-button>
             <el-table :data="form.variables" size="small" v-if="form.variables.length" class="mt8">
               <el-table-column label="key" width="140">
                 <template #default="{ row }"><el-input v-model="row.key" placeholder="user_name" size="small" /></template>
               </el-table-column>
-              <el-table-column label="类型" width="110">
+              <el-table-column :label="t('agentEdit.type')" width="110">
                 <template #default="{ row }">
                   <el-select v-model="row.type" size="small">
                     <el-option v-for="t in ['STRING','NUMBER','SELECT','FILE']" :key="t" :value="t" :label="t" />
                   </el-select>
                 </template>
               </el-table-column>
-              <el-table-column label="必填" width="60">
+              <el-table-column :label="t('agentEdit.required')" width="60">
                 <template #default="{ row }"><el-checkbox v-model="row.required" /></template>
               </el-table-column>
-              <el-table-column label="默认值" width="130">
+              <el-table-column :label="t('agentEdit.defaultValue')" width="130">
                 <template #default="{ row }"><el-input v-model="row.defaultValue" size="small" /></template>
               </el-table-column>
-              <el-table-column label="描述">
+              <el-table-column :label="t('agentEdit.varDesc')">
                 <template #default="{ row }"><el-input v-model="row.description" size="small" /></template>
               </el-table-column>
               <el-table-column width="60">
                 <template #default="{ $index }">
-                  <el-button text type="danger" size="small" @click="form.variables.splice($index, 1)">删</el-button>
+                  <el-button text type="danger" size="small" @click="form.variables.splice($index, 1)">{{ t('agentEdit.remove') }}</el-button>
                 </template>
               </el-table-column>
             </el-table>
           </el-collapse-item>
 
           <el-collapse-item name="access">
-            <template #title><span class="p-title">可见性与授权</span>
-              <el-tag size="small" class="ml8">{{ form.visibility === 'PRIVATE' ? '私有' : '租户可见' }}</el-tag>
+            <template #title><span class="p-title">{{ t('agentEdit.visibility') }}</span>
+              <el-tag size="small" class="ml8">{{ form.visibility === 'PRIVATE' ? t('agentEdit.private') : t('agentEdit.tenantVisible') }}</el-tag>
             </template>
             <el-form label-width="90px">
-              <el-form-item label="可见性">
+              <el-form-item :label="t('agentEdit.visibilityLabel')">
                 <el-radio-group v-model="form.visibility">
-                  <el-radio value="TENANT">租户内全员可见</el-radio>
-                  <el-radio value="PRIVATE">私有（仅授权用户）</el-radio>
+                  <el-radio value="TENANT">{{ t('agentEdit.tenantAll') }}</el-radio>
+                  <el-radio value="PRIVATE">{{ t('agentEdit.privateAuth') }}</el-radio>
                 </el-radio-group>
               </el-form-item>
-              <el-form-item v-if="form.status === 'PUBLISHED'" label="上架广场">
+              <el-form-item v-if="form.status === 'PUBLISHED'" :label="t('agentEdit.listed')">
                 <el-switch v-model="form.listed" @change="toggleListing" />
-                <span class="hint ml8">下架后广场不可见，已使用的用户仍可继续对话</span>
+                <span class="hint ml8">{{ t('agentEdit.delistedHint') }}</span>
               </el-form-item>
-              <el-form-item v-if="form.visibility === 'PRIVATE'" label="授权用户">
-                <el-select v-model="grantedIds" multiple placeholder="选择可使用的成员" style="width: 100%">
+              <el-form-item v-if="form.visibility === 'PRIVATE'" :label="t('agentEdit.grantedUsers')">
+                <el-select v-model="grantedIds" multiple :placeholder="t('agentEdit.selectUsers')" style="width: 100%">
                   <el-option v-for="m in members.filter(m => m.id !== ownerId)"
                              :key="m.id" :value="m.id"
                              :label="`${m.displayName}(${m.username})`" />
@@ -190,79 +190,79 @@
           </el-collapse-item>
 
           <el-collapse-item name="skill">
-            <template #title><span class="p-title">技能</span>
-              <el-tag size="small" class="ml8">{{ enabledSkillCount ? `已启用 ${enabledSkillCount} 个` : '未配置' }}</el-tag>
+            <template #title><span class="p-title">{{ t('agentEdit.skills') }}</span>
+              <el-tag size="small" class="ml8">{{ enabledSkillCount ? `${t('agentEdit.enabled')}${enabledSkillCount}${t('agentEdit.countSuffix')}` : t('agentEdit.notConfigured') }}</el-tag>
             </template>
             <div class="panel-links">
-              <el-button size="small" @click="openPicker('skill')">＋ 添加技能</el-button>
-              <el-button size="small" plain @click="$router.push('/skills?create=1')">新增技能</el-button>
-              <el-link type="primary" :underline="false" @click="$router.push('/skills')">技能管理</el-link>
+              <el-button size="small" @click="openPicker('skill')">{{ t('agentEdit.addSkill') }}</el-button>
+              <el-button size="small" plain @click="$router.push('/skills?create=1')">{{ t('agentEdit.newSkill') }}</el-button>
+              <el-link type="primary" :underline="false" @click="$router.push('/skills')">{{ t('agentEdit.skillManage') }}</el-link>
             </div>
-            <div v-if="skillRows.length === 0" class="hint mt8">暂未添加技能；内置技能可直接选用（技能管理可创建自定义技能）</div>
+            <div v-if="skillRows.length === 0" class="hint mt8">{{ t('agentEdit.noSkills') }}</div>
             <div v-for="row in skillRows" :key="'s' + row.id" class="kb-row">
               <el-switch v-model="row.enabled" :disabled="row.missing" />
               <div class="kb-name">{{ row.name }}</div>
-              <el-tag v-if="row.isBuiltin" size="small" type="info">内置</el-tag>
-              <el-tag v-if="row.missing" size="small" type="danger">已失效</el-tag>
+              <el-tag v-if="row.isBuiltin" size="small" type="info">{{ t('agentEdit.builtin') }}</el-tag>
+              <el-tag v-if="row.missing" size="small" type="danger">{{ t('agentEdit.invalid') }}</el-tag>
               <div class="row-desc">{{ row.description }}</div>
-              <el-button size="small" text type="danger" @click="removeRow(skillRows, row)">移除</el-button>
+              <el-button size="small" text type="danger" @click="removeRow(skillRows, row)">{{ t('agentEdit.remove') }}</el-button>
             </div>
           </el-collapse-item>
 
           <el-collapse-item name="tool">
-            <template #title><span class="p-title">工具</span>
-              <el-tag size="small" class="ml8">{{ enabledToolCount ? `已启用 ${enabledToolCount} 个` : '未配置' }}</el-tag>
+            <template #title><span class="p-title">{{ t('agentEdit.tools') }}</span>
+              <el-tag size="small" class="ml8">{{ enabledToolCount ? `${t('agentEdit.enabled')}${enabledToolCount}${t('agentEdit.countSuffix')}` : t('agentEdit.notConfigured') }}</el-tag>
             </template>
             <div class="panel-links">
-              <el-button size="small" @click="openPicker('tool')">＋ 添加工具</el-button>
-              <el-button size="small" plain @click="$router.push('/tools?create=1')">新建 API 工具</el-button>
-              <el-button size="small" plain @click="$router.push('/mcp-servers?create=1')">添加 MCP Server</el-button>
-              <el-link type="primary" :underline="false" @click="$router.push('/tools')">工具管理</el-link>
+              <el-button size="small" @click="openPicker('tool')">{{ t('agentEdit.addTool') }}</el-button>
+              <el-button size="small" plain @click="$router.push('/tools?create=1')">{{ t('agentEdit.newApiTool') }}</el-button>
+              <el-button size="small" plain @click="$router.push('/mcp-servers?create=1')">{{ t('agentEdit.addMcp') }}</el-button>
+              <el-link type="primary" :underline="false" @click="$router.push('/tools')">{{ t('agentEdit.toolManage') }}</el-link>
             </div>
-            <div v-if="toolRows.length === 0" class="hint mt8">暂未添加工具；需在「Agent 能力」中开启函数调用后才会在对话中生效</div>
+            <div v-if="toolRows.length === 0" class="hint mt8">{{ t('agentEdit.noTools') }}</div>
             <div v-for="row in toolRows" :key="'t' + row.id" class="kb-row">
               <el-switch v-model="row.enabled" :disabled="row.missing" />
               <div class="kb-name">{{ row.name }}</div>
               <el-tag size="small"
                       :type="row.type === 'BUILTIN' ? 'info' : (row.type === 'MCP' ? 'warning' : 'success')">
-                {{ row.type === 'BUILTIN' ? '内置' : (row.type === 'MCP' ? 'MCP' : 'API') }}
+                {{ row.type === 'BUILTIN' ? t('agentEdit.builtin') : (row.type === 'MCP' ? 'MCP' : 'API') }}
               </el-tag>
-              <el-tag v-if="row.missing" size="small" type="danger">已失效</el-tag>
+              <el-tag v-if="row.missing" size="small" type="danger">{{ t('agentEdit.invalid') }}</el-tag>
               <div class="row-desc">{{ row.description }}</div>
-              <el-button size="small" text type="danger" @click="removeRow(toolRows, row)">移除</el-button>
+              <el-button size="small" text type="danger" @click="removeRow(toolRows, row)">{{ t('agentEdit.remove') }}</el-button>
             </div>
           </el-collapse-item>
 
           <el-collapse-item name="subagent">
-            <template #title><span class="p-title">子 Agent</span>
-              <el-tag size="small" class="ml8">{{ enabledSubCount ? `已启用 ${enabledSubCount} 个` : '未配置' }}</el-tag>
+            <template #title><span class="p-title">{{ t('agentEdit.subAgents') }}</span>
+              <el-tag size="small" class="ml8">{{ enabledSubCount ? `${t('agentEdit.enabled')}${enabledSubCount}${t('agentEdit.countSuffix')}` : t('agentEdit.notConfigured') }}</el-tag>
             </template>
             <div class="panel-links">
-              <el-button size="small" @click="openPicker('sub')">＋ 添加子 Agent</el-button>
-              <el-link type="primary" :underline="false" @click="$router.push('/agents')">Agent 列表</el-link>
+              <el-button size="small" @click="openPicker('sub')">{{ t('agentEdit.addSub') }}</el-button>
+              <el-link type="primary" :underline="false" @click="$router.push('/agents')">{{ t('agentEdit.agentList') }}</el-link>
             </div>
-            <div v-if="subRows.length === 0" class="hint mt8">子 Agent 将作为工具被父 Agent 调用（保存时校验循环依赖，上限 10 个）</div>
+            <div v-if="subRows.length === 0" class="hint mt8">{{ t('agentEdit.noSubs') }}</div>
             <div v-for="row in subRows" :key="'a' + row.id" class="kb-row">
               <el-switch v-model="row.enabled" :disabled="row.missing" />
               <div class="kb-name">{{ row.name }}</div>
-              <el-tag v-if="row.missing" size="small" type="danger">已失效</el-tag>
+              <el-tag v-if="row.missing" size="small" type="danger">{{ t('agentEdit.invalid') }}</el-tag>
               <div class="row-desc">{{ row.description }}</div>
-              <el-button size="small" text type="danger" @click="removeRow(subRows, row)">移除</el-button>
+              <el-button size="small" text type="danger" @click="removeRow(subRows, row)">{{ t('agentEdit.remove') }}</el-button>
             </div>
           </el-collapse-item>
 
           <el-collapse-item name="workflow">
-            <template #title><span class="p-title">工作流 / 人工审批</span>
+            <template #title><span class="p-title">{{ t('agentEdit.workflow') }}</span>
               <el-tag size="small" class="ml8">
-                {{ workflowConfigured ? `已配置 ${workflowForm.nodes.length} 个节点` : '未配置' }}
+                {{ workflowConfigured ? `${t('agentEdit.configuredNodes')}${workflowForm.nodes.length}${t('agentEdit.nodesSuffix')}` : t('agentEdit.notConfigured') }}
               </el-tag>
             </template>
             <div class="panel-links">
-              <el-button size="small" @click="openWorkflow">编辑工作流</el-button>
-              <el-link type="primary" :underline="false" @click="$router.push('/approvals')">审批箱</el-link>
+              <el-button size="small" @click="openWorkflow">{{ t('agentEdit.editWorkflow') }}</el-button>
+              <el-link type="primary" :underline="false" @click="$router.push('/approvals')">{{ t('agentEdit.approvals') }}</el-link>
             </div>
             <div class="hint mt8">
-              节点类型：LLM 生成 / Agent 调用 / 条件分支 / 人工审批；审批节点会暂停运行，等待审批箱处理。
+              {{ t('agentEdit.workflowHint') }}
             </div>
           </el-collapse-item>
         </el-collapse>
@@ -270,7 +270,7 @@
 
       <!-- 右侧：调试 -->
       <div class="debug">
-        <div class="debug-head">调试（用当前表单配置，未保存的修改也生效）</div>
+        <div class="debug-head">{{ t('agentEdit.debugHead') }}</div>
         <div class="debug-msgs" ref="dbgBox">
           <div v-for="(m, i) in debugMsgs" :key="i" class="d-msg" :class="m.role.toLowerCase()">
             <div class="d-bubble">
@@ -279,27 +279,27 @@
                 <div v-for="(tc, j) in m.toolCalls" :key="j" class="d-tool"
                      :class="tc.status === 'ERROR' ? 'err' : ''">
                   ⚙ {{ tc.displayName || tc.toolName }}
-                  <span v-if="tc.toolType === 'SUB_AGENT'">（子 Agent）</span>
-                  · {{ tc.status === 'ERROR' ? '失败' : '成功' }} · {{ tc.durationMs }}ms
+                  <span v-if="tc.toolType === 'SUB_AGENT'">{{ t('agentEdit.subAgentSuffix') }}</span>
+                  · {{ tc.status === 'ERROR' ? t('agentEdit.failed') : t('agentEdit.success') }} · {{ tc.durationMs }}ms
                 </div>
               </div>
               <div v-if="m.citations?.length" class="d-cites">
-                引用 {{ m.citations.length }} 条：
+                {{ t('agentEdit.citations') }}{{ m.citations.length }}{{ t('agentEdit.citationsSuffix') }}
                 <span v-for="(c, j) in m.citations" :key="j" class="d-cite">
                   [{{ j + 1 }}] {{ (c.score * 100).toFixed(0) }}% {{ clip(c.content, 30) }}
                 </span>
               </div>
               <div v-if="m.usage" class="d-usage">
-                {{ m.latencyMs }}ms · 输入 {{ m.usage.inputTokens }} / 输出 {{ m.usage.outputTokens }} tokens
+                {{ m.latencyMs }}ms · {{ t('agentEdit.latencyInput') }}{{ m.usage.inputTokens }}{{ t('agentEdit.outputTokens') }}{{ m.usage.outputTokens }} tokens
               </div>
             </div>
           </div>
-          <el-empty v-if="debugMsgs.length === 0" description="发一条消息试试 RAG 与提示词效果" :image-size="60" />
+          <el-empty v-if="debugMsgs.length === 0" :description="t('agentEdit.emptyDebug')" :image-size="60" />
         </div>
         <div class="debug-input">
-          <el-input v-model="debugInput" placeholder="调试消息" @keydown.enter.prevent="debugSend"
+          <el-input v-model="debugInput" :placeholder="t('agentEdit.debugPh')" @keydown.enter.prevent="debugSend"
                     :disabled="debugRunning" />
-          <el-button type="primary" :loading="debugRunning" @click="debugSend">发送</el-button>
+          <el-button type="primary" :loading="debugRunning" @click="debugSend">{{ t('agentEdit.send') }}</el-button>
         </div>
       </div>
     </div>
@@ -362,7 +362,7 @@
       </el-form>
       <template #footer>
         <el-button @click="credentialFormVisible = false">取消</el-button>
-        <el-button type="primary" :loading="credentialSaving" @click="saveCredential">保存</el-button>
+        <el-button type="primary" :loading="credentialSaving" @click="saveCredential">{{ t('agentEdit.save') }}</el-button>
       </template>
     </el-dialog>
 
@@ -435,7 +435,7 @@
       </el-form>
       <template #footer>
         <el-button @click="scheduleFormVisible = false">取消</el-button>
-        <el-button type="primary" :loading="scheduleSaving" @click="saveSchedule">保存</el-button>
+        <el-button type="primary" :loading="scheduleSaving" @click="saveSchedule">{{ t('agentEdit.save') }}</el-button>
       </template>
     </el-dialog>
 
@@ -505,7 +505,7 @@
 
     <el-dialog v-model="channelCreateVisible" title="添加渠道" width="560px">
       <el-form label-width="110px">
-        <el-form-item label="名称"><el-input v-model="channelForm.name" maxlength="64" /></el-form-item>
+        <el-form-item :label="t('agentEdit.name')"><el-input v-model="channelForm.name" maxlength="64" /></el-form-item>
         <el-form-item label="类型">
           <el-select v-model="channelForm.type" style="width: 200px">
             <el-option label="通用 Webhook" value="WEBHOOK" />
@@ -745,8 +745,8 @@
         <el-button @click="addWorkflowNode">添加节点</el-button>
         <el-button @click="rewireWorkflow">整理连线</el-button>
         <el-button @click="openWorkflowTemplates">模板</el-button>
-        <el-button @click="openWorkflowVersions">版本</el-button>
-        <el-button type="success" :loading="workflowPublishing" @click="publishWorkflow">发布</el-button>
+        <el-button @click="openWorkflowVersions">{{ t('agentEdit.versions') }}</el-button>
+        <el-button type="success" :loading="workflowPublishing" @click="publishWorkflow">{{ t('agentEdit.publish') }}</el-button>
         <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow">保存草稿</el-button>
       </div>
 
@@ -819,9 +819,9 @@
                   <el-option v-for="k in kbRows" :key="k.knowledgeBaseId" :value="k.knowledgeBaseId" :label="k.name" />
                 </el-select>
                 <el-select v-model="n.mode" style="width: 110px">
-                  <el-option label="混合" value="hybrid" />
-                  <el-option label="向量" value="vector" />
-                  <el-option label="关键字" value="keyword" />
+                  <el-option :label="t('agentEdit.hybrid')" value="hybrid" />
+                  <el-option :label="t('agentEdit.vector')" value="vector" />
+                  <el-option :label="t('agentEdit.keyword')" value="keyword" />
                 </el-select>
                 topK <el-input-number v-model="n.topK" :min="1" :max="20" size="small" />
               </div>
@@ -977,7 +977,7 @@
             <div class="wf-cn-id">#{{ n.id }}</div>
           </div>
         </div>
-        <div class="hint mt8">拖拽节点调整布局，滚轮/按钮缩放，空白处拖拽平移，双击节点回列表编辑；连线模式点击起点再点终点创建 Graph 边；其余连线按 next / 条件分支 / 并行分支自动绘制。</div>
+        <div class="hint mt8">拖拽节点调整布局，滚轮/按钮缩放，空白处拖拽平移，双击节点回列表编辑；连线{{ t('agentEdit.mode') }}点击起点再点终点创建 Graph 边；其余连线按 next / 条件分支 / 并行分支自动绘制。</div>
         </div>
       </div>
 
