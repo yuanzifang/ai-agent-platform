@@ -4,11 +4,11 @@
       <span class="page-title">{{ t('page.provider') }}</span>
       <div>
         <el-radio-group v-model="view" class="mr8">
-          <el-radio-button value="admin">接入管理</el-radio-button>
-          <el-radio-button value="market">模型广场</el-radio-button>
+          <el-radio-button value="admin">{{ t('providerPage.admin') }}</el-radio-button>
+          <el-radio-button value="market">{{ t('providerPage.market') }}</el-radio-button>
         </el-radio-group>
-        <el-button v-if="view === 'admin'" @click="modelCreateVisible = true">新增模型</el-button>
-        <el-button v-if="view === 'admin'" type="primary" @click="openCreateProvider">接入新 Provider</el-button>
+        <el-button v-if="view === 'admin'" @click="modelCreateVisible = true">{{ t('providerPage.newModel') }}</el-button>
+        <el-button v-if="view === 'admin'" type="primary" @click="openCreateProvider">{{ t('providerPage.newProvider') }}</el-button>
       </div>
     </div>
 
@@ -22,67 +22,67 @@
               <div class="m-provider">{{ m.providerName }} · {{ m.purpose }}</div>
             </div>
           </div>
-          <div class="m-row">模型 ID：{{ m.modelName }}</div>
-          <div class="m-row">输入价：{{ m.inputPrice ?? '未设置' }} 元/千Token</div>
-          <div class="m-row">输出价：{{ m.outputPrice ?? '未设置' }} 元/千Token</div>
-          <div class="m-row">上下文：{{ contextLabel(m.contextWindow) }}</div>
+          <div class="m-row">{{ t('providerPage.modelId') }}{{ m.modelName }}</div>
+          <div class="m-row">{{ t('providerPage.inputPrice') }}{{ m.inputPrice ?? t('providerPage.notSet') }}{{ t('providerPage.perKToken') }}</div>
+          <div class="m-row">{{ t('providerPage.outputPrice') }}{{ m.outputPrice ?? t('providerPage.notSet') }}{{ t('providerPage.perKToken') }}</div>
+          <div class="m-row">{{ t('providerPage.context') }}{{ contextLabel(m.contextWindow) }}</div>
           <div class="m-foot">
             <el-tag :type="m.status === 'ENABLED' ? 'success' : 'info'" size="small">
-              {{ m.status === 'ENABLED' ? '可使用' : '已停用' }}
+              {{ m.status === 'ENABLED' ? t('providerPage.enabledUse') : t('providerPage.disabledUse') }}
             </el-tag>
           </div>
         </el-card>
-        <el-empty v-if="models.length === 0" description="暂无模型" />
+        <el-empty v-if="models.length === 0" :description="t('providerPage.noModels')" />
       </div>
     </template>
 
     <template v-else>
 
     <el-card shadow="never" class="mb">
-      <template #header>Provider（平台预置 + 租户自建）</template>
+      <template #header>{{ t('providerPage.providerHeader') }}</template>
       <el-table :data="providers" size="small">
-        <el-table-column label="名称" width="200">
+        <el-table-column :label="t('providerPage.name')" width="200">
           <template #default="{ row }">
             {{ row.name }}
-            <el-tag v-if="row.credentialConfigured" size="small" type="success" class="ml6">密钥已配置</el-tag>
+            <el-tag v-if="row.credentialConfigured" size="small" type="success" class="ml6">{{ t('providerPage.keyConfigured') }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="providerType" label="类型" width="110" />
+        <el-table-column prop="providerType" :label="t('providerPage.type')" width="110" />
         <el-table-column prop="baseUrl" label="Base URL" min-width="200" />
-        <el-table-column label="归属" width="100">
+        <el-table-column :label="t('providerPage.ownership')" width="100">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.preset ? 'info' : 'success'">{{ row.preset ? '平台预置' : '租户自建' }}</el-tag>
+            <el-tag size="small" :type="row.preset ? 'info' : 'success'">{{ row.preset ? t('providerPage.preset') : t('providerPage.custom') }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="90" />
-        <el-table-column label="操作" width="250">
+        <el-table-column prop="status" :label="t('providerPage.status')" width="90" />
+        <el-table-column :label="t('providerPage.actions')" width="250">
           <template #default="{ row }">
-            <el-button size="small" @click="test(row)">测试</el-button>
-            <el-button size="small" type="primary" plain @click="sync(row)">同步模型</el-button>
-            <el-button v-if="!row.preset" size="small" text type="primary" @click="openCredential(row)">密钥</el-button>
+            <el-button size="small" @click="test(row)">{{ t('providerPage.test') }}</el-button>
+            <el-button size="small" type="primary" plain @click="sync(row)">{{ t('providerPage.sync') }}</el-button>
+            <el-button v-if="!row.preset" size="small" text type="primary" @click="openCredential(row)">{{ t('providerPage.credential') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
 
     <el-card shadow="never">
-      <template #header>模型列表（默认定价为预填，计价权威为计费规则）</template>
+      <template #header>{{ t('providerPage.modelHeader') }}</template>
       <el-table :data="models" size="small">
-        <el-table-column prop="displayName" label="名称" width="180" />
-        <el-table-column prop="modelName" label="模型 ID" width="150" />
+        <el-table-column prop="displayName" :label="t('providerPage.name')" width="180" />
+        <el-table-column prop="modelName" :label="t('providerPage.modelName')" width="150" />
         <el-table-column prop="providerName" label="Provider" width="120" />
-        <el-table-column prop="purpose" label="用途" width="90" />
-        <el-table-column label="上下文" width="110">
+        <el-table-column prop="purpose" :label="t('providerPage.purpose')" width="90" />
+        <el-table-column :label="t('providerPage.contextCol')" width="110">
           <template #default="{ row }">{{ contextLabel(row.contextWindow) }}</template>
         </el-table-column>
-        <el-table-column label="启停" width="90">
+        <el-table-column :label="t('providerPage.enableDisable')" width="90">
           <template #default="{ row }">
             <el-switch :model-value="modelStatus(row)" @change="(v: any) => toggleModel(row, v)" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="110">
+        <el-table-column :label="t('providerPage.actions')" width="110">
           <template #default="{ row }">
-            <el-button size="small" text type="primary" @click="editPrice(row)">配置</el-button>
+            <el-button size="small" text type="primary" @click="editPrice(row)">{{ t('providerPage.config') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -90,90 +90,90 @@
 
     </template>
 
-    <el-dialog v-model="createVisible" title="接入新 Provider" width="520px">
+    <el-dialog v-model="createVisible" :title="t('providerPage.createTitle')" width="520px">
       <el-form label-width="90px">
-        <el-form-item label="名称" required><el-input v-model="form.name" placeholder="如：智谱" /></el-form-item>
-        <el-form-item label="类型" required>
+        <el-form-item :label="t('providerPage.name')" required><el-input v-model="form.name" :placeholder="t('providerPage.namePh')" /></el-form-item>
+        <el-form-item :label="t('providerPage.type')" required>
           <el-select v-model="form.providerType" style="width: 100%">
             <el-option v-for="t in ['OPENAI_COMPATIBLE','DEEPSEEK','ANTHROPIC','DASHSCOPE','OLLAMA','VOLC']" :key="t" :value="t" :label="t" />
           </el-select>
         </el-form-item>
         <el-form-item label="Base URL" required>
-          <el-input v-model="form.baseUrl" placeholder="https://api.example.com（OpenAI 兼容）" />
+          <el-input v-model="form.baseUrl" :placeholder="t('providerPage.baseUrlPh')" />
         </el-form-item>
         <el-form-item label="API Key">
           <el-input v-model="form.apiKey" type="password" show-password
-                    placeholder="sk-...（Ollama/内网代理可留空；加密存储）" />
+                    :placeholder="t('providerPage.keyPh')" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="create">创建</el-button>
+        <el-button @click="createVisible = false">{{ t('providerPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="creating" @click="create">{{ t('providerPage.create') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="credentialVisible" title="配置 Provider API Key" width="440px">
+    <el-dialog v-model="credentialVisible" :title="t('providerPage.credentialTitle')" width="440px">
       <el-form label-width="90px">
         <el-form-item label="Provider">{{ credentialProvider.name }}</el-form-item>
         <el-form-item label="API Key">
           <el-input v-model="credentialKey" type="password" show-password
-                    placeholder="留空并保存表示清除密钥" />
+                    :placeholder="t('providerPage.clearKeyPh')" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="credentialVisible = false">取消</el-button>
-        <el-button type="primary" :loading="savingCredential" @click="saveCredential">保存</el-button>
+        <el-button @click="credentialVisible = false">{{ t('providerPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="savingCredential" @click="saveCredential">{{ t('providerPage.save') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="modelCreateVisible" title="新增模型" width="520px">
+    <el-dialog v-model="modelCreateVisible" :title="t('providerPage.modelCreateTitle')" width="520px">
       <el-form label-width="110px">
         <el-form-item label="Provider" required>
           <el-select v-model="modelForm.providerId" style="width: 100%">
             <el-option v-for="p in providers" :key="p.id" :value="p.id" :label="p.name" />
           </el-select>
         </el-form-item>
-        <el-form-item label="模型 ID" required>
-          <el-input v-model="modelForm.modelName" placeholder="如 deepseek-chat" />
+        <el-form-item :label="t('providerPage.modelName')" required>
+          <el-input v-model="modelForm.modelName" :placeholder="t('providerPage.modelNamePh')" />
         </el-form-item>
-        <el-form-item label="显示名称">
+        <el-form-item :label="t('providerPage.displayName')">
           <el-input v-model="modelForm.displayName" />
         </el-form-item>
-        <el-form-item label="用途">
+        <el-form-item :label="t('providerPage.purpose')">
           <el-select v-model="modelForm.purpose" style="width: 160px">
-            <el-option label="对话 CHAT" value="CHAT" />
-            <el-option label="嵌入 EMBEDDING" value="EMBEDDING" />
+            <el-option :label="t('providerPage.chat')" value="CHAT" />
+            <el-option :label="t('providerPage.embedding')" value="EMBEDDING" />
           </el-select>
         </el-form-item>
-        <el-form-item label="上下文窗口">
+        <el-form-item :label="t('providerPage.contextWindow')">
           <el-select v-model="modelForm.contextWindow" filterable allow-create style="width: 220px">
             <el-option v-for="c in contextOptions" :key="c.value" :value="c.value" :label="c.label" />
           </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="modelCreateVisible = false">取消</el-button>
-        <el-button type="primary" :loading="modelCreating" @click="createModel">创建</el-button>
+        <el-button @click="modelCreateVisible = false">{{ t('providerPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="modelCreating" @click="createModel">{{ t('providerPage.create') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="priceVisible" title="模型配置" width="440px">
+    <el-dialog v-model="priceVisible" :title="t('providerPage.priceTitle')" width="440px">
       <el-form label-width="130px">
-        <el-form-item label="输入 元/千Token">
+        <el-form-item :label="t('providerPage.inputPriceLabel')">
           <el-input-number v-model="price.input" :min="0" :step="0.001" :precision="4" />
         </el-form-item>
-        <el-form-item label="输出 元/千Token">
+        <el-form-item :label="t('providerPage.outputPriceLabel')">
           <el-input-number v-model="price.output" :min="0" :step="0.001" :precision="4" />
         </el-form-item>
-        <el-form-item label="上下文窗口">
+        <el-form-item :label="t('providerPage.contextWindow')">
           <el-select v-model="price.contextWindow" filterable allow-create style="width: 220px">
             <el-option v-for="c in contextOptions" :key="c.value" :value="c.value" :label="c.label" />
           </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="priceVisible = false">取消</el-button>
-        <el-button type="primary" @click="savePrice">保存</el-button>
+        <el-button @click="priceVisible = false">{{ t('providerPage.cancel') }}</el-button>
+        <el-button type="primary" @click="savePrice">{{ t('providerPage.save') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -198,7 +198,7 @@ const modelCreateVisible = ref(false)
 const modelCreating = ref(false)
 const modelForm = reactive({ providerId: null as number | null, modelName: '', displayName: '', purpose: 'CHAT', contextWindow: 0 })
 const contextOptions = [
-  { value: 0, label: '未设置（默认）' },
+  { value: 0, label: t('providerPage.defaultOption') },
   { value: 32768, label: '32K' },
   { value: 65536, label: '64K' },
   { value: 131072, label: '128K' },
@@ -207,7 +207,7 @@ const contextOptions = [
 ]
 function contextLabel(v?: number) {
   const c = Number(v || 0)
-  if (c <= 0) return '未设置'
+  if (c <= 0) return t('providerPage.notSet')
   return c >= 1048576 ? (c / 1048576) + 'M' : (c / 1024) + 'K'
 }
 const form = reactive({ name: '', providerType: 'OPENAI_COMPATIBLE', baseUrl: '', apiKey: '' })
@@ -227,7 +227,7 @@ async function saveCredential() {
   savingCredential.value = true
   try {
     await http.put(`/provider/${credentialProvider.value.id}/credential`, { apiKey: credentialKey.value })
-    ElMessage.success(credentialKey.value ? '密钥已加密保存' : '已清除密钥')
+    ElMessage.success(credentialKey.value ? t('providerPage.keySaved') : t('providerPage.keyCleared'))
     credentialVisible.value = false
     await load()
   } finally {
@@ -249,11 +249,11 @@ function openCreateProvider() {
 }
 
 async function create() {
-  if (!form.name.trim() || !form.baseUrl.trim()) { ElMessage.warning('名称和 Base URL 必填'); return }
+  if (!form.name.trim() || !form.baseUrl.trim()) { ElMessage.warning(t('providerPage.nameUrlRequired')); return }
   creating.value = true
   try {
     await http.post('/provider', { ...form })
-    ElMessage.success('Provider 已创建；可测试连通性并同步模型')
+    ElMessage.success(t('providerPage.providerCreated'))
     createVisible.value = false
     Object.assign(form, { name: '', providerType: 'OPENAI_COMPATIBLE', baseUrl: '', apiKey: '' })
     await load()
@@ -264,12 +264,12 @@ async function create() {
 
 async function test(row: any) {
   const res = await http.post(`/provider/${row.id}/test`) as any
-  ElMessage.success(res.message || `连通正常，耗时 ${res.latencyMs ?? '?'}ms`)
+  ElMessage.success(res.message || `${t('providerPage.connectivityOk')}${res.latencyMs ?? '?'}ms`)
 }
 
 async function sync(row: any) {
   const res = await http.post(`/provider/${row.id}/models/sync`) as any
-  ElMessage.success(`同步完成：模型 ${res.total ?? 0} 个，启用 ${res.enabled ?? 0} 个`)
+  ElMessage.success(`${t('providerPage.syncDone')}${res.total ?? 0}${t('providerPage.syncModels')}${res.enabled ?? 0}${t('providerPage.syncEnabled')}`)
   await load()
 }
 
@@ -282,12 +282,12 @@ async function toggleModel(row: any, enabled: boolean) {
   if (enabled) disabled.value.delete(row.modelId)
   else disabled.value.add(row.modelId)
   disabled.value = new Set(disabled.value)
-  ElMessage.success(enabled ? '已启用' : '已停用')
+  ElMessage.success(enabled ? t('providerPage.modelEnabled') : t('providerPage.modelDisabled'))
 }
 
 async function createModel() {
   if (!modelForm.providerId || !modelForm.modelName.trim()) {
-    ElMessage.warning('Provider 与模型 ID 必填'); return
+    ElMessage.warning(t('providerPage.providerModelRequired')); return
   }
   modelCreating.value = true
   try {
@@ -297,7 +297,7 @@ async function createModel() {
       purpose: modelForm.purpose,
       contextWindow: modelForm.contextWindow
     })
-    ElMessage.success('模型已创建')
+    ElMessage.success(t('providerPage.modelCreated'))
     modelCreateVisible.value = false
     modelForm.modelName = ''
     modelForm.displayName = ''
@@ -319,7 +319,7 @@ async function savePrice() {
   await http.put(`/models/${price.id}`, {
     inputPrice: price.input, outputPrice: price.output, contextWindow: price.contextWindow
   })
-  ElMessage.success('已保存模型配置')
+  ElMessage.success(t('providerPage.modelConfigSaved'))
   priceVisible.value = false
 }
 </script>
