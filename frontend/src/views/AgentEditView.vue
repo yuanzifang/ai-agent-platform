@@ -477,11 +477,11 @@
         <el-table-column :label="t('agentDlg.status')" width="80">
           <template #default="{ row }">
             <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">
-              {{ row.status === 'ENABLED' ? '启用' : '停用' }}
+              {{ row.status === 'ENABLED' ? t('agentDlg.keyEnabled') : t('agentDlg.disableAction') }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="280">
+        <el-table-column :label="t('agentDlg.actions')" width="280">
           <template #default="{ row }">
             <el-button size="small" text @click="copyInbound(row)">{{ t('agentDlg.copyAddr') }}</el-button>
             <el-button size="small" text :loading="channelTestingId === row.id" @click="testChannel(row)">{{ t('agentDlg.test') }}</el-button>
@@ -649,7 +649,7 @@
     <el-dialog v-model="optimizeVisible" :title="t('agentDlg.optimizeTitle')" width="760px">
       <div class="hint mb8">{{ t('agentDlg.optimizeHint') }}</div>
       <el-form label-width="90px">
-        <el-form-item :label="t('agentDlg.direction')">
+        <el-form-item :label="t('agentDlg.optDirection')">
           <el-select v-model="optimizeStyle" clearable :placeholder="t('agentDlg.optional')" style="width: 200px">
             <el-option :label="t('agentDlg.structured')" value="结构化、分点清晰" />
             <el-option :label="t('agentDlg.concise')" value="精简冗余，保持信息完整" />
@@ -673,7 +673,7 @@
         </span>
       </div>
       <div v-if="optimizeResult" class="opt-result">
-        <div class="opt-label">{{ t('agentDlg.result') }}{{ optimizeResult.length }}{{ t('agentDlg.chars') }}</div>
+        <div class="opt-label">{{ t('agentDlg.optResult') }}{{ optimizeResult.length }}{{ t('agentDlg.chars') }}</div>
         <el-input v-model="optimizeResult" type="textarea" :rows="10" />
         <div class="mt8">
           <el-button type="primary" @click="applyOptimized('replace')">{{ t('agentDlg.replacePrompt') }}</el-button>
