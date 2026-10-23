@@ -1027,6 +1027,41 @@ test('工作流 Agent Handoff 与共享上下文', async ({ request }) => {
   }
 })
 
+test('工作流独立 Graph 边执行', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E Graph 边-${Date.now()}`)
+  try {
+    await publishAgent(request, token!, agentId)
+    const workflow = {
+      name: 'E2E Graph 边', status: 'ENABLED',
+      definition: {
+        nodes: [
+          { id: 'start', type: 'START', name: '开始' },
+          { id: 'llm1', type: 'LLM', name: '生成', prompt: '只回答OK' },
+          { id: 'end', type: 'END', name: '结束' }
+        ],
+        edges: [
+          { from: 'start', to: 'llm1' },
+          { from: 'llm1', to: 'end' }
+        ]
+      }
+    }
+    const save = await request.put(`${P}/agent/${agentId}/workflow`, {
+      headers: auth(token!), data: workflow
+    })
+    expect((await save.json()).code).toBe(0)
+    const body = await (await request.post(`${P}/agent/${agentId}/workflow/run`, {
+      headers: auth(token!), data: { input: 'Graph 边测试' }, timeout: 60_000
+    })).json()
+    expect(body.code, JSON.stringify(body)).toBe(0)
+    expect(body.data.status).toBe('SUCCESS')
+    expect((body.data.nodeRuns || []).map((n: any) => n.nodeType)).toContain('LLM')
+  } finally {
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
 test('工作流并行分支 State 合并', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()

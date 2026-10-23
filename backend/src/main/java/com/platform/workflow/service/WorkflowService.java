@@ -117,6 +117,7 @@ public class WorkflowService {
         Object rawDefinition = req.get("definition");
         Map<String, Object> definition = rawDefinition instanceof Map<?, ?> m
                 ? castMap(m) : parse(str(rawDefinition));
+        normalizeGraph(definition);
         validate(definition);
         String json = json(definition);
 
@@ -327,7 +328,10 @@ public class WorkflowService {
         if (wf == null) throw new BusinessException(400, "该 Agent 尚未配置工作流");
         if (!"ENABLED".equals(wf.getStatus())) throw new BusinessException(400, "工作流已停用");
         String runDefinition = wf.getPublishedDefinition() != null ? wf.getPublishedDefinition() : wf.getDefinition();
-        validate(parse(runDefinition));
+        Map<String, Object> normalizedDefinition = parse(runDefinition);
+        normalizeGraph(normalizedDefinition);
+        validate(normalizedDefinition);
+        runDefinition = json(normalizedDefinition);
 
         WorkflowRun run = new WorkflowRun();
         run.setWorkflowId(wf.getId());
@@ -1396,6 +1400,59 @@ public class WorkflowService {
             throw new BusinessException(404, "Agent 不存在");
         }
         return agent;
+    }
+
+    /**
+     * 独立 Graph 边：edges=[{from,to,label}]。保存/运行前归一化为节点的 next/trueNext/falseNext，
+     * 兼容原有执行器；PARALLEL 分支仍由 branches 配置表达。
+     */
+    @SuppressWarnings("unchecked")
+    private void normalizeGraph(Map<String, Object> definition) {
+        Object rawEdges = definition.get("edges");
+        if (!(rawEdges instanceof List<?> edges)) return;
+        if (edges.isEmpty()) {
+            definition.remove("edges");
+            return;
+        }
+        if (edges.size() > 100) throw new BusinessException(400, "Graph 边不能超过 100 条");
+        Map<String, Map<String, Object>> nodes = nodeMap(definition);
+        Map<String, List<Map<String, Object>>> outgoing = new LinkedHashMap<>();
+        for (Object o : edges) {
+            if (!(o instanceof Map<?, ?> em)) throw new BusinessException(400, "Graph 边格式错误");
+            Map<String, Object> edge = castMap(em);
+            String from = str(edge.get("from"));
+            String to = str(edge.get("to"));
+            if (from == null || from.isBlank() || !nodes.containsKey(from)) {
+                throw new BusinessException(400, "Graph 边起点不存在：" + from);
+            }
+            if (to == null || to.isBlank() || !nodes.containsKey(to)) {
+                throw new BusinessException(400, "Graph 边终点不存在：" + to);
+            }
+            String fromType = str(nodes.get(from).get("type"));
+            if ("END".equalsIgnoreCase(fromType)) throw new BusinessException(400, "END 节点不能有出边");
+            outgoing.computeIfAbsent(from, k -> new ArrayList<>()).add(edge);
+        }
+        for (Map.Entry<String, List<Map<String, Object>>> entry : outgoing.entrySet()) {
+            Map<String, Object> node = nodes.get(entry.getKey());
+            String type = str(node.get("type"));
+            type = type == null ? "" : type.toUpperCase();
+            List<Map<String, Object>> outs = entry.getValue();
+            if ("CONDITION".equals(type)) {
+                for (Map<String, Object> edge : outs) {
+                    String label = str(edge.get("label"));
+                    if ("true".equalsIgnoreCase(label)) node.put("trueNext", str(edge.get("to")));
+                    else if ("false".equalsIgnoreCase(label)) node.put("falseNext", str(edge.get("to")));
+                }
+                if (str(node.get("trueNext")) == null || str(node.get("falseNext")) == null) {
+                    throw new BusinessException(400, "CONDITION 的 Graph 边必须分别标记 true/false");
+                }
+            } else if (!"PARALLEL".equals(type)) {
+                if (outs.size() > 1) {
+                    throw new BusinessException(400, "节点 " + entry.getKey() + " 只能有一条出边");
+                }
+                node.put("next", str(outs.get(0).get("to")));
+            }
+        }
     }
 
     @SuppressWarnings("unchecked")

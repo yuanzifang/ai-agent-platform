@@ -973,6 +973,29 @@
         </div>
       </div>
 
+      <el-collapse class="mt8">
+        <el-collapse-item title="Graph 有向边（可选，优先于节点 next）" name="graph-edges">
+          <div v-for="(e, i) in workflowForm.edges" :key="'edge' + i" class="wf-line">
+            <el-select v-model="e.from" filterable placeholder="起点" style="width: 190px">
+              <el-option v-for="n in workflowForm.nodes.filter((x: any) => x.type !== 'END')"
+                         :key="n.id" :value="n.id" :label="wfTypeText(n.type) + ' · ' + n.name" />
+            </el-select>
+            <span>→</span>
+            <el-select v-model="e.to" filterable placeholder="终点" style="width: 190px">
+              <el-option v-for="n in workflowForm.nodes" :key="n.id" :value="n.id"
+                         :label="wfTypeText(n.type) + ' · ' + n.name" />
+            </el-select>
+            <el-select v-if="workflowNodeType(e.from) === 'CONDITION'" v-model="e.label" style="width: 100px">
+              <el-option label="true" value="true" />
+              <el-option label="false" value="false" />
+            </el-select>
+            <el-button text type="danger" @click="workflowForm.edges.splice(i, 1)">删除</el-button>
+          </div>
+          <el-button size="small" @click="addGraphEdge">添加边</el-button>
+          <div class="hint">配置边后保存/运行会归一化为跳转；普通节点只能一条出边，CONDITION 需 true/false 两条。PARALLEL 分支仍用节点上的分支机构。</div>
+        </el-collapse-item>
+      </el-collapse>
+
       <el-divider content-position="left">运行测试</el-divider>
       <el-input v-model="workflowRunInput" type="textarea" :rows="2" placeholder="输入测试内容" />
       <div class="hint mt8">运行优先使用已发布版本；未发布时使用当前草稿。</div>
@@ -1171,7 +1194,7 @@ const wfTypes = [
   { label: '汇合节点', value: 'JOIN' },
   { label: '人工审批', value: 'APPROVAL' }
 ]
-const workflowForm = reactive({ name: '', status: 'ENABLED', nodes: [] as any[] })
+const workflowForm = reactive({ name: '', status: 'ENABLED', nodes: [] as any[], edges: [] as any[] })
 const workflowRunInput = ref('')
 const workflowRunResult = ref<any>(null)
 const workflowPublishedVersion = ref('')
@@ -1716,6 +1739,7 @@ async function openWorkflow() {
   workflowForm.nodes = (data?.definition?.nodes || []).map((n: any) => ({
     ...n, ...(n.type === 'LOOP' ? { itemsText: JSON.stringify(n.items || []) } : {})
   }))
+  workflowForm.edges = (data?.definition?.edges || []).map((e: any) => ({ ...e }))
   ensureWorkflowPositions()
   wfMode.value = 'list'
   wfSelected.value = ''
@@ -1924,6 +1948,14 @@ function diffTag(change: string) {
   return 'warning'
 }
 
+function workflowNodeType(id: string) {
+  return workflowForm.nodes.find((n: any) => n.id === id)?.type || ''
+}
+
+function addGraphEdge() {
+  workflowForm.edges.push({ from: 'start', to: 'end', label: '' })
+}
+
 function addWorkflowNode() {
   const id = `n${Date.now().toString(36)}${Math.floor(Math.random() * 100)}`
   const node: any = { id, type: wfAddType.value, name: wfTypeText(wfAddType.value), next: 'end' }
@@ -1997,15 +2029,18 @@ async function saveWorkflow() {
     await http.put(`/agent/${agentId}/workflow`, {
       name: workflowForm.name,
       status: workflowForm.status,
-      definition: { nodes: workflowForm.nodes.map((n: any) => {
-        if (n.type !== 'LOOP') return n
-        let items = n.items
-        try { items = JSON.parse(n.itemsText || '[]') } catch {
-          items = String(n.itemsText || '').split(/[\n,，]/).map((x: string) => x.trim()).filter(Boolean)
-        }
-        const { itemsText, ...rest } = n
-        return { ...rest, items }
-      }) }
+      definition: {
+        nodes: workflowForm.nodes.map((n: any) => {
+          if (n.type !== 'LOOP') return n
+          let items = n.items
+          try { items = JSON.parse(n.itemsText || '[]') } catch {
+            items = String(n.itemsText || '').split(/[\n,，]/).map((x: string) => x.trim()).filter(Boolean)
+          }
+          const { itemsText, ...rest } = n
+          return { ...rest, items }
+        }),
+        edges: workflowForm.edges.filter((e: any) => e.from && e.to)
+      }
     })
     workflowConfigured.value = true
     const fresh = await http.get(`/agent/${agentId}/workflow`) as any
