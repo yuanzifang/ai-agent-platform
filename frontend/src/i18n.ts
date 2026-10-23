@@ -562,7 +562,10 @@ const messages = {
       typeTool: '工具调用', typeKnowledge: '知识库检索', typeCondition: '条件分支', typeApproval: '人工审批',
       typeParallel: '并行分支', typeLoop: '循环迭代', typeJoin: '汇合节点', typeStart: '开始', typeEnd: '结束',
       actions: '操作', tokenLabel: 'Token：', pickerAddSkill: '添加技能', pickerAddTool: '添加工具', pickerAddSub: '添加子 Agent',
-      pickerSelectSkill: '选择技能', pickerSelectTool: '选择工具', pickerSelectSub: '选择本租户 Agent'
+      pickerSelectSkill: '选择技能', pickerSelectTool: '选择工具', pickerSelectSub: '选择本租户 Agent',
+      builtinSuffix: '（内置）', noSuitable: '没有合适的？', goSkill: '去新增技能', goTool: '去新建 API 工具',
+      goMcp: '去添加 MCP Server', noSubOptions: '暂无可添加的子 Agent', noOptions: '暂无可选项，请先通过上方入口创建',
+      onlyNew: '只展示未添加项；添加后可在面板内启用/禁用', cancel: '取消', add: '添加'
     },
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
@@ -1145,7 +1148,10 @@ const messages = {
       typeTool: 'Tool call', typeKnowledge: 'Knowledge retrieval', typeCondition: 'Condition', typeApproval: 'Approval',
       typeParallel: 'Parallel', typeLoop: 'Loop', typeJoin: 'Join', typeStart: 'Start', typeEnd: 'End',
       actions: 'Actions', tokenLabel: 'Token: ', pickerAddSkill: 'Add skill', pickerAddTool: 'Add tool', pickerAddSub: 'Add sub-Agent',
-      pickerSelectSkill: 'Select skill', pickerSelectTool: 'Select tool', pickerSelectSub: 'Select tenant Agent'
+      pickerSelectSkill: 'Select skill', pickerSelectTool: 'Select tool', pickerSelectSub: 'Select tenant Agent',
+      builtinSuffix: ' (built-in)', noSuitable: 'Nothing suitable?', goSkill: 'Create a skill', goTool: 'Create an API tool',
+      goMcp: 'Add an MCP Server', noSubOptions: 'No sub-Agents available', noOptions: 'No options; create one via the links above',
+      onlyNew: 'Only items not yet added; enable/disable them in the panel', cancel: 'Cancel', add: 'Add'
     },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',

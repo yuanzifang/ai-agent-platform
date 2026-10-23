@@ -698,8 +698,8 @@
         <pre class="tpl-content">{{ selectedTemplate.content }}</pre>
       </div>
       <template #footer>
-        <el-button @click="templateVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="!selectedTemplate" @click="applyTemplate">插入</el-button>
+        <el-button @click="templateVisible = false">{{ t('wf.cancel') }}</el-button>
+        <el-button type="primary" :disabled="!selectedTemplate" @click="applyTemplate">{{ t('wf.add') }}</el-button>
       </template>
     </el-dialog>
 
@@ -708,23 +708,23 @@
       <el-select v-model="picker.selected" multiple filterable style="width: 100%"
                  :placeholder="pickerPlaceholder">
         <el-option v-for="o in pickerOptions" :key="o.id" :value="o.id"
-                   :label="o.name + (o.isBuiltin ? '（内置）' : '')" />
+                   :label="o.name + (o.isBuiltin ? t('wf.builtinSuffix') : '')" />
       </el-select>
       <div v-if="picker.type !== 'sub'" class="picker-create">
-        <span class="hint">没有合适的？</span>
+        <span class="hint">{{ t('wf.noSuitable') }}</span>
         <el-link v-if="picker.type === 'skill'" type="primary" :underline="false"
-                 @click="goCreate('skill')">去新增技能</el-link>
+                 @click="goCreate('skill')">{{ t('wf.goSkill') }}</el-link>
         <template v-else>
-          <el-link type="primary" :underline="false" @click="goCreate('tool')">去新建 API 工具</el-link>
-          <el-link type="primary" :underline="false" @click="goCreate('mcp')">去添加 MCP Server</el-link>
+          <el-link type="primary" :underline="false" @click="goCreate('tool')">{{ t('wf.goTool') }}</el-link>
+          <el-link type="primary" :underline="false" @click="goCreate('mcp')">{{ t('wf.goMcp') }}</el-link>
         </template>
       </div>
       <el-alert v-if="pickerOptions.length === 0" type="info" :closable="false" show-icon class="mt8"
-                :title="picker.type === 'sub' ? '暂无可添加的子 Agent' : '暂无可选项，请先通过上方入口创建'" />
-      <div class="hint mt8">只展示未添加项；添加后可在面板内启用/禁用</div>
+                :title="picker.type === 'sub' ? t('wf.noSubOptions') : t('wf.noOptions')" />
+      <div class="hint mt8">{{ t('wf.onlyNew') }}</div>
       <template #footer>
-        <el-button @click="picker.visible = false">取消</el-button>
-        <el-button type="primary" @click="confirmPicker">添加</el-button>
+        <el-button @click="picker.visible = false">{{ t('wf.cancel') }}</el-button>
+        <el-button type="primary" @click="confirmPicker">{{ t('wf.add') }}</el-button>
       </template>
     </el-dialog>
 
@@ -925,7 +925,7 @@
                 <el-option v-for="o in wfTargets(n.id)" :key="o.id" :value="o.id"
                            :label="wfTypeText(o.type) + ' · ' + o.name" />
               </el-select>
-              未{{ t('wf.trueBranch') }}
+              {{ t('wf.falseBranch') }}
               <el-select v-model="n.falseNext" size="small" style="width: 150px">
                 <el-option v-for="o in wfTargets(n.id)" :key="o.id" :value="o.id"
                            :label="wfTypeText(o.type) + ' · ' + o.name" />
