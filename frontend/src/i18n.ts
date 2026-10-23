@@ -31,6 +31,43 @@ const messages = {
       modelHint: '需先在 Ollama 拉取对应模型；不同维度向量分表存储',
       visibility: '可见范围', createBtn: '创建'
     },
+    approval: {
+      sub: '工作流运行到审批节点会在此暂停；审批通过后自动继续执行', pending: '待审批',
+      approved: '已通过', rejected: '已拒绝', expired: '已超时', all: '全部', refresh: '刷新',
+      empty: '暂无审批任务', id: 'ID', agent: 'Agent', title: '审批事项', role: '审批角色',
+      anyRole: '不限', content: '待审内容', status: '状态', submitted: '提交时间', expireAt: '超时时间',
+      handler: '处理人/意见', actions: '操作', approve: '通过', reject: '拒绝', viewRun: '查看运行',
+      approveTitle: '通过审批', rejectTitle: '拒绝审批', item: '审批事项', comment: '审批意见',
+      commentApprovePh: '可选，如：同意退款', commentRejectPh: '必填，如：金额超限，转人工',
+      cancel: '取消', confirmApprove: '确认通过', confirmReject: '确认拒绝',
+      runDetail: '运行详情', runId: '运行 ID', currentNode: '当前节点', input: '输入', output: '输出',
+      track: '节点轨迹', rejectReason: '拒绝时请填写原因', approvedToast: '已通过，运行状态：', rejectedToast: '已拒绝'
+    },
+    tpl: {
+      sub: '预置 Agent 模板，一键创建后自动填充提示词、能力与工具/Skill 绑定', searchPh: '搜索模板',
+      category: '分类', search: '搜索', empty: '暂无模板', builtin: '内置', tools: '工具', skills: '技能',
+      noBindings: '无绑定工具', preview: '预览', use: '使用模板创建', previewTitle: '模板预览：',
+      desc: '描述', capabilities: '能力', stream: '流式输出', function: '函数调用', variables: '变量', bindings: '绑定', prompt: '系统提示词',
+      opening: '欢迎语', streamOn: '开', streamOff: '关', close: '关闭', created: '已从模板创建 Agent，请按需调整知识库等配置'
+    },
+    square: {
+      sub: '本租户已发布的 Agent，按热度/评分排序', searchPh: '搜索名称/描述', category: '分类', tag: '标签',
+      sortHot: '按热度', sortRating: '按评分', sortNew: '最新发布', favoritesOnly: '我的收藏', search: '搜索',
+      reports: '举报处理', empty: '暂无已上架的 Agent', noDesc: '暂无描述', calls: '调用', successRate: '成功率',
+      rating: '评分', favorites: '收藏', detail: '详情', unfavorite: '取消收藏', chat: '对话',
+      reportTitle: '举报处理', reportEmpty: '暂无举报', reporter: '举报人', reason: '理由', time: '时间',
+      status: '状态', actions: '操作', handle: '处理', dismiss: '驳回', handled: '已处理', unclassified: '未分类',
+      version: '版本', delisted: '已下架', opening: '欢迎语', variables: '输入参数', useChat: '使用（对话）',
+      copyAgent: '复制为我的 Agent', report: '举报', reviews: '用户评价', myRating: '我的评价',
+      ratingPh: '说说使用体验（可选）', submitRating: '提交评价', onlyUsed: '仅使用过该 Agent 的用户可评价',
+      rateAfterUse: '使用该 Agent 后可进行评价', anonUser: '用户', noComment: '（无评论）',
+      publisherReply: '发布者回复：', replyPh: '回复该评价', reply: '回复', noReviews: '暂无评价',
+      reportReasonTitle: '举报 Agent', reportReasonPh: '如：内容违规、信息不实等', submit: '提交', cancel: '取消',
+      reportSuccess: '举报已提交，平台管理员将处理', noPermission: '无使用权限',
+      copyConfirmPrefix: '将复制「', copyConfirmSuffix: '」的配置与绑定，创建归属于你的副本。继续？',
+      copyTitle: 'Fork Agent', copied: '已创建副本', ratingSubmitted: '评价已提交',
+      replyRequired: '请输入回复内容', replied: '已回复', resolved: '已处理', dismissed: '已驳回'
+    },
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
       templates: '模板库', approvals: '人工审批箱', audit: '审计日志', billing: '计费管理',
@@ -79,6 +116,43 @@ const messages = {
       createTitle: 'New Knowledge Base', namePh: 'e.g. Product Manuals',
       modelHint: 'Pull the model in Ollama first; embeddings of different dimensions use separate tables',
       visibility: 'Visibility', createBtn: 'Create'
+    },
+    approval: {
+      sub: 'Workflow runs pause at approval nodes and resume after approval', pending: 'Pending',
+      approved: 'Approved', rejected: 'Rejected', expired: 'Expired', all: 'All', refresh: 'Refresh',
+      empty: 'No approval tasks', id: 'ID', agent: 'Agent', title: 'Approval', role: 'Required role',
+      anyRole: 'Any', content: 'Content', status: 'Status', submitted: 'Submitted', expireAt: 'Expires',
+      handler: 'Handler / comment', actions: 'Actions', approve: 'Approve', reject: 'Reject', viewRun: 'View run',
+      approveTitle: 'Approve', rejectTitle: 'Reject', item: 'Approval', comment: 'Comment',
+      commentApprovePh: 'Optional, e.g. approved', commentRejectPh: 'Required, e.g. amount exceeds limit',
+      cancel: 'Cancel', confirmApprove: 'Confirm approve', confirmReject: 'Confirm reject',
+      runDetail: 'Run details', runId: 'Run ID', currentNode: 'Current node', input: 'Input', output: 'Output',
+      track: 'Node timeline', rejectReason: 'Please provide a rejection reason', approvedToast: 'Approved, run status: ', rejectedToast: 'Rejected'
+    },
+    tpl: {
+      sub: 'Preset Agent templates with prompts, capabilities and tool/skill bindings', searchPh: 'Search templates',
+      category: 'Category', search: 'Search', empty: 'No templates', builtin: 'Built-in', tools: 'Tools', skills: 'Skills',
+      noBindings: 'No bound tools', preview: 'Preview', use: 'Use template', previewTitle: 'Template preview: ',
+      desc: 'Description', capabilities: 'Capabilities', stream: 'Streaming', function: 'Function calling', variables: 'Variables', bindings: 'Bindings', prompt: 'System prompt',
+      opening: 'Greeting', streamOn: 'On', streamOff: 'Off', close: 'Close', created: 'Agent created from template; adjust knowledge bases as needed'
+    },
+    square: {
+      sub: 'Published Agents in this tenant, sorted by popularity/rating', searchPh: 'Search name/description', category: 'Category', tag: 'Tag',
+      sortHot: 'Popularity', sortRating: 'Rating', sortNew: 'Newest', favoritesOnly: 'My favorites', search: 'Search',
+      reports: 'Reports', empty: 'No listed Agents', noDesc: 'No description', calls: 'Calls', successRate: 'Success',
+      rating: 'Rating', favorites: 'Favorites', detail: 'Details', unfavorite: 'Unfavorite', chat: 'Chat',
+      reportTitle: 'Reports', reportEmpty: 'No reports', reporter: 'Reporter', reason: 'Reason', time: 'Time',
+      status: 'Status', actions: 'Actions', handle: 'Resolve', dismiss: 'Dismiss', handled: 'Handled', unclassified: 'Uncategorized',
+      version: 'Version', delisted: 'Delisted', opening: 'Greeting', variables: 'Inputs', useChat: 'Use (chat)',
+      copyAgent: 'Copy to my Agents', report: 'Report', reviews: 'User reviews', myRating: 'My rating',
+      ratingPh: 'Share your experience (optional)', submitRating: 'Submit rating', onlyUsed: 'Only users who have used this Agent can rate',
+      rateAfterUse: 'Use this Agent to leave a rating', anonUser: 'User', noComment: '(No comment)',
+      publisherReply: 'Publisher reply: ', replyPh: 'Reply to this review', reply: 'Reply', noReviews: 'No reviews yet',
+      reportReasonTitle: 'Report Agent', reportReasonPh: 'e.g. inappropriate content or misinformation', submit: 'Submit', cancel: 'Cancel',
+      reportSuccess: 'Report submitted; platform admins will review it', noPermission: 'No permission to use',
+      copyConfirmPrefix: 'Copy the configuration and bindings of "', copyConfirmSuffix: '" into your own Agent. Continue?',
+      copyTitle: 'Fork Agent', copied: 'Copy created', ratingSubmitted: 'Rating submitted',
+      replyRequired: 'Please enter a reply', replied: 'Reply submitted', resolved: 'Resolved', dismissed: 'Dismissed'
     },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',

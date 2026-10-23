@@ -2,17 +2,17 @@
   <div class="page">
     <div class="toolbar">
       <span class="title">{{ t('page.templates') }}</span>
-      <span class="sub">预置 Agent 模板，一键创建后自动填充提示词、能力与工具/Skill 绑定</span>
+      <span class="sub">{{ t('tpl.sub') }}</span>
       <div class="spacer" />
-      <el-input v-model="keyword" placeholder="搜索模板" clearable style="width: 200px"
+      <el-input v-model="keyword" :placeholder="t('tpl.searchPh')" clearable style="width: 200px"
                 @keyup.enter="load" @clear="load" />
-      <el-select v-model="category" placeholder="分类" clearable style="width: 120px" @change="load">
+      <el-select v-model="category" :placeholder="t('tpl.category')" clearable style="width: 120px" @change="load">
         <el-option v-for="c in categories" :key="c" :value="c" :label="c" />
       </el-select>
-      <el-button @click="load">搜索</el-button>
+      <el-button @click="load">{{ t('tpl.search') }}</el-button>
     </div>
 
-    <el-empty v-if="!loading && list.length === 0" description="暂无模板" />
+    <el-empty v-if="!loading && list.length === 0" :description="t('tpl.empty')" />
     <div class="grid">
       <el-card v-for="t in list" :key="t.id" class="tpl-card" shadow="hover">
         <div class="card-head">
@@ -20,67 +20,67 @@
           <div class="title-wrap">
             <div class="name">{{ t.name }}</div>
             <el-tag v-if="t.category" size="small">{{ t.category }}</el-tag>
-            <el-tag v-if="t.isBuiltin" size="small" type="info">内置</el-tag>
+            <el-tag v-if="t.isBuiltin" size="small" type="info">{{ t('tpl.builtin') }}</el-tag>
           </div>
         </div>
         <div class="desc">{{ t.description }}</div>
         <div class="tags">
           <el-tag v-for="tool in t.tools || []" :key="'t' + tool.toolKey" size="small" type="success">
-            工具 · {{ tool.name }}
+            {{ t('tpl.tools') }} · {{ tool.name }}
           </el-tag>
           <el-tag v-for="s in t.skills || []" :key="'s' + s.skillKey" size="small" type="warning">
-            技能 · {{ s.name }}
+            {{ t('tpl.skills') }} · {{ s.name }}
           </el-tag>
-          <span v-if="!(t.tools || []).length && !(t.skills || []).length" class="muted">无绑定工具</span>
+          <span v-if="!(t.tools || []).length && !(t.skills || []).length" class="muted">{{ t('tpl.noBindings') }}</span>
         </div>
         <div class="card-foot">
-          <el-button size="small" @click="openPreview(t)">预览</el-button>
-          <el-button v-if="canCreate" size="small" type="primary" @click="useTemplate(t)">使用模板创建</el-button>
+          <el-button size="small" @click="openPreview(t)">{{ t('tpl.preview') }}</el-button>
+          <el-button v-if="canCreate" size="small" type="primary" @click="useTemplate(t)">{{ t('tpl.use') }}</el-button>
         </div>
       </el-card>
     </div>
 
-    <el-dialog v-model="previewVisible" :title="`模板预览：${current?.name || ''}`" width="680px">
+    <el-dialog v-model="previewVisible" :title="`${t('tpl.previewTitle')}${current?.name || ''}`" width="680px">
       <template v-if="current">
         <div class="pv-row">
-          <span class="pv-label">分类</span>
+          <span class="pv-label">{{ t('tpl.category') }}</span>
           <el-tag v-if="current.category" size="small">{{ current.category }}</el-tag>
           <span v-else class="muted">-</span>
         </div>
         <div class="pv-row">
-          <span class="pv-label">描述</span>
+          <span class="pv-label">{{ t('tpl.desc') }}</span>
           <span>{{ current.description }}</span>
         </div>
         <div class="pv-row">
-          <span class="pv-label">能力</span>
+          <span class="pv-label">{{ t('tpl.capabilities') }}</span>
           <el-tag size="small" :type="current.agentCapabilities?.streamOutput !== false ? 'success' : 'info'">
-            流式输出 {{ current.agentCapabilities?.streamOutput !== false ? '开' : '关' }}
+            {{ t('tpl.stream') }} {{ current.agentCapabilities?.streamOutput !== false ? t('tpl.streamOn') : t('tpl.streamOff') }}
           </el-tag>
           <el-tag size="small" class="ml6" :type="current.agentCapabilities?.functionCall ? 'success' : 'info'">
-            函数调用 {{ current.agentCapabilities?.functionCall ? '开' : '关' }}
+            {{ t('tpl.function') }} {{ current.agentCapabilities?.functionCall ? t('tpl.streamOn') : t('tpl.streamOff') }}
           </el-tag>
         </div>
         <div class="pv-row" v-if="(current.variables || []).length">
-          <span class="pv-label">变量</span>
+          <span class="pv-label">{{ t('tpl.variables') }}</span>
           <el-tag v-for="v in current.variables" :key="v.key" size="small" class="ml6">{{ v.key }}</el-tag>
         </div>
         <div class="pv-row" v-if="(current.tools || []).length || (current.skills || []).length">
-          <span class="pv-label">绑定</span>
+          <span class="pv-label">{{ t('tpl.bindings') }}</span>
           <el-tag v-for="tool in current.tools || []" :key="'pt' + tool.toolKey" size="small" class="ml6">
-            工具 · {{ tool.name }}
+            {{ t('tpl.tools') }} · {{ tool.name }}
           </el-tag>
           <el-tag v-for="s in current.skills || []" :key="'ps' + s.skillKey" size="small" class="ml6">
-            技能 · {{ s.name }}
+            {{ t('tpl.skills') }} · {{ s.name }}
           </el-tag>
         </div>
-        <div class="pv-label mt10">系统提示词</div>
+        <div class="pv-label mt10">{{ t('tpl.prompt') }}</div>
         <pre class="pv-prompt">{{ current.systemPrompt }}</pre>
-        <div class="pv-label mt10" v-if="current.openingStatement">欢迎语</div>
+        <div class="pv-label mt10" v-if="current.openingStatement">{{ t('tpl.opening') }}</div>
         <div v-if="current.openingStatement" class="pv-open">{{ current.openingStatement }}</div>
       </template>
       <template #footer>
-        <el-button @click="previewVisible = false">关闭</el-button>
-        <el-button v-if="canCreate && current" type="primary" @click="useTemplate(current)">使用模板创建</el-button>
+        <el-button @click="previewVisible = false">{{ t('tpl.close') }}</el-button>
+        <el-button v-if="canCreate && current" type="primary" @click="useTemplate(current)">{{ t('tpl.use') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -139,7 +139,7 @@ function openPreview(t: any) {
 
 async function useTemplate(t: any) {
   const res = await http.post(`/agent-templates/${t.id}/use`) as any
-  ElMessage.success('已从模板创建 Agent，请按需调整知识库等配置')
+  ElMessage.success(t('tpl.created'))
   previewVisible.value = false
   router.push(`/agent/edit/${res.id}`)
 }

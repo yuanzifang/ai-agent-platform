@@ -2,27 +2,27 @@
   <div class="page">
     <div class="toolbar">
       <span class="title">{{ t('page.square') }}</span>
-      <span class="sub">本租户已发布的 Agent，按热度/评分排序</span>
+      <span class="sub">{{ t('square.sub') }}</span>
       <div class="spacer" />
-      <el-input v-model="keyword" placeholder="搜索名称/描述" clearable style="width: 190px"
+      <el-input v-model="keyword" :placeholder="t('square.searchPh')" clearable style="width: 190px"
                 @keyup.enter="load" @clear="load" />
-      <el-select v-model="category" placeholder="分类" clearable style="width: 110px" @change="load">
+      <el-select v-model="category" :placeholder="t('square.category')" clearable style="width: 110px" @change="load">
         <el-option v-for="c in categories" :key="c" :value="c" :label="c" />
       </el-select>
-      <el-select v-model="tag" placeholder="标签" clearable style="width: 110px" @change="load">
+      <el-select v-model="tag" :placeholder="t('square.tag')" clearable style="width: 110px" @change="load">
         <el-option v-for="t in tags" :key="t" :value="t" :label="t" />
       </el-select>
       <el-select v-model="sort" style="width: 120px" @change="load">
-        <el-option label="按热度" value="hot" />
-        <el-option label="按评分" value="rating" />
-        <el-option label="最新发布" value="new" />
+        <el-option :label="t('square.sortHot')" value="hot" />
+        <el-option :label="t('square.sortRating')" value="rating" />
+        <el-option :label="t('square.sortNew')" value="new" />
       </el-select>
-      <el-checkbox v-model="favoritesOnly" @change="load">我的收藏</el-checkbox>
-      <el-button @click="load">搜索</el-button>
-      <el-button v-if="canManage" @click="openReports">举报处理</el-button>
+      <el-checkbox v-model="favoritesOnly" @change="load">{{ t('square.favoritesOnly') }}</el-checkbox>
+      <el-button @click="load">{{ t('square.search') }}</el-button>
+      <el-button v-if="canManage" @click="openReports">{{ t('square.reports') }}</el-button>
     </div>
 
-    <el-empty v-if="!loading && list.length === 0" description="暂无已上架的 Agent" />
+    <el-empty v-if="!loading && list.length === 0" :description="t('square.empty')" />
     <div class="grid">
       <el-card v-for="a in list" :key="a.id" class="agent-card" shadow="hover">
         <div class="card-head">
@@ -38,46 +38,46 @@
             <el-icon><StarFilled v-if="a.favorite" /><Star v-else /></el-icon>
           </el-button>
         </div>
-        <div class="desc">{{ a.description || '暂无描述' }}</div>
+        <div class="desc">{{ a.description || t('square.noDesc') }}</div>
         <div class="metrics">
-          <span>调用 {{ a.quality?.calls ?? 0 }}</span>
-          <span>成功率 {{ a.quality?.successRate == null ? '—' : a.quality.successRate + '%' }}</span>
-          <span>评分 {{ a.quality?.ratingAvg == null ? '—' : a.quality.ratingAvg }}（{{ a.quality?.ratingCount ?? 0 }}）</span>
-          <span>收藏 {{ a.favoriteCount ?? 0 }}</span>
+          <span>{{ t('square.calls') }} {{ a.quality?.calls ?? 0 }}</span>
+          <span>{{ t('square.successRate') }} {{ a.quality?.successRate == null ? '—' : a.quality.successRate + '%' }}</span>
+          <span>{{ t('square.rating') }} {{ a.quality?.ratingAvg == null ? '—' : a.quality.ratingAvg }}（{{ a.quality?.ratingCount ?? 0 }}）</span>
+          <span>{{ t('square.favorites') }} {{ a.favoriteCount ?? 0 }}</span>
         </div>
         <div class="meta">
           <span>{{ a.publisher || '-' }} · {{ fmt(a.publishedAt) }}</span>
         </div>
         <div class="card-foot">
-          <el-button size="small" @click="openDetail(a)">详情</el-button>
-          <el-button size="small" :disabled="!a.favorite" @click="toggleFavorite(a)">取消收藏</el-button>
+          <el-button size="small" @click="openDetail(a)">{{ t('square.detail') }}</el-button>
+          <el-button size="small" :disabled="!a.favorite" @click="toggleFavorite(a)">{{ t('square.unfavorite') }}</el-button>
           <el-button v-if="canFork" size="small" @click="fork(a)">Fork</el-button>
-          <el-button size="small" type="primary" @click="use(a)">对话</el-button>
+          <el-button size="small" type="primary" @click="use(a)">{{ t('square.chat') }}</el-button>
         </div>
       </el-card>
     </div>
 
-    <el-dialog v-model="reportsVisible" title="举报处理" width="780px">
-      <el-table :data="reports" size="small" empty-text="暂无举报">
+    <el-dialog v-model="reportsVisible" :title="t('square.reportTitle')" width="780px">
+      <el-table :data="reports" size="small" :empty-text="t('square.reportEmpty')">
         <el-table-column prop="agentName" label="Agent" width="140" />
-        <el-table-column prop="reporter" label="举报人" width="120" />
-        <el-table-column prop="reason" label="理由" min-width="220" show-overflow-tooltip />
-        <el-table-column label="时间" width="150">
+        <el-table-column prop="reporter" :label="t('square.reporter')" width="120" />
+        <el-table-column prop="reason" :label="t('square.reason')" min-width="220" show-overflow-tooltip />
+        <el-table-column :label="t('square.time')" width="150">
           <template #default="{ row }">{{ fmt(row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="100">
+        <el-table-column :label="t('square.status')" width="100">
           <template #default="{ row }">
             <el-tag size="small" :type="row.status === 'PENDING' ? 'warning'
                       : (row.status === 'RESOLVED' ? 'success' : 'info')">{{ row.status }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150">
+        <el-table-column :label="t('square.actions')" width="150">
           <template #default="{ row }">
             <template v-if="row.status === 'PENDING'">
-              <el-button size="small" text type="primary" @click="handleReport(row, 'RESOLVED')">处理</el-button>
-              <el-button size="small" text @click="handleReport(row, 'DISMISSED')">驳回</el-button>
+              <el-button size="small" text type="primary" @click="handleReport(row, 'RESOLVED')">{{ t('square.handle') }}</el-button>
+              <el-button size="small" text @click="handleReport(row, 'DISMISSED')">{{ t('square.dismiss') }}</el-button>
             </template>
-            <span v-else class="hint">已处理</span>
+            <span v-else class="hint">{{ t('square.handled') }}</span>
           </template>
         </el-table-column>
       </el-table>
@@ -88,10 +88,10 @@
         <div class="d-head">
           <el-avatar :size="52">{{ initials(current.name) }}</el-avatar>
           <div class="d-title">
-            <div class="d-name">{{ current.name }} <el-tag size="small">{{ current.category || '未分类' }}</el-tag></div>
+            <div class="d-name">{{ current.name }} <el-tag size="small">{{ current.category || t('square.unclassified') }}</el-tag></div>
             <div class="d-sub">
-              版本 {{ current.version || '—' }} · {{ current.publisher || '-' }} · {{ fmt(current.publishedAt) }}
-              <el-tag v-if="!current.listed" size="small" type="danger" class="ml6">已下架</el-tag>
+              {{ t('square.version') }} {{ current.version || '—' }} · {{ current.publisher || '-' }} · {{ fmt(current.publishedAt) }}
+              <el-tag v-if="!current.listed" size="small" type="danger" class="ml6">{{ t('square.delisted') }}</el-tag>
             </div>
           </div>
           <div class="spacer" />
@@ -108,48 +108,48 @@
           <span>会话 {{ current.quality?.usageCount ?? 0 }}</span>
         </div>
         <div v-if="current.openingStatement" class="d-row">
-          <span class="lbl">欢迎语</span><span>{{ current.openingStatement }}</span>
+          <span class="lbl">{{ t('square.opening') }}</span><span>{{ current.openingStatement }}</span>
         </div>
         <div v-if="(current.variables || []).length" class="d-row">
-          <span class="lbl">输入参数</span>
+          <span class="lbl">{{ t('square.variables') }}</span>
           <el-tag v-for="v in current.variables" :key="v.key" size="small" class="ml6">{{ v.key }}</el-tag>
         </div>
         <div class="d-row">
           <span class="lbl">操作</span>
-          <el-button size="small" type="primary" :disabled="!current.canUse" @click="use(current)">使用（对话）</el-button>
-          <el-button v-if="canFork" size="small" @click="fork(current)">复制为我的 Agent</el-button>
-          <el-button size="small" @click="report(current)">举报</el-button>
+          <el-button size="small" type="primary" :disabled="!current.canUse" @click="use(current)">{{ t('square.useChat') }}</el-button>
+          <el-button v-if="canFork" size="small" @click="fork(current)">{{ t('square.copyAgent') }}</el-button>
+          <el-button size="small" @click="report(current)">{{ t('square.report') }}</el-button>
         </div>
 
-        <el-divider content-position="left">用户评价</el-divider>
+        <el-divider content-position="left">{{ t('square.reviews') }}</el-divider>
         <div v-if="current.canRate" class="rate-form">
-          <span class="lbl">我的评价</span>
+          <span class="lbl">{{ t('square.myRating') }}</span>
           <el-rate v-model="myScore" :max="5" />
           <el-input v-model="myComment" type="textarea" :rows="2" maxlength="1000"
-                    placeholder="说说使用体验（可选）" style="margin-top: 6px" />
+                    :placeholder="t('square.ratingPh')" style="margin-top: 6px" />
           <div class="mt6">
-            <el-button size="small" type="primary" :loading="rating" :disabled="!myScore" @click="submitRating">提交评价</el-button>
-            <span class="hint">仅使用过该 Agent 的用户可评价</span>
+            <el-button size="small" type="primary" :loading="rating" :disabled="!myScore" @click="submitRating">{{ t('square.submitRating') }}</el-button>
+            <span class="hint">{{ t('square.onlyUsed') }}</span>
           </div>
         </div>
-        <div v-else class="hint mt6">使用该 Agent 后可进行评价</div>
+        <div v-else class="hint mt6">{{ t('square.rateAfterUse') }}</div>
 
         <div v-if="(current.ratings || []).length" class="ratings">
           <div v-for="r in current.ratings" :key="r.id" class="rating-item">
             <div class="r-head">
-              <span class="r-user">{{ r.userName || ('用户' + r.userId) }}</span>
+              <span class="r-user">{{ r.userName || (t('square.anonUser') + r.userId) }}</span>
               <el-rate :model-value="r.score" disabled size="small" />
               <span class="r-time">{{ fmt(r.createdAt) }}</span>
             </div>
-            <div class="r-comment">{{ r.comment || '（无评论）' }}</div>
-            <div v-if="r.reply" class="r-reply">发布者回复：{{ r.reply }}</div>
+            <div class="r-comment">{{ r.comment || t('square.noComment') }}</div>
+            <div v-if="r.reply" class="r-reply">{{ t('square.publisherReply') }}{{ r.reply }}</div>
             <div v-else-if="current.isOwner" class="r-reply-form">
-              <el-input v-model="replyDraft[r.id]" size="small" placeholder="回复该评价" style="width: 380px" />
-              <el-button size="small" type="primary" class="ml6" @click="submitReply(r)">回复</el-button>
+              <el-input v-model="replyDraft[r.id]" size="small" :placeholder="t('square.replyPh')" style="width: 380px" />
+              <el-button size="small" type="primary" class="ml6" @click="submitReply(r)">{{ t('square.reply') }}</el-button>
             </div>
           </div>
         </div>
-        <el-empty v-else description="暂无评价" :image-size="50" />
+        <el-empty v-else :description="t('square.noReviews')" :image-size="50" />
       </template>
     </el-dialog>
   </div>
@@ -234,7 +234,7 @@ async function openReports() {
 
 async function handleReport(row: any, status: string) {
   await http.put(`/square/reports/${row.id}`, { status })
-  ElMessage.success(status === 'RESOLVED' ? '已处理' : '已驳回')
+  ElMessage.success(status === 'RESOLVED' ? t('square.resolved') : t('square.dismissed'))
   reports.value = await http.get('/square/reports') as any
 }
 
@@ -256,7 +256,7 @@ async function submitRating() {
     await http.post(`/square/agents/${current.value.id}/rating`, {
       score: myScore.value, comment: myComment.value
     })
-    ElMessage.success('评价已提交')
+    ElMessage.success(t('square.ratingSubmitted'))
     await openDetail(current.value)
     await load()
   } finally {
@@ -265,35 +265,35 @@ async function submitRating() {
 }
 
 async function submitReply(r: any) {
-  if (!replyDraft[r.id]?.trim()) { ElMessage.warning('请输入回复内容'); return }
+  if (!replyDraft[r.id]?.trim()) { ElMessage.warning(t('square.replyRequired')); return }
   await http.post(`/square/agents/${current.value.id}/ratings/${r.id}/reply`, { reply: replyDraft[r.id] })
-  ElMessage.success('已回复')
+  ElMessage.success(t('square.replied'))
   replyDraft[r.id] = ''
   await openDetail(current.value)
 }
 
 async function report(a: any) {
   try {
-    const { value } = await ElMessageBox.prompt('请填写举报理由', '举报 Agent', {
-      inputType: 'textarea', inputPlaceholder: '如：内容违规、信息不实等',
-      confirmButtonText: '提交', cancelButtonText: '取消'
+    const { value } = await ElMessageBox.prompt(t('square.reason'), t('square.reportReasonTitle'), {
+      inputType: 'textarea', inputPlaceholder: t('square.reportReasonPh'),
+      confirmButtonText: t('square.submit'), cancelButtonText: t('square.cancel')
     })
     await http.post(`/square/agents/${a.id}/report`, { reason: value })
-    ElMessage.success('举报已提交，平台管理员将处理')
+    ElMessage.success(t('square.reportSuccess'))
   } catch { /* 取消 */ }
 }
 
 async function fork(a: any) {
-  await ElMessageBox.confirm(`将复制「${a.name}」的配置与绑定，创建归属于你的副本。继续？`, 'Fork Agent',
-    { type: 'warning', confirmButtonText: 'Fork', cancelButtonText: '取消' })
+  await ElMessageBox.confirm(`${t('square.copyConfirmPrefix')}${a.name}${t('square.copyConfirmSuffix')}`, t('square.copyTitle'),
+    { type: 'warning', confirmButtonText: 'Fork', cancelButtonText: t('square.cancel') })
   const res = await http.post(`/square/agents/${a.id}/fork`) as any
-  ElMessage.success('已创建副本')
+  ElMessage.success(t('square.copied'))
   detailVisible.value = false
   router.push(`/agent/edit/${res.id}`)
 }
 
 function use(a: any) {
-  if (!a.canUse && a.canUse !== undefined) { ElMessage.warning('无使用权限'); return }
+  if (!a.canUse && a.canUse !== undefined) { ElMessage.warning(t('square.noPermission')); return }
   detailVisible.value = false
   router.push(`/chat/${a.id}`)
 }

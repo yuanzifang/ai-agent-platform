@@ -2,49 +2,49 @@
   <div class="page">
     <div class="toolbar">
       <span class="title">{{ t('page.approvals') }}</span>
-      <span class="sub">工作流运行到审批节点会在此暂停；审批通过后自动继续执行</span>
+      <span class="sub">{{ t('approval.sub') }}</span>
       <div class="spacer" />
       <el-select v-model="status" style="width: 140px" @change="load(true)">
-        <el-option label="待审批" value="PENDING" />
-        <el-option label="已通过" value="APPROVED" />
-        <el-option label="已拒绝" value="REJECTED" />
-        <el-option label="已超时" value="EXPIRED" />
-        <el-option label="全部" value="ALL" />
+        <el-option :label="t('approval.pending')" value="PENDING" />
+        <el-option :label="t('approval.approved')" value="APPROVED" />
+        <el-option :label="t('approval.rejected')" value="REJECTED" />
+        <el-option :label="t('approval.expired')" value="EXPIRED" />
+        <el-option :label="t('approval.all')" value="ALL" />
       </el-select>
-      <el-button @click="load(true)">刷新</el-button>
+      <el-button @click="load(true)">{{ t('approval.refresh') }}</el-button>
     </div>
 
-    <el-table :data="list" size="small" v-loading="loading" empty-text="暂无审批任务">
+    <el-table :data="list" size="small" v-loading="loading" :empty-text="t('approval.empty')">
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column prop="agentName" label="Agent" width="150" />
-      <el-table-column prop="title" label="审批事项" width="180" />
-      <el-table-column label="审批角色" width="100">
-        <template #default="{ row }">{{ row.requiredRole || '不限' }}</template>
+      <el-table-column prop="title" :label="t('approval.title')" width="180" />
+      <el-table-column :label="t('approval.role')" width="100">
+        <template #default="{ row }">{{ row.requiredRole || t('approval.anyRole') }}</template>
       </el-table-column>
-      <el-table-column label="待审内容" min-width="260" show-overflow-tooltip>
+      <el-table-column :label="t('approval.content')" min-width="260" show-overflow-tooltip>
         <template #default="{ row }">{{ row.payload || row.runInput || '-' }}</template>
       </el-table-column>
-      <el-table-column label="状态" width="100">
+      <el-table-column :label="t('approval.status')" width="100">
         <template #default="{ row }">
           <el-tag size="small" :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="提交时间" width="170">
+      <el-table-column :label="t('approval.submitted')" width="170">
         <template #default="{ row }">{{ fmt(row.createdAt) }}</template>
       </el-table-column>
-      <el-table-column label="超时时间" width="170">
+      <el-table-column :label="t('approval.expireAt')" width="170">
         <template #default="{ row }">{{ fmt(row.expireAt) }}</template>
       </el-table-column>
-      <el-table-column label="处理人/意见" min-width="160">
+      <el-table-column :label="t('approval.handler')" min-width="160">
         <template #default="{ row }">{{ row.comment || '-' }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="150">
+      <el-table-column :label="t('approval.actions')" width="150">
         <template #default="{ row }">
           <template v-if="row.status === 'PENDING'">
-            <el-button size="small" type="primary" text @click="openDecide(row, true)">通过</el-button>
-            <el-button size="small" type="danger" text @click="openDecide(row, false)">拒绝</el-button>
+            <el-button size="small" type="primary" text @click="openDecide(row, true)">{{ t('approval.approve') }}</el-button>
+            <el-button size="small" type="danger" text @click="openDecide(row, false)">{{ t('approval.reject') }}</el-button>
           </template>
-          <el-button size="small" text @click="viewRun(row)">查看运行</el-button>
+          <el-button size="small" text @click="viewRun(row)">{{ t('approval.viewRun') }}</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -53,35 +53,35 @@
                    :total="total" v-model:current-page="page" :page-size="20"
                    @current-change="load(false)" />
 
-    <el-dialog v-model="decideVisible" :title="decideApprove ? '通过审批' : '拒绝审批'" width="520px">
+    <el-dialog v-model="decideVisible" :title="decideApprove ? t('approval.approveTitle') : t('approval.rejectTitle')" width="520px">
       <el-form label-width="80px">
-        <el-form-item label="审批事项">{{ current.title }}</el-form-item>
-        <el-form-item label="内容">
+        <el-form-item :label="t('approval.title')">{{ current.title }}</el-form-item>
+        <el-form-item :label="t('approval.content')">
           <div class="payload">{{ current.payload || current.runInput }}</div>
         </el-form-item>
-        <el-form-item label="审批意见">
+        <el-form-item :label="t('approval.comment')">
           <el-input v-model="comment" type="textarea" :rows="2"
-                    :placeholder="decideApprove ? '可选，如：同意退款' : '必填，如：金额超限，转人工'" />
+                    :placeholder="decideApprove ? t('approval.commentApprovePh') : t('approval.commentRejectPh')" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="decideVisible = false">取消</el-button>
+        <el-button @click="decideVisible = false">{{ t('approval.cancel') }}</el-button>
         <el-button :type="decideApprove ? 'primary' : 'danger'" :loading="deciding" @click="decide">
-          {{ decideApprove ? '确认通过' : '确认拒绝' }}
+          {{ decideApprove ? t('approval.confirmApprove') : t('approval.confirmReject') }}
         </el-button>
       </template>
     </el-dialog>
 
-    <el-drawer v-model="runVisible" title="运行详情" size="560px">
+    <el-drawer v-model="runVisible" :title="t('approval.runDetail')" size="560px">
       <el-descriptions :column="1" border size="small" v-if="run">
-        <el-descriptions-item label="运行 ID">{{ run.id }}</el-descriptions-item>
-        <el-descriptions-item label="状态">{{ run.status }} · 当前节点 {{ run.currentNode || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="输入">{{ run.input }}</el-descriptions-item>
-        <el-descriptions-item label="输出">{{ run.output || run.error }}</el-descriptions-item>
+        <el-descriptions-item :label="t('approval.runId')">{{ run.id }}</el-descriptions-item>
+        <el-descriptions-item :label="t('approval.status')">{{ run.status }} · {{ t('approval.currentNode') }} {{ run.currentNode || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('approval.input')">{{ run.input }}</el-descriptions-item>
+        <el-descriptions-item :label="t('approval.output')">{{ run.output || run.error }}</el-descriptions-item>
         <el-descriptions-item label="Token">{{ run.inputTokens }}/{{ run.outputTokens }}</el-descriptions-item>
       </el-descriptions>
       <div v-if="run?.nodeRuns?.length" class="mt12">
-        <div class="hint">节点轨迹</div>
+        <div class="hint">{{ t('approval.track') }}</div>
         <div v-for="n in run.nodeRuns" :key="n.id" class="node-line">
           <el-tag size="small">{{ n.nodeType }}</el-tag>
           <span>{{ n.name || n.nodeId }}</span>
@@ -140,7 +140,7 @@ function openDecide(row: any, approve: boolean) {
 
 async function decide() {
   if (!decideApprove.value && !comment.value.trim()) {
-    ElMessage.warning('拒绝时请填写原因')
+    ElMessage.warning(t('approval.rejectReason'))
     return
   }
   deciding.value = true
@@ -149,8 +149,8 @@ async function decide() {
       approve: decideApprove.value, comment: comment.value
     }, { timeout: 180000 }) as any
     ElMessage.success(decideApprove.value
-      ? `已通过，运行状态：${data.status}`
-      : '已拒绝')
+      ? `${t('approval.approvedToast')}${data.status}`
+      : t('approval.rejectedToast'))
     decideVisible.value = false
     await load(true)
   } finally {
@@ -164,7 +164,7 @@ async function viewRun(row: any) {
 }
 
 function statusText(s: string) {
-  return ({ PENDING: '待审批', APPROVED: '已通过', REJECTED: '已拒绝', EXPIRED: '已超时' } as any)[s] || s
+  return ({ PENDING: t('approval.pending'), APPROVED: t('approval.approved'), REJECTED: t('approval.rejected'), EXPIRED: t('approval.expired') } as any)[s] || s
 }
 
 function statusType(s: string) {
