@@ -3,45 +3,45 @@
     <div class="toolbar">
       <span class="page-title">{{ t('page.usage') }}</span>
       <el-select v-model="days" style="width: 140px" @change="load">
-        <el-option :value="7" label="近 7 天" />
-        <el-option :value="30" label="近 30 天" />
-        <el-option :value="90" label="近 90 天" />
+        <el-option :value="7" :label="t('usage.last7')" />
+        <el-option :value="30" :label="t('usage.last30')" />
+        <el-option :value="90" :label="t('usage.last90')" />
       </el-select>
     </div>
 
     <div class="cards">
-      <el-card shadow="never"><div class="k">请求次数</div><div class="v">{{ summary.totalRequests }}</div></el-card>
-      <el-card shadow="never"><div class="k">输入 Tokens</div><div class="v">{{ fmt(summary.totalInputTokens) }}</div></el-card>
-      <el-card shadow="never"><div class="k">输出 Tokens</div><div class="v">{{ fmt(summary.totalOutputTokens) }}</div></el-card>
-      <el-card shadow="never"><div class="k">成本（元）</div><div class="v">¥{{ money(summary.totalCost) }}</div></el-card>
+      <el-card shadow="never"><div class="k">{{ t('usage.requests') }}</div><div class="v">{{ summary.totalRequests }}</div></el-card>
+      <el-card shadow="never"><div class="k">{{ t('usage.inputTokens') }}</div><div class="v">{{ fmt(summary.totalInputTokens) }}</div></el-card>
+      <el-card shadow="never"><div class="k">{{ t('usage.outputTokens') }}</div><div class="v">{{ fmt(summary.totalOutputTokens) }}</div></el-card>
+      <el-card shadow="never"><div class="k">{{ t('usage.cost') }}</div><div class="v">¥{{ money(summary.totalCost) }}</div></el-card>
     </div>
 
     <div class="cols">
       <el-card shadow="never" class="col">
-        <template #header>按日趋势（输入/输出 Tokens）</template>
+        <template #header>{{ t('usage.dailyTrend') }}</template>
         <div v-for="d in summary.byDay" :key="d.date" class="bar-row">
           <span class="bar-date">{{ d.date.slice(5) }}</span>
           <div class="bar-track">
-            <div class="bar in" :style="{ width: pct(d.inputTokens) }" :title="`输入 ${d.inputTokens}`" />
-            <div class="bar out" :style="{ width: pct(d.outputTokens) }" :title="`输出 ${d.outputTokens}`" />
+            <div class="bar in" :style="{ width: pct(d.inputTokens) }" :title="`${t('usage.input')} ${d.inputTokens}`" />
+            <div class="bar out" :style="{ width: pct(d.outputTokens) }" :title="`${t('usage.output')} ${d.outputTokens}`" />
           </div>
           <span class="bar-num">{{ fmt(d.inputTokens + d.outputTokens) }} · ¥{{ money(d.cost) }}</span>
         </div>
-        <el-empty v-if="summary.byDay.length === 0" description="暂无数据" :image-size="60" />
+        <el-empty v-if="summary.byDay.length === 0" :description="t('usage.noData')" :image-size="60" />
       </el-card>
 
       <el-card shadow="never" class="col">
-        <template #header>按模型</template>
+        <template #header>{{ t('usage.byModel') }}</template>
         <el-table :data="summary.byModel" size="small">
-          <el-table-column prop="modelName" label="模型" />
-          <el-table-column prop="count" label="次数" width="70" />
-          <el-table-column label="输入" width="90">
+          <el-table-column prop="modelName" :label="t('usage.model')" />
+          <el-table-column prop="count" :label="t('usage.count')" width="70" />
+          <el-table-column :label="t('usage.input')" width="90">
             <template #default="{ row }">{{ fmt(row.inputTokens) }}</template>
           </el-table-column>
-          <el-table-column label="输出" width="90">
+          <el-table-column :label="t('usage.output')" width="90">
             <template #default="{ row }">{{ fmt(row.outputTokens) }}</template>
           </el-table-column>
-          <el-table-column label="成本" width="90">
+          <el-table-column :label="t('usage.costShort')" width="90">
             <template #default="{ row }">¥{{ money(row.cost) }}</template>
           </el-table-column>
         </el-table>
@@ -49,12 +49,12 @@
     </div>
 
     <el-card shadow="never" class="mt">
-      <template #header>调用明细</template>
+      <template #header>{{ t('usage.details') }}</template>
       <el-table :data="rows" size="small">
-        <el-table-column prop="createdAt" label="时间" width="170">
+        <el-table-column prop="createdAt" :label="t('usage.time')" width="170">
           <template #default="{ row }">{{ String(row.createdAt).replace('T', ' ').slice(0, 19) }}</template>
         </el-table-column>
-        <el-table-column prop="source" label="来源" width="90">
+        <el-table-column prop="source" :label="t('usage.source')" width="90">
           <template #default="{ row }">
             <el-tag size="small">{{ sourceText(row.source) }}</el-tag>
           </template>
@@ -62,10 +62,10 @@
         <el-table-column prop="agentId" label="Agent" width="80">
           <template #default="{ row }">{{ row.agentId ?? '-' }}</template>
         </el-table-column>
-        <el-table-column prop="modelName" label="模型" />
-        <el-table-column prop="inputTokens" label="输入" width="90" />
-        <el-table-column prop="outputTokens" label="输出" width="90" />
-        <el-table-column label="成本" width="100">
+        <el-table-column prop="modelName" :label="t('usage.model')" />
+        <el-table-column prop="inputTokens" :label="t('usage.input')" width="90" />
+        <el-table-column prop="outputTokens" :label="t('usage.output')" width="90" />
+        <el-table-column :label="t('usage.costShort')" width="100">
           <template #default="{ row }">¥{{ money(row.cost) }}</template>
         </el-table-column>
       </el-table>
@@ -113,7 +113,7 @@ function fmt(v: number) {
   return (v ?? 0).toLocaleString()
 }
 function sourceText(s: string) {
-  return s === 'chat' ? '对话' : s === 'debug' ? '调试' : s === 'embedding' ? '嵌入' : s
+  return s === 'chat' ? t('usage.chat') : s === 'debug' ? t('usage.debug') : s === 'embedding' ? t('usage.embedding') : s
 }
 
 onMounted(load)

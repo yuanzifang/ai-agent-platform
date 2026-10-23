@@ -145,6 +145,21 @@ const messages = {
       deleteTitle: '删除技能', deleted: '已删除', softDeleted: '已软删除（Agent 中显示已失效）',
       depsTools: '工具 ', depsKbs: '知识库 '
     },
+    audit: {
+      verify: '校验哈希链', opsTab: '操作日志', loginTab: '登录日志',
+      opsDesc: '关键操作留痕（append-only，prev_hash 哈希链防篡改）', loginDesc: '登录记录（成功/失败）',
+      time: '时间', operator: '操作人', op: '操作', objectType: '对象类型', objectId: '对象 ID',
+      result: '结果', detail: '详情', chain: '链指纹', userId: '用户 ID', totalRecords: '总记录 ',
+      checkedV2: ' 条；已校验 V2 ', skippedV1: ' 条；跳过历史 V1 ', brokenAt: '断裂位置：记录 #',
+      pass: '哈希链校验通过', fail: '哈希链校验失败', know: '知道了'
+    },
+    usage: {
+      last7: '近 7 天', last30: '近 30 天', last90: '近 90 天', requests: '请求次数',
+      inputTokens: '输入 Tokens', outputTokens: '输出 Tokens', cost: '成本（元）',
+      dailyTrend: '按日趋势（输入/输出 Tokens）', input: '输入', output: '输出', noData: '暂无数据',
+      byModel: '按模型', model: '模型', count: '次数', details: '调用明细', time: '时间', source: '来源',
+      chat: '对话', debug: '调试', embedding: '嵌入', costShort: '成本'
+    },
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
       templates: '模板库', approvals: '人工审批箱', audit: '审计日志', billing: '计费管理',
@@ -307,6 +322,21 @@ const messages = {
       refsNone: 'This skill is not referenced and will be permanently deleted.', deleteConfirm: 'Delete skill "', deleteSuffix: '"?',
       deleteTitle: 'Delete skill', deleted: 'Deleted', softDeleted: 'Soft-deleted (invalid in Agents)',
       depsTools: 'Tools ', depsKbs: 'Knowledge bases '
+    },
+    audit: {
+      verify: 'Verify hash chain', opsTab: 'Operations', loginTab: 'Logins',
+      opsDesc: 'Append-only operation trail protected by prev_hash chain', loginDesc: 'Login records (success/failure)',
+      time: 'Time', operator: 'Operator', op: 'Operation', objectType: 'Object type', objectId: 'Object ID',
+      result: 'Result', detail: 'Details', chain: 'Chain fingerprint', userId: 'User ID', totalRecords: 'Total ',
+      checkedV2: ' records; verified V2 ', skippedV1: '; skipped legacy V1 ', brokenAt: 'Broken at record #',
+      pass: 'Hash chain verified', fail: 'Hash chain verification failed', know: 'OK'
+    },
+    usage: {
+      last7: 'Last 7 days', last30: 'Last 30 days', last90: 'Last 90 days', requests: 'Requests',
+      inputTokens: 'Input tokens', outputTokens: 'Output tokens', cost: 'Cost (CNY)',
+      dailyTrend: 'Daily trend (input/output tokens)', input: 'Input', output: 'Output', noData: 'No data',
+      byModel: 'By model', model: 'Model', count: 'Calls', details: 'Call details', time: 'Time', source: 'Source',
+      chat: 'Chat', debug: 'Debug', embedding: 'Embedding', costShort: 'Cost'
     },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',
