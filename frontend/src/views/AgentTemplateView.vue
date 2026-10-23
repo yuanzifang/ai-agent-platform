@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="title">模板库</span>
+      <span class="title">{{ t('page.templates') }}</span>
       <span class="sub">预置 Agent 模板，一键创建后自动填充提示词、能力与工具/Skill 绑定</span>
       <div class="spacer" />
       <el-input v-model="keyword" placeholder="搜索模板" clearable style="width: 200px"
@@ -87,11 +87,14 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import http from '../api/http'
 import { useUserStore } from '../stores/user'
+
+const { t } = useI18n()
 
 const router = useRouter()
 const userStore = useUserStore()

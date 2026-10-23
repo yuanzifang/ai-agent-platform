@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="title">Prompt 模板</span>
+      <span class="title">{{ t('page.prompts') }}</span>
       <span class="sub">模板内容支持双花括号变量，在 Agent 提示词中可一键插入</span>
       <div class="spacer" />
       <el-input v-model="keyword" placeholder="搜索名称/内容" clearable style="width: 200px"
@@ -102,10 +102,13 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import { useUserStore } from '../stores/user'
+
+const { t } = useI18n()
 
 const userStore = useUserStore()
 const canManage = computed(() => {

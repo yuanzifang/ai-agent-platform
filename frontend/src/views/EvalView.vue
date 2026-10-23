@@ -4,7 +4,7 @@
       <el-button text @click="$router.push('/agents')">
         <el-icon><ArrowLeft /></el-icon> 返回
       </el-button>
-      <span class="page-title">Agent 结果评测</span>
+      <span class="page-title">{{ t('page.eval') }}</span>
       <el-radio-group v-model="tab">
         <el-radio-button value="once">一次性评测</el-radio-button>
         <el-radio-button value="online">在线监控</el-radio-button>
@@ -265,11 +265,14 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import http from '../api/http'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const tab = ref('once')

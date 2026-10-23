@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="title">长期记忆</span>
+      <span class="title">{{ t('page.memories') }}</span>
       <span class="sub">用户可见、可编辑的事实；对话时自动注入（最多 10 条 / 2000 字）</span>
       <div class="spacer" />
       <el-input v-model="keyword" clearable placeholder="搜索记忆" style="width: 200px"
@@ -66,9 +66,12 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
+
+const { t } = useI18n()
 
 const rows = ref<any[]>([])
 const profile = ref<any>(null)

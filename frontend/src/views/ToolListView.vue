@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="title">工具管理</span>
+      <span class="title">{{ t('page.tools') }}</span>
       <span class="sub">内置工具只读；API 工具支持请求配置/鉴权/超时重试；MCP 工具由 MCP Server 同步</span>
       <div class="spacer" />
       <el-input v-model="keyword" placeholder="搜索名称/描述" clearable style="width: 190px"
@@ -200,11 +200,14 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import { useUserStore } from '../stores/user'
+
+const { t } = useI18n()
 
 const userStore = useUserStore()
 const route = useRoute()

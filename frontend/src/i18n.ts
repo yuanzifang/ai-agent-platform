@@ -10,6 +10,14 @@ const messages = {
       usage: '用量看板', billing: '计费管理', users: '成员管理', tenant: '租户设置',
       audit: '审计日志', platform: '平台管理', settings: '系统设置'
     },
+    page: {
+      agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
+      templates: '模板库', approvals: '人工审批箱', audit: '审计日志', billing: '计费管理',
+      cases: '对话用例库', eval: 'Agent 结果评测', knowledge: '知识库', mcp: 'MCP Server',
+      memories: '长期记忆', metrics: '监控统计', observability: '可观测', platform: '平台管理 · 租户',
+      prompts: 'Prompt 模板', provider: '模型接入', skills: '技能管理', settings: '系统设置（平台级）',
+      tenant: '租户设置', tools: '工具管理', usage: '用量看板', users: '成员管理'
+    },
     common: {
       user: '用户', notifications: '通知', markAllRead: '全部已读', noNotifications: '暂无通知',
       security: '安全设置', logout: '退出登录', language: '语言', chinese: '中文', english: 'English'
@@ -29,6 +37,14 @@ const messages = {
       mcp: 'MCP Server', approvals: 'Approvals', prompts: 'Prompt Templates', provider: 'Model Providers',
       usage: 'Usage', billing: 'Billing', users: 'Members', tenant: 'Tenant Settings',
       audit: 'Audit Log', platform: 'Platform Admin', settings: 'System Settings'
+    },
+    page: {
+      agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',
+      templates: 'Templates', approvals: 'Approvals', audit: 'Audit Log', billing: 'Billing',
+      cases: 'Case Library', eval: 'Agent Evaluation', knowledge: 'Knowledge Base', mcp: 'MCP Server',
+      memories: 'Long-term Memory', metrics: 'Metrics', observability: 'Observability', platform: 'Platform · Tenants',
+      prompts: 'Prompt Templates', provider: 'Model Providers', skills: 'Skills', settings: 'System Settings (Platform)',
+      tenant: 'Tenant Settings', tools: 'Tools', usage: 'Usage', users: 'Members'
     },
     common: {
       user: 'User', notifications: 'Notifications', markAllRead: 'Mark all read', noNotifications: 'No notifications',

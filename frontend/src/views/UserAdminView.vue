@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="page-title">成员管理</span>
+      <span class="page-title">{{ t('page.users') }}</span>
       <el-button type="primary" @click="inviteVisible = true">邀请成员</el-button>
     </div>
 
@@ -82,9 +82,12 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
+
+const { t } = useI18n()
 
 const members = ref<any[]>([])
 const invitations = ref<any[]>([])

@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="page-title">租户设置</span>
+      <span class="page-title">{{ t('page.tenant') }}</span>
       <el-button type="primary" :loading="saving" @click="save">保存</el-button>
     </div>
 
@@ -92,9 +92,12 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
+
+const { t } = useI18n()
 
 const info = reactive<any>({ tenantKey: '', name: '', status: '', createdAt: '', quota: {}, config: {} })
 const configRows = ref<{ key: string; value: string }[]>([])

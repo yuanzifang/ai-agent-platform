@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="page-title">知识库</span>
+      <span class="page-title">{{ t('page.knowledge') }}</span>
       <div class="filters">
         <el-input v-model="keyword" placeholder="搜索名称/描述" clearable class="kw"
                   @keydown.enter="search" @clear="search" />
@@ -99,10 +99,13 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import { useUserStore } from '../stores/user'
+
+const { t } = useI18n()
 
 interface Kb {
   id: number; name: string; description: string; embeddingModel: string; createdAt: string

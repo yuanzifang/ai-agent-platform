@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="page-title">审计日志</span>
+      <span class="page-title">{{ t('page.audit') }}</span>
       <div class="right">
         <el-button v-if="tab === 'ops'" size="small" @click="verifyChain">校验哈希链</el-button>
         <el-radio-group v-model="tab" @change="load" class="ml8">
@@ -69,9 +69,12 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import http from '../api/http'
+
+const { t } = useI18n()
 
 const tab = ref('ops')
 const rows = ref<any[]>([])

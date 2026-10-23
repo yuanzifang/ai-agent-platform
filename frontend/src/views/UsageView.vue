@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="page-title">用量看板</span>
+      <span class="page-title">{{ t('page.usage') }}</span>
       <el-select v-model="days" style="width: 140px" @change="load">
         <el-option :value="7" label="近 7 天" />
         <el-option :value="30" label="近 30 天" />
@@ -76,8 +76,11 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onMounted, reactive, ref } from 'vue'
 import http from '../api/http'
+
+const { t } = useI18n()
 
 const days = ref(30)
 const page = ref(1)

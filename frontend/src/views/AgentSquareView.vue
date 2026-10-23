@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="title">Agent 广场</span>
+      <span class="title">{{ t('page.square') }}</span>
       <span class="sub">本租户已发布的 Agent，按热度/评分排序</span>
       <div class="spacer" />
       <el-input v-model="keyword" placeholder="搜索名称/描述" clearable style="width: 190px"
@@ -156,12 +156,15 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Star, StarFilled } from '@element-plus/icons-vue'
 import http from '../api/http'
 import { useUserStore } from '../stores/user'
+
+const { t } = useI18n()
 
 const router = useRouter()
 const userStore = useUserStore()

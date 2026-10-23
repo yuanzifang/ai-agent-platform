@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="page-title">系统设置（平台级）</span>
+      <span class="page-title">{{ t('page.settings') }}</span>
     </div>
 
     <el-card shadow="never">
@@ -30,9 +30,12 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../api/http'
+
+const { t } = useI18n()
 
 const rows = ref<any[]>([])
 const editing = ref('')

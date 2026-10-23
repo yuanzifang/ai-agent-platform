@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="page-title">平台管理 · 租户</span>
+      <span class="page-title">{{ t('page.platform') }}</span>
       <el-button type="primary" @click="createVisible = true">开通租户</el-button>
     </div>
 
@@ -52,9 +52,12 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
+
+const { t } = useI18n()
 
 const tenants = ref<any[]>([])
 const createVisible = ref(false)

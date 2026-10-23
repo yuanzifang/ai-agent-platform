@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="page-title">模型接入</span>
+      <span class="page-title">{{ t('page.provider') }}</span>
       <div>
         <el-radio-group v-model="view" class="mr8">
           <el-radio-button value="admin">接入管理</el-radio-button>
@@ -180,9 +180,12 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../api/http'
+
+const { t } = useI18n()
 
 const providers = ref<any[]>([])
 const models = ref<any[]>([])

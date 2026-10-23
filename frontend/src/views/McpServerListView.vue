@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="title">MCP Server</span>
+      <span class="title">{{ t('page.mcp') }}</span>
       <span class="sub">添加 MCP 服务 → 点击「验证」检测连通性 → 同步工具；同步后的工具可在 Agent 中绑定</span>
       <div class="spacer" />
       <el-button @click="load">刷新</el-button>
@@ -233,11 +233,14 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import { useUserStore } from '../stores/user'
+
+const { t } = useI18n()
 
 const userStore = useUserStore()
 const route = useRoute()

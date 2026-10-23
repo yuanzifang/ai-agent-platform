@@ -4,7 +4,7 @@
       <el-button text @click="$router.push('/agents')">
         <el-icon><ArrowLeft /></el-icon> 返回
       </el-button>
-      <span class="page-title">监控统计 {{ agentName ? '· ' + agentName : '' }}</span>
+      <span class="page-title">{{ t('page.metrics') }} {{ agentName ? '· ' + agentName : '' }}</span>
       <el-select v-model="period" style="width: 150px" @change="onPeriodChange">
         <el-option value="24h" label="最近 24 小时" />
         <el-option value="7d" label="最近 7 天" />
@@ -51,11 +51,14 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import http from '../api/http'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import EChart from '../components/EChart.vue'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const router = useRouter()

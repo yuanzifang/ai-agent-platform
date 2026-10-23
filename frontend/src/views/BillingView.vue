@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="title">计费管理</span>
+      <span class="title">{{ t('page.billing') }}</span>
       <span class="sub">规则/账单/充值/配额；成本口径：billing_rule 优先，未配置回落模型单价</span>
       <div class="spacer" />
       <el-button v-if="canManage" type="primary" @click="openRecharge">充值</el-button>
@@ -273,10 +273,13 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import { useUserStore } from '../stores/user'
+
+const { t } = useI18n()
 
 const userStore = useUserStore()
 const perms = computed(() => userStore.userInfo?.permissions || [])

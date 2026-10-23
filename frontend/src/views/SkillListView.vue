@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="title">技能管理</span>
+      <span class="title">{{ t('page.skills') }}</span>
       <span class="sub">内置技能只读；自定义技能含提示词与工具/知识库依赖，Agent 引用后运行时注入</span>
       <div class="spacer" />
       <el-input v-model="keyword" placeholder="搜索名称/描述" clearable style="width: 190px"
@@ -170,11 +170,14 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import { useUserStore } from '../stores/user'
+
+const { t } = useI18n()
 
 const userStore = useUserStore()
 const route = useRoute()

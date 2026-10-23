@@ -4,7 +4,7 @@
       <el-button text @click="$router.push('/agents')">
         <el-icon><ArrowLeft /></el-icon> 返回
       </el-button>
-      <span class="page-title">可观测 {{ agentName ? '· ' + agentName : '' }}</span>
+      <span class="page-title">{{ t('page.observability') }} {{ agentName ? '· ' + agentName : '' }}</span>
       <el-button v-if="agentId" size="small" @click="$router.push(`/eval/${agentId}`)">Agent 评测</el-button>
       <el-button size="small" :loading="refreshing" @click="refreshAll">刷新</el-button>
       <el-select v-model="hours" style="width: 130px" @change="refreshAll">
@@ -364,12 +364,15 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import http from '../api/http'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import EChart from '../components/EChart.vue'
 import { useUserStore } from '../stores/user'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const userStore = useUserStore()

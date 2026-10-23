@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="title">人工审批箱</span>
+      <span class="title">{{ t('page.approvals') }}</span>
       <span class="sub">工作流运行到审批节点会在此暂停；审批通过后自动继续执行</span>
       <div class="spacer" />
       <el-select v-model="status" style="width: 140px" @change="load(true)">
@@ -95,9 +95,12 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../api/http'
+
+const { t } = useI18n()
 
 const list = ref<any[]>([])
 const total = ref(0)

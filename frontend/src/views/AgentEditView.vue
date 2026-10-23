@@ -6,7 +6,7 @@
         <el-icon><ArrowLeft /></el-icon> 返回列表
       </el-button>
       <div class="title">
-        编辑 Agent
+        {{ t('page.agentEdit') }}
         <el-tag size="small" :type="form.status === 'PUBLISHED' ? 'success' : 'info'" class="ml8">
           {{ form.status === 'PUBLISHED' ? '已发布' : '草稿' }}
         </el-tag>
@@ -1089,11 +1089,14 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElLoading, ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import http from '../api/http'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const router = useRouter()

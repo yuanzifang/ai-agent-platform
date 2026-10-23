@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="title">对话用例库</span>
+      <span class="title">{{ t('page.cases') }}</span>
       <span class="sub">点赞/点踩自动沉淀候选；人工审核并修正期望答案后才能用于模型回归</span>
       <div class="spacer" />
       <el-select v-model="status" style="width: 130px" @change="load">
@@ -223,9 +223,12 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
+
+const { t } = useI18n()
 
 const rows = ref<any[]>([])
 const approvedRows = ref<any[]>([])
