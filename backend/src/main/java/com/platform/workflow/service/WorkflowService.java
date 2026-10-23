@@ -401,15 +401,24 @@ public class WorkflowService {
             Map<String, Object> definition = parse(run.getDefinition());
             Map<String, Object> node = findNode(definition, approval.getNodeId());
             Map<String, Object> approvalPayload = parseMap(approval.getPayload());
-            if (Boolean.TRUE.equals(approvalPayload.get("branchApprovalGate"))
-                    && approvalPayload.get("approvalNodeIds") instanceof List<?> branchApprovalIds) {
+            if (Boolean.TRUE.equals(approvalPayload.get("branchApprovalGate"))) {
                 Map<String, Object> ctx = parseMap(run.getContextJson());
                 Map<String, Object> approved = new LinkedHashMap<>();
                 if (ctx.get("branchApprovals") instanceof Map<?, ?> old) {
                     for (Map.Entry<?, ?> e : old.entrySet()) approved.put(String.valueOf(e.getKey()), e.getValue());
                 }
-                for (Object id : branchApprovalIds) approved.put(String.valueOf(id), true);
+                if (approvalPayload.get("approvalNodeIds") instanceof List<?> branchApprovalIds) {
+                    for (Object id : branchApprovalIds) approved.put(String.valueOf(id), true);
+                }
                 ctx.put("branchApprovals", approved);
+                Map<String, Object> approvedLoops = new LinkedHashMap<>();
+                if (ctx.get("branchLoops") instanceof Map<?, ?> oldLoops) {
+                    for (Map.Entry<?, ?> e : oldLoops.entrySet()) approvedLoops.put(String.valueOf(e.getKey()), e.getValue());
+                }
+                if (approvalPayload.get("loopNodeIds") instanceof List<?> loopIds) {
+                    for (Object id : loopIds) approvedLoops.put(String.valueOf(id), true);
+                }
+                ctx.put("branchLoops", approvedLoops);
                 run.setContextJson(json(ctx));
                 run.setStatus("RUNNING");
                 run.setCurrentNode(str(approvalPayload.get("parallelNodeId")));
@@ -930,13 +939,21 @@ public class WorkflowService {
                                    Map<String, Map<String, Object>> nodes,
                                    List<Map<String, Object>> outputs, String lastOutput,
                                    JwtPrincipal principal, Map<String, Object> baseState) {
+        return executeLoop(node, run, nodes, outputs, lastOutput, principal, baseState, false);
+    }
+
+    private LoopResult executeLoop(Map<String, Object> node, WorkflowRun run,
+                                   Map<String, Map<String, Object>> nodes,
+                                   List<Map<String, Object>> outputs, String lastOutput,
+                                   JwtPrincipal principal, Map<String, Object> baseState,
+                                   boolean allowAll) {
         String body = str(node.get("bodyNode"));
         if (body == null || body.isBlank()) throw new BusinessException(400, "LOOP 节点未配置 bodyNode");
         String loopEnd = str(node.get("loopEnd"));
         int max = Math.max(1, Math.min(toInt(node.getOrDefault("maxIterations", 10)), 50));
         List<String> items = loopItems(node, run, lastOutput);
         if (items.isEmpty()) return new LoopResult(lastOutput == null ? "" : lastOutput, 0, 0, baseState);
-        int count = Math.min(items.size(), max);
+        int count = allowAll ? items.size() : Math.min(items.size(), max);
         StringBuilder merged = new StringBuilder("【循环结果】");
         Map<String, Object> loopState = new LinkedHashMap<>(baseState);
         long in = 0, out = 0;
@@ -948,7 +965,7 @@ public class WorkflowService {
             out += br.outputTokens();
             loopState.putAll(br.state());
         }
-        if (items.size() > max) {
+        if (!allowAll && items.size() > max) {
             String preview = items.subList(max, items.size()).stream().limit(5).map(s -> truncate(s, 80))
                     .reduce((a, b) -> a + " | " + b).orElse("");
             throw new LoopLimitExceededException(items.size(), max, preview, merged.toString(),
@@ -981,21 +998,24 @@ public class WorkflowService {
                                             WorkflowNodeRun nr, JwtPrincipal principal) {
         String join = str(node.get("joinNode"));
         Set<String> approvals = new java.util.LinkedHashSet<>();
+        Set<String> loops = new java.util.LinkedHashSet<>();
         if (node.get("branches") instanceof List<?> branches) {
             for (Object b : branches) {
                 collectApprovals(str(b), join, nodes, new java.util.HashSet<>(), approvals);
+                collectOverLimitLoops(str(b), join, nodes, new java.util.HashSet<>(), loops, run);
             }
         }
-        if (approvals.isEmpty()) return true;
+        if (approvals.isEmpty() && loops.isEmpty()) return true;
         Set<String> approved = approvedBranchApprovals(run);
-        if (approved.containsAll(approvals)) return true;
+        Set<String> approvedLoops = approvedBranchLoops(run);
+        if (approved.containsAll(approvals) && approvedLoops.containsAll(loops)) return true;
 
         WorkflowApproval approval = new WorkflowApproval();
         approval.setRunId(run.getId());
         approval.setAgentId(run.getAgentId());
         approval.setTenantId(run.getTenantId());
         approval.setNodeId(parallelNodeId);
-        approval.setTitle("并行分支审批（" + approvals.size() + " 项）");
+        approval.setTitle("并行分支审批（" + (approvals.size() + loops.size()) + " 项）");
         String requiredRole = str(node.get("requiredRole"));
         approval.setRequiredRole(requiredRole);
         int timeoutMinutes = toInt(node.get("timeoutMinutes"));
@@ -1004,7 +1024,8 @@ public class WorkflowService {
         payload.put("branchApprovalGate", true);
         payload.put("parallelNodeId", parallelNodeId);
         payload.put("approvalNodeIds", new ArrayList<>(approvals));
-        payload.put("message", "并行分支包含人工审批节点，请统一审批后继续");
+        payload.put("loopNodeIds", new ArrayList<>(loops));
+        payload.put("message", "并行分支包含人工审批/循环超限节点，请统一审批后继续");
         approval.setPayload(json(payload));
         approval.setStatus("PENDING");
         approval.setCreatedAt(LocalDateTime.now());
@@ -1028,7 +1049,7 @@ public class WorkflowService {
         auditService.record(principal.userId(), "workflow.parallel_approval", "workflow_run",
                 String.valueOf(run.getId()), "WAITING_APPROVAL",
                 Map.of("parallelNodeId", parallelNodeId, "approvals", approvals.size(),
-                        "approvalId", approval.getId()));
+                        "loops", loops.size(), "approvalId", approval.getId()));
         return false;
     }
 
@@ -1056,6 +1077,48 @@ public class WorkflowService {
             if ("END".equals(type)) return;
             current = str(n.get("next"));
         }
+    }
+
+    private void collectOverLimitLoops(String nodeId, String joinId,
+                                       Map<String, Map<String, Object>> nodes,
+                                       Set<String> visited, Set<String> loops, WorkflowRun run) {
+        String current = nodeId;
+        while (current != null && !current.isBlank() && !current.equals(joinId) && visited.add(current)) {
+            Map<String, Object> n = nodes.get(current);
+            if (n == null) return;
+            String type = str(n.getOrDefault("type", "LLM")).toUpperCase();
+            if ("LOOP".equals(type)) {
+                int max = Math.max(1, Math.min(toInt(n.getOrDefault("maxIterations", 10)), 50));
+                if (loopItems(n, run, run.getInputText()).size() > max) loops.add(current);
+            }
+            if ("PARALLEL".equals(type)) {
+                if (n.get("branches") instanceof List<?> bs) {
+                    for (Object b : bs) {
+                        collectOverLimitLoops(str(b), str(n.get("joinNode")), nodes, visited, loops, run);
+                    }
+                }
+                current = str(n.get("joinNode"));
+                continue;
+            }
+            if ("CONDITION".equals(type)) {
+                collectOverLimitLoops(str(n.get("trueNext")), joinId, nodes, visited, loops, run);
+                collectOverLimitLoops(str(n.get("falseNext")), joinId, nodes, visited, loops, run);
+                return;
+            }
+            if ("END".equals(type)) return;
+            current = str(n.get("next"));
+        }
+    }
+
+    private Set<String> approvedBranchLoops(WorkflowRun run) {
+        if (run == null || run.getContextJson() == null) return Set.of();
+        Map<String, Object> ctx = parseMap(run.getContextJson());
+        if (!(ctx.get("branchLoops") instanceof Map<?, ?> m)) return Set.of();
+        Set<String> result = new java.util.HashSet<>();
+        for (Map.Entry<?, ?> e : m.entrySet()) {
+            if (Boolean.TRUE.equals(e.getValue())) result.add(String.valueOf(e.getKey()));
+        }
+        return result;
     }
 
     private Set<String> approvedBranchApprovals(WorkflowRun run) {
@@ -1180,7 +1243,8 @@ public class WorkflowService {
                 out += simple.outputTokens();
             } else if ("LOOP".equals(type)) {
                 try {
-                    LoopResult loop = executeLoop(node, run, nodes, outputs, lastOutput, principal, state);
+                    LoopResult loop = executeLoop(node, run, nodes, outputs, lastOutput, principal, state,
+                            approvedBranchLoops(run).contains(nodeId));
                     output = loop.output();
                     next = str(node.get("next"));
                     in += loop.inputTokens();

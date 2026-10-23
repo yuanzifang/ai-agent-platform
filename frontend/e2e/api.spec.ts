@@ -1181,6 +1181,60 @@ test('工作流并行分支内 LOOP', async ({ request }) => {
   }
 })
 
+test('工作流分支 LOOP 超限统一审批', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E 分支Loop超限-${Date.now()}`)
+  try {
+    await publishAgent(request, token!, agentId)
+    const workflow = {
+      name: 'E2E 分支 Loop 超限', status: 'ENABLED',
+      definition: {
+        nodes: [
+          { id: 'start', type: 'START', name: '开始', next: 'parallel1' },
+          { id: 'parallel1', type: 'PARALLEL', name: '并行',
+            branches: ['loop1', 's3'], joinNode: 'join1', strategy: 'ALL_OR_NOTHING' },
+          { id: 'loop1', type: 'LOOP', name: '分支超限循环', items: ['A', 'B', 'C'],
+            bodyNode: 'body1', maxIterations: 2, next: 'join1' },
+          { id: 'body1', type: 'STATE', name: '记录循环', stateKey: 'loop_last',
+            valueTemplate: '{{last}}', next: 'join1' },
+          { id: 's3', type: 'STATE', name: '外部分支', stateKey: 'branch_c',
+            valueTemplate: 'c', next: 'join1' },
+          { id: 'join1', type: 'JOIN', name: '汇合', next: 'end' },
+          { id: 'end', type: 'END', name: '结束' }
+        ]
+      }
+    }
+    expect((await (await request.put(`${P}/agent/${agentId}/workflow`, {
+      headers: auth(token!), data: workflow
+    })).json()).code).toBe(0)
+    const waiting = await (await request.post(`${P}/agent/${agentId}/workflow/run`, {
+      headers: auth(token!), data: { input: '分支循环超限测试' }, timeout: 60_000
+    })).json()
+    expect(waiting.code, JSON.stringify(waiting)).toBe(0)
+    expect(waiting.data.status).toBe('WAITING_APPROVAL')
+    const approvals = await (await request.get(`${P}/workflow/approvals`, {
+      headers: auth(token!), params: { status: 'PENDING', pageSize: 50 }
+    })).json()
+    const approval = (approvals.data.list || []).find((a: any) => a.runId === waiting.data.id)
+    expect(approval, '分支 LOOP 超限应产生统一审批').toBeTruthy()
+    const admin = await login(request, 'admin', process.env.PLATFORM_ADMIN_PASSWORD || 'Admin@123456')
+    const decided = await (await request.post(`${P}/workflow/approvals/${approval.id}/decide`, {
+      headers: { ...auth(admin!), 'X-Tenant-Id': '1' },
+      data: { approve: true, comment: '分支循环放行' }
+    })).json()
+    expect(decided.code, JSON.stringify(decided)).toBe(0)
+    const detail = await (await request.get(`${P}/workflow/runs/${waiting.data.id}`, {
+      headers: auth(token!)
+    })).json()
+    expect(detail.data.status).toBe('SUCCESS')
+    expect(detail.data.state?.branch_c).toBe('c')
+    expect(detail.data.state?.loop_last).toBe('C')
+  } finally {
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
 test('工作流并行分支审批', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()
