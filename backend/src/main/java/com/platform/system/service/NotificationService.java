@@ -47,6 +47,11 @@ public class NotificationService {
     }
 
     public Map<String, Object> list(JwtPrincipal principal, boolean unreadOnly, long page, long pageSize) {
+        if (principal.platformAdmin()) {
+            // 平台管理员不属于任何租户（通知均由租户业务产生），短路避免多租户插件抛"缺少租户上下文"
+            return Map.of("list", java.util.List.of(), "total", 0, "unread", 0,
+                    "page", page, "pageSize", pageSize);
+        }
         Long userId = principal.userId();
         Page<UserNotification> p = mapper.selectPage(
                 new Page<>(Math.max(page, 1), Math.min(Math.max(pageSize, 1), 50)),
@@ -60,12 +65,14 @@ public class NotificationService {
 
     public long unreadCount(JwtPrincipal principal) {
         if (principal == null || principal.userId() == null) return 0;
+        if (principal.platformAdmin()) return 0;
         return mapper.selectCount(new LambdaQueryWrapper<UserNotification>()
                 .eq(UserNotification::getUserId, principal.userId())
                 .eq(UserNotification::getIsRead, 0));
     }
 
     public void markRead(Long id, JwtPrincipal principal) {
+        if (principal.platformAdmin()) return;
         mapper.update(null, new LambdaUpdateWrapper<UserNotification>()
                 .eq(UserNotification::getId, id)
                 .eq(UserNotification::getUserId, principal.userId())
@@ -73,6 +80,7 @@ public class NotificationService {
     }
 
     public void markAllRead(JwtPrincipal principal) {
+        if (principal.platformAdmin()) return;
         mapper.update(null, new LambdaUpdateWrapper<UserNotification>()
                 .eq(UserNotification::getUserId, principal.userId())
                 .eq(UserNotification::getIsRead, 0)

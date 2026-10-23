@@ -460,18 +460,18 @@
     </el-drawer>
 
     <!-- 渠道 -->
-    <el-dialog v-model="channelsVisible" :title="`渠道接入：${form.name || ''}`" width="820px">
+    <el-dialog v-model="channelsVisible" :title="`${t('agentDlg.channelsTitle')}${form.name || ''}`" width="820px">
       <div class="hint mb8">
-        外部消息入口：POST /api/v1/channels/{token}/message（公开，token 鉴权）；出站回复支持通用 Webhook / Slack / 钉钉 / 飞书 / 企微文本格式。
+        {{ t('agentDlg.channelHint') }}
       </div>
       <div class="tab-actions">
-        <el-button type="primary" size="small" @click="channelCreateVisible = true">添加渠道</el-button>
-        <el-button size="small" @click="openChannels">刷新</el-button>
+        <el-button type="primary" size="small" @click="channelCreateVisible = true">{{ t('agentDlg.addChannel') }}</el-button>
+        <el-button size="small" @click="openChannels">{{ t('agentDlg.refresh') }}</el-button>
       </div>
       <el-table :data="channels" size="small">
         <el-table-column prop="name" :label="t('wf.name')" width="140" />
         <el-table-column prop="type" :label="t('agentDlg.type')" width="100" />
-        <el-table-column label="入站地址" min-width="240" show-overflow-tooltip>
+        <el-table-column :label="t('agentDlg.inbound')" min-width="240" show-overflow-tooltip>
           <template #default="{ row }">{{ inboundUrl(row) }}</template>
         </el-table-column>
         <el-table-column :label="t('agentDlg.status')" width="80">
@@ -483,9 +483,9 @@
         </el-table-column>
         <el-table-column label="操作" width="280">
           <template #default="{ row }">
-            <el-button size="small" text @click="copyInbound(row)">复制地址</el-button>
-            <el-button size="small" text :loading="channelTestingId === row.id" @click="testChannel(row)">测试</el-button>
-            <el-button size="small" text @click="openChannelMessages(row)">消息</el-button>
+            <el-button size="small" text @click="copyInbound(row)">{{ t('agentDlg.copyAddr') }}</el-button>
+            <el-button size="small" text :loading="channelTestingId === row.id" @click="testChannel(row)">{{ t('agentDlg.test') }}</el-button>
+            <el-button size="small" text @click="openChannelMessages(row)">{{ t('agentDlg.messages') }}</el-button>
             <el-button size="small" text @click="toggleChannel(row)">
               {{ row.status === 'ENABLED' ? t('agentDlg.disableAction') : t('agentDlg.enableAction') }}
             </el-button>
@@ -493,90 +493,90 @@
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="channels.length === 0" description="暂无渠道" :image-size="50" />
+      <el-empty v-if="channels.length === 0" :description="t('agentDlg.noChannels')" :image-size="50" />
       <div v-if="createdInbound" class="created-key">
-        <div class="ck-title">入站地址已生成（请复制）</div>
+        <div class="ck-title">{{ t('agentDlg.inboundGenerated') }}</div>
         <div class="ck-row">
           <code class="ck-value">{{ createdInbound }}</code>
-          <el-button size="small" type="primary" @click="copyText(createdInbound)">复制</el-button>
+          <el-button size="small" type="primary" @click="copyText(createdInbound)">{{ t('agentDlg.copy') }}</el-button>
         </div>
       </div>
     </el-dialog>
 
-    <el-dialog v-model="channelCreateVisible" title="添加渠道" width="560px">
+    <el-dialog v-model="channelCreateVisible" :title="t('agentDlg.addChannelTitle')" width="560px">
       <el-form label-width="110px">
         <el-form-item :label="t('agentEdit.name')"><el-input v-model="channelForm.name" maxlength="64" /></el-form-item>
         <el-form-item :label="t('agentDlg.type')">
           <el-select v-model="channelForm.type" style="width: 200px">
-            <el-option label="通用 Webhook" value="WEBHOOK" />
+            <el-option :label="t('agentDlg.webhook')" value="WEBHOOK" />
             <el-option label="Slack" value="SLACK" />
-            <el-option label="钉钉" value="DINGTALK" />
-            <el-option label="飞书" value="FEISHU" />
-            <el-option label="企业微信" value="WECOM" />
+            <el-option :label="t('agentDlg.dingtalk')" value="DINGTALK" />
+            <el-option :label="t('agentDlg.feishu')" value="FEISHU" />
+            <el-option :label="t('agentDlg.wecom')" value="WECOM" />
           </el-select>
         </el-form-item>
-        <el-form-item label="出站 Webhook">
-          <el-input v-model="channelForm.outboundUrl" placeholder="机器人 Webhook 地址（可留空，仅入站）" />
+        <el-form-item :label="t('agentDlg.outbound')">
+          <el-input v-model="channelForm.outboundUrl" :placeholder="t('agentDlg.outboundPh')" />
         </el-form-item>
-        <el-form-item label="签名密钥">
-          <el-input v-model="channelForm.secret" type="password" show-password placeholder="钉钉/飞书机器人签名密钥（可选）" />
+        <el-form-item :label="t('agentDlg.secret')">
+          <el-input v-model="channelForm.secret" type="password" show-password :placeholder="t('agentDlg.secretPh')" />
         </el-form-item>
-        <el-form-item label="验证 Token">
-          <el-input v-model="channelForm.verificationToken" placeholder="飞书/企微回调验证 Token（可选）" />
+        <el-form-item :label="t('agentDlg.verifyToken')">
+          <el-input v-model="channelForm.verificationToken" :placeholder="t('agentDlg.verifyPh')" />
         </el-form-item>
         <el-form-item label="Encrypt Key">
-          <el-input v-model="channelForm.encryptKey" type="password" show-password placeholder="飞书事件 Encrypt Key（可选，启用验签解密）" />
+          <el-input v-model="channelForm.encryptKey" type="password" show-password :placeholder="t('agentDlg.encryptPh')" />
         </el-form-item>
         <el-form-item label="EncodingAESKey">
-          <el-input v-model="channelForm.encodingAesKey" type="password" show-password placeholder="企业微信 EncodingAESKey（可选，启用验签解密）" />
+          <el-input v-model="channelForm.encodingAesKey" type="password" show-password :placeholder="t('agentDlg.aesPh')" />
         </el-form-item>
         <el-form-item label="CorpID/AppID">
-          <el-input v-model="channelForm.corpId" placeholder="企业微信 CorpID / AppID（加密回复用，可选）" />
+          <el-input v-model="channelForm.corpId" :placeholder="t('agentDlg.corpPh')" />
         </el-form-item>
-        <el-form-item label="每分钟限流">
+        <el-form-item :label="t('agentDlg.rateLimit')">
           <el-input-number v-model="channelForm.rateLimitPerMinute" :min="0" :max="10000" />
-          <span class="hint ml8">0 = 不限制</span>
+          <span class="hint ml8">{{ t('agentDlg.unlimited') }}</span>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="channelCreateVisible = false">{{ t('agentDlg.cancel') }}</el-button>
-        <el-button type="primary" :loading="channelSaving" @click="createChannel">创建</el-button>
+        <el-button type="primary" :loading="channelSaving" @click="createChannel">{{ t('agentDlg.create') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-drawer v-model="channelMessagesVisible" :title="`渠道消息：${messagesChannelName}`" size="640px">
-      <el-table :data="channelMessages" size="small" empty-text="暂无消息">
+    <el-drawer v-model="channelMessagesVisible" :title="`${t('agentDlg.channelMessages')}${messagesChannelName}`" size="640px">
+      <el-table :data="channelMessages" size="small" :empty-text="t('agentDlg.noMessages')">
         <el-table-column :label="t('wf.time')" width="160">
           <template #default="{ row }">{{ String(row.createdAt || '').replace('T',' ').slice(0,19) }}</template>
         </el-table-column>
-        <el-table-column prop="direction" label="方向" width="70" />
-        <el-table-column prop="status" label="状态" width="80" />
-        <el-table-column prop="externalUserId" label="外部用户" width="120" show-overflow-tooltip />
-        <el-table-column prop="content" label="内容" min-width="240" show-overflow-tooltip />
+        <el-table-column prop="direction" :label="t('agentDlg.direction')" width="70" />
+        <el-table-column prop="status" :label="t('agentDlg.keyStatus')" width="80" />
+        <el-table-column prop="externalUserId" :label="t('agentDlg.externalUser')" width="120" show-overflow-tooltip />
+        <el-table-column prop="content" :label="t('agentDlg.contentCol')" min-width="240" show-overflow-tooltip />
       </el-table>
     </el-drawer>
 
     <!-- 集成 API Key -->
-    <el-dialog v-model="integrationVisible" :title="`集成调用：${form.name || ''}`" width="780px">
+    <el-dialog v-model="integrationVisible" :title="`${t('agentDlg.integrationTitle')}${form.name || ''}`" width="780px">
       <div class="hint mb8">
-        外部调用：POST /api/v1/open/chat/completions，请求头 X-Api-Key: {key}（或 Authorization: ApiKey {key}）。
-        API Key 归属当前 Agent，调用计入审计与计费。
+        {{ t('agentDlg.integrationLine1') }}
+        {{ t('agentDlg.integrationLine2') }}
       </div>
       <div class="hint mb8">
-        MCP Server 直连（Claude Desktop / Cursor）：POST {{ mcpEndpoint }}，请求头 X-Api-Key: {key}；
-        工具：ask_agent、search_knowledge（已绑定知识库时）。
+        {{ t('agentDlg.mcpLine') }}
+        {{ t('agentDlg.toolsLine') }}
       </div>
       <div class="tab-actions">
-        <el-button type="primary" size="small" @click="openKeyCreate">创建 API Key</el-button>
-        <el-button size="small" :loading="widgetCreating" @click="createWidgetKey">生成网页挂件</el-button>
-        <span class="hint">每个 Agent 最多 10 个；0 表示不限制</span>
+        <el-button type="primary" size="small" @click="openKeyCreate">{{ t('agentDlg.createKey') }}</el-button>
+        <el-button size="small" :loading="widgetCreating" @click="createWidgetKey">{{ t('agentDlg.createWidget') }}</el-button>
+        <span class="hint">{{ t('agentDlg.keyHint') }}</span>
       </div>
       <el-table :data="apiKeys" size="small">
         <el-table-column prop="name" :label="t('wf.name')" width="150" />
         <el-table-column prop="keyPrefix" label="Key" width="180" />
-        <el-table-column prop="channel" label="渠道" width="100" />
-        <el-table-column label="限额（日/分钟）" width="140">
-          <template #default="{ row }">{{ row.dailyLimit || '不限' }} / {{ row.minuteLimit || '不限' }}</template>
+        <el-table-column prop="channel" :label="t('agentDlg.keyChannel')" width="100" />
+        <el-table-column :label="t('agentDlg.quota')" width="140">
+          <template #default="{ row }">{{ row.dailyLimit || t('agentDlg.unlimitedShort') }} / {{ row.minuteLimit || t('agentDlg.unlimitedShort') }}</template>
         </el-table-column>
         <el-table-column :label="t('agentDlg.status')" width="80">
           <template #default="{ row }">
@@ -585,115 +585,115 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="最后使用" width="160">
-          <template #default="{ row }">{{ row.lastUsedAt ? String(row.lastUsedAt).replace('T',' ').slice(0,19) : '未使用' }}</template>
+        <el-table-column :label="t('agentDlg.lastUsed')" width="160">
+          <template #default="{ row }">{{ row.lastUsedAt ? String(row.lastUsedAt).replace('T',' ').slice(0,19) : t('agentDlg.unused') }}</template>
         </el-table-column>
         <el-table-column :label="t('agentDlg.actions')" width="150">
           <template #default="{ row }">
             <el-button size="small" text @click="toggleKey(row)">
-              {{ row.status === 'ENABLED' ? '禁用' : '启用' }}
+              {{ row.status === 'ENABLED' ? t('agentDlg.disable') : t('agentDlg.enable') }}
             </el-button>
             <el-button size="small" text type="danger" @click="removeKey(row)">{{ t('wf.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="apiKeys.length === 0" description="暂无 API Key" :image-size="50" />
+      <el-empty v-if="apiKeys.length === 0" :description="t('agentDlg.noKeys')" :image-size="50" />
 
       <div v-if="widgetSnippet" class="created-key">
-        <div class="ck-title">网页挂件嵌入代码（Key 仅显示一次，请立即保存）</div>
+        <div class="ck-title">{{ t('agentDlg.widgetSnippetTitle') }}</div>
         <el-input :model-value="widgetSnippet" type="textarea" :rows="3" readonly />
         <div class="mt8">
-          <el-button size="small" type="primary" @click="copyWidget">复制嵌入代码</el-button>
-          <el-button size="small" @click="previewWidget">预览挂件</el-button>
+          <el-button size="small" type="primary" @click="copyWidget">{{ t('agentDlg.copySnippet') }}</el-button>
+          <el-button size="small" @click="previewWidget">{{ t('agentDlg.previewWidget') }}</el-button>
         </div>
       </div>
 
       <div v-if="createdKey" class="created-key">
-        <div class="ck-title">API Key 已创建（仅显示一次，请立即保存）</div>
+        <div class="ck-title">{{ t('agentDlg.keyCreatedTitle') }}</div>
         <div class="ck-row">
           <code class="ck-value">{{ createdKey }}</code>
-          <el-button size="small" type="primary" @click="copyKey">复制</el-button>
+          <el-button size="small" type="primary" @click="copyKey">{{ t('agentDlg.copy') }}</el-button>
         </div>
-        <div class="hint">保存后关闭弹窗将无法再次查看明文。</div>
+        <div class="hint">{{ t('agentDlg.keyOnceHint') }}</div>
       </div>
     </el-dialog>
 
     <!-- 创建 API Key -->
-    <el-dialog v-model="keyCreateVisible" title="创建 API Key" width="520px">
+    <el-dialog v-model="keyCreateVisible" :title="t('agentDlg.keyCreateTitle')" width="520px">
       <el-form label-width="110px">
         <el-form-item :label="t('wf.name')" required><el-input v-model="keyForm.name" maxlength="64" /></el-form-item>
-        <el-form-item label="调用渠道">
+        <el-form-item :label="t('agentDlg.keyChannelLabel')">
           <el-select v-model="keyForm.channel" style="width: 180px">
             <el-option label="API" value="API" />
             <el-option label="Web" value="WEB" />
-            <el-option label="网页挂件" value="WIDGET" />
-            <el-option label="第三方集成" value="THIRD_PARTY" />
+            <el-option :label="t('agentDlg.widgetChannel')" value="WIDGET" />
+            <el-option :label="t('agentDlg.thirdParty')" value="THIRD_PARTY" />
           </el-select>
         </el-form-item>
-        <el-form-item label="日调用上限">
+        <el-form-item :label="t('agentDlg.dailyLimit')">
           <el-input-number v-model="keyForm.dailyLimit" :min="0" />
-          <span class="hint ml8">0 = 不限制</span>
+          <span class="hint ml8">{{ t('agentDlg.unlimited') }}</span>
         </el-form-item>
-        <el-form-item label="分钟上限">
+        <el-form-item :label="t('agentDlg.minuteLimit')">
           <el-input-number v-model="keyForm.minuteLimit" :min="0" />
-          <span class="hint ml8">0 = 不限制</span>
+          <span class="hint ml8">{{ t('agentDlg.unlimited') }}</span>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="keyCreateVisible = false">{{ t('agentDlg.cancel') }}</el-button>
-        <el-button type="primary" :loading="keySaving" @click="createKey">创建</el-button>
+        <el-button type="primary" :loading="keySaving" @click="createKey">{{ t('agentDlg.create') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- AI 提示词优化 -->
-    <el-dialog v-model="optimizeVisible" title="AI 优化提示词" width="760px">
-      <div class="hint mb8">保留双花括号变量与业务意图；优化结果需手动应用，不会自动保存。</div>
+    <el-dialog v-model="optimizeVisible" :title="t('agentDlg.optimizeTitle')" width="760px">
+      <div class="hint mb8">{{ t('agentDlg.optimizeHint') }}</div>
       <el-form label-width="90px">
-        <el-form-item label="优化方向">
-          <el-select v-model="optimizeStyle" clearable placeholder="可选" style="width: 200px">
-            <el-option label="结构化" value="结构化、分点清晰" />
-            <el-option label="更简洁" value="精简冗余，保持信息完整" />
-            <el-option label="更专业" value="更专业严谨，适合企业场景" />
-            <el-option label="客服语气" value="礼貌、先结论后步骤的客服语气" />
+        <el-form-item :label="t('agentDlg.direction')">
+          <el-select v-model="optimizeStyle" clearable :placeholder="t('agentDlg.optional')" style="width: 200px">
+            <el-option :label="t('agentDlg.structured')" value="结构化、分点清晰" />
+            <el-option :label="t('agentDlg.concise')" value="精简冗余，保持信息完整" />
+            <el-option :label="t('agentDlg.professional')" value="更专业严谨，适合企业场景" />
+            <el-option :label="t('agentDlg.supportTone')" value="礼貌、先结论后步骤的客服语气" />
           </el-select>
         </el-form-item>
-        <el-form-item label="额外要求">
+        <el-form-item :label="t('agentDlg.extraReq')">
           <el-input v-model="optimizeInstruction" type="textarea" :rows="2"
-                    placeholder="如：补充拒答边界；保留原有变量；不要改变语言" />
+                    :placeholder="t('agentDlg.extraPh')" />
         </el-form-item>
       </el-form>
       <div class="opt-origin">
-        <div class="opt-label">当前提示词（{{ (form.systemPrompt || '').length }} 字）</div>
-        <div class="opt-origin-text">{{ form.systemPrompt || '（空）' }}</div>
+        <div class="opt-label">{{ t('agentDlg.currentPrompt') }}{{ (form.systemPrompt || '').length }}{{ t('agentDlg.chars') }}</div>
+        <div class="opt-origin-text">{{ form.systemPrompt || t('agentDlg.empty') }}</div>
       </div>
       <div class="mt8">
-        <el-button type="primary" :loading="optimizing" @click="runOptimize">开始优化</el-button>
+        <el-button type="primary" :loading="optimizing" @click="runOptimize">{{ t('agentDlg.startOptimize') }}</el-button>
         <span v-if="optimizeUsage" class="hint">
-          {{ optimizeModel }} · 输入 {{ optimizeUsage.inputTokens }} / 输出 {{ optimizeUsage.outputTokens }} tokens
+          {{ optimizeModel }} · {{ t('agentDlg.inputTokens') }} {{ optimizeUsage.inputTokens }} / {{ t('agentDlg.outputTokens') }} {{ optimizeUsage.outputTokens }} tokens
         </span>
       </div>
       <div v-if="optimizeResult" class="opt-result">
-        <div class="opt-label">优化结果（{{ optimizeResult.length }} 字）</div>
+        <div class="opt-label">{{ t('agentDlg.result') }}{{ optimizeResult.length }}{{ t('agentDlg.chars') }}</div>
         <el-input v-model="optimizeResult" type="textarea" :rows="10" />
         <div class="mt8">
-          <el-button type="primary" @click="applyOptimized('replace')">替换原提示词</el-button>
-          <el-button @click="applyOptimized('append')">追加到末尾</el-button>
-          <el-button @click="optimizeResult = ''">清除结果</el-button>
+          <el-button type="primary" @click="applyOptimized('replace')">{{ t('agentDlg.replacePrompt') }}</el-button>
+          <el-button @click="applyOptimized('append')">{{ t('agentDlg.append') }}</el-button>
+          <el-button @click="optimizeResult = ''">{{ t('agentDlg.clear') }}</el-button>
         </div>
       </div>
     </el-dialog>
 
     <!-- Prompt 模板插入 -->
-    <el-dialog v-model="templateVisible" title="从 Prompt 模板插入" width="640px">
-      <el-select v-model="templateId" filterable style="width: 100%" placeholder="选择模板">
+    <el-dialog v-model="templateVisible" :title="t('agentDlg.insertTitle')" width="640px">
+      <el-select v-model="templateId" filterable style="width: 100%" :placeholder="t('agentDlg.selectTemplate')">
         <el-option v-for="t in promptTemplates" :key="t.id" :value="t.id"
                    :label="t.name + (t.category ? '（' + t.category + '）' : '')" />
       </el-select>
       <div v-if="selectedTemplate" class="tpl-preview">
         <div class="tpl-vars">
-          变量：
+          {{ t('agentDlg.variables') }}
           <el-tag v-for="v in selectedTemplate.variables || []" :key="v.key" size="small" class="ml8">{{ v.key }}</el-tag>
-          <span v-if="!(selectedTemplate.variables || []).length" class="hint">无</span>
+          <span v-if="!(selectedTemplate.variables || []).length" class="hint">{{ t('agentDlg.none') }}</span>
         </div>
         <pre class="tpl-content">{{ selectedTemplate.content }}</pre>
       </div>
@@ -1373,7 +1373,7 @@ function openCredentialEdit(row: any) {
 }
 
 async function saveCredential() {
-  if (!credentialForm.name.trim()) { ElMessage.warning('名称必填'); return }
+  if (!credentialForm.name.trim()) { ElMessage.warning(t('agentDlg.keyNameRequired')); return }
   if (!credentialForm.id && !credentialForm.content.trim()) { ElMessage.warning('凭证内容必填'); return }
   credentialSaving.value = true
   try {
@@ -1524,7 +1524,7 @@ async function createChannel() {
         rateLimitPerMinute: channelForm.rateLimitPerMinute
       }
     }) as any
-    ElMessage.success('渠道已创建')
+    ElMessage.success(t('agentDlg.channelCreated'))
     channelCreateVisible.value = false
     await openChannels()
     createdInbound.value = location.origin + res.inboundPath
@@ -1554,8 +1554,8 @@ async function testChannel(row: any) {
   channelTestingId.value = row.id
   try {
     const res = await http.post(`/agent/${agentId}/channels/${row.id}/test`) as any
-    if (res.success) ElMessage.success(`出站正常（${res.latencyMs}ms）`)
-    else ElMessage.error(`出站失败：${res.message}`)
+    if (res.success) ElMessage.success(`${t('agentDlg.outboundOk')}${res.latencyMs}ms)`)
+    else ElMessage.error(`${t('agentDlg.outboundFail')}${res.message}`)
   } finally {
     channelTestingId.value = 0
   }
@@ -1569,7 +1569,7 @@ async function toggleChannel(row: any) {
 }
 
 async function removeChannel(row: any) {
-  await ElMessageBox.confirm(`删除渠道「${row.name}」？入站地址将立即失效。`, '删除渠道',
+  await ElMessageBox.confirm(`${t('agentDlg.deleteChannelPrefix')}${row.name}${t('agentDlg.deleteChannelMid')}`, t('agentDlg.deleteChannelTitle'),
     { type: 'warning', confirmButtonText: t('agentDlg.delete'), cancelButtonText: t('agentDlg.cancel') })
   await http.delete(`/agent/${agentId}/channels/${row.id}`)
   ElMessage.success(t('agentDlg.deleted'))
@@ -1587,7 +1587,7 @@ function openKeyCreate() {
 }
 
 async function createKey() {
-  if (!keyForm.name.trim()) { ElMessage.warning('名称必填'); return }
+  if (!keyForm.name.trim()) { ElMessage.warning(t('agentDlg.keyNameRequired')); return }
   keySaving.value = true
   try {
     const res = await http.post(`/agent/${agentId}/api-keys`, {
@@ -1611,7 +1611,7 @@ async function createWidgetKey() {
     widgetKey.value = res.apiKey
     const src = `${location.origin}/widget?key=${encodeURIComponent(res.apiKey)}`
     widgetSnippet.value = `<iframe src="${src}" title="AI 助手" style="width:100%;height:640px;border:0;border-radius:12px"></iframe>`
-    ElMessage.success('网页挂件已生成，请复制嵌入代码')
+    ElMessage.success(t('agentDlg.widgetGenerated'))
     await loadApiKeys()
   } finally {
     widgetCreating.value = false
@@ -1621,18 +1621,18 @@ async function createWidgetKey() {
 async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text)
-    ElMessage.success('已复制')
+    ElMessage.success(t('agentDlg.copied'))
   } catch {
-    ElMessage.warning('复制失败，请手动选择')
+    ElMessage.warning(t('agentDlg.copyFailManual'))
   }
 }
 
 async function copyWidget() {
   try {
     await navigator.clipboard.writeText(widgetSnippet.value)
-    ElMessage.success('已复制嵌入代码')
+    ElMessage.success(t('agentDlg.copiedSnippet'))
   } catch {
-    ElMessage.warning('复制失败，请手动选择')
+    ElMessage.warning(t('agentDlg.copyFailManual'))
   }
 }
 
@@ -1643,9 +1643,9 @@ function previewWidget() {
 async function copyKey() {
   try {
     await navigator.clipboard.writeText(createdKey.value)
-    ElMessage.success('已复制')
+    ElMessage.success(t('agentDlg.copied'))
   } catch {
-    ElMessage.warning('复制失败，请手动选择复制')
+    ElMessage.warning(t('agentDlg.copyFailManual'))
   }
 }
 
@@ -1657,7 +1657,7 @@ async function toggleKey(row: any) {
 }
 
 async function removeKey(row: any) {
-  await ElMessageBox.confirm(`删除 API Key「${row.name}」？删除后使用该 Key 的调用将立即失败。`, '删除 API Key',
+  await ElMessageBox.confirm(`${t('agentDlg.deleteKeyPrefix')}${row.name}${t('agentDlg.deleteKeyMid')}`, t('agentDlg.deleteKeyTitle'),
     { type: 'warning', confirmButtonText: t('agentDlg.delete'), cancelButtonText: t('agentDlg.cancel') })
   await http.delete(`/agent/${agentId}/api-keys/${row.id}`)
   ElMessage.success(t('agentDlg.deleted'))
@@ -1674,7 +1674,7 @@ function modelLabel(m: any) {
 
 function openOptimize() {
   if (!form.systemPrompt || !form.systemPrompt.trim()) {
-    ElMessage.warning('请先填写提示词'); return
+    ElMessage.warning(t('agentDlg.promptRequired')); return
   }
   optimizeResult.value = ''
   optimizeUsage.value = null
@@ -1683,7 +1683,7 @@ function openOptimize() {
 }
 
 async function runOptimize() {
-  if (!form.systemPrompt.trim()) { ElMessage.warning('请先填写提示词'); return }
+  if (!form.systemPrompt.trim()) { ElMessage.warning(t('agentDlg.promptRequired')); return }
   optimizing.value = true
   try {
     const res = await http.post('/agent/prompt/optimize', {
@@ -1697,7 +1697,7 @@ async function runOptimize() {
     optimizeResult.value = res.optimizedPrompt || ''
     optimizeUsage.value = res.usage || null
     optimizeModel.value = res.modelName || ''
-    ElMessage.success('优化完成，请确认后应用')
+    ElMessage.success(t('agentDlg.optimizeDone'))
   } finally {
     optimizing.value = false
   }
@@ -1709,7 +1709,7 @@ function applyOptimized(mode: 'replace' | 'append') {
     ? optimizeResult.value
     : (form.systemPrompt ? form.systemPrompt + '\n\n' + optimizeResult.value : optimizeResult.value)
   optimizeVisible.value = false
-  ElMessage.success(mode === 'replace' ? '已替换提示词（尚未保存）' : '已追加到提示词末尾（尚未保存）')
+  ElMessage.success(mode === 'replace' ? t('agentDlg.replaced') : t('agentDlg.appended'))
 }
 
 function openTemplatePicker() {
@@ -1721,12 +1721,12 @@ async function applyTemplate() {
   if (!selectedTemplate.value) return
   if (form.systemPrompt.trim()) {
     try {
-      await ElMessageBox.confirm('插入模板将覆盖当前提示词，是否继续？', '覆盖提示词', { type: 'warning' })
+      await ElMessageBox.confirm(t('agentDlg.overwrite'), t('agentDlg.overwrite'), { type: 'warning' })
     } catch { return }
   }
   form.systemPrompt = selectedTemplate.value.content || ''
   templateVisible.value = false
-  ElMessage.success('已插入模板，变量可在「占位变量」面板配置')
+  ElMessage.success(t('agentDlg.templateInserted'))
 }
 
 function openPicker(type: RefType) {
