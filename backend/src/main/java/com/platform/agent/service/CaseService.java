@@ -431,7 +431,7 @@ public class CaseService {
 
     /** 裁判校准队列：回归明细的人工标注/校准。 */
     public Map<String, Object> calibrations(JwtPrincipal principal, String status, Long runId,
-                                            int page, int pageSize) {
+                                            int page, int pageSize, boolean blind) {
         int size = Math.max(1, Math.min(pageSize <= 0 ? 20 : pageSize, 100));
         int current = Math.max(1, page);
         List<TestCaseRun> tenantRuns = runMapper.selectList(new LambdaQueryWrapper<TestCaseRun>()
@@ -456,8 +456,15 @@ public class CaseService {
         long total = runItemMapper.selectCount(wrapper);
         wrapper.last("LIMIT " + ((current - 1) * size) + ", " + size);
         List<TestCaseRunItem> items = runItemMapper.selectList(wrapper);
-        List<Map<String, Object>> rows = items.stream().map(i -> calibrationView(i, runMap.get(i.getRunId())))
-                .toList();
+        List<Map<String, Object>> rows = items.stream().map(i -> {
+            Map<String, Object> row = calibrationView(i, runMap.get(i.getRunId()));
+            if (blind) {
+                row.put("judgeScore", null);
+                row.put("judgePassed", null);
+                row.put("referenceAnswer", null);
+            }
+            return row;
+        }).toList();
         return Map.of("list", rows, "total", total, "page", current, "pageSize", size);
     }
 
@@ -474,6 +481,15 @@ public class CaseService {
         int labeled = 0, pending = 0, agree = 0;
         double errorSum = 0;
         int errorCount = 0;
+        Map<Long, List<CaseCalibrationLabel>> labelsByItem = new java.util.HashMap<>();
+        if (!items.isEmpty()) {
+            List<Long> itemIds = items.stream().map(TestCaseRunItem::getId).toList();
+            for (CaseCalibrationLabel label : calibrationMapper.selectList(
+                    new LambdaQueryWrapper<CaseCalibrationLabel>()
+                            .in(CaseCalibrationLabel::getRunItemId, itemIds))) {
+                labelsByItem.computeIfAbsent(label.getRunItemId(), k -> new ArrayList<>()).add(label);
+            }
+        }
         for (TestCaseRunItem i : items) {
             if (i.getLabelCount() == null || i.getLabelCount() < Math.max(1, minAnnotators)) {
                 pending++;
@@ -489,9 +505,23 @@ public class CaseService {
                 errorCount++;
             }
         }
+        int pairs = 0, pairAgree = 0;
+        for (List<CaseCalibrationLabel> labels : labelsByItem.values()) {
+            if (labels.size() < 2) continue;
+            for (int a = 0; a < labels.size(); a++) {
+                for (int b = a + 1; b < labels.size(); b++) {
+                    pairs++;
+                    if (labels.get(a).getHumanLabel().equalsIgnoreCase(labels.get(b).getHumanLabel())) {
+                        pairAgree++;
+                    }
+                }
+            }
+        }
         return Map.of("total", items.size(), "labeled", labeled, "pending", pending,
                 "agreementRate", labeled == 0 ? 0 : round4(agree / (double) labeled),
-                "meanAbsError", errorCount == 0 ? 0 : round4(errorSum / errorCount));
+                "meanAbsError", errorCount == 0 ? 0 : round4(errorSum / errorCount),
+                "interAnnotatorAgreement", pairs == 0 ? 0 : round4(pairAgree / (double) pairs),
+                "interAnnotatorPairs", pairs);
     }
 
     public Map<String, Object> calibrate(Long itemId, Map<String, Object> req, JwtPrincipal principal) {

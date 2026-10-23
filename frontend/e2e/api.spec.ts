@@ -1587,6 +1587,11 @@ test('对话用例库：反馈沉淀与模型回归', async ({ request }) => {
     })).json()
     expect(cal.code, JSON.stringify(cal)).toBe(0)
     expect(cal.data.total).toBeGreaterThanOrEqual(2)
+    const blind = await (await request.get(`${P}/cases/calibrations`, {
+      headers: auth(token!), params: { status: 'PENDING', blind: true }
+    })).json()
+    expect(blind.data.list[0].judgeScore).toBeNull()
+    expect(blind.data.list[0].referenceAnswer).toBeNull()
     const item = cal.data.list[0]
     const savedCal = await (await request.put(`${P}/cases/calibrations/${item.id}`, {
       headers: auth(token!), data: { humanScore: 1, humanLabel: 'PASS', note: 'E2E 人工校准' }
@@ -1607,6 +1612,7 @@ test('对话用例库：反馈沉淀与模型回归', async ({ request }) => {
       headers: auth(token!)
     })).json()
     expect(calStats.data.labeled).toBeGreaterThanOrEqual(1)
+    expect(calStats.data.interAnnotatorAgreement).toBe(1)
     const done = await (await request.get(`${P}/cases/calibrations`, {
       headers: auth(token!), params: { status: 'DONE' }
     })).json()

@@ -152,6 +152,9 @@
           <template #suffix>%</template>
         </el-statistic>
         <el-statistic title="平均分差" :value="calStats.meanAbsError || 0" />
+        <el-statistic title="标注者一致率" :value="(calStats.interAnnotatorAgreement || 0) * 100">
+          <template #suffix>%</template>
+        </el-statistic>
       </div>
       <div class="toolbar">
         <el-radio-group v-model="calStatus" @change="loadCalibration">
@@ -160,6 +163,7 @@
           <el-radio-button value="ALL">全部</el-radio-button>
         </el-radio-group>
         <el-button @click="loadCalibration">刷新</el-button>
+        <el-checkbox v-model="calBlind" @change="loadCalibration">盲标（隐藏裁判分/参考）</el-checkbox>
         <span class="hint">人工标签与 LLM 裁判分开保存；一致率仅统计已标注项</span>
       </div>
       <el-table :data="calRows" size="small" v-loading="calLoading" max-height="560">
@@ -234,6 +238,7 @@ const runnable = computed(() => approved.value.filter(c => runTier.value !== 'GO
 const calVisible = ref(false)
 const calLoading = ref(false)
 const calStatus = ref('PENDING')
+const calBlind = ref(false)
 const calRows = ref<any[]>([])
 const calStats = ref<any>({})
 const calPage = ref(1)
@@ -342,7 +347,7 @@ async function loadCalibration() {
   try {
     const [data, stats] = await Promise.all([
       http.get('/cases/calibrations', {
-        params: { status: calStatus.value, page: calPage.value, pageSize: 20 }
+        params: { status: calStatus.value, page: calPage.value, pageSize: 20, blind: calBlind.value }
       }),
       http.get('/cases/calibrations/stats')
     ]) as any[]

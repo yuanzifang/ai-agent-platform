@@ -69,8 +69,9 @@ public class CaseController {
                                                          @RequestParam(required = false) Long runId,
                                                          @RequestParam(defaultValue = "1") int page,
                                                          @RequestParam(defaultValue = "20") int pageSize,
+                                                         @RequestParam(defaultValue = "false") boolean blind,
                                                          @AuthenticationPrincipal JwtPrincipal principal) {
-        return ApiResponse.ok(service.calibrations(principal, status, runId, page, pageSize));
+        return ApiResponse.ok(service.calibrations(principal, status, runId, page, pageSize, blind));
     }
 
     @GetMapping("/calibrations/stats")
