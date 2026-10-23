@@ -165,6 +165,22 @@ class DocumentParserTest {
     }
 
     @Test
+    void parsesLegacyDocWithTextutil() throws Exception {
+        Assumptions.assumeTrue(commandExists("textutil"), "本机无 textutil，跳过 .doc 真实样本");
+        Path txt = tempDir.resolve("legacy.txt");
+        Path doc = tempDir.resolve("legacy.doc");
+        Files.writeString(txt, "DOC格式测试：旧版Word内容。", StandardCharsets.UTF_8);
+        Process process = new ProcessBuilder("textutil", "-convert", "doc",
+                "-output", doc.toAbsolutePath().toString(), txt.toAbsolutePath().toString())
+                .redirectErrorStream(true).start();
+        assertTrue(process.waitFor() == 0, "textutil 生成 .doc 失败");
+        List<DocumentParser.ParsedChunk> chunks = parser.parseWithParents("legacy.doc",
+                Files.readAllBytes(doc));
+        String text = chunks.stream().map(DocumentParser.ParsedChunk::content).reduce("", String::concat);
+        assertTrue(text.contains("DOC格式测试"), text);
+    }
+
+    @Test
     void parsesPpt() throws Exception {
         byte[] bytes;
         try (HSLFSlideShow ppt = new HSLFSlideShow(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
