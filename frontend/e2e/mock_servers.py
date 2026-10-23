@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 CAPTURED = []
 LAST_OPENAI = {}
 LAST_CHAT = {}
+CHAT_COUNT = {"value": 0}
 
 
 def answer_for(body):
@@ -135,6 +136,8 @@ class OpenAiHandler(BaseHTTPRequestHandler):
             return self._json(200, LAST_OPENAI)
         if self.path == "/last-chat":
             return self._json(200, LAST_CHAT)
+        if self.path == "/count":
+            return self._json(200, {"count": CHAT_COUNT["value"]})
         if self.path.endswith("/models"):
             return self._json(200, {"data": [{"id": "mock-model", "name": "Mock Model"}]})
         self._json(404, {"error": "not found"})
@@ -143,6 +146,7 @@ class OpenAiHandler(BaseHTTPRequestHandler):
         if not self.path.endswith("/chat/completions"):
             return self._json(404, {"error": "not found"})
         body = json.loads(read_body(self) or b"{}")
+        CHAT_COUNT["value"] += 1
         print(f"[openai] {self.path} keys={list(body.keys())} tools={len(body.get('tools') or [])}", flush=True)
         if str(body.get("model", "")).startswith("broken-model"):
             return self._json(500, {"error": {"message": "mock primary model failure"}})

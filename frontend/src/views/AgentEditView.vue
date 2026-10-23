@@ -798,6 +798,11 @@
               </div>
               <el-input v-if="n.returnAgentId" v-model="n.returnTemplate" type="textarea" :rows="2" class="mt8"
                         placeholder="回传任务模板（支持 {{input}} / {{last}} / {{state.key}}；留空直接用目标 Agent 输出来回传）" />
+              <div v-if="n.returnAgentId" class="wf-line mt8">
+                <span>往返轮数</span>
+                <el-input-number v-model="n.returnRounds" :min="1" :max="3" size="small" />
+                <span class="hint">1= A→B→A；2= A→B→A→B→A</span>
+              </div>
               <div class="hint">调用目标 Agent 的完整发布配置（工具/RAG/技能/子 Agent）；配置回传 Agent 后由其继续处理并输出最终结果</div>
             </template>
             <template v-else-if="n.type === 'TOOL'">
@@ -1961,7 +1966,7 @@ function addWorkflowNode() {
   const node: any = { id, type: wfAddType.value, name: wfTypeText(wfAddType.value), next: 'end' }
   if (wfAddType.value === 'APPROVAL') node.title = '人工审批'
   if (wfAddType.value === 'LLM') node.prompt = ''
-  if (wfAddType.value === 'HANDOFF') node.inputTemplate = '{{input}}'
+  if (wfAddType.value === 'HANDOFF') { node.inputTemplate = '{{input}}'; node.returnRounds = 1 }
   if (wfAddType.value === 'STATE') { node.stateKey = ''; node.valueTemplate = '{{last}}' }
   if (wfAddType.value === 'TOOL') node.argsTemplate = '{}'
   if (wfAddType.value === 'KNOWLEDGE') { node.mode = 'hybrid'; node.topK = 5; node.queryTemplate = '' }

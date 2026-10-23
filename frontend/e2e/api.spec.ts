@@ -992,8 +992,9 @@ test('工作流 Agent Handoff 与共享上下文', async ({ request }) => {
         nodes: [
           { id: 'start', type: 'START', name: '开始', next: 'handoff1' },
           { id: 'handoff1', type: 'HANDOFF', name: '交给目标 Agent 并回传',
-            agentId: targetId, inputTemplate: '{{input}}',
-            returnAgentId: returnId, returnTemplate: '基于交接结果复核：{{last}}', next: 'state1' },
+            agentId: targetId, inputTemplate: '{{last}}',
+            returnAgentId: returnId, returnTemplate: '基于交接结果复核：{{last}}',
+            returnRounds: 2, next: 'state1' },
           { id: 'state1', type: 'STATE', name: '记录 handoff 结果',
             stateKey: 'handoff_result', valueTemplate: '{{last}}', next: 'llm1' },
           { id: 'llm1', type: 'LLM', name: '读取共享上下文', prompt: '总结前序结果', next: 'end' },
@@ -1005,6 +1006,7 @@ test('工作流 Agent Handoff 与共享上下文', async ({ request }) => {
       headers: auth(token!), data: workflow
     })
     expect((await save.json()).code).toBe(0)
+    const before = await (await request.get(`${OPENAI_MOCK}/count`)).json()
     const run = await request.post(`${P}/agent/${sourceId}/workflow/run`, {
       headers: auth(token!), data: { input: '请目标 Agent 接手' }, timeout: 60_000
     })
@@ -1015,6 +1017,8 @@ test('工作流 Agent Handoff 与共享上下文', async ({ request }) => {
     const nodeTypes = (body.data.nodeRuns || []).map((n: any) => n.nodeType)
     expect(nodeTypes).toContain('HANDOFF')
     expect(body.data.state?.handoff_result).toContain('回传复核完成')
+    const after = await (await request.get(`${OPENAI_MOCK}/count`)).json()
+    expect(after.count - before.count).toBeGreaterThanOrEqual(4)
     const last = await (await request.get(`${OPENAI_MOCK}/last-chat`)).json()
     const systemText = (last.messages || []).filter((m: any) => m.role === 'system')
       .map((m: any) => String(m.content)).join('\n')

@@ -750,19 +750,40 @@ public class WorkflowService {
             }
             Map<String, Object> returnConfig = agentConfig(returnAgent);
             String returnTemplate = str(node.get("returnTemplate"));
-            String returnMessage = returnTemplate == null || returnTemplate.isBlank()
-                    ? "请基于以下交接结果继续处理并给出最终答复：\n" + answer
-                    : applyStateTemplate(returnTemplate, run, stateOf(run), answer);
-            Map<String, Object> returned;
-            try {
-                returned = chatService.debugChat(returnConfig, returnMessage, viewer, principal);
-            } catch (Exception e) {
-                throw new BusinessException(502, "HANDOFF 回传失败：" + rootMessage(e));
-            }
-            answer = str(returned.get("answer"));
-            if (returned.get("usage") instanceof Map<?, ?> usage) {
-                in += toLong(usage.get("inputTokens")) == null ? 0 : toLong(usage.get("inputTokens"));
-                out += toLong(usage.get("outputTokens")) == null ? 0 : toLong(usage.get("outputTokens"));
+            int rounds = Math.max(1, Math.min(toInt(node.getOrDefault("returnRounds", 1)), 3));
+            for (int round = 0; round < rounds; round++) {
+                String returnMessage = returnTemplate == null || returnTemplate.isBlank()
+                        ? "请基于以下交接结果继续处理并给出最终答复：\n" + answer
+                        : applyStateTemplate(returnTemplate, run, stateOf(run), answer);
+                Map<String, Object> returned;
+                try {
+                    returned = chatService.debugChat(returnConfig, returnMessage, viewer, principal);
+                } catch (Exception e) {
+                    throw new BusinessException(502, "HANDOFF 回传失败：" + rootMessage(e));
+                }
+                answer = str(returned.get("answer"));
+                if (returned.get("usage") instanceof Map<?, ?> usage) {
+                    in += toLong(usage.get("inputTokens")) == null ? 0 : toLong(usage.get("inputTokens"));
+                    out += toLong(usage.get("outputTokens")) == null ? 0 : toLong(usage.get("outputTokens"));
+                }
+                if (round < rounds - 1) {
+                    String targetTemplate = str(node.get("inputTemplate"));
+                    String targetMessage = targetTemplate == null || targetTemplate.isBlank()
+                            ? "请基于上一轮结果继续处理：\n" + answer
+                            : applyStateTemplate(targetTemplate, run, stateOf(run), answer);
+                    Map<String, Object> nextTarget;
+                    try {
+                        nextTarget = chatService.debugChat(config, targetMessage, viewer, principal);
+                    } catch (Exception e) {
+                        throw new BusinessException(502, "HANDOFF 第 " + (round + 2) + " 轮目标调用失败："
+                                + rootMessage(e));
+                    }
+                    answer = str(nextTarget.get("answer"));
+                    if (nextTarget.get("usage") instanceof Map<?, ?> usage) {
+                        in += toLong(usage.get("inputTokens")) == null ? 0 : toLong(usage.get("inputTokens"));
+                        out += toLong(usage.get("outputTokens")) == null ? 0 : toLong(usage.get("outputTokens"));
+                    }
+                }
             }
         }
         return new SimpleResult(answer, str(node.get("next")), in, out, false);
