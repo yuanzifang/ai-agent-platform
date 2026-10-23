@@ -26,13 +26,13 @@
               <span class="name">{{ kb.name }}</span>
               <el-tag size="small" :type="visTag(kb.visibility)">{{ visText(kb.visibility) }}</el-tag>
             </div>
-            <div class="meta">嵌入模型 {{ kb.embeddingModel }} · {{ formatDate(kb.createdAt) }}</div>
+            <div class="meta">{{ t('knowledgeList.embedding') }} {{ kb.embeddingModel }} · {{ formatDate(kb.createdAt) }}</div>
           </div>
         </div>
         <div class="desc">{{ kb.description || t('knowledgeList.noDesc') }}</div>
         <div class="foot">
-          <span>文档 {{ kb.documentCount ?? 0 }} · 分段 {{ kb.chunkCount ?? 0 }}</span>
-          <span>创建人 {{ kb.creatorName || '-' }}</span>
+          <span>{{ t('knowledgeList.docs') }} {{ kb.documentCount ?? 0 }} · {{ t('knowledgeList.chunks') }} {{ kb.chunkCount ?? 0 }}</span>
+          <span>{{ t('knowledgeList.creator') }} {{ kb.creatorName || '-' }}</span>
         </div>
         <div v-if="kb.canEdit" class="actions" @click.stop>
           <el-button size="small" text @click="openEdit(kb)">{{ t('knowledgeList.edit') }}</el-button>
@@ -57,7 +57,7 @@
         <el-form-item :label="t('knowledgeList.model')">
           <el-select v-model="editForm.embeddingModel" :disabled="editForm.documentCount > 0" style="width: 260px">
             <el-option v-for="m in embeddingModels" :key="m.name" :value="m.name"
-                       :label="`${m.name}（${m.dimensions} 维）`" />
+                       :label="`${m.name} (${m.dimensions}${t('knowledgeList.dimSuffix')})`" />
           </el-select>
           <span v-if="editForm.documentCount > 0" class="hint">{{ t('knowledgeList.modelLocked') }}</span>
         </el-form-item>
@@ -79,14 +79,14 @@
         <el-form-item :label="t('knowledgeList.model')">
           <el-select v-model="form.embeddingModel" style="width: 260px">
             <el-option v-for="m in embeddingModels" :key="m.name" :value="m.name"
-                       :label="`${m.name}（${m.dimensions} 维）`" />
+                       :label="`${m.name} (${m.dimensions}${t('knowledgeList.dimSuffix')})`" />
           </el-select>
           <span class="hint">{{ t('knowledgeList.modelHint') }}</span>
         </el-form-item>
         <el-form-item :label="t('knowledgeList.visibility')">
           <el-radio-group v-model="form.visibility">
-            <el-radio value="TENANT">所有团队成员</el-radio>
-            <el-radio value="PRIVATE">只有我</el-radio>
+            <el-radio value="TENANT">{{ t('knowledgeList.tenantRadio') }}</el-radio>
+            <el-radio value="PRIVATE">{{ t('knowledgeList.privateRadio') }}</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>
@@ -164,14 +164,14 @@ function openEdit(kb: Kb) {
 }
 
 async function saveEdit() {
-  if (!editForm.name.trim()) { ElMessage.warning('名称必填'); return }
+  if (!editForm.name.trim()) { ElMessage.warning(t('knowledgeList.nameRequired')); return }
   editSaving.value = true
   try {
     await http.put(`/knowledge-base/${editForm.id}`, {
       name: editForm.name.trim(), description: editForm.description,
       embeddingModel: editForm.embeddingModel
     })
-    ElMessage.success('已保存')
+    ElMessage.success(t('knowledgeList.savedMsg'))
     editVisible.value = false
     await load()
   } finally {
@@ -185,13 +185,13 @@ async function removeKb(kb: Kb) {
     const refs = await http.get(`/knowledge-base/${kb.id}/references`) as any
     const agents: string[] = refs?.agents || []
     const msg = agents.length
-      ? `该知识库被 ${agents.length} 个 Agent 引用（${agents.join('、')}），删除后这些 Agent 将无法再检索它。确认删除？`
-      : `确认删除知识库「${kb.name}」？文档、分段与向量数据将一并删除，不可恢复。`
-    await ElMessageBox.confirm(msg, '删除知识库', {
-      type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消'
+      ? `${t('knowledgeList.deleteRefsPrefix')}${agents.length}${t('knowledgeList.deleteRefsMid')}${agents.join(', ')}${t('knowledgeList.deleteRefsSuffix')}`
+      : `${t('knowledgeList.deletePrefix')}${kb.name}${t('knowledgeList.deleteSuffix')}`
+    await ElMessageBox.confirm(msg, t('knowledgeList.deleteTitle'), {
+      type: 'warning', confirmButtonText: t('knowledgeList.deleteBtn'), cancelButtonText: t('knowledgeList.cancel')
     })
     await http.delete(`/knowledge-base/${kb.id}`, { params: { force: agents.length > 0 } })
-    ElMessage.success('已删除')
+    ElMessage.success(t('knowledgeList.deletedMsg'))
     if (kbs.value.length === 1 && page.value > 1) page.value--
     await load()
   } catch {
@@ -200,14 +200,14 @@ async function removeKb(kb: Kb) {
 }
 
 async function create() {
-  if (!form.name.trim()) { ElMessage.warning('名称必填'); return }
+  if (!form.name.trim()) { ElMessage.warning(t('knowledgeList.nameRequired')); return }
   creating.value = true
   try {
     await http.post('/knowledge-base', {
       name: form.name, description: form.description, visibility: form.visibility,
       embeddingModel: form.embeddingModel
     })
-    ElMessage.success('已创建')
+    ElMessage.success(t('knowledgeList.createdMsg'))
     createVisible.value = false
     form.name = ''
     form.description = ''
@@ -220,7 +220,7 @@ async function create() {
 }
 
 function visText(v?: string) {
-  return v === 'PRIVATE' ? '只有我' : v === 'PARTIAL' ? '部分成员' : '所有团队成员'
+  return v === 'PRIVATE' ? t('knowledgeList.visPrivate') : v === 'PARTIAL' ? t('knowledgeList.visPartial') : t('knowledgeList.visTenant')
 }
 function visTag(v?: string) {
   return v === 'PRIVATE' ? 'info' : v === 'PARTIAL' ? 'warning' : 'success'

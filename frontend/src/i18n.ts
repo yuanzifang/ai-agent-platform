@@ -18,7 +18,9 @@ const messages = {
       createTitle: '新建 Agent', name: '名称', namePh: '如：售后客服助手', desc: '描述',
       descPh: '一句话说明这个 Agent 做什么', model: '模型', selectModel: '选择模型',
       prompt: '提示词', promptPh: '系统提示词（System Prompt），定义 Agent 的角色与规则',
-      temperature: '温度', cancel: '取消', createPublish: '创建并发布'
+      temperature: '温度', cancel: '取消', createPublish: '创建并发布', contextSuffix: ' 上下文',
+      required: '名称、模型、提示词必填', createdPublished: '已创建并发布', publishedMsg: '已发布',
+      deleteTitle: '删除确认', deleteQuestion: '确定删除「', deleteQuestionSuffix: '」？', deleted: '已删除', draftFirst: '草稿 Agent 请先发布再对话'
     },
     knowledgeList: {
       searchPh: '搜索名称/描述', visibilityPh: '可见范围', private: '只有我',
@@ -29,7 +31,11 @@ const messages = {
       modelLocked: '已有文档使用当前模型，不能直接切换', cancel: '取消', save: '保存',
       createTitle: '新建知识库', namePh: '如：产品手册库',
       modelHint: '需先在 Ollama 拉取对应模型；不同维度向量分表存储',
-      visibility: '可见范围', createBtn: '创建'
+      visibility: '可见范围', createBtn: '创建', dimSuffix: ' 维', tenantRadio: '所有团队成员', privateRadio: '只有我',
+      nameRequired: '名称必填', savedMsg: '已保存', deletedMsg: '已删除', createdMsg: '已创建', deleteTitle: '删除知识库',
+      deleteConfirm: '删除', deleteBtn: '删除', deleteRefsPrefix: '该知识库被 ', deleteRefsMid: ' 个 Agent 引用（',
+      deleteRefsSuffix: '），删除后这些 Agent 将无法再检索它。确认删除？', deletePrefix: '确认删除知识库「',
+      deleteSuffix: '」？文档、分段与向量数据将一并删除，不可恢复。', visPrivate: '只有我', visPartial: '部分成员', visTenant: '所有团队成员'
     },
     approval: {
       sub: '工作流运行到审批节点会在此暂停；审批通过后自动继续执行', pending: '待审批',
@@ -54,7 +60,7 @@ const messages = {
       sub: '本租户已发布的 Agent，按热度/评分排序', searchPh: '搜索名称/描述', category: '分类', tag: '标签',
       sortHot: '按热度', sortRating: '按评分', sortNew: '最新发布', favoritesOnly: '我的收藏', search: '搜索',
       reports: '举报处理', empty: '暂无已上架的 Agent', noDesc: '暂无描述', calls: '调用', successRate: '成功率',
-      rating: '评分', favorites: '收藏', detail: '详情', unfavorite: '取消收藏', chat: '对话',
+      rating: '评分', favorites: '收藏', conversations: '会话', detail: '详情', unfavorite: '取消收藏', chat: '对话',
       reportTitle: '举报处理', reportEmpty: '暂无举报', reporter: '举报人', reason: '理由', time: '时间',
       status: '状态', actions: '操作', handle: '处理', dismiss: '驳回', handled: '已处理', unclassified: '未分类',
       version: '版本', delisted: '已下架', opening: '欢迎语', variables: '输入参数', useChat: '使用（对话）',
@@ -722,7 +728,9 @@ const messages = {
       createTitle: 'New Agent', name: 'Name', namePh: 'e.g. Support Assistant', desc: 'Description',
       descPh: 'One sentence about what this Agent does', model: 'Model', selectModel: 'Select model',
       prompt: 'Prompt', promptPh: 'System prompt defining the Agent role and rules',
-      temperature: 'Temperature', cancel: 'Cancel', createPublish: 'Create & publish'
+      temperature: 'Temperature', cancel: 'Cancel', createPublish: 'Create & publish', contextSuffix: ' context',
+      required: 'Name, model and prompt are required', createdPublished: 'Created and published', publishedMsg: 'Published',
+      deleteTitle: 'Delete', deleteQuestion: 'Delete "', deleteQuestionSuffix: '"?', deleted: 'Deleted', draftFirst: 'Publish the draft Agent before chatting'
     },
     knowledgeList: {
       searchPh: 'Search name/description', visibilityPh: 'Visibility', private: 'Only me',
@@ -733,7 +741,11 @@ const messages = {
       modelLocked: 'Documents already use this model and it cannot be switched', cancel: 'Cancel', save: 'Save',
       createTitle: 'New Knowledge Base', namePh: 'e.g. Product Manuals',
       modelHint: 'Pull the model in Ollama first; embeddings of different dimensions use separate tables',
-      visibility: 'Visibility', createBtn: 'Create'
+      visibility: 'Visibility', createBtn: 'Create', dimSuffix: ' dimensions', tenantRadio: 'All team members', privateRadio: 'Only me',
+      nameRequired: 'Name is required', savedMsg: 'Saved', deletedMsg: 'Deleted', createdMsg: 'Created', deleteTitle: 'Delete knowledge base',
+      deleteConfirm: 'Delete', deleteBtn: 'Delete', deleteRefsPrefix: 'This knowledge base is referenced by ', deleteRefsMid: ' Agent(s) (',
+      deleteRefsSuffix: '); those Agents will lose access. Delete anyway?', deletePrefix: 'Delete knowledge base "',
+      deleteSuffix: '"? Documents, chunks and vectors will be deleted permanently.', visPrivate: 'Only me', visPartial: 'Selected members', visTenant: 'All team members'
     },
     approval: {
       sub: 'Workflow runs pause at approval nodes and resume after approval', pending: 'Pending',
@@ -758,7 +770,7 @@ const messages = {
       sub: 'Published Agents in this tenant, sorted by popularity/rating', searchPh: 'Search name/description', category: 'Category', tag: 'Tag',
       sortHot: 'Popularity', sortRating: 'Rating', sortNew: 'Newest', favoritesOnly: 'My favorites', search: 'Search',
       reports: 'Reports', empty: 'No listed Agents', noDesc: 'No description', calls: 'Calls', successRate: 'Success',
-      rating: 'Rating', favorites: 'Favorites', detail: 'Details', unfavorite: 'Unfavorite', chat: 'Chat',
+      rating: 'Rating', favorites: 'Favorites', conversations: 'Conversations', detail: 'Details', unfavorite: 'Unfavorite', chat: 'Chat',
       reportTitle: 'Reports', reportEmpty: 'No reports', reporter: 'Reporter', reason: 'Reason', time: 'Time',
       status: 'Status', actions: 'Actions', handle: 'Resolve', dismiss: 'Dismiss', handled: 'Handled', unclassified: 'Uncategorized',
       version: 'Version', delisted: 'Delisted', opening: 'Greeting', variables: 'Inputs', useChat: 'Use (chat)',

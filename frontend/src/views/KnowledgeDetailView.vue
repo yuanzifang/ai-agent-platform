@@ -297,7 +297,7 @@ async function removeKb() {
       ? `${t('kbDetail.deleteKbRefsPrefix')}${agents.length}${t('kbDetail.deleteKbRefsMid')}${agents.join('、')}${t('kbDetail.deleteKbRefsSuffix')}`
       : `${t('kbDetail.deleteKbConfirmPrefix')}${detail.name}${t('kbDetail.deleteKbConfirmMid')}`
     await ElMessageBox.confirm(msg, t('kbDetail.deleteKbTitle'), {
-      type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消'
+      type: 'warning', confirmButtonText: t('kbDetail.delete'), cancelButtonText: t('kbDetail.cancel')
     })
     await http.delete(`/knowledge-base/${kbId}`, { params: { force: agents.length > 0 } })
     ElMessage.success(t('kbDetail.deleted'))

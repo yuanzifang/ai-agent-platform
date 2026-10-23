@@ -101,11 +101,11 @@
         </div>
         <div class="d-desc">{{ current.description }}</div>
         <div class="d-metrics">
-          <span>调用 {{ current.quality?.calls ?? 0 }}</span>
-          <span>成功率 {{ current.quality?.successRate == null ? '—' : current.quality.successRate + '%' }}</span>
-          <span>评分 {{ current.quality?.ratingAvg == null ? '—' : current.quality.ratingAvg }}（{{ current.quality?.ratingCount ?? 0 }}）</span>
-          <span>收藏 {{ current.favoriteCount ?? 0 }}</span>
-          <span>会话 {{ current.quality?.usageCount ?? 0 }}</span>
+          <span>{{ t('square.calls') }} {{ current.quality?.calls ?? 0 }}</span>
+          <span>{{ t('square.successRate') }} {{ current.quality?.successRate == null ? '—' : current.quality.successRate + '%' }}</span>
+          <span>{{ t('square.rating') }} {{ current.quality?.ratingAvg == null ? '—' : current.quality.ratingAvg }}（{{ current.quality?.ratingCount ?? 0 }}）</span>
+          <span>{{ t('square.favorites') }} {{ current.favoriteCount ?? 0 }}</span>
+          <span>{{ t('square.conversations') }} {{ current.quality?.usageCount ?? 0 }}</span>
         </div>
         <div v-if="current.openingStatement" class="d-row">
           <span class="lbl">{{ t('square.opening') }}</span><span>{{ current.openingStatement }}</span>
@@ -115,7 +115,7 @@
           <el-tag v-for="v in current.variables" :key="v.key" size="small" class="ml6">{{ v.key }}</el-tag>
         </div>
         <div class="d-row">
-          <span class="lbl">操作</span>
+          <span class="lbl">{{ t('square.actions') }}</span>
           <el-button size="small" type="primary" :disabled="!current.canUse" @click="use(current)">{{ t('square.useChat') }}</el-button>
           <el-button v-if="canFork" size="small" @click="fork(current)">{{ t('square.copyAgent') }}</el-button>
           <el-button size="small" @click="report(current)">{{ t('square.report') }}</el-button>

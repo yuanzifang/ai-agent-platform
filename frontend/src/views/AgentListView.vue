@@ -103,7 +103,7 @@ async function loadModels() {
 function modelLabel(m: any) {
   const name = m.displayName || m.modelName
   const c = Number(m.contextWindow || 0)
-  return c > 0 ? `${name}（${c >= 1048576 ? (c / 1048576) + 'M' : (c / 1024) + 'K'} 上下文）` : name
+  return c > 0 ? `${name} (${c >= 1048576 ? (c / 1048576) + 'M' : (c / 1024) + 'K'}${t('agentList.contextSuffix')})` : name
 }
 
 function openCreate() {
@@ -113,7 +113,7 @@ function openCreate() {
 
 async function submit() {
   if (!form.name.trim() || !form.modelName || !form.systemPrompt.trim()) {
-    ElMessage.warning('名称、模型、提示词必填')
+    ElMessage.warning(t('agentList.required'))
     return
   }
   creating.value = true
@@ -125,7 +125,7 @@ async function submit() {
       modelConfig: { modelName: form.modelName, temperature: form.temperature }
     }) as any
     await http.post(`/agent/${created.id}/publish`)
-    ElMessage.success('已创建并发布')
+    ElMessage.success(t('agentList.createdPublished'))
     createVisible.value = false
     await load()
   } finally {
@@ -135,14 +135,14 @@ async function submit() {
 
 async function publish(a: AgentItem) {
   await http.post(`/agent/${a.id}/publish`)
-  ElMessage.success('已发布')
+  ElMessage.success(t('agentList.publishedMsg'))
   await load()
 }
 
 async function remove(a: AgentItem) {
-  await ElMessageBox.confirm(`确定删除「${a.name || t('agentList.unnamed')}」？`, '删除确认', { type: 'warning' })
+  await ElMessageBox.confirm(`${t('agentList.deleteQuestion')}${a.name || t('agentList.unnamed')}${t('agentList.deleteQuestionSuffix')}`, t('agentList.deleteTitle'), { type: 'warning' })
   await http.delete(`/agent/${a.id}`)
-  ElMessage.success('已删除')
+  ElMessage.success(t('agentList.deleted'))
   await load()
 }
 
@@ -160,7 +160,7 @@ function edit(a: AgentItem) {
 
 function enter(a: AgentItem) {
   if (a.status !== 'PUBLISHED') {
-    ElMessage.info('草稿 Agent 请先发布再对话')
+    ElMessage.info(t('agentList.draftFirst'))
     return
   }
   router.push(`/chat/${a.id}`)
