@@ -567,6 +567,26 @@ const messages = {
       goMcp: '去添加 MCP Server', noSubOptions: '暂无可添加的子 Agent', noOptions: '暂无可选项，请先通过上方入口创建',
       onlyNew: '只展示未添加项；添加后可在面板内启用/禁用', cancel: '取消', add: '添加'
     },
+    agentDlg: {
+      credTitle: 'Agent 凭证：', newCredential: '新建凭证',
+      credHint: '凭证加密存储、界面不回显明文；绑定工具后运行时自动注入（API_KEY→X-API-Key / OAUTH→Bearer / BASIC→Basic）',
+      noCredentials: '暂无凭证', name: '名称', type: '类型', boundTools: '绑定工具', status: '状态',
+      enabled: '启用', disabled: '禁用', content: '内容', encrypted: '已加密', actions: '操作', edit: '编辑',
+      delete: '删除', credEdit: '编辑凭证', credNew: '新建凭证', contentLabel: '内容', contentKeep: '留空表示不修改',
+      contentPh: '如 API Key / Bearer Token / user:pass', bindTool: '绑定工具', bindToolPh: '可选：运行时注入到该工具请求',
+      enableLabel: '启用', cancel: '取消', save: '保存',
+      scheduleTitle: '定时调度：', newTask: '新建任务',
+      cronHint: 'Cron 6 段（秒 分 时 日 月 周），兼容 5 段；系统身份执行，Trace tags=scheduled',
+      nextRun: '下次执行', recentRun: '最近执行', notRun: '未执行', runNow: '立即执行', results: '结果',
+      disableAction: '停用', enableAction: '启用', noSchedules: '暂无定时任务', scheduleEdit: '编辑定时任务',
+      scheduleNew: '新建定时任务', cronPh: '0 */5 * * * *（每 5 分钟）', inputArgs: '输入参数',
+      inputPh: 'JSON 对象，如 {"brand":"智云","message":"请生成日报"}', timeoutMs: '超时(ms)',
+      resultTo: '结果去处', store: '存储', callback: '回调地址', resultTitle: '执行结果：',
+      time: '时间', result: '结果', noResults: '暂无执行结果', execSuccess: '执行成功', execFailed: '执行失败：',
+      nameCronRequired: '名称与 Cron 必填', invalidJson: '输入参数不是合法 JSON', saved: '已保存',
+      deleteSchedulePrefix: '删除定时任务「', deleteScheduleMid: '」？执行结果将一并删除。', deleteScheduleTitle: '删除定时任务',
+      deleted: '已删除', mcpSuffix: '（MCP）'
+    },
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
       templates: '模板库', approvals: '人工审批箱', audit: '审计日志', billing: '计费管理',
@@ -1152,6 +1172,26 @@ const messages = {
       builtinSuffix: ' (built-in)', noSuitable: 'Nothing suitable?', goSkill: 'Create a skill', goTool: 'Create an API tool',
       goMcp: 'Add an MCP Server', noSubOptions: 'No sub-Agents available', noOptions: 'No options; create one via the links above',
       onlyNew: 'Only items not yet added; enable/disable them in the panel', cancel: 'Cancel', add: 'Add'
+    },
+    agentDlg: {
+      credTitle: 'Agent credentials: ', newCredential: 'New credential',
+      credHint: 'Encrypted at rest and never shown in plaintext; injected when a bound tool runs (API_KEY→X-API-Key / OAUTH→Bearer / BASIC→Basic)',
+      noCredentials: 'No credentials', name: 'Name', type: 'Type', boundTools: 'Bound tools', status: 'Status',
+      enabled: 'Enabled', disabled: 'Disabled', content: 'Content', encrypted: 'Encrypted', actions: 'Actions', edit: 'Edit',
+      delete: 'Delete', credEdit: 'Edit credential', credNew: 'New credential', contentLabel: 'Content', contentKeep: 'Leave blank to keep',
+      contentPh: 'e.g. API Key / Bearer Token / user:pass', bindTool: 'Bound tool', bindToolPh: 'Optional: inject into this tool request',
+      enableLabel: 'Enabled', cancel: 'Cancel', save: 'Save',
+      scheduleTitle: 'Schedules: ', newTask: 'New task',
+      cronHint: 'Cron with 6 fields (sec min hour day month weekday); 5 fields accepted; runs as system, Trace tags=scheduled',
+      nextRun: 'Next run', recentRun: 'Last run', notRun: 'Not run', runNow: 'Run now', results: 'Results',
+      disableAction: 'Disable', enableAction: 'Enable', noSchedules: 'No schedules', scheduleEdit: 'Edit schedule',
+      scheduleNew: 'New schedule', cronPh: '0 */5 * * * * (every 5 minutes)', inputArgs: 'Input args',
+      inputPh: 'JSON object, e.g. {"brand":"Acme","message":"daily report"}', timeoutMs: 'Timeout(ms)',
+      resultTo: 'Result destination', store: 'Store', callback: 'Callback URL', resultTitle: 'Results: ',
+      time: 'Time', result: 'Result', noResults: 'No results', execSuccess: 'Succeeded', execFailed: 'Failed: ',
+      nameCronRequired: 'Name and Cron are required', invalidJson: 'Input args must be valid JSON', saved: 'Saved',
+      deleteSchedulePrefix: 'Delete schedule "', deleteScheduleMid: '"? Results will also be deleted.', deleteScheduleTitle: 'Delete schedule',
+      deleted: 'Deleted', mcpSuffix: ' (MCP)'
     },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',

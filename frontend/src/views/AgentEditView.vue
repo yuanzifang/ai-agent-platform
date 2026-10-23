@@ -305,136 +305,136 @@
     </div>
 
     <!-- Agent 凭证 -->
-    <el-dialog v-model="credentialVisible" :title="`Agent 凭证：${form.name || ''}`" width="760px">
+    <el-dialog v-model="credentialVisible" :title="`${t('agentDlg.credTitle')}${form.name || ''}`" width="760px">
       <div class="tab-actions">
-        <el-button type="primary" size="small" @click="openCredentialCreate">新建凭证</el-button>
-        <span class="hint">凭证加密存储、界面不回显明文；绑定工具后运行时自动注入（API_KEY→X-API-Key / OAUTH→Bearer / BASIC→Basic）</span>
+        <el-button type="primary" size="small" @click="openCredentialCreate">{{ t('agentDlg.newCredential') }}</el-button>
+        <span class="hint">{{ t('agentDlg.credHint') }}</span>
       </div>
-      <el-table :data="credentials" size="small" empty-text="暂无凭证">
+      <el-table :data="credentials" size="small" :empty-text="t('agentDlg.noCredentials')">
         <el-table-column prop="name" :label="t('wf.name')" width="150" />
-        <el-table-column prop="type" label="类型" width="100" />
-        <el-table-column label="绑定工具" width="170">
+        <el-table-column prop="type" :label="t('agentDlg.type')" width="100" />
+        <el-table-column :label="t('agentDlg.boundTools')" width="170">
           <template #default="{ row }">{{ toolName(row.toolId) }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="80">
+        <el-table-column :label="t('agentDlg.status')" width="80">
           <template #default="{ row }">
             <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">
-              {{ row.status === 'ENABLED' ? '启用' : '禁用' }}
+              {{ row.status === 'ENABLED' ? t('agentDlg.enabled') : t('agentDlg.disabled') }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="内容" width="90">
-          <template #default="{ row }"><span class="hint">已加密</span></template>
+        <el-table-column :label="t('agentDlg.content')" width="90">
+          <template #default="{ row }"><span class="hint">{{ t('agentDlg.encrypted') }}</span></template>
         </el-table-column>
-        <el-table-column label="操作" width="150">
+        <el-table-column :label="t('agentDlg.actions')" width="150">
           <template #default="{ row }">
-            <el-button size="small" text @click="openCredentialEdit(row)">编辑</el-button>
+            <el-button size="small" text @click="openCredentialEdit(row)">{{ t('agentDlg.edit') }}</el-button>
             <el-button size="small" text type="danger" @click="removeCredential(row)">{{ t('wf.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-dialog>
 
-    <el-dialog v-model="credentialFormVisible" :title="credentialForm.id ? '编辑凭证' : '新建凭证'" width="520px">
+    <el-dialog v-model="credentialFormVisible" :title="credentialForm.id ? t('agentDlg.credEdit') : t('agentDlg.credNew')" width="520px">
       <el-form label-width="90px">
         <el-form-item :label="t('wf.name')" required><el-input v-model="credentialForm.name" maxlength="64" /></el-form-item>
-        <el-form-item label="类型">
+        <el-form-item :label="t('agentDlg.type')">
           <el-select v-model="credentialForm.type" style="width: 160px">
             <el-option label="API Key" value="API_KEY" />
             <el-option label="OAuth" value="OAUTH" />
             <el-option label="Basic Auth" value="BASIC" />
           </el-select>
         </el-form-item>
-        <el-form-item label="内容" required>
+        <el-form-item :label="t('agentDlg.contentLabel')" required>
           <el-input v-model="credentialForm.content" type="password" show-password
-                    :placeholder="credentialForm.id ? '留空表示不修改' : '如 API Key / Bearer Token / user:pass'" />
+                    :placeholder="credentialForm.id ? t('agentDlg.contentKeep') : t('agentDlg.contentPh')" />
         </el-form-item>
-        <el-form-item label="绑定工具">
+        <el-form-item :label="t('agentDlg.bindTool')">
           <el-select v-model="credentialForm.toolId" filterable clearable style="width: 100%"
-                     placeholder="可选：运行时注入到该工具请求">
+                     :placeholder="t('agentDlg.bindToolPh')">
             <el-option v-for="t in toolCatalog" :key="t.id" :value="t.id"
-                       :label="t.name + (t.toolType === 'MCP' ? '（MCP）' : '')" />
+                       :label="t.name + (t.toolType === 'MCP' ? t('agentDlg.mcpSuffix') : '')" />
           </el-select>
         </el-form-item>
-        <el-form-item label="启用">
+        <el-form-item :label="t('agentDlg.enableLabel')">
           <el-switch v-model="credentialForm.enabled" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="credentialFormVisible = false">取消</el-button>
+        <el-button @click="credentialFormVisible = false">{{ t('agentDlg.cancel') }}</el-button>
         <el-button type="primary" :loading="credentialSaving" @click="saveCredential">{{ t('agentEdit.save') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- 定时调度 -->
-    <el-dialog v-model="scheduleVisible" :title="`定时调度：${form.name || ''}`" width="820px">
+    <el-dialog v-model="scheduleVisible" :title="`${t('agentDlg.scheduleTitle')}${form.name || ''}`" width="820px">
       <div class="tab-actions">
-        <el-button type="primary" size="small" @click="openScheduleCreate">新建任务</el-button>
-        <span class="hint">Cron 6 段（秒 分 时 日 月 周），兼容 5 段；系统身份执行，Trace tags=scheduled</span>
+        <el-button type="primary" size="small" @click="openScheduleCreate">{{ t('agentDlg.newTask') }}</el-button>
+        <span class="hint">{{ t('agentDlg.cronHint') }}</span>
       </div>
       <el-table :data="schedules" size="small">
         <el-table-column prop="name" :label="t('wf.name')" width="150" />
         <el-table-column prop="cronExpr" label="Cron" width="150" />
-        <el-table-column label="下次执行" width="160">
+        <el-table-column :label="t('agentDlg.nextRun')" width="160">
           <template #default="{ row }">{{ fmtTime(row.nextRunAt) }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="80">
+        <el-table-column :label="t('agentDlg.status')" width="80">
           <template #default="{ row }">
             <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">
-              {{ row.status === 'ENABLED' ? '启用' : '停用' }}
+              {{ row.status === 'ENABLED' ? t('agentDlg.enabled') : t('agentDlg.disableAction') }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="最近执行" width="150">
+        <el-table-column :label="t('agentDlg.recentRun')" width="150">
           <template #default="{ row }">
             <el-tag v-if="row.lastStatus" size="small" :type="row.lastStatus === 'SUCCESS' ? 'success' : 'danger'">
               {{ row.lastStatus }}
             </el-tag>
-            <span v-else class="hint">未执行</span>
+            <span v-else class="hint">{{ t('agentDlg.notRun') }}</span>
             <div class="hint">{{ fmtTime(row.lastRunAt) }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="290">
+        <el-table-column :label="t('agentDlg.actions')" width="290">
           <template #default="{ row }">
-            <el-button size="small" text type="primary" @click="runSchedule(row)">立即执行</el-button>
-            <el-button size="small" text @click="openResults(row)">结果</el-button>
-            <el-button size="small" text @click="openScheduleEdit(row)">编辑</el-button>
-            <el-button size="small" text @click="toggleSchedule(row)">{{ row.status === 'ENABLED' ? '停用' : '启用' }}</el-button>
+            <el-button size="small" text type="primary" @click="runSchedule(row)">{{ t('agentDlg.runNow') }}</el-button>
+            <el-button size="small" text @click="openResults(row)">{{ t('agentDlg.results') }}</el-button>
+            <el-button size="small" text @click="openScheduleEdit(row)">{{ t('agentDlg.edit') }}</el-button>
+            <el-button size="small" text @click="toggleSchedule(row)">{{ row.status === 'ENABLED' ? t('agentDlg.disableAction') : t('agentDlg.enableAction') }}</el-button>
             <el-button size="small" text type="danger" @click="removeSchedule(row)">{{ t('wf.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="schedules.length === 0" description="暂无定时任务" :image-size="50" />
+      <el-empty v-if="schedules.length === 0" :description="t('agentDlg.noSchedules')" :image-size="50" />
     </el-dialog>
 
-    <el-dialog v-model="scheduleFormVisible" :title="scheduleForm.id ? '编辑定时任务' : '新建定时任务'" width="560px">
+    <el-dialog v-model="scheduleFormVisible" :title="scheduleForm.id ? t('agentDlg.scheduleEdit') : t('agentDlg.scheduleNew')" width="560px">
       <el-form label-width="100px">
         <el-form-item :label="t('wf.name')" required><el-input v-model="scheduleForm.name" maxlength="64" /></el-form-item>
         <el-form-item label="Cron" required>
-          <el-input v-model="scheduleForm.cronExpr" placeholder="0 */5 * * * *（每 5 分钟）" />
+          <el-input v-model="scheduleForm.cronExpr" :placeholder="t('agentDlg.cronPh')" />
         </el-form-item>
-        <el-form-item label="输入参数">
+        <el-form-item :label="t('agentDlg.inputArgs')">
           <el-input v-model="scheduleForm.inputParamsText" type="textarea" :rows="4"
-                    placeholder='JSON 对象，如 {"brand":"智云","message":"请生成日报"}' />
+                    :placeholder="t('agentDlg.inputPh')" />
         </el-form-item>
-        <el-form-item label="超时(ms)">
+        <el-form-item :label="t('agentDlg.timeoutMs')">
           <el-input-number v-model="scheduleForm.timeoutMs" :min="1000" :max="600000" :step="1000" />
         </el-form-item>
-        <el-form-item label="结果去处">
+        <el-form-item :label="t('agentDlg.resultTo')">
           <el-select v-model="scheduleForm.notifyType" style="width: 160px">
-            <el-option label="存储" value="STORE" />
+            <el-option :label="t('agentDlg.store')" value="STORE" />
             <el-option label="Webhook" value="WEBHOOK" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="scheduleForm.notifyType === 'WEBHOOK'" label="回调地址">
+        <el-form-item v-if="scheduleForm.notifyType === 'WEBHOOK'" :label="t('agentDlg.callback')">
           <el-input v-model="scheduleForm.webhookUrl" placeholder="https://example.com/webhook" />
         </el-form-item>
-        <el-form-item label="启用">
+        <el-form-item :label="t('agentDlg.enableLabel')">
           <el-switch v-model="scheduleForm.enabled" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="scheduleFormVisible = false">取消</el-button>
+        <el-button @click="scheduleFormVisible = false">{{ t('agentDlg.cancel') }}</el-button>
         <el-button type="primary" :loading="scheduleSaving" @click="saveSchedule">{{ t('agentEdit.save') }}</el-button>
       </template>
     </el-dialog>
@@ -444,19 +444,19 @@
         <el-table-column :label="t('wf.time')" width="160">
           <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="90">
+        <el-table-column :label="t('agentDlg.status')" width="90">
           <template #default="{ row }">
             <el-tag size="small" :type="row.status === 'SUCCESS' ? 'success' : 'danger'">{{ row.status }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="结果">
+        <el-table-column :label="t('agentDlg.result')">
           <template #default="{ row }">
             <div class="result-text">{{ row.status === 'SUCCESS' ? row.answer : row.error }}</div>
             <div class="hint" v-if="row.traceId">trace: {{ row.traceId }}</div>
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="scheduleResults.length === 0" description="暂无执行结果" :image-size="50" />
+      <el-empty v-if="scheduleResults.length === 0" :description="t('agentDlg.noResults')" :image-size="50" />
     </el-drawer>
 
     <!-- 渠道 -->
@@ -470,11 +470,11 @@
       </div>
       <el-table :data="channels" size="small">
         <el-table-column prop="name" :label="t('wf.name')" width="140" />
-        <el-table-column prop="type" label="类型" width="100" />
+        <el-table-column prop="type" :label="t('agentDlg.type')" width="100" />
         <el-table-column label="入站地址" min-width="240" show-overflow-tooltip>
           <template #default="{ row }">{{ inboundUrl(row) }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="80">
+        <el-table-column :label="t('agentDlg.status')" width="80">
           <template #default="{ row }">
             <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">
               {{ row.status === 'ENABLED' ? '启用' : '停用' }}
@@ -487,7 +487,7 @@
             <el-button size="small" text :loading="channelTestingId === row.id" @click="testChannel(row)">测试</el-button>
             <el-button size="small" text @click="openChannelMessages(row)">消息</el-button>
             <el-button size="small" text @click="toggleChannel(row)">
-              {{ row.status === 'ENABLED' ? '停用' : '启用' }}
+              {{ row.status === 'ENABLED' ? t('agentDlg.disableAction') : t('agentDlg.enableAction') }}
             </el-button>
             <el-button size="small" text type="danger" @click="removeChannel(row)">{{ t('wf.delete') }}</el-button>
           </template>
@@ -506,7 +506,7 @@
     <el-dialog v-model="channelCreateVisible" title="添加渠道" width="560px">
       <el-form label-width="110px">
         <el-form-item :label="t('agentEdit.name')"><el-input v-model="channelForm.name" maxlength="64" /></el-form-item>
-        <el-form-item label="类型">
+        <el-form-item :label="t('agentDlg.type')">
           <el-select v-model="channelForm.type" style="width: 200px">
             <el-option label="通用 Webhook" value="WEBHOOK" />
             <el-option label="Slack" value="SLACK" />
@@ -539,7 +539,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="channelCreateVisible = false">取消</el-button>
+        <el-button @click="channelCreateVisible = false">{{ t('agentDlg.cancel') }}</el-button>
         <el-button type="primary" :loading="channelSaving" @click="createChannel">创建</el-button>
       </template>
     </el-dialog>
@@ -578,17 +578,17 @@
         <el-table-column label="限额（日/分钟）" width="140">
           <template #default="{ row }">{{ row.dailyLimit || '不限' }} / {{ row.minuteLimit || '不限' }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="80">
+        <el-table-column :label="t('agentDlg.status')" width="80">
           <template #default="{ row }">
             <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">
-              {{ row.status === 'ENABLED' ? '启用' : '禁用' }}
+              {{ row.status === 'ENABLED' ? t('agentDlg.enabled') : t('agentDlg.disabled') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="最后使用" width="160">
           <template #default="{ row }">{{ row.lastUsedAt ? String(row.lastUsedAt).replace('T',' ').slice(0,19) : '未使用' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="150">
+        <el-table-column :label="t('agentDlg.actions')" width="150">
           <template #default="{ row }">
             <el-button size="small" text @click="toggleKey(row)">
               {{ row.status === 'ENABLED' ? '禁用' : '启用' }}
@@ -640,7 +640,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="keyCreateVisible = false">取消</el-button>
+        <el-button @click="keyCreateVisible = false">{{ t('agentDlg.cancel') }}</el-button>
         <el-button type="primary" :loading="keySaving" @click="createKey">创建</el-button>
       </template>
     </el-dialog>
@@ -808,7 +808,7 @@
             <template v-else-if="n.type === 'TOOL'">
               <el-select v-model="n.toolId" filterable :placeholder="t('wf.selectTool')" style="width: 260px">
                 <el-option v-for="t in toolCatalog" :key="t.id" :value="t.id"
-                           :label="t.name + (t.toolType === 'MCP' ? '（MCP）' : '')" />
+                           :label="t.name + (t.toolType === 'MCP' ? t('agentDlg.mcpSuffix') : '')" />
               </el-select>
               <el-input v-model="n.argsTemplate" type="textarea" :rows="2" class="mt8"
                         :placeholder="t('wf.argsPh')" />
@@ -1386,7 +1386,7 @@ async function saveCredential() {
     if (credentialForm.content.trim()) payload.content = credentialForm.content
     if (credentialForm.id) await http.put(`/agent/${agentId}/credentials/${credentialForm.id}`, payload)
     else await http.post(`/agent/${agentId}/credentials`, payload)
-    ElMessage.success('已保存')
+    ElMessage.success(t('agentDlg.saved'))
     credentialFormVisible.value = false
     await loadCredentials()
   } finally {
@@ -1396,9 +1396,9 @@ async function saveCredential() {
 
 async function removeCredential(row: any) {
   await ElMessageBox.confirm(`删除凭证「${row.name}」？引用该凭证的工具调用将失效。`, '删除凭证',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+    { type: 'warning', confirmButtonText: t('agentDlg.delete'), cancelButtonText: t('agentDlg.cancel') })
   await http.delete(`/agent/${agentId}/credentials/${row.id}`)
-  ElMessage.success('已删除')
+  ElMessage.success(t('agentDlg.deleted'))
   await loadCredentials()
 }
 
@@ -1436,13 +1436,13 @@ function openScheduleEdit(row: any) {
 
 async function saveSchedule() {
   if (!scheduleForm.name.trim() || !scheduleForm.cronExpr.trim()) {
-    ElMessage.warning('名称与 Cron 必填'); return
+    ElMessage.warning(t('agentDlg.nameCronRequired')); return
   }
   let params: any
   try {
     params = JSON.parse(scheduleForm.inputParamsText || '{}')
   } catch {
-    ElMessage.error('输入参数不是合法 JSON'); return
+    ElMessage.error(t('agentDlg.invalidJson')); return
   }
   scheduleSaving.value = true
   try {
@@ -1457,7 +1457,7 @@ async function saveSchedule() {
     }
     if (scheduleForm.id) await http.put(`/agent/${agentId}/schedules/${scheduleForm.id}`, payload)
     else await http.post(`/agent/${agentId}/schedules`, payload)
-    ElMessage.success('已保存')
+    ElMessage.success(t('agentDlg.saved'))
     scheduleFormVisible.value = false
     await loadSchedules()
   } finally {
@@ -1475,21 +1475,21 @@ async function toggleSchedule(row: any) {
 async function runSchedule(row: any) {
   const res = await http.post(`/agent/${agentId}/schedules/${row.id}/run`) as any
   ElMessage[res.status === 'SUCCESS' ? 'success' : 'error'](
-    res.status === 'SUCCESS' ? '执行成功' : ('执行失败：' + res.message))
+    res.status === 'SUCCESS' ? t('agentDlg.execSuccess') : (t('agentDlg.execFailed') + res.message))
   await loadSchedules()
 }
 
 async function openResults(row: any) {
-  resultsTitle.value = `执行结果：${row.name}`
+  resultsTitle.value = `${t('agentDlg.resultTitle')}${row.name}`
   scheduleResults.value = await http.get(`/agent/${agentId}/schedules/${row.id}/results`) as any
   resultsVisible.value = true
 }
 
 async function removeSchedule(row: any) {
-  await ElMessageBox.confirm(`删除定时任务「${row.name}」？执行结果将一并删除。`, '删除定时任务',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  await ElMessageBox.confirm(`${t('agentDlg.deleteSchedulePrefix')}${row.name}${t('agentDlg.deleteScheduleMid')}`, t('agentDlg.deleteScheduleTitle'),
+    { type: 'warning', confirmButtonText: t('agentDlg.delete'), cancelButtonText: t('agentDlg.cancel') })
   await http.delete(`/agent/${agentId}/schedules/${row.id}`)
-  ElMessage.success('已删除')
+  ElMessage.success(t('agentDlg.deleted'))
   await loadSchedules()
 }
 
@@ -1570,9 +1570,9 @@ async function toggleChannel(row: any) {
 
 async function removeChannel(row: any) {
   await ElMessageBox.confirm(`删除渠道「${row.name}」？入站地址将立即失效。`, '删除渠道',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+    { type: 'warning', confirmButtonText: t('agentDlg.delete'), cancelButtonText: t('agentDlg.cancel') })
   await http.delete(`/agent/${agentId}/channels/${row.id}`)
-  ElMessage.success('已删除')
+  ElMessage.success(t('agentDlg.deleted'))
   await openChannels()
 }
 
@@ -1658,9 +1658,9 @@ async function toggleKey(row: any) {
 
 async function removeKey(row: any) {
   await ElMessageBox.confirm(`删除 API Key「${row.name}」？删除后使用该 Key 的调用将立即失败。`, '删除 API Key',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+    { type: 'warning', confirmButtonText: t('agentDlg.delete'), cancelButtonText: t('agentDlg.cancel') })
   await http.delete(`/agent/${agentId}/api-keys/${row.id}`)
-  ElMessage.success('已删除')
+  ElMessage.success(t('agentDlg.deleted'))
   await loadApiKeys()
 }
 
@@ -2209,7 +2209,7 @@ async function save() {
     if (form.visibility === 'PRIVATE') {
       await http.put(`/agent/${agentId}/grants`, { userIds: grantedIds.value }).catch(() => {})
     }
-    ElMessage.success('已保存')
+    ElMessage.success(t('agentDlg.saved'))
   } finally {
     saving.value = false
   }
