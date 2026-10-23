@@ -2,95 +2,95 @@
   <div class="page">
     <div class="toolbar">
       <span class="title">{{ t('page.mcp') }}</span>
-      <span class="sub">添加 MCP 服务 → 点击「验证」检测连通性 → 同步工具；同步后的工具可在 Agent 中绑定</span>
+      <span class="sub">{{ t('mcpPage.sub') }}</span>
       <div class="spacer" />
-      <el-button @click="load">刷新</el-button>
-      <el-button type="primary" :disabled="!canManage" @click="openCreate">添加 MCP Server</el-button>
+      <el-button @click="load">{{ t('mcpPage.refresh') }}</el-button>
+      <el-button type="primary" :disabled="!canManage" @click="openCreate">{{ t('mcpPage.add') }}</el-button>
     </div>
 
     <el-alert v-if="!canManage" type="info" :closable="false" show-icon class="mb12"
-              title="只读模式：添加/验证 MCP Server 需要 Owner 或管理员权限（tool:manage）" />
+              :title="t('mcpPage.readonly')" />
 
-    <el-empty v-if="!loading && list.length === 0" description="尚未添加 MCP Server">
-      <el-button type="primary" :disabled="!canManage" @click="openCreate">添加第一个 MCP Server</el-button>
-      <span v-if="!canManage" class="hint">请联系租户管理员添加</span>
+    <el-empty v-if="!loading && list.length === 0" :description="t('mcpPage.empty')">
+      <el-button type="primary" :disabled="!canManage" @click="openCreate">{{ t('mcpPage.addFirst') }}</el-button>
+      <span v-if="!canManage" class="hint">{{ t('mcpPage.contactAdmin') }}</span>
     </el-empty>
     <el-table v-else :data="list" size="small" v-loading="loading">
-      <el-table-column prop="name" label="名称" width="180" />
-      <el-table-column prop="transport" label="传输" width="90" />
-      <el-table-column prop="endpoint" label="地址" min-width="240" show-overflow-tooltip />
-      <el-table-column prop="authType" label="鉴权" width="100" />
-      <el-table-column label="状态" width="100">
+      <el-table-column prop="name" :label="t('mcpPage.name')" width="180" />
+      <el-table-column prop="transport" :label="t('mcpPage.transport')" width="90" />
+      <el-table-column prop="endpoint" :label="t('mcpPage.endpoint')" min-width="240" show-overflow-tooltip />
+      <el-table-column prop="authType" :label="t('mcpPage.auth')" width="100" />
+      <el-table-column :label="t('mcpPage.status')" width="100">
         <template #default="{ row }">
           <el-tag size="small" :type="healthType(row.healthStatus)">
             {{ healthText(row.healthStatus) }}
           </el-tag>
-          <el-tag v-if="row.toolsChangedAt" size="small" type="warning" class="ml4">工具待同步</el-tag>
+          <el-tag v-if="row.toolsChangedAt" size="small" type="warning" class="ml4">{{ t('mcpPage.pendingSync') }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="toolCount" label="工具数" width="80" />
-      <el-table-column label="最后同步" width="160">
+      <el-table-column prop="toolCount" :label="t('mcpPage.toolCount')" width="80" />
+      <el-table-column :label="t('mcpPage.lastSync')" width="160">
         <template #default="{ row }">{{ fmt(row.lastSyncAt) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="300">
+      <el-table-column :label="t('mcpPage.actions')" width="300">
         <template #default="{ row }">
           <el-button size="small" text :loading="testingId === row.id" :disabled="!canManage"
-                     @click="test(row)">验证</el-button>
-          <el-button v-if="canManage" size="small" text type="primary" @click="openSync(row)">同步工具</el-button>
-          <el-button v-if="canManage" size="small" text @click="openCapabilities(row)">能力</el-button>
-          <el-button size="small" text @click="openTools(row)">已同步</el-button>
-          <el-button v-if="canManage" size="small" text @click="openEdit(row)">编辑</el-button>
-          <el-button v-if="canManage" size="small" text type="danger" @click="remove(row)">删除</el-button>
+                     @click="test(row)">{{ t('mcpPage.verify') }}</el-button>
+          <el-button v-if="canManage" size="small" text type="primary" @click="openSync(row)">{{ t('mcpPage.sync') }}</el-button>
+          <el-button v-if="canManage" size="small" text @click="openCapabilities(row)">{{ t('mcpPage.capabilities') }}</el-button>
+          <el-button size="small" text @click="openTools(row)">{{ t('mcpPage.synced') }}</el-button>
+          <el-button v-if="canManage" size="small" text @click="openEdit(row)">{{ t('mcpPage.edit') }}</el-button>
+          <el-button v-if="canManage" size="small" text type="danger" @click="remove(row)">{{ t('mcpPage.delete') }}</el-button>
         </template>
       </el-table-column>
     </el-table>
 
     <!-- 接入/编辑 -->
-    <el-dialog v-model="editVisible" :title="editForm.id ? '编辑 MCP Server' : '添加 MCP Server'" width="620px">
+    <el-dialog v-model="editVisible" :title="editForm.id ? t('mcpPage.editTitle') : t('mcpPage.newTitle')" width="620px">
       <div class="preset-row">
-        <span class="hint">快速预设：</span>
-        <el-button size="small" @click="applyPreset('feishu')">飞书 MCP</el-button>
-        <el-button size="small" @click="applyPreset('zhipu')">智谱 MCP</el-button>
-        <el-button size="small" @click="applyPreset('filesystem')">本地文件系统（stdio）</el-button>
-        <span class="hint">Endpoint/Token 请按官方文档填写，可修改</span>
+        <span class="hint">{{ t('mcpPage.preset') }}</span>
+        <el-button size="small" @click="applyPreset('feishu')">{{ t('mcpPage.feishu') }}</el-button>
+        <el-button size="small" @click="applyPreset('zhipu')">{{ t('mcpPage.zhipu') }}</el-button>
+        <el-button size="small" @click="applyPreset('filesystem')">{{ t('mcpPage.filesystem') }}</el-button>
+        <span class="hint">{{ t('mcpPage.presetHint') }}</span>
       </div>
       <el-form label-width="90px">
-        <el-form-item label="名称" required>
-          <el-input v-model="editForm.name" maxlength="128" placeholder="如：内部工具服务" />
+        <el-form-item :label="t('mcpPage.name')" required>
+          <el-input v-model="editForm.name" maxlength="128" :placeholder="t('mcpPage.namePh')" />
         </el-form-item>
-        <el-form-item label="传输方式">
+        <el-form-item :label="t('mcpPage.transportLabel')">
           <el-select v-model="editForm.transport" style="width: 200px">
             <el-option label="Streamable HTTP" value="HTTP" />
-            <el-option label="SSE（旧版）" value="SSE" />
-            <el-option label="STDIO（本地进程）" value="STDIO" />
+            <el-option :label="t('mcpPage.sse')" value="SSE" />
+            <el-option :label="t('mcpPage.stdio')" value="STDIO" />
           </el-select>
         </el-form-item>
         <template v-if="editForm.transport === 'STDIO'">
-          <el-form-item label="启动命令" required>
-            <el-input v-model="editForm.command" placeholder="npx / python3 / uvx" />
+          <el-form-item :label="t('mcpPage.command')" required>
+            <el-input v-model="editForm.command" :placeholder="t('mcpPage.commandPh')" />
           </el-form-item>
-          <el-form-item label="启动参数">
+          <el-form-item :label="t('mcpPage.args')">
             <el-input v-model="editForm.argsText" type="textarea" :rows="2"
-                      placeholder='JSON 数组，如 ["-y","@modelcontextprotocol/server-filesystem","/tmp"]' />
+                      :placeholder="t('mcpPage.argsPh')" />
           </el-form-item>
-          <el-form-item label="环境变量">
+          <el-form-item :label="t('mcpPage.env')">
             <el-input v-model="editForm.envText" type="textarea" :rows="2"
-                      placeholder='JSON 对象，如 {"GITHUB_TOKEN":"xxx"}（AES 加密存储；编辑时留空不修改）' />
+                      :placeholder="t('mcpPage.envPh')" />
           </el-form-item>
           <el-alert type="warning" :closable="false" show-icon class="mb12"
-                    title="stdio 会在平台后端主机启动本地进程（支持会话复用与空闲回收）：仅限可信来源配置，命令不允许 shell 特殊字符或解释器。" />
+                    :title="t('mcpPage.stdioWarning')" />
         </template>
         <template v-else>
-          <el-form-item label="地址" required>
-            <el-input v-model="editForm.endpoint" placeholder="http://localhost:18081/mcp 或 https://mcp.feishu.cn/mcp" />
+          <el-form-item :label="t('mcpPage.endpoint')" required>
+            <el-input v-model="editForm.endpoint" :placeholder="t('mcpPage.addrPh')" />
           </el-form-item>
-          <el-form-item label="自定义请求头">
+          <el-form-item :label="t('mcpPage.headers')">
             <el-input v-model="editForm.headersText" type="textarea" :rows="2"
-                      placeholder='JSON 对象，如 {"X-Tenant-Id":"xxx"}（Authorization 请用鉴权方式）' />
+                      :placeholder="t('mcpPage.headersPh')" />
           </el-form-item>
-          <el-form-item label="鉴权方式">
+          <el-form-item :label="t('mcpPage.authType')">
             <el-select v-model="editForm.authType" style="width: 160px">
-              <el-option label="无" value="NONE" />
+              <el-option :label="t('mcpPage.none')" value="NONE" />
               <el-option label="API Key" value="API_KEY" />
               <el-option label="Bearer" value="BEARER" />
               <el-option label="OAuth" value="OAUTH" />
@@ -100,134 +100,134 @@
             <el-form-item label="Header">
               <el-input v-model="editForm.authHeader" placeholder="X-API-Key" style="width: 220px" />
             </el-form-item>
-            <el-form-item label="Key">
+            <el-form-item :label="t('mcpPage.key')">
               <el-input v-model="editForm.authValue" type="password" show-password
-                        placeholder="密钥（****** 表示不修改）" />
+                        :placeholder="t('mcpPage.keyPh')" />
             </el-form-item>
           </template>
-          <el-form-item v-if="editForm.authType === 'BEARER'" label="Token">
+          <el-form-item v-if="editForm.authType === 'BEARER'" :label="t('mcpPage.token')">
             <el-input v-model="editForm.authToken" type="password" show-password
-                      placeholder="Token（****** 表示不修改）" />
+                      :placeholder="t('mcpPage.tokenPh')" />
           </el-form-item>
           <el-form-item v-if="editForm.authType === 'OAUTH'" label="OAuth 2.1">
             <div class="oauth-box">
               <template v-if="oauthStatus?.connected">
-                <el-tag size="small" type="success">已授权</el-tag>
+                <el-tag size="small" type="success">{{ t('mcpPage.authorized') }}</el-tag>
                 <span class="hint" v-if="oauthStatus?.expiresAt">
-                  到期：{{ new Date(oauthStatus.expiresAt).toLocaleString() }}
+                  {{ t('mcpPage.expires') }}{{ new Date(oauthStatus.expiresAt).toLocaleString() }}
                 </span>
-                <el-tag v-if="oauthStatus?.refreshable" size="small" type="info">可自动刷新</el-tag>
+                <el-tag v-if="oauthStatus?.refreshable" size="small" type="info">{{ t('mcpPage.refreshable') }}</el-tag>
               </template>
-              <el-tag v-else size="small" type="info">未授权</el-tag>
+              <el-tag v-else size="small" type="info">{{ t('mcpPage.unauthorized') }}</el-tag>
               <el-button size="small" type="primary" :loading="oauthLoading" @click="startOAuth">
-                {{ oauthStatus?.connected ? '重新授权' : 'OAuth 授权' }}
+                {{ oauthStatus?.connected ? t('mcpPage.reauthorize') : t('mcpPage.authorize') }}
               </el-button>
-              <el-button size="small" v-if="oauthStatus?.connected" @click="disconnectOAuth">断开</el-button>
+              <el-button size="small" v-if="oauthStatus?.connected" @click="disconnectOAuth">{{ t('mcpPage.disconnect') }}</el-button>
             </div>
-            <div class="hint">PKCE + 动态客户端注册 + 自动刷新；点击授权会打开浏览器完成登录（先保存当前配置）。</div>
+            <div class="hint">{{ t('mcpPage.oauthHint') }}</div>
           </el-form-item>
         </template>
-        <el-form-item label="提示">
-          <span class="hint">保存后点击列表中的「验证」检测连通性；修改配置后需重新「同步工具」</span>
+        <el-form-item :label="t('mcpPage.tip')">
+          <span class="hint">{{ t('mcpPage.tipText') }}</span>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <el-button @click="editVisible = false">{{ t('mcpPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="save">{{ t('mcpPage.save') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- 同步工具 -->
-    <el-dialog v-model="syncVisible" :title="`同步工具：${syncServerName}`" width="640px">
-      <div class="hint mb8">勾选要同步到 Tool 管理的工具（已同步的会更新描述与 Schema）</div>
+    <el-dialog v-model="syncVisible" :title="`${t('mcpPage.syncTitle')}${syncServerName}`" width="640px">
+      <div class="hint mb8">{{ t('mcpPage.syncHint') }}</div>
       <el-alert v-if="syncDiff" type="info" :closable="false" show-icon class="mb8"
-                :title="`差异：新增 ${syncDiff.counts.added}，变更 ${syncDiff.counts.changed}，未变 ${syncDiff.counts.unchanged}，服务端移除 ${syncDiff.counts.removed}`" />
+                :title="`${t('mcpPage.diffPrefix')}${syncDiff.counts.added}${t('mcpPage.diffChanged')}${syncDiff.counts.changed}${t('mcpPage.diffUnchanged')}${syncDiff.counts.unchanged}${t('mcpPage.diffRemoved')}${syncDiff.counts.removed}`" />
       <el-alert v-if="syncDiff && syncDiff.removed.length" type="warning" :closable="false" show-icon class="mb8"
-                :title="`服务端已移除：${syncDiff.removed.map((t: any) => t.name).join('、')}（不会自动删除）`" />
-      <el-checkbox v-model="checkAll" @change="toggleAll">全选</el-checkbox>
+                :title="`${t('mcpPage.removedPrefix')}${syncDiff.removed.map((x: any) => x.name).join(', ')}${t('mcpPage.removedSuffix')}`" />
+      <el-checkbox v-model="checkAll" @change="toggleAll">{{ t('mcpPage.checkAll') }}</el-checkbox>
       <el-table :data="discovered" size="small" max-height="360" v-loading="discovering">
         <el-table-column width="50">
           <template #default="{ row }">
             <el-checkbox v-model="row.checked" />
           </template>
         </el-table-column>
-        <el-table-column prop="name" label="工具名" width="200" />
-        <el-table-column label="差异" width="80">
+        <el-table-column prop="name" :label="t('mcpPage.toolName')" width="200" />
+        <el-table-column :label="t('mcpPage.diff')" width="80">
           <template #default="{ row }">
-            <el-tag v-if="row.change === 'ADDED'" size="small" type="success">新增</el-tag>
-            <el-tag v-else-if="row.change === 'CHANGED'" size="small" type="warning">变更</el-tag>
-            <span v-else class="hint">未变</span>
+            <el-tag v-if="row.change === 'ADDED'" size="small" type="success">{{ t('mcpPage.added') }}</el-tag>
+            <el-tag v-else-if="row.change === 'CHANGED'" size="small" type="warning">{{ t('mcpPage.changed') }}</el-tag>
+            <span v-else class="hint">{{ t('mcpPage.unchanged') }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="description" :label="t('mcpPage.description')" min-width="220" show-overflow-tooltip />
       </el-table>
       <template #footer>
-        <el-button @click="syncVisible = false">取消</el-button>
-        <el-button type="primary" :loading="syncing" @click="doSync">同步选中</el-button>
+        <el-button @click="syncVisible = false">{{ t('mcpPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="syncing" @click="doSync">{{ t('mcpPage.syncSelected') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- 已同步工具 -->
-    <el-drawer v-model="toolsVisible" :title="`已同步工具：${toolsServerName}`" size="560px">
+    <el-drawer v-model="toolsVisible" :title="`${t('mcpPage.syncedTitle')}${toolsServerName}`" size="560px">
       <el-table :data="tools" size="small">
-        <el-table-column prop="name" label="名称" width="160" />
+        <el-table-column prop="name" :label="t('mcpPage.name')" width="160" />
         <el-table-column prop="toolKey" label="Tool Key" min-width="200" />
-        <el-table-column label="状态" width="80">
+        <el-table-column :label="t('mcpPage.status')" width="80">
           <template #default="{ row }">
             <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">
-              {{ row.status === 'ENABLED' ? '启用' : '停用' }}
+              {{ row.status === 'ENABLED' ? t('mcpPage.enabled') : t('mcpPage.disabled') }}
             </el-tag>
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="!tools.length" description="暂无已同步工具，请先同步" :image-size="60" />
+      <el-empty v-if="!tools.length" :description="t('mcpPage.noSynced')" :image-size="60" />
     </el-drawer>
 
     <!-- MCP 资源 / 提示词发现（不落库，只读） -->
-    <el-drawer v-model="capsVisible" :title="`MCP 能力：${capsServerName}`" size="680px">
+    <el-drawer v-model="capsVisible" :title="`${t('mcpPage.capsTitle')}${capsServerName}`" size="680px">
       <div v-loading="capsLoading">
         <el-alert v-if="capsWarnings.length" type="warning" :closable="false" show-icon class="mb12"
                   :title="capsWarnings.join('；')" />
         <el-tabs v-model="capsTab">
-          <el-tab-pane :label="`工具 (${caps.tools.length})`" name="tools">
+          <el-tab-pane :label="`${t('mcpPage.toolsTab')} (${caps.tools.length})`" name="tools">
             <el-table :data="caps.tools" size="small" max-height="420">
-              <el-table-column prop="name" label="名称" width="180" />
-              <el-table-column prop="description" label="描述" show-overflow-tooltip />
+              <el-table-column prop="name" :label="t('mcpPage.name')" width="180" />
+              <el-table-column prop="description" :label="t('mcpPage.description')" show-overflow-tooltip />
             </el-table>
           </el-tab-pane>
-          <el-tab-pane :label="`资源 (${caps.resources.length})`" name="resources">
+          <el-tab-pane :label="`${t('mcpPage.resourcesTab')} (${caps.resources.length})`" name="resources">
             <el-table :data="caps.resources" size="small" max-height="340">
-              <el-table-column prop="name" label="名称" width="150" />
+              <el-table-column prop="name" :label="t('mcpPage.name')" width="150" />
               <el-table-column prop="uri" label="URI" min-width="220" show-overflow-tooltip />
-              <el-table-column prop="mimeType" label="类型" width="120" />
-              <el-table-column label="操作" width="80">
+              <el-table-column prop="mimeType" :label="t('mcpPage.type')" width="120" />
+              <el-table-column :label="t('mcpPage.actions')" width="80">
                 <template #default="{ row }">
-                  <el-button size="small" text type="primary" @click="readResource(row)">读取</el-button>
+                  <el-button size="small" text type="primary" @click="readResource(row)">{{ t('mcpPage.read') }}</el-button>
                 </template>
               </el-table-column>
             </el-table>
             <div v-if="caps.resourceTemplates.length" class="mt8">
-              <div class="hint">资源模板</div>
+              <div class="hint">{{ t('mcpPage.resourceTemplates') }}</div>
               <el-table :data="caps.resourceTemplates" size="small" max-height="140">
-                <el-table-column prop="name" label="名称" width="150" />
-                <el-table-column prop="uriTemplate" label="URI 模板" show-overflow-tooltip />
+                <el-table-column prop="name" :label="t('mcpPage.name')" width="150" />
+                <el-table-column prop="uriTemplate" :label="t('mcpPage.uriTemplate')" show-overflow-tooltip />
               </el-table>
             </div>
           </el-tab-pane>
-          <el-tab-pane :label="`提示词 (${caps.prompts.length})`" name="prompts">
+          <el-tab-pane :label="`${t('mcpPage.promptsTab')} (${caps.prompts.length})`" name="prompts">
             <el-table :data="caps.prompts" size="small" max-height="420">
-              <el-table-column prop="name" label="名称" width="180" />
-              <el-table-column prop="description" label="描述" show-overflow-tooltip />
+              <el-table-column prop="name" :label="t('mcpPage.name')" width="180" />
+              <el-table-column prop="description" :label="t('mcpPage.description')" show-overflow-tooltip />
             </el-table>
-            <div class="hint mt8">提示词参数/渲染由调用方通过后端 prompts/get 接口使用。</div>
+            <div class="hint mt8">{{ t('mcpPage.promptHint') }}</div>
           </el-tab-pane>
         </el-tabs>
       </div>
     </el-drawer>
 
-    <el-dialog v-model="resourceVisible" :title="`资源内容：${resourceName}`" width="680px">
+    <el-dialog v-model="resourceVisible" :title="`${t('mcpPage.resourceTitle')}${resourceName}`" width="680px">
       <pre class="resource-pre">{{ resourceText }}</pre>
-      <template #footer><el-button @click="resourceVisible = false">关闭</el-button></template>
+      <template #footer><el-button @click="resourceVisible = false">{{ t('mcpPage.close') }}</el-button></template>
     </el-dialog>
   </div>
 </template>
@@ -267,17 +267,17 @@ const editForm = reactive({
 function applyPreset(type: string) {
   if (type === 'feishu') {
     Object.assign(editForm, {
-      name: '飞书 MCP', endpoint: 'https://mcp.feishu.cn/mcp', transport: 'HTTP',
+      name: t('mcpPage.feishu'), endpoint: 'https://mcp.feishu.cn/mcp', transport: 'HTTP',
       authType: 'BEARER', headersText: '{}'
     })
   } else if (type === 'zhipu') {
     Object.assign(editForm, {
-      name: '智谱 MCP', endpoint: 'https://open.bigmodel.cn/api/mcp/sse', transport: 'SSE',
+      name: t('mcpPage.zhipu'), endpoint: 'https://open.bigmodel.cn/api/mcp/sse', transport: 'SSE',
       authType: 'BEARER', headersText: '{}'
     })
   } else if (type === 'filesystem') {
     Object.assign(editForm, {
-      name: '本地文件系统（示例）', transport: 'STDIO', command: 'npx',
+      name: t('mcpPage.filesystem'), transport: 'STDIO', command: 'npx',
       argsText: '["-y","@modelcontextprotocol/server-filesystem","/tmp"]', envText: '{}'
     })
   }
@@ -320,10 +320,10 @@ async function openCapabilities(row: any) {
       resourceTemplates: res.resourceTemplates || [], prompts: res.prompts || []
     }
     capsWarnings.value = [...(res.warnings || [])]
-    if (res.toolsChangedAt) capsWarnings.value.unshift('服务端报告工具列表已变更，请重新同步工具')
+    if (res.toolsChangedAt) capsWarnings.value.unshift(t('mcpPage.toolsChanged'))
   } catch (e: any) {
     caps.value = { tools: [], resources: [], resourceTemplates: [], prompts: [] }
-    capsWarnings.value = [e?.response?.data?.message || '能力发现失败']
+    capsWarnings.value = [e?.response?.data?.message || t('mcpPage.capabilityFail')]
   } finally {
     capsLoading.value = false
   }
@@ -337,7 +337,7 @@ async function readResource(row: any) {
     resourceText.value = (res.contents || []).map((c: any) => c.text || c.blob || '').join('\n')
     resourceVisible.value = true
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '读取资源失败')
+    ElMessage.error(e?.response?.data?.message || t('mcpPage.readFail'))
   }
 }
 
@@ -347,11 +347,11 @@ onMounted(async () => {
     const status = String(route.query.oauth)
     const sid = Number(route.query.serverId)
     if (status === 'success') {
-      ElMessage.success('OAuth 授权成功')
+      ElMessage.success(t('mcpPage.oauthSuccess'))
       const row = list.value.find((r: any) => r.id === sid)
       if (row) await openEdit(row)
     } else {
-      ElMessage.error('OAuth 授权失败：' + (route.query.message || '未知错误'))
+      ElMessage.error(t('mcpPage.oauthFail') + (route.query.message || t('mcpPage.unknownError')))
     }
     const query = { ...route.query }
     delete query.oauth
@@ -361,7 +361,7 @@ onMounted(async () => {
   }
   if (route.query.create === '1') {
     if (canManage.value) openCreate()
-    else ElMessage.warning('当前账号无添加 MCP Server 权限')
+    else ElMessage.warning(t('mcpPage.noPermission'))
     const query = { ...route.query }
     delete query.create
     router.replace({ query })
@@ -379,10 +379,10 @@ async function load() {
 }
 
 function healthText(s?: string) {
-  if (s === 'ONLINE') return '在线'
-  if (s === 'OFFLINE') return '离线'
-  if (s === 'ERROR') return '异常'
-  return '未检测'
+  if (s === 'ONLINE') return t('mcpPage.online')
+  if (s === 'OFFLINE') return t('mcpPage.offline')
+  if (s === 'ERROR') return t('mcpPage.error')
+  return t('mcpPage.unchecked')
 }
 
 function healthType(s?: string) {
@@ -424,21 +424,21 @@ async function openEdit(row: any) {
 }
 
 async function save(silent = false): Promise<boolean> {
-  if (!editForm.name.trim()) { ElMessage.warning('名称必填'); return false }
+  if (!editForm.name.trim()) { ElMessage.warning(t('mcpPage.nameRequired')); return false }
   if (editForm.transport === 'STDIO') {
-    if (!editForm.command.trim()) { ElMessage.warning('STDIO 需要填写启动命令'); return false }
+    if (!editForm.command.trim()) { ElMessage.warning(t('mcpPage.commandRequired')); return false }
   } else if (!editForm.endpoint.trim()) {
-    ElMessage.warning('地址必填'); return false
+    ElMessage.warning(t('mcpPage.addrRequired')); return false
   }
   saving.value = true
   try {
     const payload: any = { name: editForm.name.trim(), transport: editForm.transport }
     if (editForm.transport === 'STDIO') {
       let args: any
-      try { args = JSON.parse(editForm.argsText || '[]') } catch { ElMessage.error('启动参数不是合法 JSON 数组'); return false }
-      if (!Array.isArray(args)) { ElMessage.error('启动参数需为 JSON 数组'); return false }
+      try { args = JSON.parse(editForm.argsText || '[]') } catch { ElMessage.error(t('mcpPage.argsJson')); return false }
+      if (!Array.isArray(args)) { ElMessage.error(t('mcpPage.argsArray')); return false }
       let env: any
-      try { env = JSON.parse(editForm.envText || '{}') } catch { ElMessage.error('环境变量不是合法 JSON 对象'); return false }
+      try { env = JSON.parse(editForm.envText || '{}') } catch { ElMessage.error(t('mcpPage.envJson')); return false }
       payload.command = editForm.command.trim()
       payload.args = args
       if (Object.keys(env).length) payload.env = env
@@ -451,7 +451,7 @@ async function save(silent = false): Promise<boolean> {
         auth.token = editForm.authToken
       }
       let headers: any = {}
-      try { headers = JSON.parse(editForm.headersText || '{}') } catch { ElMessage.error('自定义请求头不是合法 JSON'); return false }
+      try { headers = JSON.parse(editForm.headersText || '{}') } catch { ElMessage.error(t('mcpPage.headersJson')); return false }
       payload.endpoint = editForm.endpoint.trim()
       payload.customHeaders = headers
       payload.authType = editForm.authType
@@ -464,7 +464,7 @@ async function save(silent = false): Promise<boolean> {
       if (res?.id) editForm.id = res.id
     }
     if (!silent) {
-      ElMessage.success('已保存')
+      ElMessage.success(t('mcpPage.saved'))
       editVisible.value = false
     }
     await load()
@@ -484,10 +484,10 @@ async function startOAuth() {
     const res = await http.post(`/mcp-servers/${editForm.id}/oauth/authorize`) as any
     if (popup && !popup.closed) popup.location.href = res.authorizeUrl
     else window.location.href = res.authorizeUrl
-    ElMessage.info('已打开授权窗口，完成后回到本页查看状态')
+    ElMessage.info(t('mcpPage.oauthOpened'))
   } catch (e: any) {
     popup?.close()
-    ElMessage.error(e?.response?.data?.message || e?.message || 'OAuth 授权发起失败')
+    ElMessage.error(e?.response?.data?.message || e?.message || t('mcpPage.oauthStartFail'))
   } finally {
     oauthLoading.value = false
   }
@@ -495,11 +495,11 @@ async function startOAuth() {
 
 async function disconnectOAuth() {
   try {
-    await ElMessageBox.confirm('断开后需要重新授权才能调用该 MCP Server，确认继续？', '断开 OAuth')
+    await ElMessageBox.confirm(t('mcpPage.disconnectConfirm'), t('mcpPage.disconnectTitle'))
   } catch { return }
   await http.post(`/mcp-servers/${editForm.id}/oauth/disconnect`)
   oauthStatus.value = { connected: false }
-  ElMessage.success('已断开 OAuth 授权')
+  ElMessage.success(t('mcpPage.disconnected'))
 }
 
 async function test(row: any) {
@@ -507,7 +507,7 @@ async function test(row: any) {
   try {
     const res = await http.post(`/mcp-servers/${row.id}/test`) as any
     ElMessage[res.success ? 'success' : 'error'](
-      res.success ? `连接正常（${res.latencyMs}ms）` : `验证失败：${res.message}`)
+      res.success ? `${t('mcpPage.verifyOk')}${res.latencyMs}ms)` : `${t('mcpPage.verifyFail')}${res.message}`)
     await load()
   } finally {
     testingId.value = 0
@@ -523,7 +523,7 @@ async function openSync(row: any) {
     const res = await http.get(`/mcp-servers/${row.id}/tools/diff`) as any
     syncDiff.value = res
     discovered.value = (res.tools || []).map((t: any) => ({ ...t, checked: true }))
-    if (res.toolsChangedAt) ElMessage.warning('服务端报告工具列表已变更，请确认后重新同步')
+    if (res.toolsChangedAt) ElMessage.warning(t('mcpPage.toolsChanged'))
     checkAll.value = true
   } finally {
     discovering.value = false
@@ -536,11 +536,11 @@ function toggleAll(v: boolean) {
 
 async function doSync() {
   const names = discovered.value.filter(t => t.checked).map(t => t.name)
-  if (!names.length) { ElMessage.warning('请选择要同步的工具'); return }
+  if (!names.length) { ElMessage.warning(t('mcpPage.selectTools')); return }
   syncing.value = true
   try {
     const res = await http.post(`/mcp-servers/${syncServerId.value}/sync`, { toolNames: names }) as any
-    ElMessage.success(`已同步 ${res.total} 个工具`)
+    ElMessage.success(`${t('mcpPage.syncedCount')}${res.total}`)
     syncVisible.value = false
     syncDiff.value = null
     await load()
@@ -562,13 +562,13 @@ async function remove(row: any) {
   const skills: string[] = refs.skills || []
   const refText = [
     agents.length ? `Agent：${agents.join('、')}` : '',
-    skills.length ? `技能：${skills.join('、')}` : ''
+    skills.length ? `${t('mcpPage.refsSkills')}${skills.join(', ')}` : ''
   ].filter(Boolean).join('；')
   await ElMessageBox.confirm(
-    `删除 Server「${row.name}」将同时删除其已同步工具。${refText ? '当前被引用（' + refText + '），请先解绑。' : ''}确认删除？`,
-    '删除 MCP Server', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+    `${t('mcpPage.deleteConfirmPrefix')}${row.name}${t('mcpPage.deleteConfirmMid')}${refText ? t('mcpPage.deleteRefs') + refText + t('mcpPage.deleteRefs2') : ''}${t('mcpPage.deleteConfirmSuffix')}`,
+    t('mcpPage.deleteTitle'), { type: 'warning', confirmButtonText: t('mcpPage.delete'), cancelButtonText: t('mcpPage.cancel') })
   await http.delete(`/mcp-servers/${row.id}`)
-  ElMessage.success('已删除')
+  ElMessage.success(t('mcpPage.deleted'))
   await load()
 }
 
