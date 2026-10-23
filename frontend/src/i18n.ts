@@ -13,7 +13,7 @@ const messages = {
     agentList: {
       search: '搜索 Agent 名称', fromTemplate: '从模板创建', create: '新建 Agent',
       empty: '还没有 Agent，点击右上角「新建 Agent」创建一个', unnamed: '未命名',
-      published: '已发布', draft: '草稿', noDesc: '暂无描述', edit: '编辑', observe: '观测',
+      published: '已发布', draft: '草稿', incomplete: '未配置能力', noDesc: '暂无描述', edit: '编辑', observe: '观测',
       metrics: '监控', chat: '对话', publish: '发布', delete: '删除',
       createTitle: '新建 Agent', name: '名称', namePh: '如：售后客服助手', desc: '描述',
       descPh: '一句话说明这个 Agent 做什么', model: '模型', selectModel: '选择模型',
@@ -644,6 +644,9 @@ const messages = {
       keyNameRequired: '名称必填', widgetName: '网页挂件', widgetGenerated: '网页挂件已生成，请复制嵌入代码',
       copied: '已复制', copyFailManual: '复制失败，请手动选择', copiedSnippet: '已复制嵌入代码', copiedKey: '已复制',
       deleteKeyTitle: '删除 API Key', contextSuffix: ' 上下文）', promptRequired: '请先填写提示词',
+      createdDraft: '草稿已创建，请完善配置后发布', chkTitle: '发布前配置检查',
+      chkModel: '模型', chkPrompt: '提示词', chkKb: '知识库绑定', chkTools: '工具绑定',
+      chkSkills: '技能绑定', chkVars: '占位变量', chkPublishAnyway: '仍要发布',
       optimizeDone: '优化完成，请确认后应用', replaced: '已替换提示词（尚未保存）', appended: '已追加到提示词末尾（尚未保存）',
       overwritePrompt: '插入模板将覆盖当前提示词，是否继续？', overrideTitle: '覆盖提示词',
       templateInserted: '已插入模板，变量可在「占位变量」面板配置',
@@ -723,7 +726,7 @@ const messages = {
     agentList: {
       search: 'Search agents', fromTemplate: 'From template', create: 'New Agent',
       empty: 'No agents yet. Click "New Agent" to create one.', unnamed: 'Untitled',
-      published: 'Published', draft: 'Draft', noDesc: 'No description', edit: 'Edit', observe: 'Observe',
+      published: 'Published', draft: 'Draft', incomplete: 'Incomplete setup', noDesc: 'No description', edit: 'Edit', observe: 'Observe',
       metrics: 'Metrics', chat: 'Chat', publish: 'Publish', delete: 'Delete',
       createTitle: 'New Agent', name: 'Name', namePh: 'e.g. Support Assistant', desc: 'Description',
       descPh: 'One sentence about what this Agent does', model: 'Model', selectModel: 'Select model',
@@ -1355,6 +1358,9 @@ const messages = {
       keyNameRequired: 'Name is required', widgetName: 'Web widget', widgetGenerated: 'Widget created; copy the embed code',
       copied: 'Copied', copyFailManual: 'Copy failed; select manually', copiedSnippet: 'Embed code copied', copiedKey: 'Copied',
       deleteKeyTitle: 'Delete API Key', contextSuffix: ' context)', promptRequired: 'Please enter a prompt first',
+      createdDraft: 'Draft created; finish configuration then publish', chkTitle: 'Pre-publish checklist',
+      chkModel: 'Model', chkPrompt: 'System prompt', chkKb: 'Knowledge bases', chkTools: 'Tools',
+      chkSkills: 'Skills', chkVars: 'Variables', chkPublishAnyway: 'Publish anyway',
       optimizeDone: 'Optimization complete; review and apply', replaced: 'Prompt replaced (not saved)', appended: 'Appended to prompt (not saved)',
       overwritePrompt: 'Inserting a template will overwrite the prompt. Continue?', overrideTitle: 'Overwrite prompt',
       templateInserted: 'Template inserted; configure variables in the Variables panel',
@@ -1428,11 +1434,26 @@ export type Locale = 'zh-CN' | 'en-US'
 const saved = localStorage.getItem('locale')
 const locale: Locale = saved === 'en-US' ? 'en-US' : 'zh-CN'
 
+function escapeMessageBraces<T>(value: T): T {
+  if (typeof value === 'string') {
+    return value.replace(/[{}]/g, m => m === '{' ? "{'{'}" : "{'}'}") as unknown as T
+  }
+  if (Array.isArray(value)) return value.map(v => escapeMessageBraces(v)) as unknown as T
+  if (value && typeof value === 'object') {
+    const out: Record<string, any> = {}
+    for (const [k, v] of Object.entries(value as Record<string, any>)) {
+      out[k] = escapeMessageBraces(v)
+    }
+    return out as T
+  }
+  return value
+}
+
 export const i18n = createI18n({
   legacy: false,
   locale,
   fallbackLocale: 'zh-CN',
-  messages
+  messages: escapeMessageBraces(messages)
 })
 
 export function setLocale(next: Locale) {

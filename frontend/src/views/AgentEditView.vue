@@ -352,8 +352,8 @@
         <el-form-item :label="t('agentDlg.bindTool')">
           <el-select v-model="credentialForm.toolId" filterable clearable style="width: 100%"
                      :placeholder="t('agentDlg.bindToolPh')">
-            <el-option v-for="t in toolCatalog" :key="t.id" :value="t.id"
-                       :label="t.name + (t.toolType === 'MCP' ? t('agentDlg.mcpSuffix') : '')" />
+            <el-option v-for="tool in toolCatalog" :key="tool.id" :value="tool.id"
+                       :label="tool.name + (tool.toolType === 'MCP' ? t('agentDlg.mcpSuffix') : '')" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('agentDlg.enableLabel')">
@@ -807,8 +807,8 @@
             </template>
             <template v-else-if="n.type === 'TOOL'">
               <el-select v-model="n.toolId" filterable :placeholder="t('wf.selectTool')" style="width: 260px">
-                <el-option v-for="t in toolCatalog" :key="t.id" :value="t.id"
-                           :label="t.name + (t.toolType === 'MCP' ? t('agentDlg.mcpSuffix') : '')" />
+                <el-option v-for="tool in toolCatalog" :key="tool.id" :value="tool.id"
+                           :label="tool.name + (tool.toolType === 'MCP' ? t('agentDlg.mcpSuffix') : '')" />
               </el-select>
               <el-input v-model="n.argsTemplate" type="textarea" :rows="2" class="mt8"
                         :placeholder="t('wf.argsPh')" />
@@ -2215,7 +2215,36 @@ async function save() {
   }
 }
 
+/** 发布前配置检查摘要（需求 3.2：知情确认，不阻断；门禁仍由后端执行）。 */
+async function publishCheckSummary(): Promise<boolean> {
+  const items = [
+    { label: t('agentMsg.chkModel'), ok: !!form.modelName },
+    { label: t('agentMsg.chkPrompt'), ok: !!form.systemPrompt?.trim() },
+    { label: t('agentMsg.chkKb'), ok: enabledKbCount.value > 0, count: enabledKbCount.value },
+    { label: t('agentMsg.chkTools'), ok: toolRows.value.length > 0, count: toolRows.value.length },
+    { label: t('agentMsg.chkSkills'), ok: skillRows.value.length > 0, count: skillRows.value.length },
+    { label: t('agentMsg.chkVars'), ok: form.variables.length > 0, count: form.variables.length }
+  ]
+  const warns = items.filter(i => !i.ok)
+  if (warns.length === 0) return true
+  const lines = items.map(i => `${i.ok ? '✓' : '⚠'} ${i.label}` + (i.ok && i.count ? `（${i.count}）` : ''))
+  try {
+    await ElMessageBox.confirm(
+      `<div style="line-height:2">${lines.join('<br/>')}</div>`,
+      t('agentMsg.chkTitle'),
+      { type: 'warning', dangerouslyUseHTMLString: true,
+        confirmButtonText: t('agentMsg.chkPublishAnyway'), cancelButtonText: t('agentDlg.cancel') })
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function publish(force = false) {
+  if (!force) {
+    const go = await publishCheckSummary()
+    if (!go) return
+  }
   await save()
   // 发布可能先执行预发布门禁评测（每样本约 5-30s），超时放宽至 10 分钟
   const loading = ElLoading.service({

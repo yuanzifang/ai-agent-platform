@@ -20,6 +20,9 @@
             <el-tag size="small" :type="a.status === 'PUBLISHED' ? 'success' : 'info'">
               {{ a.status === 'PUBLISHED' ? t('agentList.published') : t('agentList.draft') }}
             </el-tag>
+            <el-tag v-if="a.status === 'PUBLISHED' && a.capability?.incomplete" size="small" type="warning">
+              {{ t('agentList.incomplete') }}
+            </el-tag>
           </div>
         </div>
         <div class="desc">{{ a.description || t('agentList.noDesc') }}</div>
@@ -73,7 +76,8 @@ import http from '../api/http'
 
 const { t } = useI18n()
 
-interface AgentItem { id: number; agentKey: string; name: string; description: string; status: string }
+interface AgentItem { id: number; agentKey: string; name: string; description: string; status: string
+  capability?: { incomplete: boolean; hasKb: boolean; hasTool: boolean; hasSkill: boolean } }
 interface ModelItem { modelName: string; displayName: string }
 
 const router = useRouter()
@@ -124,10 +128,11 @@ async function submit() {
       systemPrompt: form.systemPrompt,
       modelConfig: { modelName: form.modelName, temperature: form.temperature }
     }) as any
-    await http.post(`/agent/${created.id}/publish`)
-    ElMessage.success(t('agentList.createdPublished'))
+    // 仅创建草稿并引导去编辑页：发布统一收口到编辑页（走配置检查+预发布门禁），
+    // 避免"裸 Agent 绕过门禁直接上线"且断掉配置引导
     createVisible.value = false
-    await load()
+    ElMessage.success(t('agentList.createdDraft'))
+    router.push(`/agent/edit/${created.id}`)
   } finally {
     creating.value = false
   }

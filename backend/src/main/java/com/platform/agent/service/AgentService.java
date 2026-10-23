@@ -52,11 +52,47 @@ public class AgentService {
     private final SkillRegistryMapper skillRegistryMapper;
     private final ToolRegistryMapper toolRegistryMapper;
     private final AgentUserGrantMapper grantMapper;
+    private final com.platform.agent.mapper.AgentToolBindingMapper agentToolBindingMapper;
+    private final com.platform.agent.mapper.AgentSkillBindingMapper agentSkillBindingMapper;
     private final com.platform.eval.service.EvalService evalService;
     private final com.platform.system.service.AuditService auditService;
     private final AgentVersionMapper versionMapper;
     private final QuotaService quotaService;
     private final ObjectMapper objectMapper;
+
+    /** 列表页"配置完整度"标志：批量查绑定，避免 N+1。published 且零能力 → 前端提示角标。 */
+    public Map<Long, Map<String, Object>> capabilityFlags(java.util.List<Long> agentIds) {
+        Map<Long, Map<String, Object>> result = new LinkedHashMap<>();
+        if (agentIds == null || agentIds.isEmpty()) return result;
+        java.util.Set<Long> kbAgents = new java.util.HashSet<>();
+        for (AgentKnowledgeBase kb : agentKbMapper.selectList(new LambdaQueryWrapper<AgentKnowledgeBase>()
+                .in(AgentKnowledgeBase::getAgentId, agentIds))) {
+            kbAgents.add(kb.getAgentId());
+        }
+        java.util.Set<Long> toolAgents = new java.util.HashSet<>();
+        for (com.platform.agent.entity.AgentToolBinding b : agentToolBindingMapper.selectList(
+                new LambdaQueryWrapper<com.platform.agent.entity.AgentToolBinding>()
+                        .in(com.platform.agent.entity.AgentToolBinding::getAgentId, agentIds))) {
+            toolAgents.add(b.getAgentId());
+        }
+        java.util.Set<Long> skillAgents = new java.util.HashSet<>();
+        if (agentSkillBindingMapper != null) {
+            for (com.platform.agent.entity.AgentSkillBinding b : agentSkillBindingMapper.selectList(
+                    new LambdaQueryWrapper<com.platform.agent.entity.AgentSkillBinding>()
+                            .in(com.platform.agent.entity.AgentSkillBinding::getAgentId, agentIds))) {
+                skillAgents.add(b.getAgentId());
+            }
+        }
+        for (Long id : agentIds) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("hasKb", kbAgents.contains(id));
+            m.put("hasTool", toolAgents.contains(id));
+            m.put("hasSkill", skillAgents.contains(id));
+            m.put("incomplete", !(kbAgents.contains(id) || toolAgents.contains(id) || skillAgents.contains(id)));
+            result.put(id, m);
+        }
+        return result;
+    }
 
     /** 列表：PRIVATE Agent 仅所有者/被授权用户/管理员可见（需求 3.3）。 */
     public Page<AgentRegistry> list(String keyword, String status, long page, long size,

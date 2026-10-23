@@ -39,8 +39,14 @@ public class AgentController {
                                                  @RequestParam(defaultValue = "20") long pageSize,
                                                  @AuthenticationPrincipal JwtPrincipal principal) {
         Page<AgentRegistry> result = agentService.list(keyword, status, page, pageSize, principal);
+        java.util.List<Long> ids = result.getRecords().stream().map(AgentRegistry::getId).toList();
+        Map<Long, Map<String, Object>> flags = agentService.capabilityFlags(ids);
         return ApiResponse.ok(Map.of(
-                "list", result.getRecords().stream().map(this::summary).toList(),
+                "list", result.getRecords().stream().map(a -> {
+                    Map<String, Object> m = new java.util.LinkedHashMap<>(summary(a));
+                    m.put("capability", flags.get(a.getId()));
+                    return m;
+                }).toList(),
                 "total", result.getTotal(), "page", page, "pageSize", pageSize));
     }
 

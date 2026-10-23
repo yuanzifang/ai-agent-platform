@@ -116,8 +116,8 @@
         <el-form-item :label="t('skill.depTools')">
           <el-select v-model="editForm.toolIds" multiple filterable style="width: 100%"
                      :placeholder="t('skill.depToolsPh')">
-            <el-option v-for="t in toolOptions" :key="t.id" :value="t.id"
-                       :label="t.name + (t.isBuiltin ? t('skill.builtinSuffix') : '')" />
+            <el-option v-for="tool in toolOptions" :key="tool.id" :value="tool.id"
+                       :label="tool.name + (tool.isBuiltin ? t('skill.builtinSuffix') : '')" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('skill.depKbs')">
@@ -144,8 +144,8 @@
         <div class="test-label">{{ t('skill.output') }}</div>
         <div class="test-output">{{ testForm.answer }}</div>
         <div v-if="testForm.toolCalls.length" class="test-label mt8">{{ t('skill.toolCalls') }}</div>
-        <div v-for="(t, i) in testForm.toolCalls" :key="i" class="test-tool">
-          ⚙ {{ t.displayName || t.toolName }} · {{ t.status === 'ERROR' ? t('skill.failed') : t('skill.success') }} · {{ t.durationMs }}ms
+        <div v-for="(tc, i) in testForm.toolCalls" :key="i" class="test-tool">
+          ⚙ {{ tc.displayName || tc.toolName }} · {{ tc.status === 'ERROR' ? t('skill.failed') : t('skill.success') }} · {{ tc.durationMs }}ms
         </div>
         <div class="hint mt8" v-if="testForm.usage">
           {{ t('skill.inputTokens') }} {{ testForm.usage.inputTokens }} / {{ t('skill.outputTokens') }} {{ testForm.usage.outputTokens }} tokens
