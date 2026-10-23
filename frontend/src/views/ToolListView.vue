@@ -2,108 +2,108 @@
   <div class="page">
     <div class="toolbar">
       <span class="title">{{ t('page.tools') }}</span>
-      <span class="sub">内置工具只读；API 工具支持请求配置/鉴权/超时重试；MCP 工具由 MCP Server 同步</span>
+      <span class="sub">{{ t('tool.sub') }}</span>
       <div class="spacer" />
-      <el-input v-model="keyword" placeholder="搜索名称/描述" clearable style="width: 190px"
+      <el-input v-model="keyword" :placeholder="t('tool.searchPh')" clearable style="width: 190px"
                 @keyup.enter="load" @clear="load" />
-      <el-select v-model="type" placeholder="类型" clearable style="width: 110px" @change="load">
-        <el-option label="内置" value="BUILTIN" />
+      <el-select v-model="type" :placeholder="t('tool.type')" clearable style="width: 110px" @change="load">
+        <el-option :label="t('tool.builtin')" value="BUILTIN" />
         <el-option label="API" value="API" />
         <el-option label="MCP" value="MCP" />
       </el-select>
-      <el-button @click="load">搜索</el-button>
-      <el-button type="primary" :disabled="!canManage" @click="openCreate">新建 API 工具</el-button>
-      <el-button :disabled="!canManage" @click="$router.push('/mcp-servers?create=1')">添加 MCP Server</el-button>
+      <el-button @click="load">{{ t('tool.search') }}</el-button>
+      <el-button type="primary" :disabled="!canManage" @click="openCreate">{{ t('tool.createApi') }}</el-button>
+      <el-button :disabled="!canManage" @click="$router.push('/mcp-servers?create=1')">{{ t('tool.addMcp') }}</el-button>
     </div>
 
     <el-alert v-if="!canManage" type="info" :closable="false" show-icon class="mb12"
-              title="只读模式：新建/测试工具需要 Owner 或管理员权限（tool:manage）" />
+              :title="t('tool.readonly')" />
 
     <el-table :data="list" size="small" v-loading="loading">
       <template #empty>
-        <el-empty description="暂无工具">
-          <el-button type="primary" :disabled="!canManage" @click="openCreate">新建 API 工具</el-button>
-          <el-button :disabled="!canManage" @click="$router.push('/mcp-servers?create=1')">添加 MCP Server</el-button>
+        <el-empty :description="t('tool.empty')">
+          <el-button type="primary" :disabled="!canManage" @click="openCreate">{{ t('tool.createApi') }}</el-button>
+          <el-button :disabled="!canManage" @click="$router.push('/mcp-servers?create=1')">{{ t('tool.addMcp') }}</el-button>
         </el-empty>
       </template>
-      <el-table-column label="名称" width="200">
+      <el-table-column :label="t('tool.name')" width="200">
         <template #default="{ row }">
           {{ row.name }}
           <el-tag size="small"
                   :type="row.toolType === 'BUILTIN' ? 'info' : (row.toolType === 'MCP' ? 'warning' : 'success')">
-            {{ row.toolType === 'BUILTIN' ? '内置' : (row.toolType === 'MCP' ? 'MCP' : 'API') }}
+            {{ row.toolType === 'BUILTIN' ? t('tool.builtin') : (row.toolType === 'MCP' ? 'MCP' : 'API') }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="category" label="分类" width="90" />
-      <el-table-column prop="description" label="描述" min-width="240" show-overflow-tooltip />
-      <el-table-column label="超时/重试" width="110">
-        <template #default="{ row }">{{ row.timeoutMs }}ms / {{ row.retryTimes }} 次</template>
+      <el-table-column prop="category" :label="t('tool.category')" width="90" />
+      <el-table-column prop="description" :label="t('tool.desc')" min-width="240" show-overflow-tooltip />
+      <el-table-column :label="t('tool.timeoutRetry')" width="110">
+        <template #default="{ row }">{{ row.timeoutMs }}ms / {{ row.retryTimes }} {{ t('tool.times') }}</template>
       </el-table-column>
-      <el-table-column label="状态" width="80">
+      <el-table-column :label="t('tool.status')" width="80">
         <template #default="{ row }">
           <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">
-            {{ row.status === 'ENABLED' ? '启用' : '停用' }}
+            {{ row.status === 'ENABLED' ? t('tool.enabled') : t('tool.disabled') }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="270">
+      <el-table-column :label="t('tool.actions')" width="270">
         <template #default="{ row }">
-          <el-button size="small" text :disabled="!canManage" @click="openTest(row)">测试</el-button>
+          <el-button size="small" text :disabled="!canManage" @click="openTest(row)">{{ t('tool.test') }}</el-button>
           <template v-if="canManage && !row.isBuiltin && row.toolType !== 'MCP'">
-            <el-button size="small" text @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" text @click="publish(row)">发布</el-button>
-            <el-button size="small" text @click="openVersions(row)">版本</el-button>
-            <el-button size="small" text type="danger" @click="remove(row)">删除</el-button>
+            <el-button size="small" text @click="openEdit(row)">{{ t('tool.edit') }}</el-button>
+            <el-button size="small" text @click="publish(row)">{{ t('tool.publish') }}</el-button>
+            <el-button size="small" text @click="openVersions(row)">{{ t('tool.versions') }}</el-button>
+            <el-button size="small" text type="danger" @click="remove(row)">{{ t('tool.delete') }}</el-button>
           </template>
         </template>
       </el-table-column>
     </el-table>
 
     <!-- 新建/编辑 -->
-    <el-dialog v-model="editVisible" :title="editForm.id ? '编辑工具' : '新建 API 工具'" width="760px">
+    <el-dialog v-model="editVisible" :title="editForm.id ? t('tool.editTitle') : t('tool.newApi')" width="760px">
       <el-alert v-if="!editForm.id" type="info" :closable="false" show-icon class="mb12"
-                title="这里创建 API 工具；MCP 工具请到「MCP Server」添加服务后同步生成。" />
+                :title="t('tool.mcpHint')" />
       <el-form label-width="96px">
-        <el-form-item label="名称" required>
+        <el-form-item :label="t('tool.name')" required>
           <el-input v-model="editForm.name" maxlength="128" />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="t('tool.desc')">
           <el-input v-model="editForm.description" maxlength="512"
-                    placeholder="描述工具能力，LLM 依据该描述决定何时调用" />
+                    :placeholder="t('tool.descPh')" />
         </el-form-item>
-        <el-form-item label="分类">
+        <el-form-item :label="t('tool.category')">
           <el-input v-model="editForm.category" style="width: 220px" />
         </el-form-item>
-        <el-form-item label="标签">
-          <el-input v-model="editForm.tags" placeholder="逗号分隔" />
+        <el-form-item :label="t('tool.tags')">
+          <el-input v-model="editForm.tags" :placeholder="t('tool.tagsPh')" />
         </el-form-item>
-        <el-form-item label="API 地址" required>
+        <el-form-item :label="t('tool.apiUrl')" required>
           <el-input v-model="editForm.url" placeholder="https://api.example.com/search" />
         </el-form-item>
-        <el-form-item label="请求方法">
+        <el-form-item :label="t('tool.method')">
           <el-select v-model="editForm.method" style="width: 140px">
             <el-option v-for="m in ['GET','POST','PUT','PATCH','DELETE']" :key="m" :value="m" :label="m" />
           </el-select>
         </el-form-item>
-        <el-form-item label="请求头">
+        <el-form-item :label="t('tool.headers')">
           <el-input v-model="editForm.headersText" type="textarea" :rows="2"
-                    placeholder='JSON 对象，如 {"Content-Type":"application/json"}' />
+                    :placeholder="t('tool.headersPh')" />
         </el-form-item>
-        <el-form-item label="参数 Schema">
+        <el-form-item :label="t('tool.paramSchema')">
           <div class="param-editor">
             <el-table :data="editForm.params" size="small">
-              <el-table-column label="参数名" width="130">
+              <el-table-column :label="t('tool.paramName')" width="130">
                 <template #default="{ row }"><el-input v-model="row.name" size="small" /></template>
               </el-table-column>
-              <el-table-column label="类型" width="100">
+              <el-table-column :label="t('tool.typeLabel')" width="100">
                 <template #default="{ row }">
                   <el-select v-model="row.type" size="small">
                     <el-option v-for="t in ['string','number','boolean','integer']" :key="t" :value="t" :label="t" />
                   </el-select>
                 </template>
               </el-table-column>
-              <el-table-column label="位置" width="90">
+              <el-table-column :label="t('tool.location')" width="90">
                 <template #default="{ row }">
                   <el-select v-model="row.in" size="small">
                     <el-option label="query" value="query" />
@@ -112,89 +112,89 @@
                   </el-select>
                 </template>
               </el-table-column>
-              <el-table-column label="必填" width="60">
+              <el-table-column :label="t('tool.required')" width="60">
                 <template #default="{ row }"><el-checkbox v-model="row.required" /></template>
               </el-table-column>
-              <el-table-column label="说明">
+              <el-table-column :label="t('tool.note')">
                 <template #default="{ row }"><el-input v-model="row.description" size="small" /></template>
               </el-table-column>
               <el-table-column width="52">
                 <template #default="{ $index }">
-                  <el-button text type="danger" size="small" @click="editForm.params.splice($index, 1)">删</el-button>
+                  <el-button text type="danger" size="small" @click="editForm.params.splice($index, 1)">{{ t('tool.remove') }}</el-button>
                 </template>
               </el-table-column>
             </el-table>
-            <el-button size="small" class="mt8" @click="addParam">＋ 添加参数</el-button>
+            <el-button size="small" class="mt8" @click="addParam">{{ t('tool.addParam') }}</el-button>
           </div>
         </el-form-item>
-        <el-form-item label="请求体模板">
+        <el-form-item :label="t('tool.bodyTemplate')">
           <el-input v-model="editForm.bodyTemplate" type="textarea" :rows="3"
-                    placeholder='POST/PUT 时使用，支持 {{参数名}} 占位，如 {"q":"{{query}}"}' />
+                    :placeholder="t('tool.bodyPh')" />
         </el-form-item>
-        <el-form-item label="响应解析路径">
-          <el-input v-model="editForm.responsePath" placeholder="如 data.items（点路径，可含数组下标）" />
+        <el-form-item :label="t('tool.responsePath')">
+          <el-input v-model="editForm.responsePath" :placeholder="t('tool.responsePh')" />
         </el-form-item>
-        <el-form-item label="鉴权方式">
+        <el-form-item :label="t('tool.authType')">
           <el-select v-model="editForm.authType" style="width: 140px">
-            <el-option label="无" value="NONE" />
+            <el-option :label="t('tool.none')" value="NONE" />
             <el-option label="API Key" value="API_KEY" />
             <el-option label="Bearer" value="BEARER" />
             <el-option label="Basic" value="BASIC" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="editForm.authType === 'API_KEY'" label="Key 配置">
-          <el-input v-model="editForm.authHeader" placeholder="Header 名，默认 X-API-Key" style="width: 200px" />
-          <el-input v-model="editForm.authValue" type="password" show-password placeholder="Key（****** 表示不修改）"
+        <el-form-item v-if="editForm.authType === 'API_KEY'" :label="t('tool.keyConfig')">
+          <el-input v-model="editForm.authHeader" :placeholder="t('tool.headerNamePh')" style="width: 200px" />
+          <el-input v-model="editForm.authValue" type="password" show-password :placeholder="t('tool.keyPh')"
                     style="width: 260px; margin-left: 8px" />
         </el-form-item>
         <el-form-item v-if="editForm.authType === 'BEARER'" label="Token">
           <el-input v-model="editForm.authToken" type="password" show-password
-                    placeholder="Bearer Token（****** 表示不修改）" />
+                    :placeholder="t('tool.bearerPh')" />
         </el-form-item>
         <el-form-item v-if="editForm.authType === 'BASIC'" label="Basic">
-          <el-input v-model="editForm.authUser" placeholder="用户名" style="width: 200px" />
+          <el-input v-model="editForm.authUser" :placeholder="t('tool.username')" style="width: 200px" />
           <el-input v-model="editForm.authPassword" type="password" show-password
-                    placeholder="密码（****** 表示不修改）" style="width: 260px; margin-left: 8px" />
+                    :placeholder="t('tool.passwordPh')" style="width: 260px; margin-left: 8px" />
         </el-form-item>
-        <el-form-item label="超时(ms)">
+        <el-form-item :label="t('tool.timeoutMs')">
           <el-input-number v-model="editForm.timeoutMs" :min="500" :max="120000" :step="500" />
         </el-form-item>
-        <el-form-item label="重试次数">
+        <el-form-item :label="t('tool.retryTimes')">
           <el-input-number v-model="editForm.retryTimes" :min="0" :max="3" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <el-button @click="editVisible = false">{{ t('tool.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="save">{{ t('tool.save') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- 测试 -->
-    <el-dialog v-model="testVisible" :title="`测试工具：${testForm.name}`" width="640px">
+    <el-dialog v-model="testVisible" :title="`${t('tool.testTitle')}${testForm.name}`" width="640px">
       <el-input v-model="testForm.argsJson" type="textarea" :rows="4"
-                placeholder='调用参数 JSON，如 {"expression":"(12+3)*4"}' />
+                :placeholder="t('tool.testPh')" />
       <div class="mt8">
-        <el-button type="primary" :loading="testing" @click="runTest">执行测试</el-button>
-        <span class="hint">测试不写入正式 Trace</span>
+        <el-button type="primary" :loading="testing" @click="runTest">{{ t('tool.runTest') }}</el-button>
+        <span class="hint">{{ t('tool.testHint') }}</span>
       </div>
       <div v-if="testForm.output" class="test-result">
-        <div class="test-label">输出（{{ testForm.latencyMs }}ms）</div>
+        <div class="test-label">{{ t('tool.output') }}（{{ testForm.latencyMs }}ms）</div>
         <div class="test-output">{{ testForm.output }}</div>
       </div>
     </el-dialog>
 
     <!-- 版本 -->
-    <el-drawer v-model="versionsVisible" title="版本历史" size="420px">
+    <el-drawer v-model="versionsVisible" :title="t('tool.versionHistory')" size="420px">
       <el-table :data="versions" size="small">
-        <el-table-column prop="version" label="版本" width="80" />
-        <el-table-column prop="createdAt" label="时间" />
-        <el-table-column label="操作" width="90">
+        <el-table-column prop="version" :label="t('tool.version')" width="80" />
+        <el-table-column prop="createdAt" :label="t('tool.time')" />
+        <el-table-column :label="t('tool.actions')" width="90">
           <template #default="{ row }">
-            <el-button size="small" text type="primary" @click="rollback(row.version)">回滚</el-button>
+            <el-button size="small" text type="primary" @click="rollback(row.version)">{{ t('tool.rollback') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="versions.length === 0" description="暂无版本，请先发布" :image-size="60" />
+      <el-empty v-if="versions.length === 0" :description="t('tool.noVersions')" :image-size="60" />
     </el-drawer>
   </div>
 </template>
@@ -244,7 +244,7 @@ onMounted(async () => {
   await load()
   if (route.query.create === '1') {
     if (canManage.value) openCreate()
-    else ElMessage.warning('当前账号无新建工具权限')
+    else ElMessage.warning(t('tool.noPermission'))
     const query = { ...route.query }
     delete query.create
     router.replace({ query })
@@ -315,14 +315,14 @@ function parseHeaders() {
   try {
     return JSON.parse(text)
   } catch {
-    ElMessage.error('请求头不是合法 JSON')
+    ElMessage.error(t('tool.invalidJson'))
     return null
   }
 }
 
 async function save() {
-  if (!editForm.name.trim()) { ElMessage.warning('名称必填'); return }
-  if (!editForm.url.trim()) { ElMessage.warning('API 地址必填'); return }
+  if (!editForm.name.trim()) { ElMessage.warning(t('tool.nameRequired')); return }
+  if (!editForm.url.trim()) { ElMessage.warning(t('tool.urlRequired')); return }
   const headers = parseHeaders()
   if (headers === null) return
   const auth: any = { type: editForm.authType }
@@ -360,7 +360,7 @@ async function save() {
     } else {
       await http.post('/tools', payload)
     }
-    ElMessage.success('已保存')
+    ElMessage.success(t('tool.saved'))
     editVisible.value = false
     await load()
   } finally {
@@ -386,7 +386,7 @@ async function runTest() {
 
 async function publish(row: any) {
   const res = await http.post(`/tools/${row.id}/publish`) as any
-  ElMessage.success(`已发布 ${res.version}`)
+  ElMessage.success(`${t('tool.published')} ${res.version}`)
 }
 
 async function openVersions(row: any) {
@@ -396,9 +396,9 @@ async function openVersions(row: any) {
 }
 
 async function rollback(version: string) {
-  await ElMessageBox.confirm(`回滚到 ${version} 将生成新版本，继续？`, '回滚确认', { type: 'warning' })
+  await ElMessageBox.confirm(`${t('tool.rollbackConfirm')}${version}${t('tool.rollbackSuffix')}`, t('tool.rollbackTitle'), { type: 'warning' })
   await http.post(`/tools/${versionToolId.value}/versions/${version}/rollback`)
-  ElMessage.success('已回滚')
+  ElMessage.success(t('tool.rolledBack'))
   versionsVisible.value = false
   await load()
 }
@@ -406,14 +406,14 @@ async function rollback(version: string) {
 async function remove(row: any) {
   const refs = await http.get(`/tools/${row.id}/references`) as any
   const refsText = [
-    (refs?.agents || []).length ? `Agent：${refs.agents.join('、')}` : '',
-    (refs?.skills || []).length ? `技能：${refs.skills.join('、')}` : ''
+    (refs?.agents || []).length ? `${t('tool.refsAgent')}${refs.agents.join('、')}` : '',
+    (refs?.skills || []).length ? `${t('tool.refsSkill')}${refs.skills.join('、')}` : ''
   ].filter(Boolean).join('；')
-  const extra = refsText ? `该工具被引用（${refsText}），将软删除并显示「已失效」。` : '该工具未被引用，将永久删除。'
-  await ElMessageBox.confirm(`确认删除工具「${row.name}」？${extra}`, '删除工具',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  const extra = refsText ? `${t('tool.refsSoft')}${refsText}${t('tool.refsSoftSuffix')}` : t('tool.refsNone')
+  await ElMessageBox.confirm(`${t('tool.deleteConfirm')}${row.name}${t('tool.deleteSuffix')}${extra}`, t('tool.deleteTool'),
+    { type: 'warning', confirmButtonText: t('tool.delete'), cancelButtonText: t('tool.cancel') })
   const res = await http.delete(`/tools/${row.id}`) as any
-  ElMessage.success(res?.softDeleted ? '已软删除（已失效）' : '已删除')
+  ElMessage.success(res?.softDeleted ? t('tool.softDeleted') : t('tool.deleted'))
   await load()
 }
 </script>
