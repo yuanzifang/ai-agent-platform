@@ -1309,7 +1309,7 @@ onMounted(async () => {
   for (const b of detail.knowledgeBases || []) {
     if (!visibleIds.has(b.knowledgeBaseId)) {
       kbRows.value.push({
-        knowledgeBaseId: b.knowledgeBaseId, name: `已失效（KB #${b.knowledgeBaseId}）`,
+        knowledgeBaseId: b.knowledgeBaseId, name: `${t('agentMsg.invalidSuffix')}KB #${b.knowledgeBaseId}${t('agentMsg.invalidSuffix2')}`,
         enabled: false, topK: 5, scoreThreshold: 0.5, mode: 'hybrid', missing: true
       })
     }
@@ -1335,8 +1335,8 @@ function buildRefRows(type: RefType, bindings: any[], catalog: any[], target: an
   for (const b of bindings || []) {
     const id = type === 'skill' ? b.skillId : type === 'tool' ? b.toolId : b.subAgentId
     if (!visibleIds.has(id)) {
-      const label = type === 'skill' ? '技能' : type === 'tool' ? '工具' : 'Agent'
-      rows.push({ id, name: `已失效（${label} #${id}）`, enabled: false, missing: true })
+      const label = type === 'skill' ? t('agentMsg.typeSkill') : type === 'tool' ? t('agentMsg.typeTool') : t('agentMsg.typeAgent')
+      rows.push({ id, name: `${t('agentMsg.invalidSuffix')}${label} #${id}${t('agentMsg.invalidSuffix2')}`, enabled: false, missing: true })
     }
   }
   target.value = rows
@@ -1354,7 +1354,7 @@ async function loadCredentials() {
 
 function toolName(id?: number) {
   if (!id) return '—'
-  return toolCatalog.value.find((t: any) => t.id === id)?.name || ('工具 #' + id)
+  return toolCatalog.value.find((t: any) => t.id === id)?.name || (`${t('agentMsg.typeTool')} #${id}`)
 }
 
 function openCredentialCreate() {
@@ -1374,7 +1374,7 @@ function openCredentialEdit(row: any) {
 
 async function saveCredential() {
   if (!credentialForm.name.trim()) { ElMessage.warning(t('agentDlg.keyNameRequired')); return }
-  if (!credentialForm.id && !credentialForm.content.trim()) { ElMessage.warning('凭证内容必填'); return }
+  if (!credentialForm.id && !credentialForm.content.trim()) { ElMessage.warning(t('agentMsg.credContentRequired')); return }
   credentialSaving.value = true
   try {
     const payload: any = {
@@ -1395,7 +1395,7 @@ async function saveCredential() {
 }
 
 async function removeCredential(row: any) {
-  await ElMessageBox.confirm(`删除凭证「${row.name}」？引用该凭证的工具调用将失效。`, '删除凭证',
+  await ElMessageBox.confirm(`${t('agentMsg.deleteCredPrefix')}${row.name}${t('agentMsg.deleteCredMid')}`, t('agentMsg.deleteCredTitle'),
     { type: 'warning', confirmButtonText: t('agentDlg.delete'), cancelButtonText: t('agentDlg.cancel') })
   await http.delete(`/agent/${agentId}/credentials/${row.id}`)
   ElMessage.success(t('agentDlg.deleted'))
@@ -1606,11 +1606,11 @@ async function createWidgetKey() {
   widgetCreating.value = true
   try {
     const res = await http.post(`/agent/${agentId}/api-keys`, {
-      name: '网页挂件', channel: 'WIDGET', dailyLimit: 0, minuteLimit: 60
+      name: t('agentMsg.widgetName'), channel: 'WIDGET', dailyLimit: 0, minuteLimit: 60
     }) as any
     widgetKey.value = res.apiKey
     const src = `${location.origin}/widget?key=${encodeURIComponent(res.apiKey)}`
-    widgetSnippet.value = `<iframe src="${src}" title="AI 助手" style="width:100%;height:640px;border:0;border-radius:12px"></iframe>`
+    widgetSnippet.value = `<iframe src="${src}" :title="t('widget.defaultName')" style="width:100%;height:640px;border:0;border-radius:12px"></iframe>`
     ElMessage.success(t('agentDlg.widgetGenerated'))
     await loadApiKeys()
   } finally {
@@ -1669,7 +1669,7 @@ const integratedAgentId = ref(0)
 function modelLabel(m: any) {
   const name = m.displayName || m.modelName
   const c = Number(m.contextWindow || 0)
-  return c > 0 ? `${name}（${c >= 1048576 ? (c / 1048576) + 'M' : (c / 1024) + 'K'} 上下文）` : name
+  return c > 0 ? `${name}（${c >= 1048576 ? (c / 1048576) + 'M' : (c / 1024) + 'K'}${t('agentMsg.contextSuffix')}` : name
 }
 
 function openOptimize() {
@@ -1745,7 +1745,7 @@ function goCreate(kind: 'skill' | 'tool' | 'mcp') {
 async function openWorkflow() {
   const data = await http.get(`/agent/${agentId}/workflow`) as any
   workflowConfigured.value = !!data?.configured
-  workflowForm.name = data?.name || `${form.name} 工作流`
+  workflowForm.name = data?.name || `${form.name}${t('agentMsg.workflowNameSuffix')}`
   workflowForm.status = data?.status || 'ENABLED'
   workflowPublishedVersion.value = data?.publishedVersion || ''
   workflowHasUnpublishedChanges.value = !!data?.hasUnpublishedChanges
@@ -1758,8 +1758,8 @@ async function openWorkflow() {
   wfSelected.value = ''
   if (!workflowForm.nodes.length) {
     workflowForm.nodes = [
-      { id: 'start', type: 'START', name: '开始', next: 'end' },
-      { id: 'end', type: 'END', name: '结束' }
+      { id: 'start', type: 'START', name: t('agentMsg.defaultStart'), next: 'end' },
+      { id: 'end', type: 'END', name: t('agentMsg.defaultEnd') }
     ]
     ensureWorkflowPositions()
   }
@@ -1862,7 +1862,7 @@ function onCanvasNodeClick(n: any) {
   if (!wfLinkMode.value) return
   if (!wfLinkFrom.value) {
     wfLinkFrom.value = n.id
-    ElMessage.info(`已选择起点：${n.name}，请点击终点`)
+    ElMessage.info(`${t('agentMsg.startSelected')}${n.name}${t('agentMsg.clickEnd')}`)
     return
   }
   if (wfLinkFrom.value === n.id) {
@@ -1875,7 +1875,7 @@ function onCanvasNodeClick(n: any) {
   const exists = workflowForm.edges.some((e: any) => e.from === wfLinkFrom.value && e.to === n.id)
   if (!exists) workflowForm.edges.push({ from: wfLinkFrom.value, to: n.id, label })
   wfLinkFrom.value = ''
-  ElMessage.success('已添加 Graph 边，可在下方编辑标签或删除')
+  ElMessage.success(t('agentMsg.edgeAdded'))
 }
 
 function zoomCanvas(delta: number) {
@@ -1923,7 +1923,7 @@ function applyWorkflowTemplate(t: any) {
     try { def = JSON.parse(def) } catch { def = {} }
   }
   const nodes = def?.nodes || []
-  if (!nodes.length) { ElMessage.warning('模板无节点'); return }
+  if (!nodes.length) { ElMessage.warning(t('agentMsg.templateNoNodes')); return }
   workflowForm.nodes = nodes.map((n: any) => ({
     ...n, ...(n.type === 'LOOP' ? { itemsText: JSON.stringify(n.items || []) } : {})
   }))
@@ -1931,7 +1931,7 @@ function applyWorkflowTemplate(t: any) {
   wfMode.value = 'list'
   wfSelected.value = ''
   wfTemplatesVisible.value = false
-  ElMessage.success('模板已载入，请补充知识库/工具等配置后保存')
+  ElMessage.success(t('agentMsg.templateLoaded'))
 }
 
 function startNodeDrag(ev: MouseEvent, n: any) {
@@ -1971,23 +1971,23 @@ function compareVersion(row: any) {
   for (const n of current) {
     const old = oldMap.get(n.id)
     if (!old) {
-      rows.push({ id: n.id, name: n.name, change: '新增', detail: '新节点' })
+      rows.push({ id: n.id, name: n.name, change: t('agentMsg.diffAdded'), detail: t('agentMsg.newNode') })
       continue
     }
     const changed = fields.filter(f => JSON.stringify(n[f] ?? null) !== JSON.stringify(old[f] ?? null))
-    if (changed.length) rows.push({ id: n.id, name: n.name, change: '修改', detail: changed.join(', ') })
+    if (changed.length) rows.push({ id: n.id, name: n.name, change: t('agentMsg.diffModified'), detail: changed.join(', ') })
   }
   for (const o of oldNodes) {
-    if (!curMap.has(o.id)) rows.push({ id: o.id, name: o.name, change: '删除', detail: '已从草稿移除' })
+    if (!curMap.has(o.id)) rows.push({ id: o.id, name: o.name, change: t('agentMsg.diffDeleted'), detail: t('agentMsg.removedDraft') })
   }
   wfDiffRows.value = rows
-  wfDiffTitle.value = `版本 ${row.version} ↔ 当前草稿`
+  wfDiffTitle.value = `${t('agentMsg.diffTitlePrefix')}${row.version}${t('agentMsg.diffTitleMid')}`
   wfDiffVisible.value = true
 }
 
 function diffTag(change: string) {
-  if (change === '新增') return 'success'
-  if (change === '删除') return 'danger'
+  if (change === t('agentMsg.diffAdded')) return 'success'
+  if (change === t('agentMsg.diffDeleted')) return 'danger'
   return 'warning'
 }
 
@@ -2002,7 +2002,7 @@ function addGraphEdge() {
 function addWorkflowNode() {
   const id = `n${Date.now().toString(36)}${Math.floor(Math.random() * 100)}`
   const node: any = { id, type: wfAddType.value, name: wfTypeText(wfAddType.value), next: 'end' }
-  if (wfAddType.value === 'APPROVAL') node.title = '人工审批'
+  if (wfAddType.value === 'APPROVAL') node.title = t('agentMsg.approvalTitle')
   if (wfAddType.value === 'LLM') node.prompt = ''
   if (wfAddType.value === 'HANDOFF') { node.inputTemplate = '{{input}}'; node.returnRounds = 1 }
   if (wfAddType.value === 'STATE') { node.stateKey = ''; node.valueTemplate = '{{last}}' }
@@ -2064,7 +2064,7 @@ function rewireWorkflow() {
 async function saveWorkflow() {
   if (!workflowForm.nodes.some((n: any) => n.type === 'START')
       || !workflowForm.nodes.some((n: any) => n.type === 'END')) {
-    ElMessage.warning('工作流必须包含开始和结束节点')
+    ElMessage.warning(t('agentMsg.workflowRequired'))
     return
   }
   workflowSaving.value = true
@@ -2089,7 +2089,7 @@ async function saveWorkflow() {
     const fresh = await http.get(`/agent/${agentId}/workflow`) as any
     workflowPublishedVersion.value = fresh?.publishedVersion || ''
     workflowHasUnpublishedChanges.value = !!fresh?.hasUnpublishedChanges
-    ElMessage.success('工作流草稿已保存')
+    ElMessage.success(t('agentMsg.workflowSaved'))
     return true
   } finally {
     workflowSaving.value = false
@@ -2105,7 +2105,7 @@ async function publishWorkflow() {
     const res = await http.post(`/agent/${agentId}/workflow/publish`) as any
     workflowPublishedVersion.value = res.version
     workflowHasUnpublishedChanges.value = false
-    ElMessage.success(`已发布 ${res.version}`)
+    ElMessage.success(`${t('agentMsg.published')}${res.version}`)
   } finally {
     workflowPublishing.value = false
   }
@@ -2117,10 +2117,10 @@ async function openWorkflowVersions() {
 }
 
 async function rollbackWorkflow(version: string) {
-  await ElMessageBox.confirm(`回滚到 ${version} 将恢复其内容并发布为新版本，继续？`, '回滚工作流',
-    { type: 'warning', confirmButtonText: '回滚', cancelButtonText: '取消' })
+  await ElMessageBox.confirm(`${t('agentMsg.rollbackWorkflowConfirm')}${version}${t('agentMsg.rollbackWorkflowSuffix')}`, t('agentMsg.rollbackWorkflow'),
+    { type: 'warning', confirmButtonText: t('agentMsg.rollbackWorkflow'), cancelButtonText: t('agentDlg.cancel') })
   const res = await http.post(`/agent/${agentId}/workflow/versions/${version}/rollback`) as any
-  ElMessage.success(`已回滚并发布 ${res.version}`)
+  ElMessage.success(`${t('agentMsg.rolledBackPublished')}${res.version}`)
   wfVersionsVisible.value = false
   const data = await http.get(`/agent/${agentId}/workflow`) as any
   workflowForm.name = data.name
@@ -2132,13 +2132,13 @@ async function rollbackWorkflow(version: string) {
 }
 
 async function runWorkflow() {
-  if (!workflowRunInput.value.trim()) { ElMessage.warning('请输入测试内容'); return }
+  if (!workflowRunInput.value.trim()) { ElMessage.warning(t('agentMsg.testInputRequired')); return }
   workflowRunning.value = true
   try {
     workflowRunResult.value = await http.post(`/agent/${agentId}/workflow/run`,
       { input: workflowRunInput.value.trim() }, { timeout: 180000 }) as any
     if (workflowRunResult.value?.status === 'WAITING_APPROVAL') {
-      ElMessage.info('已暂停在人工审批节点，请到审批箱处理')
+      ElMessage.info(t('agentMsg.pausedApproval'))
     }
   } finally {
     workflowRunning.value = false
@@ -2197,7 +2197,7 @@ function buildPayload() {
 
 async function save() {
   if (!form.name.trim() || !form.modelName || !form.systemPrompt.trim()) {
-    ElMessage.warning('名称、模型、提示词必填')
+    ElMessage.warning(t('agentMsg.fieldsRequired'))
     return
   }
   saving.value = true
@@ -2219,21 +2219,21 @@ async function publish(force = false) {
   await save()
   // 发布可能先执行预发布门禁评测（每样本约 5-30s），超时放宽至 10 分钟
   const loading = ElLoading.service({
-    text: force ? '强制发布中…' : '发布中…若配置了预发布门禁，将先执行评测（可能需数分钟）',
+    text: force ? t('agentMsg.forcePublishing') : t('agentMsg.publishing'),
     background: 'rgba(0, 0, 0, 0.4)'
   })
   try {
     const res = await http.post(`/agent/${agentId}/publish`, { force }, { timeout: 600000 }) as any
     form.status = 'PUBLISHED'
-    ElMessage.success(`已发布 ${res.version}`)
+    ElMessage.success(`${t('agentMsg.published')}${res.version}`)
   } catch (err: any) {
     const msg = String(err?.response?.data?.message || err?.message || err)
-    if (msg.includes('预发布测评未通过')) {
+    if (msg.includes(t('agentMsg.gateFailed'))) {
       loading.close()
       try {
         await ElMessageBox.confirm(
-          `${msg}\n\n是否强制发布？（需 OWNER/ADMIN 权限）`, '预发布门禁未通过',
-          { type: 'warning', confirmButtonText: '强制发布', cancelButtonText: '取消' })
+          `${msg}\n\n${t('agentMsg.forcePublishPrompt')}`, t('agentMsg.gateTitle'),
+          { type: 'warning', confirmButtonText: t('agentMsg.forcePublish'), cancelButtonText: t('agentDlg.cancel') })
         await publish(true)
       } catch { /* 取消 */ }
       return
@@ -2247,8 +2247,8 @@ async function publish(force = false) {
 async function toggleListing(value: boolean) {
   if (!value) {
     try {
-      await ElMessageBox.confirm('下架后 Agent 广场不可见，已使用的用户仍可继续对话。是否下架？',
-        '下架 Agent', { type: 'warning', confirmButtonText: '下架', cancelButtonText: '取消' })
+      await ElMessageBox.confirm(t('agentMsg.delistConfirm'),
+        t('agentMsg.delistTitle'), { type: 'warning', confirmButtonText: t('agentMsg.delist'), cancelButtonText: t('agentDlg.cancel') })
     } catch {
       form.listed = true
       return
@@ -2256,7 +2256,7 @@ async function toggleListing(value: boolean) {
   }
   try {
     await http.put(`/square/agents/${agentId}/listing`, { listed: value })
-    ElMessage.success(value ? '已上架广场' : '已下架')
+    ElMessage.success(value ? t('agentMsg.listedMsg') : t('agentMsg.delistedMsg'))
   } catch {
     form.listed = !value
   }
@@ -2268,9 +2268,9 @@ async function openVersions() {
 }
 
 async function rollback(version: string) {
-  await ElMessageBox.confirm(`回滚到 ${version} 将生成新版本，继续？`, '回滚确认', { type: 'warning' })
+  await ElMessageBox.confirm(`${t('agentMsg.rollbackConfirm')}${version}${t('agentMsg.rollbackSuffix')}`, t('agentMsg.rollbackTitle'), { type: 'warning' })
   await http.post(`/agent/${agentId}/versions/${version}/rollback`)
-  ElMessage.success('已回滚（生成新版本），页面即将刷新')
+  ElMessage.success(t('agentMsg.rolledBackRefresh'))
   versionsVisible.value = false
   setTimeout(() => router.go(0), 600)
 }
@@ -2296,7 +2296,7 @@ async function debugSend() {
     reply.usage = res.usage
     reply.latencyMs = res.latencyMs
   } catch (e: any) {
-    reply.content = '调试失败：' + (e.message || e)
+    reply.content = t('agentMsg.debugFailed') + (e.message || e)
   } finally {
     debugRunning.value = false
     scrollDbg()
