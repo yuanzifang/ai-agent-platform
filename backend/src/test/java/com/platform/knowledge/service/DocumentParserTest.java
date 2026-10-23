@@ -7,6 +7,8 @@ import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
+import org.apache.poi.xwpf.usermodel.Document;
+import org.apache.poi.util.Units;
 import org.apache.poi.hslf.usermodel.HSLFSlideShow;
 import org.apache.poi.hslf.usermodel.HSLFSlide;
 import org.apache.poi.hslf.usermodel.HSLFTextBox;
@@ -19,6 +21,7 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -112,6 +115,36 @@ class DocumentParserTest {
         String text = String.join("\n", parser.parse("price.xlsx", bytes));
         assertTrue(text.contains("企业版"));
         assertTrue(text.contains("999"));
+    }
+
+    @Test
+    void ocrEmbeddedDocxImage() throws Exception {
+        Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过内嵌图片 OCR");
+        BufferedImage image = new BufferedImage(900, 260, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, image.getWidth(), image.getHeight());
+            g.setColor(Color.BLACK);
+            g.setFont(new Font("SansSerif", Font.BOLD, 56));
+            g.drawString("IMAGE 5678", 40, 160);
+        } finally { g.dispose(); }
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", png);
+        byte[] bytes;
+        try (XWPFDocument doc = new XWPFDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            var paragraph = doc.createParagraph();
+            var run = paragraph.createRun();
+            run.addPicture(new ByteArrayInputStream(png.toByteArray()), Document.PICTURE_TYPE_PNG,
+                    "image.png", Units.toEMU(450), Units.toEMU(130));
+            doc.write(out);
+            bytes = out.toByteArray();
+        }
+        ReflectionTestUtils.setField(parser, "ocrEnabled", true);
+        ReflectionTestUtils.setField(parser, "ocrCommand", "tesseract");
+        ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
+        String text = String.join("\n", parser.parse("image.docx", bytes));
+        assertTrue(text.contains("5678"), text);
     }
 
     @Test

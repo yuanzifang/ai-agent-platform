@@ -17,6 +17,7 @@ import org.apache.poi.xslf.usermodel.XSLFTable;
 import org.apache.poi.xslf.usermodel.XSLFTableCell;
 import org.apache.poi.xslf.usermodel.XSLFTableRow;
 import org.apache.poi.xslf.usermodel.XSLFTextShape;
+import org.apache.poi.xslf.usermodel.XSLFPictureShape;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.hwpf.HWPFDocument;
 import org.apache.poi.hwpf.extractor.WordExtractor;
@@ -30,7 +31,11 @@ import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.apache.poi.xwpf.usermodel.XWPFPictureData;
 import org.apache.pdfbox.rendering.PDFRenderer;
+import org.apache.pdfbox.pdmodel.PDResources;
+import org.apache.pdfbox.pdmodel.graphics.PDXObject;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.jsoup.Jsoup;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -38,6 +43,7 @@ import org.springframework.stereotype.Service;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -128,6 +134,11 @@ public class DocumentParser {
             for (XWPFTable table : doc.getTables()) {
                 sb.append(parseDocxTable(table));
             }
+            if (ocrEnabled) {
+                for (XWPFPictureData picture : doc.getAllPictures()) {
+                    appendOcr(sb, picture.getData(), picture.suggestFileExtension());
+                }
+            }
         }
         return sb.toString();
     }
@@ -197,7 +208,22 @@ public class DocumentParser {
 
     private String parsePdf(byte[] bytes) throws Exception {
         try (PDDocument doc = org.apache.pdfbox.Loader.loadPDF(bytes)) {
-            return new PDFTextStripper().getText(doc);
+            StringBuilder sb = new StringBuilder(new PDFTextStripper().getText(doc));
+            if (ocrEnabled) {
+                int count = 0;
+                for (int p = 0; p < doc.getNumberOfPages() && count < 20; p++) {
+                    PDResources resources = doc.getPage(p).getResources();
+                    if (resources == null) continue;
+                    for (var name : resources.getXObjectNames()) {
+                        if (count >= 20) break;
+                        PDXObject x = resources.getXObject(name);
+                        if (!(x instanceof PDImageXObject image)) continue;
+                        appendOcr(sb, image.getImage(), "png");
+                        count++;
+                    }
+                }
+            }
+            return sb.toString();
         }
     }
 
@@ -296,6 +322,9 @@ public class DocumentParser {
                             }
                             sb.append("| ").append(String.join(" | ", cells)).append(" |\n");
                         }
+                    } else if (ocrEnabled && shape instanceof XSLFPictureShape picture) {
+                        appendOcr(sb, picture.getPictureData().getData(),
+                                picture.getPictureData().suggestFileExtension());
                     }
                 }
             }
@@ -351,6 +380,31 @@ public class DocumentParser {
     private String extension(String lower) {
         int idx = lower.lastIndexOf('.');
         return idx >= 0 ? lower.substring(idx) : ".img";
+    }
+
+    private void appendOcr(StringBuilder sb, BufferedImage image, String extension) {
+        if (image == null) return;
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            ImageIO.write(image, "png", out);
+            appendOcr(sb, out.toByteArray(), extension);
+        } catch (Exception e) {
+            log.debug("内嵌 PDF 图片编码失败：{}", e.getMessage());
+        }
+    }
+
+    private void appendOcr(StringBuilder sb, byte[] image, String extension) {
+        if (!ocrEnabled || image == null || image.length == 0 || sb.length() > 100_000) return;
+        try {
+            String ext = extension == null || extension.isBlank() ? "png" : extension.toLowerCase(Locale.ROOT);
+            if (!ext.startsWith(".")) ext = "." + ext;
+            String text = ocrImage(image, ext);
+            if (text != null && !text.isBlank()) {
+                sb.append("\n[图片OCR]\n").append(text.trim()).append('\n');
+            }
+        } catch (Exception e) {
+            log.debug("内嵌图片 OCR 跳过：{}", e.getMessage());
+        }
     }
 
     /** 调用外部 OCR 命令：tesseract <image> stdout -l <langs>。 */
