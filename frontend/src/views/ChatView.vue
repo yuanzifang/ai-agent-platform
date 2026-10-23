@@ -404,7 +404,8 @@ async function streamCall(url: string, body: any, pending: ChatMessage) {
   try {
     const resp = await fetch('/api/v1' + url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userStore.accessToken}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userStore.accessToken}`,
+        'Accept-Language': localStorage.getItem('locale') === 'en-US' ? 'en-US' : 'zh-CN' },
       body: JSON.stringify(body),
       signal: aborter.signal
     })
@@ -528,7 +529,8 @@ async function resumeStream(pending: ChatMessage): Promise<boolean> {
   try {
     const offset = (pending.content || '').length
     const resp = await fetch(`/api/v1/conversations/${conversationId.value}/resume?offset=${offset}`, {
-      headers: { Authorization: `Bearer ${userStore.accessToken}` },
+      headers: { Authorization: `Bearer ${userStore.accessToken}`,
+        'Accept-Language': localStorage.getItem('locale') === 'en-US' ? 'en-US' : 'zh-CN' },
       signal: aborter.signal
     })
     if (!resp.ok || !resp.body) return false

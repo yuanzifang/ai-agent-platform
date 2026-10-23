@@ -16,6 +16,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 public class GlobalExceptionHandler {
 
     private final com.platform.system.service.AlertWebhookService alertWebhook;
+    private final BackendMessageTranslator translator = new BackendMessageTranslator();
 
     public GlobalExceptionHandler(com.platform.system.service.AlertWebhookService alertWebhook) {
         this.alertWebhook = alertWebhook;
@@ -29,9 +30,9 @@ public class GlobalExceptionHandler {
         // 5xx 统一脱敏：底层 HTTP/堆栈细节只进日志，不返回给调用方
         if (httpStatus >= 500) {
             log.error("business 5xx（对外脱敏）：code={} message={}", code, e.getMessage(), e);
-            return ResponseEntity.status(httpStatus).body(ApiResponse.error(code, "系统繁忙，请稍后重试"));
+            return ResponseEntity.status(httpStatus).body(ApiResponse.error(code, translator.translate("系统繁忙，请稍后重试")));
         }
-        return ResponseEntity.status(httpStatus).body(ApiResponse.error(code, e.getMessage()));
+        return ResponseEntity.status(httpStatus).body(ApiResponse.error(code, translator.translate(e.getMessage())));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -40,18 +41,19 @@ public class GlobalExceptionHandler {
                 .findFirst()
                 .map(f -> f.getField() + " " + f.getDefaultMessage())
                 .orElse("参数错误");
+        msg = translator.translate(msg);
         return ResponseEntity.badRequest().body(ApiResponse.error(400, msg));
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleNotFound(NoResourceFoundException e) {
-        return ResponseEntity.status(404).body(ApiResponse.error(404, "接口不存在"));
+        return ResponseEntity.status(404).body(ApiResponse.error(404, translator.translate("接口不存在")));
     }
 
     @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
     public ResponseEntity<ApiResponse<Void>> handleAccessDenied(
             org.springframework.security.access.AccessDeniedException e) {
-        return ResponseEntity.status(403).body(ApiResponse.error(403, "无操作权限（权限点校验未通过）"));
+        return ResponseEntity.status(403).body(ApiResponse.error(403, translator.translate("无操作权限（权限点校验未通过）")));
     }
 
     @ExceptionHandler(Exception.class)
@@ -63,9 +65,9 @@ public class GlobalExceptionHandler {
             if (http >= 500) {
                 log.error("wrapped business 5xx（对外脱敏）：code={} message={}",
                         business.getCode(), business.getMessage(), e);
-                return ResponseEntity.status(http).body(ApiResponse.error(business.getCode(), "系统繁忙，请稍后重试"));
+                return ResponseEntity.status(http).body(ApiResponse.error(business.getCode(), translator.translate("系统繁忙，请稍后重试")));
             }
-            return ResponseEntity.status(http).body(ApiResponse.error(business.getCode(), business.getMessage()));
+            return ResponseEntity.status(http).body(ApiResponse.error(business.getCode(), translator.translate(business.getMessage())));
         }
         log.error("unhandled exception", e);
         try {
@@ -74,7 +76,7 @@ public class GlobalExceptionHandler {
         } catch (Exception ignored) { }
         // 非业务异常统一脱敏：内部细节（SQL/HTTP 报文/类名路径）不透给调用方
         return ResponseEntity.internalServerError()
-                .body(ApiResponse.error(500, "系统异常，请稍后重试"));
+                .body(ApiResponse.error(500, translator.translate("系统异常，请稍后重试")));
     }
 
     private String rootMessage(Throwable e) {

@@ -91,6 +91,24 @@ test('权限与租户基线', async ({ request }) => {
   }
 })
 
+test('后端错误消息按 Accept-Language 返回英文', async ({ request }) => {
+  const en = await request.post(`${P}/auth/login`, {
+    headers: { 'Content-Type': 'application/json', 'Accept-Language': 'en-US,en;q=0.9' },
+    data: { username: 'nobody', password: 'wrong-password' }
+  })
+  const enBody = await en.json()
+  expect(enBody.code).toBe(401)
+  expect(enBody.message).toContain('Invalid username or password')
+
+  const zh = await request.post(`${P}/auth/login`, {
+    headers: { 'Content-Type': 'application/json', 'Accept-Language': 'zh-CN' },
+    data: { username: 'nobody', password: 'wrong-password' }
+  })
+  const zhBody = await zh.json()
+  expect(zhBody.code).toBe(401)
+  expect(zhBody.message).toContain('用户名或密码错误')
+})
+
 test('Refresh Token 仅 HttpOnly Cookie', async ({ request }) => {
   const res = await request.post(`${P}/auth/login`, {
     data: { username: 'dev', password: 'Dev@123456', tenantKey: 'dev' }

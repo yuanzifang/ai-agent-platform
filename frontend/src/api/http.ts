@@ -8,6 +8,7 @@ const http = axios.create({ baseURL: '/api/v1', timeout: 30000, withCredentials:
 http.interceptors.request.use((config) => {
   const user = useUserStore()
   if (user.accessToken) config.headers.Authorization = `Bearer ${user.accessToken}`
+  config.headers['Accept-Language'] = localStorage.getItem('locale') === 'en-US' ? 'en-US' : 'zh-CN'
   return config
 })
 
