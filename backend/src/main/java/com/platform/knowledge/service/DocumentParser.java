@@ -441,13 +441,21 @@ public class DocumentParser {
                         String text = textShape.getText();
                         if (text != null && !text.isBlank()) sb.append(text).append('\n');
                     } else if (shape instanceof XSLFTable table) {
+                        sb.append("<table border=\"1\">\n");
                         for (XSLFTableRow row : table.getRows()) {
-                            List<String> cells = new ArrayList<>();
+                            sb.append("<tr>");
                             for (XSLFTableCell cell : row.getCells()) {
-                                cells.add(cell.getText() == null ? "" : cell.getText().trim());
+                                int colspan = Math.max(1, cell.getGridSpan());
+                                int rowspan = Math.max(1, cell.getRowSpan());
+                                sb.append("<td");
+                                if (colspan > 1) sb.append(" colspan=\"").append(colspan).append("\"");
+                                if (rowspan > 1) sb.append(" rowspan=\"").append(rowspan).append("\"");
+                                sb.append(">").append(escapeHtml(cell.getText() == null ? "" : cell.getText().trim()))
+                                        .append("</td>");
                             }
-                            sb.append("| ").append(String.join(" | ", cells)).append(" |\n");
+                            sb.append("</tr>\n");
                         }
+                        sb.append("</table>\n");
                     } else if (ocrEnabled && shape instanceof XSLFPictureShape picture) {
                         appendOcr(sb, picture.getPictureData().getData(),
                                 picture.getPictureData().suggestFileExtension());

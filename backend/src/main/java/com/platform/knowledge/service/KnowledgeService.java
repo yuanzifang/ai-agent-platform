@@ -64,6 +64,7 @@ public class KnowledgeService {
     private final VectorRepository vectorRepository;
     private final HybridRetrievalService hybridRetrieval;
     private final DocumentParser parser;
+    private final ImageUnderstandingService imageUnderstanding;
     private final ObjectMapper objectMapper;
     private final KnowledgePermissionService permissionService;
     private final SysUserMapper userMapper;
@@ -539,7 +540,21 @@ public class KnowledgeService {
                 || kb.getEmbeddingModel().isBlank()
                 ? embeddingService.model() : kb.getEmbeddingModel();
         int embeddingDimensions = embeddingService.dimension(embeddingModel);
-        List<DocumentParser.ParsedChunk> chunks = parser.parseWithParents(doc.getFileName(), bytes);
+        List<DocumentParser.ParsedChunk> chunks = new ArrayList<>(
+                parser.parseWithParents(doc.getFileName(), bytes));
+        if (imageUnderstanding.enabled()) {
+            int described = 0;
+            for (DocumentParser.ExtractedImage image : parser.extractImages(doc.getFileName(), bytes)) {
+                if (described >= imageUnderstanding.maxImages()) break;
+                String description = imageUnderstanding.describe(image.data(), image.extension());
+                if (description == null || description.isBlank()) continue;
+                String content = "【图片说明】" + description.trim();
+                if (content.length() > 500) content = content.substring(0, 500);
+                chunks.add(new DocumentParser.ParsedChunk(content, chunks.size(), content));
+                described++;
+            }
+            if (described > 0) log.info("文档图片多模态分段：doc={} images={}", doc.getId(), described);
+        }
         float[][] vectors = embeddingService.embedBatch(
                 chunks.stream().map(DocumentParser.ParsedChunk::content).toList(), embeddingModel);
 

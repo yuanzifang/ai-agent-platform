@@ -130,6 +130,13 @@ knowledge:
     languages: ${KNOWLEDGE_OCR_LANGUAGES:chi_sim+eng}
     max-pages: ${KNOWLEDGE_OCR_MAX_PAGES:20}
     dpi: ${KNOWLEDGE_OCR_DPI:150}
+  vision:
+    # 可选图片多模态理解（本地 Ollama 视觉模型）；默认关闭
+    enabled: ${KNOWLEDGE_VISION_ENABLED:false}
+    endpoint: ${KNOWLEDGE_VISION_ENDPOINT:http://127.0.0.1:11434}
+    model: ${KNOWLEDGE_VISION_MODEL:qwen3-vl:32b}
+    timeout-seconds: ${KNOWLEDGE_VISION_TIMEOUT_SECONDS:180}
+    max-images: ${KNOWLEDGE_VISION_MAX_IMAGES:3}
 
 pgvector:
   url: ${PG_URL:jdbc:postgresql://localhost:5432/vector}

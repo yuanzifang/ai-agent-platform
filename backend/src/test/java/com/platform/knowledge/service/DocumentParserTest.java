@@ -3,6 +3,7 @@ package com.platform.knowledge.service;
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
 import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xslf.usermodel.XSLFTextBox;
+import org.apache.poi.xslf.usermodel.XSLFTable;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
@@ -327,6 +328,26 @@ class DocumentParserTest {
         assertTrue(text.contains("月度销量"), "应包含图表标题");
         assertTrue(text.contains("一月"), "应包含类目");
         assertTrue(text.contains("10"), "应包含数值");
+    }
+
+    @Test
+    void parsesPptxTableMergedCellsAsHtml() throws Exception {
+        byte[] bytes;
+        try (XMLSlideShow ppt = new XMLSlideShow(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            XSLFSlide slide = ppt.createSlide();
+            XSLFTable table = slide.createTable(2, 2);
+            table.getCell(0, 0).setText("合并表头");
+            table.getCell(0, 1).setText("B1");
+            table.getCell(1, 0).setText("A2");
+            table.getCell(1, 1).setText("B2");
+            table.mergeCells(0, 0, 0, 1);
+            ppt.write(out);
+            bytes = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("table.pptx", bytes));
+        assertTrue(text.contains("<table"), text);
+        assertTrue(text.contains("colspan=\"2\""), text);
+        assertTrue(text.contains("合并表头"), text);
     }
 
     @Test
