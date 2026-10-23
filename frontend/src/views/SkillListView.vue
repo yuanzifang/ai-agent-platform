@@ -2,169 +2,169 @@
   <div class="page">
     <div class="toolbar">
       <span class="title">{{ t('page.skills') }}</span>
-      <span class="sub">内置技能只读；自定义技能含提示词与工具/知识库依赖，Agent 引用后运行时注入</span>
+      <span class="sub">{{ t('skill.sub') }}</span>
       <div class="spacer" />
-      <el-input v-model="keyword" placeholder="搜索名称/描述" clearable style="width: 190px"
+      <el-input v-model="keyword" :placeholder="t('skill.searchPh')" clearable style="width: 190px"
                 @keyup.enter="load" @clear="load" />
-      <el-select v-model="type" placeholder="类型" clearable style="width: 110px" @change="load">
-        <el-option label="内置" value="BUILTIN" />
-        <el-option label="自定义" value="CUSTOM" />
+      <el-select v-model="type" :placeholder="t('skill.type')" clearable style="width: 110px" @change="load">
+        <el-option :label="t('skill.builtin')" value="BUILTIN" />
+        <el-option :label="t('skill.custom')" value="CUSTOM" />
       </el-select>
-      <el-button @click="load">搜索</el-button>
-      <el-button type="primary" :disabled="!canManage" @click="openCreate">新增技能</el-button>
+      <el-button @click="load">{{ t('skill.search') }}</el-button>
+      <el-button type="primary" :disabled="!canManage" @click="openCreate">{{ t('skill.create') }}</el-button>
     </div>
 
     <el-alert v-if="!canManage" type="info" :closable="false" show-icon class="mb12"
-              title="只读模式：新增/验证技能需要 Owner 或管理员权限（skill:manage）" />
+              :title="t('skill.readonly')" />
 
     <el-table :data="list" size="small" v-loading="loading">
       <template #empty>
-        <el-empty description="暂无技能">
-          <el-button type="primary" :disabled="!canManage" @click="openCreate">新增技能</el-button>
+        <el-empty :description="t('skill.empty')">
+          <el-button type="primary" :disabled="!canManage" @click="openCreate">{{ t('skill.create') }}</el-button>
         </el-empty>
       </template>
-      <el-table-column label="名称" width="200">
+      <el-table-column :label="t('skill.name')" width="200">
         <template #default="{ row }">
           {{ row.name }}
-          <el-tag v-if="row.isBuiltin" size="small" type="info">内置</el-tag>
+          <el-tag v-if="row.isBuiltin" size="small" type="info">{{ t('skill.builtin') }}</el-tag>
           <el-tag v-if="row.hasScript" size="small" type="warning" class="ml8">
-            {{ row.scriptLanguage === 'PYTHON' ? 'Python 脚本' : 'JS 脚本' }}
+            {{ row.scriptLanguage === 'PYTHON' ? 'Python' : 'JS' }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="category" label="分类" width="90" />
-      <el-table-column prop="description" label="描述" min-width="240" show-overflow-tooltip />
-      <el-table-column label="依赖" width="160">
+      <el-table-column prop="category" :label="t('skill.category')" width="90" />
+      <el-table-column prop="description" :label="t('skill.desc')" min-width="240" show-overflow-tooltip />
+      <el-table-column :label="t('skill.dep')" width="160">
         <template #default="{ row }">
           <span class="deps">{{ depText(row.dependencies) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="80">
+      <el-table-column :label="t('skill.status')" width="80">
         <template #default="{ row }">
           <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">
-            {{ row.status === 'ENABLED' ? '启用' : '停用' }}
+            {{ row.status === 'ENABLED' ? t('skill.enabled') : t('skill.disabled') }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="270">
+      <el-table-column :label="t('skill.actions')" width="270">
         <template #default="{ row }">
-          <el-button size="small" text :disabled="!canManage" @click="openTest(row)">验证</el-button>
+          <el-button size="small" text :disabled="!canManage" @click="openTest(row)">{{ t('skill.verify') }}</el-button>
           <template v-if="canManage && !row.isBuiltin">
-            <el-button size="small" text @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" text @click="publish(row)">发布</el-button>
-            <el-button size="small" text @click="openVersions(row)">版本</el-button>
-            <el-button size="small" text type="danger" @click="remove(row)">删除</el-button>
+            <el-button size="small" text @click="openEdit(row)">{{ t('skill.edit') }}</el-button>
+            <el-button size="small" text @click="publish(row)">{{ t('skill.publish') }}</el-button>
+            <el-button size="small" text @click="openVersions(row)">{{ t('skill.versions') }}</el-button>
+            <el-button size="small" text type="danger" @click="remove(row)">{{ t('skill.delete') }}</el-button>
           </template>
         </template>
       </el-table-column>
     </el-table>
 
     <!-- 新建/编辑 -->
-    <el-dialog v-model="editVisible" :title="editForm.id ? '编辑技能' : '新建技能'" width="780px">
+    <el-dialog v-model="editVisible" :title="editForm.id ? t('skill.editTitle') : t('skill.newTitle')" width="780px">
       <el-form label-width="90px">
-        <el-form-item label="名称" required>
+        <el-form-item :label="t('skill.name')" required>
           <el-input v-model="editForm.name" maxlength="128" />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="t('skill.desc')">
           <el-input v-model="editForm.description" maxlength="512" />
         </el-form-item>
-        <el-form-item label="分类">
-          <el-input v-model="editForm.category" placeholder="如：内容 / 分析" style="width: 220px" />
+        <el-form-item :label="t('skill.category')">
+          <el-input v-model="editForm.category" :placeholder="t('skill.categoryPh')" style="width: 220px" />
         </el-form-item>
-        <el-form-item label="标签">
-          <el-input v-model="editForm.tags" placeholder="逗号分隔" />
+        <el-form-item :label="t('skill.tags')">
+          <el-input v-model="editForm.tags" :placeholder="t('skill.tagsPh')" />
         </el-form-item>
-        <el-form-item label="提示词">
+        <el-form-item :label="t('skill.prompt')">
           <el-input v-model="editForm.prompt" type="textarea" :rows="5"
-                    placeholder="技能行为说明，运行时注入到 Agent 系统提示词" />
+                    :placeholder="t('skill.promptPh')" />
         </el-form-item>
-        <el-form-item label="参数定义">
+        <el-form-item :label="t('skill.params')">
           <el-input v-model="editForm.params" type="textarea" :rows="3"
-                    placeholder='JSON 数组，如 [{"key":"lang","type":"string","defaultValue":"英文"}]' />
+                    :placeholder="t('skill.paramsPh')" />
         </el-form-item>
-        <el-form-item label="脚本">
+        <el-form-item :label="t('skill.script')">
           <el-select v-model="editForm.scriptLanguage" style="width: 200px">
-            <el-option label="不启用" value="NONE" />
+            <el-option :label="t('skill.none')" value="NONE" />
             <el-option label="Python 3" value="PYTHON" />
             <el-option label="JavaScript (Node)" value="JAVASCRIPT" />
           </el-select>
-          <span class="hint">启用后作为工具 skill_&lt;id&gt; 供 Agent 调用；stdout 即结果</span>
+          <span class="hint">{{ t('skill.scriptHint') }}</span>
         </el-form-item>
         <template v-if="editForm.scriptLanguage !== 'NONE'">
           <el-alert type="warning" :closable="false" show-icon class="mb12"
-                    title="脚本在服务器本机进程执行（有超时/输出上限），请只运行可信代码；生产环境建议使用隔离执行器。" />
-          <el-form-item label="脚本代码">
+                    :title="t('skill.warning')" />
+          <el-form-item :label="t('skill.scriptCode')">
             <el-input v-model="editForm.scriptCode" type="textarea" :rows="10" class="code-area"
                       :placeholder="scriptPlaceholder" />
           </el-form-item>
-          <el-form-item label="执行超时">
+          <el-form-item :label="t('skill.timeout')">
             <el-input-number v-model="editForm.scriptTimeoutMs" :min="500" :max="60000" :step="500" />
-            <span class="hint">ms；脚本内用 params 读取参数，print(结果) 输出</span>
+            <span class="hint">{{ t('skill.timeoutHint') }}</span>
           </el-form-item>
-          <el-form-item label="脚本测试">
+          <el-form-item :label="t('skill.test')">
             <div class="script-test">
               <el-input v-model="scriptArgs" type="textarea" :rows="2"
-                        placeholder='测试参数 JSON，如 {"text":"hello"}' />
+                        :placeholder="t('skill.testPh')" />
               <div class="mt8">
-                <el-button type="primary" plain :loading="scriptTesting" @click="testScript">运行脚本</el-button>
-                <span class="hint">只执行脚本，不调用模型，不需要先保存</span>
+                <el-button type="primary" plain :loading="scriptTesting" @click="testScript">{{ t('skill.runScript') }}</el-button>
+                <span class="hint">{{ t('skill.testHint') }}</span>
               </div>
               <pre v-if="scriptOutput" class="script-output">{{ scriptOutput }}</pre>
             </div>
           </el-form-item>
         </template>
-        <el-form-item label="依赖工具">
+        <el-form-item :label="t('skill.depTools')">
           <el-select v-model="editForm.toolIds" multiple filterable style="width: 100%"
-                     placeholder="可选：该技能自动启用的工具">
+                     :placeholder="t('skill.depToolsPh')">
             <el-option v-for="t in toolOptions" :key="t.id" :value="t.id"
-                       :label="t.name + (t.isBuiltin ? '（内置）' : '')" />
+                       :label="t.name + (t.isBuiltin ? t('skill.builtinSuffix') : '')" />
           </el-select>
         </el-form-item>
-        <el-form-item label="依赖知识库">
+        <el-form-item :label="t('skill.depKbs')">
           <el-select v-model="editForm.kbIds" multiple filterable style="width: 100%"
-                     placeholder="可选：该技能自动检索的知识库">
+                     :placeholder="t('skill.depKbsPh')">
             <el-option v-for="k in kbOptions" :key="k.id" :value="k.id" :label="k.name" />
           </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <el-button @click="editVisible = false">{{ t('skill.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="save">{{ t('skill.save') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- 测试 -->
-    <el-dialog v-model="testVisible" :title="`验证技能：${testForm.name}`" width="640px">
-      <el-input v-model="testForm.input" type="textarea" :rows="3" placeholder="输入验证内容" />
+    <el-dialog v-model="testVisible" :title="`${t('skill.verifyTitle')}${testForm.name}`" width="640px">
+      <el-input v-model="testForm.input" type="textarea" :rows="3" :placeholder="t('skill.inputPh')" />
       <div class="mt8">
-        <el-button type="primary" :loading="testing" @click="runTest">开始验证</el-button>
-        <span class="hint">验证使用当前配置与模型，不写入正式 Trace</span>
+        <el-button type="primary" :loading="testing" @click="runTest">{{ t('skill.startVerify') }}</el-button>
+        <span class="hint">{{ t('skill.verifyHint') }}</span>
       </div>
       <div v-if="testForm.answer" class="test-result">
-        <div class="test-label">输出</div>
+        <div class="test-label">{{ t('skill.output') }}</div>
         <div class="test-output">{{ testForm.answer }}</div>
-        <div v-if="testForm.toolCalls.length" class="test-label mt8">工具调用</div>
+        <div v-if="testForm.toolCalls.length" class="test-label mt8">{{ t('skill.toolCalls') }}</div>
         <div v-for="(t, i) in testForm.toolCalls" :key="i" class="test-tool">
-          ⚙ {{ t.displayName || t.toolName }} · {{ t.status === 'ERROR' ? '失败' : '成功' }} · {{ t.durationMs }}ms
+          ⚙ {{ t.displayName || t.toolName }} · {{ t.status === 'ERROR' ? t('skill.failed') : t('skill.success') }} · {{ t.durationMs }}ms
         </div>
         <div class="hint mt8" v-if="testForm.usage">
-          输入 {{ testForm.usage.inputTokens }} / 输出 {{ testForm.usage.outputTokens }} tokens
+          {{ t('skill.inputTokens') }} {{ testForm.usage.inputTokens }} / {{ t('skill.outputTokens') }} {{ testForm.usage.outputTokens }} tokens
         </div>
       </div>
     </el-dialog>
 
     <!-- 版本 -->
-    <el-drawer v-model="versionsVisible" title="版本历史" size="420px">
+    <el-drawer v-model="versionsVisible" :title="t('skill.versionHistory')" size="420px">
       <el-table :data="versions" size="small">
-        <el-table-column prop="version" label="版本" width="80" />
-        <el-table-column prop="createdAt" label="时间" />
-        <el-table-column label="操作" width="90">
+        <el-table-column prop="version" :label="t('skill.version')" width="80" />
+        <el-table-column prop="createdAt" :label="t('skill.time')" />
+        <el-table-column :label="t('skill.actions')" width="90">
           <template #default="{ row }">
-            <el-button size="small" text type="primary" @click="rollback(row.version)">回滚</el-button>
+            <el-button size="small" text type="primary" @click="rollback(row.version)">{{ t('skill.rollback') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="versions.length === 0" description="暂无版本，请先发布" :image-size="60" />
+      <el-empty v-if="versions.length === 0" :description="t('skill.noVersions')" :image-size="60" />
     </el-drawer>
   </div>
 </template>
@@ -222,7 +222,7 @@ onMounted(async () => {
   await Promise.all([load(), loadOptions()])
   if (route.query.create === '1') {
     if (canManage.value) openCreate()
-    else ElMessage.warning('当前账号无新增技能权限')
+    else ElMessage.warning(t('skill.noPermission'))
     const query = { ...route.query }
     delete query.create
     router.replace({ query })
@@ -254,7 +254,7 @@ function depText(deps?: any[]) {
   if (!deps?.length) return '-'
   const tools = deps.filter(d => d.depType === 'TOOL').length
   const kbs = deps.filter(d => d.depType === 'KNOWLEDGE_BASE').length
-  return [tools ? `工具 ${tools}` : '', kbs ? `知识库 ${kbs}` : ''].filter(Boolean).join(' / ') || '-'
+  return [tools ? `${t('skill.depsTools')}${tools}` : '', kbs ? `${t('skill.depsKbs')}${kbs}` : ''].filter(Boolean).join(' / ') || '-'
 }
 
 function openCreate() {
@@ -291,10 +291,10 @@ async function openEdit(row: any) {
 }
 
 async function testScript() {
-  if (!editForm.scriptCode.trim()) { ElMessage.warning('请先填写脚本代码'); return }
+  if (!editForm.scriptCode.trim()) { ElMessage.warning(t('skill.scriptRequired')); return }
   let args: any = {}
   if (scriptArgs.value.trim()) {
-    try { args = JSON.parse(scriptArgs.value) } catch { ElMessage.error('测试参数不是合法 JSON'); return }
+    try { args = JSON.parse(scriptArgs.value) } catch { ElMessage.error(t('skill.testArgsInvalid')); return }
   }
   scriptTesting.value = true
   scriptOutput.value = ''
@@ -306,9 +306,9 @@ async function testScript() {
       params: editForm.params,
       args
     }) as any
-    scriptOutput.value = `输出（${res.durationMs}ms）\n${res.output || '（无输出）'}`
+    scriptOutput.value = `${t('skill.output')} (${res.durationMs}ms)\n${res.output || t('skill.noOutput')}`
       + (res.stderr ? `\n[stderr]\n${res.stderr}` : '')
-      + (res.truncated ? '\n…（输出已截断）' : '')
+      + (res.truncated ? `\n${t('skill.truncated')}` : '')
   } finally {
     scriptTesting.value = false
   }
@@ -319,17 +319,17 @@ function parseJson(text: string, label: string) {
   try {
     return JSON.parse(text)
   } catch {
-    ElMessage.error(`${label} 不是合法 JSON`)
+    ElMessage.error(`${label} ${t('skill.invalidJson')}`)
     return undefined
   }
 }
 
 async function save() {
-  if (!editForm.name.trim()) { ElMessage.warning('名称必填'); return }
-  const params = parseJson(editForm.params, '参数定义')
+  if (!editForm.name.trim()) { ElMessage.warning(t('skill.nameRequired')); return }
+  const params = parseJson(editForm.params, t('skill.params'))
   if (params === undefined) return
   if (editForm.scriptLanguage !== 'NONE' && !editForm.scriptCode.trim()) {
-    ElMessage.warning('启用脚本时请填写脚本代码'); return
+    ElMessage.warning(t('skill.scriptCodeRequired')); return
   }
   saving.value = true
   try {
@@ -351,7 +351,7 @@ async function save() {
     } else {
       await http.post('/skills', payload)
     }
-    ElMessage.success('已保存')
+    ElMessage.success(t('skill.saved'))
     editVisible.value = false
     await load()
   } finally {
@@ -365,7 +365,7 @@ function openTest(row: any) {
 }
 
 async function runTest() {
-  if (!testForm.input.trim()) { ElMessage.warning('请输入测试内容'); return }
+  if (!testForm.input.trim()) { ElMessage.warning(t('skill.inputRequired')); return }
   testing.value = true
   try {
     const res = await http.post(`/skills/${testForm.id}/test`, { input: testForm.input }) as any
@@ -379,7 +379,7 @@ async function runTest() {
 
 async function publish(row: any) {
   const res = await http.post(`/skills/${row.id}/publish`) as any
-  ElMessage.success(`已发布 ${res.version}`)
+  ElMessage.success(`${t('skill.published')} ${res.version}`)
 }
 
 async function openVersions(row: any) {
@@ -389,9 +389,9 @@ async function openVersions(row: any) {
 }
 
 async function rollback(version: string) {
-  await ElMessageBox.confirm(`回滚到 ${version} 将生成新版本，继续？`, '回滚确认', { type: 'warning' })
+  await ElMessageBox.confirm(`${t('skill.rollbackConfirm')}${version}${t('skill.rollbackSuffix')}`, t('skill.rollbackTitle'), { type: 'warning' })
   await http.post(`/skills/${versionSkillId.value}/versions/${version}/rollback`)
-  ElMessage.success('已回滚')
+  ElMessage.success(t('skill.rolledBack'))
   versionsVisible.value = false
   await load()
 }
@@ -400,12 +400,12 @@ async function remove(row: any) {
   const refs = await http.get(`/skills/${row.id}/references`) as any
   const agents: string[] = refs?.agents || []
   const extra = agents.length
-    ? `该技能被 ${agents.length} 个 Agent 引用（${agents.join('、')}），将软删除并在 Agent 中显示「已失效」。`
-    : '该技能未被引用，将永久删除。'
-  await ElMessageBox.confirm(`确认删除技能「${row.name}」？${extra}`, '删除技能',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+    ? `${t('skill.refsPrefix')}${agents.length}${t('skill.refsSuffix')}${agents.join('、')}${t('skill.refsSuffix2')}`
+    : t('skill.refsNone')
+  await ElMessageBox.confirm(`${t('skill.deleteConfirm')}${row.name}${t('skill.deleteSuffix')}${extra}`, t('skill.deleteTitle'),
+    { type: 'warning', confirmButtonText: t('skill.delete'), cancelButtonText: t('skill.cancel') })
   const res = await http.delete(`/skills/${row.id}`) as any
-  ElMessage.success(res?.softDeleted ? '已软删除（Agent 中显示已失效）' : '已删除')
+  ElMessage.success(res?.softDeleted ? t('skill.softDeleted') : t('skill.deleted'))
   await load()
 }
 </script>
