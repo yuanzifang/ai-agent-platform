@@ -2,15 +2,15 @@
   <div class="page">
     <div class="toolbar">
       <el-button text @click="$router.push('/agents')">
-        <el-icon><ArrowLeft /></el-icon> 返回
+        <el-icon><ArrowLeft /></el-icon> {{ t('obsPage.back') }}
       </el-button>
       <span class="page-title">{{ t('page.observability') }} {{ agentName ? '· ' + agentName : '' }}</span>
-      <el-button v-if="agentId" size="small" @click="$router.push(`/eval/${agentId}`)">Agent 评测</el-button>
-      <el-button size="small" :loading="refreshing" @click="refreshAll">刷新</el-button>
+      <el-button v-if="agentId" size="small" @click="$router.push(`/eval/${agentId}`)">{{ t('obsPage.eval') }}</el-button>
+      <el-button size="small" :loading="refreshing" @click="refreshAll">{{ t('obsPage.refresh') }}</el-button>
       <el-select v-model="hours" style="width: 130px" @change="refreshAll">
-        <el-option :value="24" label="近 24 小时" />
-        <el-option :value="168" label="近 7 天" />
-        <el-option :value="720" label="近 30 天" />
+        <el-option :value="24" :label="t('obsPage.last24')" />
+        <el-option :value="168" :label="t('obsPage.last7')" />
+        <el-option :value="720" :label="t('obsPage.last30')" />
       </el-select>
     </div>
 
@@ -25,13 +25,13 @@
 
     <div class="charts">
       <el-card shadow="never">
-        <template #header>Span 结构图（agent / chain / llm / tool）</template>
-        <el-empty v-if="emptySeries" description="暂无 Span 数据" :image-size="50" />
+        <template #header>{{ t('obsPage.spanTree') }}</template>
+        <el-empty v-if="emptySeries" :description="t('obsPage.noSpans')" :image-size="50" />
         <EChart v-else :option="spanChartOption" height="240px" />
       </el-card>
       <el-card shadow="never">
         <template #header>Top Tools</template>
-        <el-empty v-if="(overview.topTools || []).length === 0" description="暂无工具调用" :image-size="50" />
+        <el-empty v-if="(overview.topTools || []).length === 0" :description="t('obsPage.noTools')" :image-size="50" />
         <div v-else class="tool-scroll">
           <EChart :option="toolChartOption" :height="toolChartHeight" />
         </div>
@@ -39,14 +39,14 @@
       <el-card shadow="never">
         <template #header>
           <div class="card-head">
-            <span>模型占比（LLM Span）</span>
+            <span>{{ t('obsPage.modelShare') }}</span>
             <el-radio-group v-model="modelSort" size="small">
-              <el-radio-button value="calls">调用量</el-radio-button>
+              <el-radio-button value="calls">{{ t('obsPage.calls') }}</el-radio-button>
               <el-radio-button value="tokens">Token</el-radio-button>
             </el-radio-group>
           </div>
         </template>
-        <el-empty v-if="(overview.byModel || []).length === 0" description="暂无模型调用" :image-size="50" />
+        <el-empty v-if="(overview.byModel || []).length === 0" :description="t('obsPage.noModelCalls')" :image-size="50" />
         <EChart v-else :option="modelChartOption" height="240px" />
       </el-card>
     </div>
@@ -56,61 +56,61 @@
         <!-- Traces -->
         <el-tab-pane label="Traces" name="traces">
           <div class="filter-bar">
-            <el-input v-model="keyword" placeholder="搜索 Trace ID / 输入 / 输出" clearable style="width: 260px"
+            <el-input v-model="keyword" :placeholder="t('obsPage.searchPh')" clearable style="width: 260px"
                       @keyup.enter="loadTraces(true)" @clear="loadTraces(true)" />
-            <el-checkbox v-model="onlyError" @change="loadTraces(true)">仅错误</el-checkbox>
-            <el-checkbox v-model="hideEval" @change="loadTraces(true)">隐藏评测</el-checkbox>
+            <el-checkbox v-model="onlyError" @change="loadTraces(true)">{{ t('obsPage.onlyError') }}</el-checkbox>
+            <el-checkbox v-model="hideEval" @change="loadTraces(true)">{{ t('obsPage.hideEval') }}</el-checkbox>
             <el-popover placement="bottom-start" :width="380" trigger="click">
               <template #reference>
-                <el-button size="small">高级筛选</el-button>
+                <el-button size="small">{{ t('obsPage.advanced') }}</el-button>
               </template>
               <div class="adv-form">
                 <div class="row">
-                  <span>状态</span>
-                  <el-select v-model="adv.status" clearable placeholder="全部" size="small" style="width: 130px">
+                  <span>{{ t('obsPage.status') }}</span>
+                  <el-select v-model="adv.status" clearable :placeholder="t('obsPage.all')" size="small" style="width: 130px">
                     <el-option value="SUCCESS" label="SUCCESS" />
                     <el-option value="ERROR" label="ERROR" />
                     <el-option value="STOPPED" label="STOPPED" />
                   </el-select>
                 </div>
                 <div class="row">
-                  <span>版本</span>
-                  <el-input v-model="adv.version" placeholder="如 V11" size="small" style="width: 130px" />
+                  <span>{{ t('obsPage.version') }}</span>
+                  <el-input v-model="adv.version" :placeholder="t('obsPage.versionPh')" size="small" style="width: 130px" />
                 </div>
                 <div class="row">
-                  <span>时间范围</span>
+                  <span>{{ t('obsPage.timeRange') }}</span>
                   <el-date-picker v-model="adv.timeRange" type="datetimerange" size="small"
-                                  value-format="YYYY-MM-DD HH:mm:ss" start-placeholder="开始" end-placeholder="结束"
+                                  value-format="YYYY-MM-DD HH:mm:ss" :start-placeholder="t('obsPage.start')" :end-placeholder="t('obsPage.end')"
                                   style="width: 240px" />
                 </div>
                 <div class="row">
-                  <span>Token 范围</span>
-                  <el-input-number v-model="adv.tokenMin" :min="0" size="small" style="width: 110px" placeholder="最小" />
-                  <el-input-number v-model="adv.tokenMax" :min="0" size="small" style="width: 110px" placeholder="最大" />
+                  <span>{{ t('obsPage.tokenRange') }}</span>
+                  <el-input-number v-model="adv.tokenMin" :min="0" size="small" style="width: 110px" :placeholder="t('obsPage.min')" />
+                  <el-input-number v-model="adv.tokenMax" :min="0" size="small" style="width: 110px" :placeholder="t('obsPage.max')" />
                 </div>
                 <div class="row">
-                  <span>延迟范围</span>
-                  <el-input-number v-model="adv.latencyMin" :min="0" size="small" style="width: 110px" placeholder="最小 ms" />
-                  <el-input-number v-model="adv.latencyMax" :min="0" size="small" style="width: 110px" placeholder="最大 ms" />
+                  <span>{{ t('obsPage.latencyRange') }}</span>
+                  <el-input-number v-model="adv.latencyMin" :min="0" size="small" style="width: 110px" :placeholder="t('obsPage.minMs')" />
+                  <el-input-number v-model="adv.latencyMax" :min="0" size="small" style="width: 110px" :placeholder="t('obsPage.maxMs')" />
                 </div>
                 <div class="row">
-                  <span>用户 ID</span>
-                  <el-input v-model="adv.userIds" placeholder="多个用英文逗号分隔" size="small" style="width: 230px" />
+                  <span>{{ t('obsPage.userId') }}</span>
+                  <el-input v-model="adv.userIds" :placeholder="t('obsPage.userIdsPh')" size="small" style="width: 230px" />
                 </div>
                 <div class="row">
                   <span>Session ID</span>
-                  <el-input v-model="adv.sessionIds" placeholder="多个用英文逗号分隔" size="small" style="width: 230px" />
+                  <el-input v-model="adv.sessionIds" :placeholder="t('obsPage.userIdsPh')" size="small" style="width: 230px" />
                 </div>
                 <div class="row">
                   <span>Tags</span>
                   <el-select v-model="adv.tags" multiple filterable allow-create default-first-option
-                             placeholder="多选" size="small" style="width: 230px">
+                             :placeholder="t('obsPage.multiSelect')" size="small" style="width: 230px">
                     <el-option v-for="t in tagOptions" :key="t" :value="t" :label="t" />
                   </el-select>
                 </div>
                 <div class="adv-actions">
-                  <el-button size="small" text @click="resetAdv">重置</el-button>
-                  <el-button size="small" type="primary" @click="loadTraces(true)">应用</el-button>
+                  <el-button size="small" text @click="resetAdv">{{ t('obsPage.reset') }}</el-button>
+                  <el-button size="small" type="primary" @click="loadTraces(true)">{{ t('obsPage.apply') }}</el-button>
                 </div>
               </div>
             </el-popover>
@@ -126,11 +126,11 @@
                     {{ colLabel(key) }}
                   </el-checkbox>
                 </div>
-                <el-button size="small" text style="margin-top: 6px" @click="resetColumns">恢复默认</el-button>
+                <el-button size="small" text style="margin-top: 6px" @click="resetColumns">{{ t('obsPage.restoreDefaults') }}</el-button>
               </div>
             </el-popover>
             <span class="spacer" />
-            <span class="hint">共 {{ traceTotal }} 条</span>
+            <span class="hint">{{ t('obsPage.total') }}{{ traceTotal }}{{ t('obsPage.tracesSuffix') }}</span>
           </div>
 
           <el-table :data="traces" size="small" @row-click="openTrace" :show-overflow-tooltip="false">
@@ -155,7 +155,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <el-empty v-if="traces.length === 0" :description="keyword ? '无匹配结果' : '暂无 Trace'" :image-size="60" />
+          <el-empty v-if="traces.length === 0" :description="keyword ? t('obsPage.noMatch') : t('obsPage.noTraces')" :image-size="60" />
           <el-pagination class="pager" layout="total, sizes, prev, pager, next" background
                          :total="traceTotal" v-model:current-page="tracePage" v-model:page-size="tracePageSize"
                          :page-sizes="[20, 50, 100]" @current-change="loadTraces(false)"
@@ -165,30 +165,30 @@
         <!-- Sessions -->
         <el-tab-pane label="Sessions" name="sessions">
           <div class="filter-bar">
-            <el-input v-model="sessionKw" placeholder="搜索 Session ID" clearable style="width: 240px"
+            <el-input v-model="sessionKw" :placeholder="t('obsPage.sessionSearch')" clearable style="width: 240px"
                       @keyup.enter="loadSessions(true)" @clear="loadSessions(true)" />
             <span class="spacer" />
-            <span class="hint">共 {{ sessionTotal }} 条</span>
+            <span class="hint">{{ t('obsPage.total') }}{{ sessionTotal }}{{ t('obsPage.tracesSuffix') }}</span>
           </div>
           <el-table :data="sessions" size="small">
             <el-table-column prop="sessionId" label="Session ID" min-width="220" show-overflow-tooltip />
-            <el-table-column label="Trace 数" width="100">
+            <el-table-column :label="t('obsPage.traceCount')" width="100">
               <template #default="{ row }">{{ intFmt(row.traceCount) }}</template>
             </el-table-column>
-            <el-table-column label="Token" width="120">
+            <el-table-column :label="t('obsPage.token')" width="120">
               <template #default="{ row }">{{ intFmt(row.totalTokens) }}</template>
             </el-table-column>
-            <el-table-column label="成本" width="110">
+            <el-table-column :label="t('obsPage.cost')" width="110">
               <template #default="{ row }">{{ costFmt(row.cost) }}</template>
             </el-table-column>
-            <el-table-column label="首次时间" width="160">
+            <el-table-column :label="t('obsPage.firstTime')" width="160">
               <template #default="{ row }">{{ fmtTime(row.firstTime) }}</template>
             </el-table-column>
-            <el-table-column label="最后时间" width="160">
+            <el-table-column :label="t('obsPage.lastTime')" width="160">
               <template #default="{ row }">{{ fmtTime(row.lastTime) }}</template>
             </el-table-column>
           </el-table>
-          <el-empty v-if="sessions.length === 0" description="暂无会话" :image-size="60" />
+          <el-empty v-if="sessions.length === 0" :description="t('obsPage.noSessions')" :image-size="60" />
           <el-pagination class="pager" layout="total, prev, pager, next" background
                          :total="sessionTotal" v-model:current-page="sessionPage" :page-size="20"
                          @current-change="loadSessions(false)" />
@@ -197,33 +197,33 @@
         <!-- Users -->
         <el-tab-pane label="Users" name="users">
           <div class="filter-bar">
-            <el-input v-model="userKw" placeholder="搜索用户名 / 用户 ID" clearable style="width: 240px"
+            <el-input v-model="userKw" :placeholder="t('obsPage.userSearch')" clearable style="width: 240px"
                       @keyup.enter="loadUsers(true)" @clear="loadUsers(true)" />
             <span class="spacer" />
-            <span class="hint">共 {{ userTotal }} 条</span>
+            <span class="hint">{{ t('obsPage.total') }}{{ userTotal }}{{ t('obsPage.rowsSuffix') }}</span>
           </div>
           <el-table :data="users" size="small">
-            <el-table-column prop="userId" label="用户 ID" width="120" />
-            <el-table-column prop="username" label="用户名" min-width="140">
+            <el-table-column prop="userId" :label="t('obsPage.userId')" width="120" />
+            <el-table-column prop="username" :label="t('obsPage.username')" min-width="140">
               <template #default="{ row }">{{ row.username || '—' }}</template>
             </el-table-column>
-            <el-table-column label="调用数" width="100">
+            <el-table-column :label="t('obsPage.callCount')" width="100">
               <template #default="{ row }">{{ intFmt(row.calls) }}</template>
             </el-table-column>
-            <el-table-column label="Token" width="120">
+            <el-table-column :label="t('obsPage.token')" width="120">
               <template #default="{ row }">{{ intFmt(row.totalTokens) }}</template>
             </el-table-column>
-            <el-table-column label="成本" width="110">
+            <el-table-column :label="t('obsPage.cost')" width="110">
               <template #default="{ row }">{{ costFmt(row.cost) }}</template>
             </el-table-column>
-            <el-table-column label="首次时间" width="160">
+            <el-table-column :label="t('obsPage.firstTime')" width="160">
               <template #default="{ row }">{{ fmtTime(row.firstTime) }}</template>
             </el-table-column>
-            <el-table-column label="最后时间" width="160">
+            <el-table-column :label="t('obsPage.lastTime')" width="160">
               <template #default="{ row }">{{ fmtTime(row.lastTime) }}</template>
             </el-table-column>
           </el-table>
-          <el-empty v-if="users.length === 0" description="暂无用户调用" :image-size="60" />
+          <el-empty v-if="users.length === 0" :description="t('obsPage.noUsers')" :image-size="60" />
           <el-pagination class="pager" layout="total, prev, pager, next" background
                          :total="userTotal" v-model:current-page="userPage" :page-size="20"
                          @current-change="loadUsers(false)" />
@@ -232,32 +232,32 @@
         <!-- Versions -->
         <el-tab-pane label="Versions" name="versions">
           <div class="filter-bar">
-            <el-input v-model="versionKw" placeholder="搜索版本号" clearable style="width: 200px"
+            <el-input v-model="versionKw" :placeholder="t('obsPage.versionSearch')" clearable style="width: 200px"
                       @keyup.enter="loadVersions(true)" @clear="loadVersions(true)" />
             <span class="spacer" />
-            <span class="hint">共 {{ versionTotal }} 条</span>
+            <span class="hint">{{ t('obsPage.total') }}{{ versionTotal }}{{ t('obsPage.rowsSuffix') }}</span>
           </div>
           <el-table :data="versions" size="small">
-            <el-table-column prop="version" label="版本" width="110" />
-            <el-table-column label="调用数" width="100">
+            <el-table-column prop="version" :label="t('obsPage.versionCol')" width="110" />
+            <el-table-column :label="t('obsPage.callCount')" width="100">
               <template #default="{ row }">{{ intFmt(row.calls) }}</template>
             </el-table-column>
-            <el-table-column label="成功率" width="110">
+            <el-table-column :label="t('obsPage.avgScore')" width="110">
               <template #default="{ row }">{{ pct(row.successRate) }}</template>
             </el-table-column>
-            <el-table-column label="平均分" width="100">
+            <el-table-column :label="t('obsPage.avgScore')" width="100">
               <template #default="{ row }">
                 {{ row.avgScore != null ? (Number(row.avgScore) * 100).toFixed(1) : '—' }}
               </template>
             </el-table-column>
-            <el-table-column label="Token" width="120">
+            <el-table-column :label="t('obsPage.token')" width="120">
               <template #default="{ row }">{{ intFmt(row.totalTokens) }}</template>
             </el-table-column>
-            <el-table-column label="成本" width="110">
+            <el-table-column :label="t('obsPage.cost')" width="110">
               <template #default="{ row }">{{ costFmt(row.cost) }}</template>
             </el-table-column>
           </el-table>
-          <el-empty v-if="versions.length === 0" description="暂无版本数据（仅统计带版本号的 Trace）" :image-size="60" />
+          <el-empty v-if="versions.length === 0" :description="t('obsPage.noVersions')" :image-size="60" />
           <el-pagination class="pager" layout="total, prev, pager, next" background
                          :total="versionTotal" v-model:current-page="versionPage" :page-size="20"
                          @current-change="loadVersions(false)" />
@@ -266,36 +266,36 @@
         <!-- Logs -->
         <el-tab-pane label="Logs" name="logs">
           <div class="filter-bar">
-            <el-select v-model="logLevel" clearable placeholder="级别" style="width: 120px"
+            <el-select v-model="logLevel" clearable :placeholder="t('obsPage.level')" style="width: 120px"
                        @change="loadLogs(true)">
               <el-option label="INFO" value="INFO" />
               <el-option label="WARN" value="WARN" />
               <el-option label="ERROR" value="ERROR" />
             </el-select>
-            <el-input v-model="logKeyword" placeholder="搜索消息 / Logger" clearable style="width: 260px"
+            <el-input v-model="logKeyword" :placeholder="t('obsPage.logSearch')" clearable style="width: 260px"
                       @keyup.enter="loadLogs(true)" @clear="loadLogs(true)" />
-            <el-button @click="loadLogs(true)">搜索</el-button>
-            <span class="hint">应用日志异步采集，默认保留 7 天；ERROR 展开可看堆栈</span>
+            <el-button @click="loadLogs(true)">{{ t('obsPage.search') }}</el-button>
+            <span class="hint">{{ t('obsPage.logHint') }}</span>
           </div>
-          <el-table :data="logs" size="small" v-loading="logLoading" empty-text="暂无日志">
+          <el-table :data="logs" size="small" v-loading="logLoading" :empty-text="t('obsPage.noLogs')">
             <el-table-column type="expand">
               <template #default="{ row }">
                 <pre v-if="row.exception" class="log-exception">{{ row.exception }}</pre>
-                <span v-else class="hint">无异常堆栈</span>
+                <span v-else class="hint">{{ t('obsPage.noStack') }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="时间" width="170">
+            <el-table-column :label="t('obsPage.time')" width="170">
               <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
             </el-table-column>
-            <el-table-column label="级别" width="80">
+            <el-table-column :label="t('obsPage.levelCol')" width="80">
               <template #default="{ row }">
                 <el-tag size="small" :type="levelType(row.level)">{{ row.level }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="logger" label="Logger" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="message" label="消息" min-width="320" show-overflow-tooltip />
+            <el-table-column :label="t('obsPage.message')" min-width="320" show-overflow-tooltip />
             <el-table-column prop="traceId" label="Trace ID" width="190" show-overflow-tooltip />
-            <el-table-column prop="thread" label="线程" width="140" show-overflow-tooltip />
+            <el-table-column :label="t('obsPage.thread')" width="140" show-overflow-tooltip />
           </el-table>
           <el-pagination class="pager" layout="total, prev, pager, next" background
                          :total="logTotal" v-model:current-page="logPage" :page-size="50"
@@ -304,20 +304,20 @@
       </el-tabs>
     </el-card>
 
-    <el-drawer v-model="traceVisible" :title="'Span 树 · ' + (current.traceId || '')" size="620px">
+    <el-drawer v-model="traceVisible" :title="t('obsPage.spanTreeTitle') + (current.traceId || '')" size="620px">
       <el-descriptions :column="2" border size="small" class="mb">
-        <el-descriptions-item label="状态">
+        <el-descriptions-item :label="t('obsPage.spanStatus')">
           <el-tag size="small" :type="statusType(current.status)">{{ current.status }}</el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="类型">{{ current.kind || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="名称" :span="2">{{ current.name }}</el-descriptions-item>
-        <el-descriptions-item label="版本">{{ current.version || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="模型">{{ current.modelName || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="Token">{{ current.inputTokens }} / {{ current.outputTokens }}（共 {{ intFmt(current.totalTokens) }}）</el-descriptions-item>
-        <el-descriptions-item label="成本">{{ costFmt(current.cost) }}</el-descriptions-item>
-        <el-descriptions-item label="延迟">{{ current.latencyMs }} ms</el-descriptions-item>
-        <el-descriptions-item label="评分">{{ current.score != null ? (current.score * 100).toFixed(0) : '—' }}</el-descriptions-item>
-        <el-descriptions-item label="开始时间" :span="2">{{ fmtTime(current.startTime) }}</el-descriptions-item>
+        <el-descriptions-item :label="t('obsPage.kind')">{{ current.kind || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('obsPage.name')" :span="2">{{ current.name }}</el-descriptions-item>
+        <el-descriptions-item :label="t('obsPage.versionCol')">{{ current.version || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('obsPage.model')">{{ current.modelName || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('obsPage.token')">{{ current.inputTokens }} / {{ current.outputTokens }}{{ t('obsPage.totalTokens') }}{{ intFmt(current.totalTokens) }}）</el-descriptions-item>
+        <el-descriptions-item :label="t('obsPage.cost')">{{ costFmt(current.cost) }}</el-descriptions-item>
+        <el-descriptions-item :label="t('obsPage.latency')">{{ current.latencyMs }} ms</el-descriptions-item>
+        <el-descriptions-item :label="t('obsPage.score')">{{ current.score != null ? (current.score * 100).toFixed(0) : '—' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('obsPage.startTime')" :span="2">{{ fmtTime(current.startTime) }}</el-descriptions-item>
         <el-descriptions-item label="Tags" :span="2">
           <template v-if="(current.tags || []).length">
             <el-tag v-for="t in current.tags" :key="t" size="small" class="tag-item">{{ t }}</el-tag>
@@ -326,7 +326,7 @@
         </el-descriptions-item>
       </el-descriptions>
 
-      <div v-if="current.errorMessage" class="err-box">错误信息：{{ current.errorMessage }}</div>
+      <div v-if="current.errorMessage" class="err-box">{{ t('obsPage.errorInfo') }}{{ current.errorMessage }}</div>
 
       <div class="io-block">
         <div class="io-title">INPUT</div>
@@ -344,10 +344,10 @@
         <span class="s-type">{{ s.spanType }}</span>
         <span class="s-name">{{ s.name }}</span>
         <span class="s-meta">
-          <template v-if="s.modelName">模型 {{ s.modelName }} · </template>
-          <template v-if="s.toolName">工具 {{ s.toolName }} · </template>
+          <template v-if="s.modelName">{{ t('obsPage.modelPrefix') }}{{ s.modelName }} · </template>
+          <template v-if="s.toolName">{{ t('obsPage.toolPrefix') }}{{ s.toolName }} · </template>
           <template v-if="s.spanType === 'llm'">{{ s.inputTokens }}/{{ s.outputTokens }} tok · </template>
-          <template v-if="s.spanType === 'retrieval'">{{ (s.attributes || {}).hits || 0 }} 命中 · </template>
+          <template v-if="s.spanType === 'retrieval'">{{ (s.attributes || {}).hits || 0 }}{{ t('obsPage.hits') }} · </template>
           {{ s.durationMs }}ms · {{ s.status }}
           <span class="span-time">{{ fmtTime(s.startTime) }}</span>
         </span>
@@ -439,13 +439,13 @@ const emptySeries = computed(() =>
   (overview.spanSeries || []).every((b: any) => !b.agent && !b.chain && !b.llm && !b.tool))
 
 const cards = computed(() => [
-  { key: 'cost', label: '成本', value: costFmt(overview.cost), tip: 'SUM(cost)：模型单价（元/千 Token）× Token 汇总' },
-  { key: 'traceCount', label: '追踪总数', value: intFmt(overview.traceCount), tip: 'COUNT(DISTINCT trace_id)' },
-  { key: 'totalTokens', label: '总 Token', value: intFmt(overview.totalTokens), tip: 'SUM(input_tokens + output_tokens)' },
-  { key: 'spanCount', label: 'Span 总数', value: intFmt(overview.spanCount), tip: 'COUNT(*) FROM agent_span' },
-  { key: 'latencyP50Ms', label: '延迟 P50', value: num(overview.latencyP50Ms) + ' ms', tip: '根 Span 耗时 P50（应用层分位数）' },
-  { key: 'latencyP99Ms', label: '延迟 P99', value: num(overview.latencyP99Ms) + ' ms', tip: '根 Span 耗时 P99（应用层分位数）' },
-  { key: 'errorCount', label: '错误数', value: intFmt(overview.errorCount), tip: "COUNT WHERE status='ERROR'；点击下钻错误 Trace" }
+  { key: 'cost', label: t('obsPage.costCard'), value: costFmt(overview.cost), tip: t('obsPage.costTip') },
+  { key: 'traceCount', label: t('obsPage.traceCountCard'), value: intFmt(overview.traceCount), tip: t('obsPage.traceTip') },
+  { key: 'totalTokens', label: t('obsPage.totalTokenCard'), value: intFmt(overview.totalTokens), tip: t('obsPage.tokenTip') },
+  { key: 'spanCount', label: t('obsPage.spanCount'), value: intFmt(overview.spanCount), tip: t('obsPage.spanTip') },
+  { key: 'latencyP50Ms', label: t('obsPage.latencyP50'), value: num(overview.latencyP50Ms) + ' ms', tip: t('obsPage.p50Tip') },
+  { key: 'latencyP99Ms', label: t('obsPage.latencyP99'), value: num(overview.latencyP99Ms) + ' ms', tip: t('obsPage.p99Tip') },
+  { key: 'errorCount', label: t('obsPage.errorCount'), value: intFmt(overview.errorCount), tip: t('obsPage.errorTip') }
 ])
 
 const spanChartOption = computed(() => ({
@@ -473,7 +473,7 @@ const toolChartOption = computed(() => {
       formatter: (params: any) => {
         const idx = params[0]?.dataIndex ?? 0
         const t = list[idx] || {}
-        return `${t.toolName}<br/>调用 ${t.calls} 次 · P95 延迟 ${t.p95LatencyMs}ms`
+        return `${t.toolName}<br/>${t('obsPage.calls')} ${t.calls}${t('obsPage.callsUnit')}${t('obsPage.p95')}${t.p95LatencyMs}ms`
       }
     },
     grid: { left: 110, right: 40, top: 10, bottom: 26 },
@@ -481,7 +481,7 @@ const toolChartOption = computed(() => {
     yAxis: { type: 'category', inverse: true, data: list.map((t: any) => t.toolName) },
     series: [{
       type: 'bar', data: list.map((t: any) => t.calls), itemStyle: { color: '#6B7280' },
-      label: { show: true, position: 'right', formatter: (p: any) => `${p.value} 次 / P95 ${list[p.dataIndex]?.p95LatencyMs}ms` }
+      label: { show: true, position: 'right', formatter: (p: any) => `${p.value}${t('obsPage.callsUnit')} / P95 ${list[p.dataIndex]?.p95LatencyMs}ms` }
     }]
   }
 })
@@ -491,7 +491,7 @@ const modelChartOption = computed(() => ({
     trigger: 'item',
     formatter: (p: any) => {
       const m = (overview.byModel || [])[p.dataIndex] || {}
-      return `${p.name}<br/>调用 ${m.calls ?? 0} 次 · Token ${intFmt(m.tokens)}`
+      return `${p.name}<br/>${t('obsPage.calls')} ${m.calls ?? 0}${t('obsPage.callsUnit')}${t('obsPage.tokenPrefix')}${intFmt(m.tokens)}`
     }
   },
   legend: { bottom: 0, type: 'scroll' },
