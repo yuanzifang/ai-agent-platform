@@ -2,55 +2,55 @@
   <div class="page">
     <div class="toolbar">
       <span class="title">{{ t('page.cases') }}</span>
-      <span class="sub">点赞/点踩自动沉淀候选；人工审核并修正期望答案后才能用于模型回归</span>
+      <span class="sub">{{ t('casePage.sub') }}</span>
       <div class="spacer" />
       <el-select v-model="status" style="width: 130px" @change="load">
-        <el-option label="待审核" value="CANDIDATE" />
-        <el-option label="已通过" value="APPROVED" />
-        <el-option label="已归档" value="ARCHIVED" />
-        <el-option label="全部" value="" />
+        <el-option :label="t('casePage.pending')" value="CANDIDATE" />
+        <el-option :label="t('casePage.approved')" value="APPROVED" />
+        <el-option :label="t('casePage.archived')" value="ARCHIVED" />
+        <el-option :label="t('casePage.all')" value="" />
       </el-select>
-      <el-select v-model="tier" clearable placeholder="数据集层级" style="width: 140px" @change="load">
-        <el-option label="候选" value="CANDIDATE" />
-        <el-option label="已审核" value="APPROVED" />
-        <el-option label="黄金集" value="GOLDEN" />
+      <el-select v-model="tier" clearable :placeholder="t('casePage.tier')" style="width: 140px" @change="load">
+        <el-option :label="t('casePage.candidate')" value="CANDIDATE" />
+        <el-option :label="t('casePage.approvedTier')" value="APPROVED" />
+        <el-option :label="t('casePage.golden')" value="GOLDEN" />
       </el-select>
-      <el-select v-model="kind" clearable placeholder="类型" style="width: 110px" @change="load">
-        <el-option label="经典" value="CLASSIC" />
-        <el-option label="坏例" value="BAD" />
+      <el-select v-model="kind" clearable :placeholder="t('casePage.kind')" style="width: 110px" @change="load">
+        <el-option :label="t('casePage.classic')" value="CLASSIC" />
+        <el-option :label="t('casePage.bad')" value="BAD" />
       </el-select>
-      <el-input v-model="keyword" clearable placeholder="搜索问题" style="width: 200px"
+      <el-input v-model="keyword" clearable :placeholder="t('casePage.searchPh')" style="width: 200px"
                 @keyup.enter="load" @clear="load" />
-      <el-button @click="load">刷新</el-button>
-      <el-button :disabled="!approved.length" @click="exportCases">导出评测集</el-button>
-      <el-button @click="openCalibration">人工标注 / 校准</el-button>
+      <el-button @click="load">{{ t('casePage.refresh') }}</el-button>
+      <el-button :disabled="!approved.length" @click="exportCases">{{ t('casePage.export') }}</el-button>
+      <el-button @click="openCalibration">{{ t('casePage.calibration') }}</el-button>
     </div>
 
     <div class="run-bar">
-      <span class="hint">模型回归：</span>
-      <el-select v-model="modelName" filterable placeholder="候选模型" style="width: 220px">
+      <span class="hint">{{ t('casePage.regression') }}</span>
+      <el-select v-model="modelName" filterable :placeholder="t('casePage.candidateModel')" style="width: 220px">
         <el-option v-for="m in chatModels" :key="m.modelName" :value="m.modelName"
                    :label="m.displayName || m.modelName" />
       </el-select>
       <el-select v-model="runTier" style="width: 130px">
-        <el-option label="已审核集" value="APPROVED" />
-        <el-option label="黄金集" value="GOLDEN" />
+        <el-option :label="t('casePage.approvedSet')" value="APPROVED" />
+        <el-option :label="t('casePage.golden')" value="GOLDEN" />
       </el-select>
-      <el-select v-model="judgeModel" filterable placeholder="裁判模型" style="width: 220px">
+      <el-select v-model="judgeModel" filterable :placeholder="t('casePage.judgeModel')" style="width: 220px">
         <el-option v-for="m in chatModels" :key="'j' + m.modelName" :value="m.modelName"
                    :label="m.displayName || m.modelName" />
       </el-select>
       <el-button type="primary" :loading="running" :disabled="!runnable.length || !modelName"
-                 @click="runRegression">运行{{ runTier === 'GOLDEN' ? '黄金集' : '已审核用例' }}（{{ approved.length }}）</el-button>
-      <span class="hint">classic 与 bad 同批执行；坏例必须已填写期望答案</span>
+                 @click="runRegression">{{ runTier === 'GOLDEN' ? t('casePage.runGolden') : t('casePage.runApproved') }}（{{ approved.length }}）</el-button>
+      <span class="hint">{{ t('casePage.runHint') }}</span>
     </div>
 
-    <el-empty v-if="!loading && rows.length === 0" description="暂无用例：在对话中点赞/点踩，或手动收藏 AI 回复" />
+    <el-empty v-if="!loading && rows.length === 0" :description="t('casePage.empty')" />
     <div v-else v-loading="loading" class="case-list">
       <div v-for="c in rows" :key="c.id" class="case-card">
         <div class="case-head">
           <el-tag size="small" :type="c.kind === 'CLASSIC' ? 'success' : 'danger'">
-            {{ c.kind === 'CLASSIC' ? '经典' : '坏例' }}
+            {{ c.kind === 'CLASSIC' ? t('casePage.classicKind') : t('casePage.badKind') }}
           </el-tag>
           <el-tag size="small" effect="plain">{{ sourceText(c.source) }}</el-tag>
           <el-tag size="small" :type="c.status === 'APPROVED' ? 'success' : c.status === 'ARCHIVED' ? 'info' : 'warning'">
@@ -59,158 +59,158 @@
           <el-tag v-if="c.datasetTier === 'GOLDEN'" size="small" type="warning">GOLDEN</el-tag>
           <span class="case-id">#{{ c.id }}</span>
           <div class="spacer" />
-          <el-button size="small" text @click="openReview(c)">审核 / 修正</el-button>
-          <el-button size="small" text type="danger" @click="remove(c)">删除</el-button>
+          <el-button size="small" text @click="openReview(c)">{{ t('casePage.review') }}</el-button>
+          <el-button size="small" text type="danger" @click="remove(c)">{{ t('casePage.delete') }}</el-button>
         </div>
-        <div class="case-q"><b>问：</b>{{ c.question }}</div>
-        <div class="case-a"><b>原回答：</b>{{ c.actualAnswer }}</div>
-        <div v-if="c.expectedAnswer" class="case-expected"><b>期望答案：</b>{{ c.expectedAnswer }}</div>
-        <div v-if="c.note" class="case-note">备注：{{ c.note }}</div>
+        <div class="case-q"><b>{{ t('casePage.qPrefix') }}</b>{{ c.question }}</div>
+        <div class="case-a"><b>{{ t('casePage.original') }}</b>{{ c.actualAnswer }}</div>
+        <div v-if="c.expectedAnswer" class="case-expected"><b>{{ t('casePage.expected') }}</b>{{ c.expectedAnswer }}</div>
+        <div v-if="c.note" class="case-note">{{ t('casePage.notePrefix') }}{{ c.note }}</div>
       </div>
     </div>
 
-    <el-dialog v-model="reviewVisible" title="审核 / 修正用例" width="620px">
+    <el-dialog v-model="reviewVisible" :title="t('casePage.reviewTitle')" width="620px">
       <el-form label-width="90px">
-        <el-form-item label="问题">
+        <el-form-item :label="t('casePage.question')">
           <el-input v-model="form.question" type="textarea" :rows="2" />
         </el-form-item>
-        <el-form-item label="原回答">
+        <el-form-item :label="t('casePage.originalAnswer')">
           <el-input v-model="form.actualAnswer" type="textarea" :rows="3" readonly />
         </el-form-item>
-        <el-form-item label="类型">
+        <el-form-item :label="t('casePage.type')">
           <el-radio-group v-model="form.kind">
-            <el-radio value="CLASSIC">经典（原回答作为参考）</el-radio>
-            <el-radio value="BAD">坏例（需修正期望答案）</el-radio>
+            <el-radio value="CLASSIC">{{ t('casePage.classicOption') }}</el-radio>
+            <el-radio value="BAD">{{ t('casePage.badOption') }}</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="期望答案" :required="form.kind === 'BAD'">
+        <el-form-item :label="t('casePage.expectedLabel')" :required="form.kind === 'BAD'">
           <el-input v-model="form.expectedAnswer" type="textarea" :rows="3"
-                    placeholder="坏例审核通过前必须填写正确的期望答案；经典可留空沿用原回答" />
+                    :placeholder="t('casePage.expectedPh')" />
         </el-form-item>
-        <el-form-item label="审核状态">
+        <el-form-item :label="t('casePage.reviewStatus')">
           <el-select v-model="form.status" style="width: 160px">
-            <el-option label="待审核" value="CANDIDATE" />
-            <el-option label="通过（可用于回归）" value="APPROVED" />
-            <el-option label="归档" value="ARCHIVED" />
+            <el-option :label="t('casePage.pending')" value="CANDIDATE" />
+            <el-option :label="t('casePage.statusApproved')" value="APPROVED" />
+            <el-option :label="t('casePage.statusArchived')" value="ARCHIVED" />
           </el-select>
         </el-form-item>
-        <el-form-item label="数据集层级">
+        <el-form-item :label="t('casePage.tierLabel')">
           <el-select v-model="form.datasetTier" style="width: 180px">
-            <el-option label="候选" value="CANDIDATE" />
-            <el-option label="已审核" value="APPROVED" />
-            <el-option label="黄金集（需风险/覆盖标签）" value="GOLDEN" />
+            <el-option :label="t('casePage.candidate')" value="CANDIDATE" />
+            <el-option :label="t('casePage.approvedTier')" value="APPROVED" />
+            <el-option :label="t('casePage.goldenOption')" value="GOLDEN" />
           </el-select>
         </el-form-item>
-        <el-form-item label="风险等级">
+        <el-form-item :label="t('casePage.risk')">
           <el-select v-model="form.riskLevel" clearable style="width: 160px">
             <el-option label="LOW" value="LOW" />
             <el-option label="MEDIUM" value="MEDIUM" />
             <el-option label="HIGH" value="HIGH" />
           </el-select>
         </el-form-item>
-        <el-form-item label="覆盖标签">
-          <el-input v-model="form.coverageTagsText" placeholder="逗号分隔，如：主流程,工具,RAG" />
+        <el-form-item :label="t('casePage.coverage')">
+          <el-input v-model="form.coverageTagsText" :placeholder="t('casePage.coveragePh')" />
         </el-form-item>
-        <el-form-item label="有效期">
+        <el-form-item :label="t('casePage.expiry')">
           <el-date-picker v-model="form.expiresAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss"
-                          placeholder="黄金集建议设置到期日" style="width: 220px" />
+                          :placeholder="t('casePage.expiryPh')" style="width: 220px" />
         </el-form-item>
-        <el-form-item label="备注">
+        <el-form-item :label="t('casePage.formNote')">
           <el-input v-model="form.note" maxlength="512" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="reviewVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveReview">保存</el-button>
+        <el-button @click="reviewVisible = false">{{ t('casePage.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="saveReview">{{ t('casePage.save') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="resultVisible" title="回归结果" width="900px">
+    <el-dialog v-model="resultVisible" :title="t('casePage.resultTitle')" width="900px">
       <div v-if="currentRun" class="run-summary">
-        模型 {{ currentRun.modelName }} · 通过 {{ currentRun.passed }}/{{ currentRun.total }} ·
-        平均分 {{ currentRun.avgScore ?? '-' }} · 裁判 {{ currentRun.judgeModel }}
+        {{ t('casePage.resultModel') }}{{ currentRun.modelName }}{{ t('casePage.resultPassed') }}{{ currentRun.passed }}/{{ currentRun.total }}{{ t('casePage.resultAvg') }}
+        {{ currentRun.avgScore ?? '-' }}{{ t('casePage.resultJudge') }}{{ currentRun.judgeModel }}
       </div>
       <el-table :data="currentRun?.items || []" size="small" max-height="420">
-        <el-table-column prop="question" label="问题" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="answer" label="候选回答" min-width="260" show-overflow-tooltip />
-        <el-table-column prop="score" label="分数" width="80" />
-        <el-table-column label="结果" width="80">
+        <el-table-column prop="question" :label="t('casePage.question')" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="answer" :label="t('casePage.answer')" min-width="260" show-overflow-tooltip />
+        <el-table-column prop="score" :label="t('casePage.score')" width="80" />
+        <el-table-column :label="t('casePage.result')" width="80">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.passed ? 'success' : 'danger'">{{ row.passed ? '通过' : '失败' }}</el-tag>
+            <el-tag size="small" :type="row.passed ? 'success' : 'danger'">{{ row.passed ? t('casePage.pass') : t('casePage.fail') }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="error" label="错误" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="error" :label="t('casePage.error')" min-width="120" show-overflow-tooltip />
       </el-table>
     </el-dialog>
 
-    <el-drawer v-model="calVisible" title="人工标注 / 裁判校准" size="1100px">
+    <el-drawer v-model="calVisible" :title="t('casePage.calTitle')" size="1100px">
       <div class="cal-stats">
-        <el-statistic title="回归明细" :value="calStats.total || 0" />
-        <el-statistic title="已标注" :value="calStats.labeled || 0" />
-        <el-statistic title="待标注" :value="calStats.pending || 0" />
-        <el-statistic title="裁判一致率" :value="(calStats.agreementRate || 0) * 100">
+        <el-statistic :title="t('casePage.statDetails')" :value="calStats.total || 0" />
+        <el-statistic :title="t('casePage.statLabeled')" :value="calStats.labeled || 0" />
+        <el-statistic :title="t('casePage.statPending')" :value="calStats.pending || 0" />
+        <el-statistic :title="t('casePage.statAgreement')" :value="(calStats.agreementRate || 0) * 100">
           <template #suffix>%</template>
         </el-statistic>
-        <el-statistic title="平均分差" :value="calStats.meanAbsError || 0" />
-        <el-statistic title="标注者一致率" :value="(calStats.interAnnotatorAgreement || 0) * 100">
+        <el-statistic :title="t('casePage.statMeanError')" :value="calStats.meanAbsError || 0" />
+        <el-statistic :title="t('casePage.statInter')" :value="(calStats.interAnnotatorAgreement || 0) * 100">
           <template #suffix>%</template>
         </el-statistic>
-        <el-statistic title="已抽检" :value="calStats.sampled || 0" />
-        <el-statistic title="已指派" :value="calStats.assigned || 0" />
+        <el-statistic :title="t('casePage.statSampled')" :value="calStats.sampled || 0" />
+        <el-statistic :title="t('casePage.statAssigned')" :value="calStats.assigned || 0" />
       </div>
       <div class="toolbar">
         <el-radio-group v-model="calStatus" @change="loadCalibration">
-          <el-radio-button value="PENDING">待标注</el-radio-button>
-          <el-radio-button value="DONE">已标注</el-radio-button>
-          <el-radio-button value="ALL">全部</el-radio-button>
+          <el-radio-button value="PENDING">{{ t('casePage.calPending') }}</el-radio-button>
+          <el-radio-button value="DONE">{{ t('casePage.calDone') }}</el-radio-button>
+          <el-radio-button value="ALL">{{ t('casePage.calAll') }}</el-radio-button>
         </el-radio-group>
-        <el-button @click="loadCalibration">刷新</el-button>
-        <el-button @click="sampleCalibration">抽检 20%</el-button>
-        <el-checkbox v-model="calBlind" @change="loadCalibration">盲标（隐藏裁判分/参考）</el-checkbox>
-        <el-checkbox v-model="calMine" @change="loadCalibration">仅我的</el-checkbox>
-        <el-checkbox v-model="calSampled" @change="loadCalibration">仅抽检</el-checkbox>
-        <span class="hint">人工标签与 LLM 裁判分开保存；一致率仅统计已标注项</span>
+        <el-button @click="loadCalibration">{{ t('casePage.refresh') }}</el-button>
+        <el-button @click="sampleCalibration">{{ t('casePage.sample') }}</el-button>
+        <el-checkbox v-model="calBlind" @change="loadCalibration">{{ t('casePage.blind') }}</el-checkbox>
+        <el-checkbox v-model="calMine" @change="loadCalibration">{{ t('casePage.mine') }}</el-checkbox>
+        <el-checkbox v-model="calSampled" @change="loadCalibration">{{ t('casePage.sampledOnly') }}</el-checkbox>
+        <span class="hint">{{ t('casePage.calHint') }}</span>
       </div>
       <el-table :data="calRows" size="small" v-loading="calLoading" max-height="560">
-        <el-table-column prop="runName" label="回归任务" width="150" show-overflow-tooltip />
-        <el-table-column prop="modelName" label="候选模型" width="120" show-overflow-tooltip />
-        <el-table-column prop="question" label="问题" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="answer" label="候选回答" min-width="220" show-overflow-tooltip />
-        <el-table-column prop="referenceAnswer" label="参考/期望" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="labelCount" label="标注数" width="75" />
-        <el-table-column label="抽检/指派" width="110">
+        <el-table-column prop="runName" :label="t('casePage.runTask')" width="150" show-overflow-tooltip />
+        <el-table-column prop="modelName" :label="t('casePage.candidateModelCol')" width="120" show-overflow-tooltip />
+        <el-table-column prop="question" :label="t('casePage.question')" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="answer" :label="t('casePage.answer')" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="referenceAnswer" :label="t('casePage.reference')" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="labelCount" :label="t('casePage.labelCount')" width="75" />
+        <el-table-column :label="t('casePage.sampleAssign')" width="110">
           <template #default="{ row }">
-            <el-tag v-if="row.sampled" type="warning" size="small">抽检</el-tag>
-            <el-tag v-if="row.assigneeId" type="success" size="small">已指派</el-tag>
+            <el-tag v-if="row.sampled" type="warning" size="small">{{ t('casePage.sampledTag') }}</el-tag>
+            <el-tag v-if="row.assigneeId" type="success" size="small">{{ t('casePage.assignedTag') }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="裁判" width="90">
+        <el-table-column :label="t('casePage.judge')" width="90">
           <template #default="{ row }">
             <el-tag size="small" :type="row.judgePassed ? 'success' : 'danger'">
               {{ row.judgeScore ?? '-' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="人工分" width="110">
+        <el-table-column :label="t('casePage.humanScore')" width="110">
           <template #default="{ row }">
             <el-input-number v-model="row.humanScore" :min="0" :max="1" :step="0.1" size="small" />
           </template>
         </el-table-column>
-        <el-table-column label="人工标签" width="110">
+        <el-table-column :label="t('casePage.humanLabel')" width="110">
           <template #default="{ row }">
-            <el-select v-model="row.humanLabel" size="small" placeholder="选择">
+            <el-select v-model="row.humanLabel" size="small" :placeholder="t('casePage.selectLabel')">
               <el-option label="PASS" value="PASS" />
               <el-option label="FAIL" value="FAIL" />
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column label="备注" width="140">
+        <el-table-column :label="t('casePage.noteCol')" width="140">
           <template #default="{ row }"><el-input v-model="row.reviewNote" size="small" /></template>
         </el-table-column>
-        <el-table-column label="操作" width="170" fixed="right">
+        <el-table-column :label="t('casePage.actions')" width="170" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" text @click="assignToMe(row)">指派给我</el-button>
-            <el-button size="small" type="primary" text @click="saveCalibration(row)">保存</el-button>
+            <el-button size="small" text @click="assignToMe(row)">{{ t('casePage.assignMe') }}</el-button>
+            <el-button size="small" type="primary" text @click="saveCalibration(row)">{{ t('casePage.save') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -300,7 +300,7 @@ function openReview(c: any) {
 
 async function saveReview() {
   if (form.kind === 'BAD' && form.status === 'APPROVED' && !form.expectedAnswer.trim()) {
-    ElMessage.warning('坏例审核通过前必须填写期望答案')
+    ElMessage.warning(t('casePage.badExpectedRequired'))
     return
   }
   saving.value = true
@@ -311,7 +311,7 @@ async function saveReview() {
       datasetTier: form.datasetTier, riskLevel: form.riskLevel,
       coverageTags, expiresAt: form.expiresAt || null, note: form.note
     })
-    ElMessage.success('已保存')
+    ElMessage.success(t('casePage.saved'))
     reviewVisible.value = false
     await load()
   } finally {
@@ -321,23 +321,23 @@ async function saveReview() {
 
 async function remove(c: any) {
   try {
-    await ElMessageBox.confirm(`删除用例 #${c.id}？`, '删除用例', { type: 'warning' })
+    await ElMessageBox.confirm(`${t('casePage.deletePrefix')}${c.id}${t('casePage.deleteSuffix')}`, t('casePage.deleteTitle'), { type: 'warning' })
   } catch { return }
   await http.delete(`/cases/${c.id}`)
-  ElMessage.success('已删除')
+  ElMessage.success(t('casePage.deleted'))
   await load()
 }
 
 async function exportCases() {
   const res = await http.post('/cases/export', {
-    name: `用例库导出-${new Date().toISOString().slice(0, 19)}`,
+    name: `${t('casePage.exportName')}${new Date().toISOString().slice(0, 19)}`,
     caseIds: approved.value.map(c => c.id)
   }) as any
-  ElMessage.success(`已导出 ${res.cases} 条到评测数据集 #${res.datasetId}`)
+  ElMessage.success(`${t('casePage.exported')}${res.cases}${t('casePage.exportedMid')}${res.datasetId}`)
 }
 
 async function runRegression() {
-  if (!modelName.value) { ElMessage.warning('请选择候选模型'); return }
+  if (!modelName.value) { ElMessage.warning(t('casePage.selectModel')); return }
   running.value = true
   try {
     currentRun.value = await http.post('/cases/run', {
@@ -347,7 +347,7 @@ async function runRegression() {
       caseIds: approved.value.filter(c => runTier.value !== 'GOLDEN' || c.datasetTier === 'GOLDEN').map(c => c.id)
     }, { timeout: 300000 }) as any
     resultVisible.value = true
-    ElMessage.success(`回归完成：通过 ${currentRun.value.passed}/${currentRun.value.total}`)
+    ElMessage.success(`${t('casePage.regressionDone')}${currentRun.value.passed}/${currentRun.value.total}`)
   } finally {
     running.value = false
   }
@@ -380,41 +380,41 @@ async function loadCalibration() {
 async function sampleCalibration() {
   try {
     const res = await http.post('/cases/calibrations/sample', { percent: 20 }) as any
-    ElMessage.success(`已抽检 ${res.sampled}/${res.total} 条`)
+    ElMessage.success(`${t('casePage.sampledToast')}${res.sampled}${t('casePage.sampledSlash')}${res.total}`)
     await loadCalibration()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '抽检失败')
+    ElMessage.error(e?.response?.data?.message || t('casePage.sampleFail'))
   }
 }
 
 async function assignToMe(row: any) {
   try {
     await http.put(`/cases/calibrations/${row.id}/assign`, {})
-    ElMessage.success('已指派给我')
+    ElMessage.success(t('casePage.assignedToast'))
     await loadCalibration()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '指派失败')
+    ElMessage.error(e?.response?.data?.message || t('casePage.assignFail'))
   }
 }
 
 async function saveCalibration(row: any) {
-  if (!row.humanLabel) { ElMessage.warning('请选择人工标签 PASS/FAIL'); return }
+  if (!row.humanLabel) { ElMessage.warning(t('casePage.labelRequired')); return }
   try {
     await http.put(`/cases/calibrations/${row.id}`, {
       humanScore: row.humanScore, humanLabel: row.humanLabel, note: row.reviewNote
     })
-    ElMessage.success('已保存标注')
+    ElMessage.success(t('casePage.labelSaved'))
     await loadCalibration()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '保存失败')
+    ElMessage.error(e?.response?.data?.message || t('casePage.saveFail'))
   }
 }
 
 function sourceText(source: string) {
-  return ({ MANUAL: '手动收藏', AUTO_BAD: '点踩自动', AUTO_CLASSIC: '点赞自动' } as any)[source] || source
+  return ({ MANUAL: t('casePage.sourceManual'), AUTO_BAD: t('casePage.sourceAutoBad'), AUTO_CLASSIC: t('casePage.sourceAutoClassic') } as any)[source] || source
 }
 function statusText(value: string) {
-  return ({ CANDIDATE: '待审核', APPROVED: '已通过', ARCHIVED: '已归档' } as any)[value] || value
+  return ({ CANDIDATE: t('casePage.statusCandidate'), APPROVED: t('casePage.approved'), ARCHIVED: t('casePage.archived') } as any)[value] || value
 }
 </script>
 
