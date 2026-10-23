@@ -1085,6 +1085,45 @@ test('工作流嵌套并行 State 合并', async ({ request }) => {
   }
 })
 
+test('工作流并行分支内 LOOP', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E 分支Loop-${Date.now()}`)
+  try {
+    await publishAgent(request, token!, agentId)
+    const workflow = {
+      name: 'E2E 分支 Loop', status: 'ENABLED',
+      definition: {
+        nodes: [
+          { id: 'start', type: 'START', name: '开始', next: 'parallel1' },
+          { id: 'parallel1', type: 'PARALLEL', name: '并行',
+            branches: ['loop1', 's3'], joinNode: 'join1', strategy: 'ALL_OR_NOTHING' },
+          { id: 'loop1', type: 'LOOP', name: '分支循环', items: ['A', 'B'],
+            bodyNode: 'body1', maxIterations: 5, next: 'join1' },
+          { id: 'body1', type: 'STATE', name: '记录循环', stateKey: 'loop_last',
+            valueTemplate: '{{last}}', next: 'join1' },
+          { id: 's3', type: 'STATE', name: '外部分支', stateKey: 'branch_c',
+            valueTemplate: 'c', next: 'join1' },
+          { id: 'join1', type: 'JOIN', name: '汇合', next: 'end' },
+          { id: 'end', type: 'END', name: '结束' }
+        ]
+      }
+    }
+    expect((await (await request.put(`${P}/agent/${agentId}/workflow`, {
+      headers: auth(token!), data: workflow
+    })).json()).code).toBe(0)
+    const body = await (await request.post(`${P}/agent/${agentId}/workflow/run`, {
+      headers: auth(token!), data: { input: '分支循环测试' }, timeout: 60_000
+    })).json()
+    expect(body.code, JSON.stringify(body)).toBe(0)
+    expect(body.data.status).toBe('SUCCESS')
+    expect(body.data.state?.loop_last).toBeTruthy()
+    expect(body.data.state?.branch_c).toBe('c')
+  } finally {
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
 test('工作流并行分支审批', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()

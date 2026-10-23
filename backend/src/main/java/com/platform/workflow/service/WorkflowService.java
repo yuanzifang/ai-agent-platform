@@ -538,9 +538,10 @@ public class WorkflowService {
                     next = str(node.get("next"));
                 } else if ("LOOP".equals(type)) {
                     try {
-                        LoopResult loop = executeLoop(node, run, nodes, outputs, lastOutput, principal);
+                        LoopResult loop = executeLoop(node, run, nodes, outputs, lastOutput, principal, state);
                         output = loop.output();
                         next = str(node.get("next"));
+                        state.putAll(loop.state());
                         run.setInputTokens(nz(run.getInputTokens()) + loop.inputTokens());
                         run.setOutputTokens(nz(run.getOutputTokens()) + loop.outputTokens());
                     } catch (LoopLimitExceededException ex) {
@@ -792,7 +793,8 @@ public class WorkflowService {
                                 boolean failed) {
     }
 
-    private record LoopResult(String output, long inputTokens, long outputTokens) {
+    private record LoopResult(String output, long inputTokens, long outputTokens,
+                              Map<String, Object> state) {
     }
 
     private static final class LoopLimitExceededException extends RuntimeException {
@@ -895,22 +897,24 @@ public class WorkflowService {
     private LoopResult executeLoop(Map<String, Object> node, WorkflowRun run,
                                    Map<String, Map<String, Object>> nodes,
                                    List<Map<String, Object>> outputs, String lastOutput,
-                                   JwtPrincipal principal) {
+                                   JwtPrincipal principal, Map<String, Object> baseState) {
         String body = str(node.get("bodyNode"));
         if (body == null || body.isBlank()) throw new BusinessException(400, "LOOP 节点未配置 bodyNode");
         String loopEnd = str(node.get("loopEnd"));
         int max = Math.max(1, Math.min(toInt(node.getOrDefault("maxIterations", 10)), 50));
         List<String> items = loopItems(node, run, lastOutput);
-        if (items.isEmpty()) return new LoopResult(lastOutput == null ? "" : lastOutput, 0, 0);
+        if (items.isEmpty()) return new LoopResult(lastOutput == null ? "" : lastOutput, 0, 0, baseState);
         int count = Math.min(items.size(), max);
         StringBuilder merged = new StringBuilder("【循环结果】");
+        Map<String, Object> loopState = new LinkedHashMap<>(baseState);
         long in = 0, out = 0;
         for (int i = 0; i < count; i++) {
             BranchResult br = executeBranch(run, nodes, body, loopEnd, outputs, principal, items.get(i),
-                    Map.of());
+                    loopState);
             merged.append("\n[").append(i + 1).append("] ").append(br.output());
             in += br.inputTokens();
             out += br.outputTokens();
+            loopState.putAll(br.state());
         }
         if (items.size() > max) {
             String preview = items.subList(max, items.size()).stream().limit(5).map(s -> truncate(s, 80))
@@ -918,7 +922,7 @@ public class WorkflowService {
             throw new LoopLimitExceededException(items.size(), max, preview, merged.toString(),
                     new ArrayList<>(items.subList(max, items.size())), in, out);
         }
-        return new LoopResult(merged.toString(), in, out);
+        return new LoopResult(merged.toString(), in, out, loopState);
     }
 
     private List<String> loopItems(Map<String, Object> node, WorkflowRun run, String lastOutput) {
@@ -1119,9 +1123,6 @@ public class WorkflowService {
                 nodeId = str(node.get("next"));
                 continue;
             }
-            if ("LOOP".equals(type)) {
-                throw new BusinessException(400, "分支内暂不支持 " + type + " 节点");
-            }
             String name = str(node.getOrDefault("name", nodeId));
             WorkflowNodeRun nr = new WorkflowNodeRun();
             nr.setRunId(run.getId());
@@ -1145,6 +1146,17 @@ public class WorkflowService {
                 nodeFailed = simple.failed();
                 in += simple.inputTokens();
                 out += simple.outputTokens();
+            } else if ("LOOP".equals(type)) {
+                try {
+                    LoopResult loop = executeLoop(node, run, nodes, outputs, lastOutput, principal, state);
+                    output = loop.output();
+                    next = str(node.get("next"));
+                    in += loop.inputTokens();
+                    out += loop.outputTokens();
+                    state.putAll(loop.state());
+                } catch (LoopLimitExceededException e) {
+                    throw new BusinessException(400, "并行分支内 LOOP 超限暂不支持人工续跑：" + e.getMessage());
+                }
             } else if ("PARALLEL".equals(type)) {
                 ParallelResult nested = executeParallel(node, run, nodes, outputs, principal, state);
                 output = nested.output();
