@@ -3,19 +3,19 @@
     <div class="toolbar">
       <span class="page-title">{{ t('page.knowledge') }}</span>
       <div class="filters">
-        <el-input v-model="keyword" placeholder="搜索名称/描述" clearable class="kw"
+        <el-input v-model="keyword" :placeholder="t('knowledgeList.searchPh')" clearable class="kw"
                   @keydown.enter="search" @clear="search" />
-        <el-select v-model="visibility" placeholder="可见范围" clearable class="vis" @change="search">
-          <el-option label="只有我" value="PRIVATE" />
-          <el-option label="所有团队成员" value="TENANT" />
-          <el-option label="部分成员" value="PARTIAL" />
+        <el-select v-model="visibility" :placeholder="t('knowledgeList.visibilityPh')" clearable class="vis" @change="search">
+          <el-option :label="t('knowledgeList.private')" value="PRIVATE" />
+          <el-option :label="t('knowledgeList.tenant')" value="TENANT" />
+          <el-option :label="t('knowledgeList.partial')" value="PARTIAL" />
         </el-select>
-        <el-button @click="search">搜索</el-button>
-        <el-button v-if="canCreate" type="primary" @click="createVisible = true">新建知识库</el-button>
+        <el-button @click="search">{{ t('knowledgeList.search') }}</el-button>
+        <el-button v-if="canCreate" type="primary" @click="createVisible = true">{{ t('knowledgeList.create') }}</el-button>
       </div>
     </div>
 
-    <el-empty v-if="!loading && kbs.length === 0" description="暂无知识库，点击右上角创建" />
+    <el-empty v-if="!loading && kbs.length === 0" :description="t('knowledgeList.empty')" />
 
     <div v-else class="grid">
       <el-card v-for="kb in kbs" :key="kb.id" class="card" shadow="hover" @click="$router.push(`/knowledge/${kb.id}`)">
@@ -29,14 +29,14 @@
             <div class="meta">嵌入模型 {{ kb.embeddingModel }} · {{ formatDate(kb.createdAt) }}</div>
           </div>
         </div>
-        <div class="desc">{{ kb.description || '暂无描述' }}</div>
+        <div class="desc">{{ kb.description || t('knowledgeList.noDesc') }}</div>
         <div class="foot">
           <span>文档 {{ kb.documentCount ?? 0 }} · 分段 {{ kb.chunkCount ?? 0 }}</span>
           <span>创建人 {{ kb.creatorName || '-' }}</span>
         </div>
         <div v-if="kb.canEdit" class="actions" @click.stop>
-          <el-button size="small" text @click="openEdit(kb)">编辑</el-button>
-          <el-button size="small" text type="danger" @click="removeKb(kb)">删除</el-button>
+          <el-button size="small" text @click="openEdit(kb)">{{ t('knowledgeList.edit') }}</el-button>
+          <el-button size="small" text type="danger" @click="removeKb(kb)">{{ t('knowledgeList.delete') }}</el-button>
         </div>
       </el-card>
     </div>
@@ -46,44 +46,44 @@
                      :page-size="pageSize" :current-page="page" @current-change="onPage" />
     </div>
 
-    <el-dialog v-model="editVisible" title="编辑知识库" width="480px">
+    <el-dialog v-model="editVisible" :title="t('knowledgeList.editTitle')" width="480px">
       <el-form label-width="70px">
-        <el-form-item label="名称" required>
+        <el-form-item :label="t('knowledgeList.name')" required>
           <el-input v-model="editForm.name" maxlength="128" />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="t('knowledgeList.desc')">
           <el-input v-model="editForm.description" type="textarea" :rows="2" maxlength="512" />
         </el-form-item>
-        <el-form-item label="嵌入模型">
+        <el-form-item :label="t('knowledgeList.model')">
           <el-select v-model="editForm.embeddingModel" :disabled="editForm.documentCount > 0" style="width: 260px">
             <el-option v-for="m in embeddingModels" :key="m.name" :value="m.name"
                        :label="`${m.name}（${m.dimensions} 维）`" />
           </el-select>
-          <span v-if="editForm.documentCount > 0" class="hint">已有文档使用当前模型，不能直接切换</span>
+          <span v-if="editForm.documentCount > 0" class="hint">{{ t('knowledgeList.modelLocked') }}</span>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" :loading="editSaving" @click="saveEdit">保存</el-button>
+        <el-button @click="editVisible = false">{{ t('knowledgeList.cancel') }}</el-button>
+        <el-button type="primary" :loading="editSaving" @click="saveEdit">{{ t('knowledgeList.save') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="createVisible" title="新建知识库" width="480px">
+    <el-dialog v-model="createVisible" :title="t('knowledgeList.createTitle')" width="480px">
       <el-form label-width="70px">
-        <el-form-item label="名称" required>
-          <el-input v-model="form.name" placeholder="如：产品手册库" maxlength="64" />
+        <el-form-item :label="t('knowledgeList.name')" required>
+          <el-input v-model="form.name" :placeholder="t('knowledgeList.namePh')" maxlength="64" />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="t('knowledgeList.desc')">
           <el-input v-model="form.description" type="textarea" :rows="2" />
         </el-form-item>
-        <el-form-item label="嵌入模型">
+        <el-form-item :label="t('knowledgeList.model')">
           <el-select v-model="form.embeddingModel" style="width: 260px">
             <el-option v-for="m in embeddingModels" :key="m.name" :value="m.name"
                        :label="`${m.name}（${m.dimensions} 维）`" />
           </el-select>
-          <span class="hint">需先在 Ollama 拉取对应模型；不同维度向量分表存储</span>
+          <span class="hint">{{ t('knowledgeList.modelHint') }}</span>
         </el-form-item>
-        <el-form-item label="可见范围">
+        <el-form-item :label="t('knowledgeList.visibility')">
           <el-radio-group v-model="form.visibility">
             <el-radio value="TENANT">所有团队成员</el-radio>
             <el-radio value="PRIVATE">只有我</el-radio>
@@ -91,8 +91,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="create">创建</el-button>
+        <el-button @click="createVisible = false">{{ t('knowledgeList.cancel') }}</el-button>
+        <el-button type="primary" :loading="creating" @click="create">{{ t('knowledgeList.createBtn') }}</el-button>
       </template>
     </el-dialog>
   </div>

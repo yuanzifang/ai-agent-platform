@@ -1,74 +1,77 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <el-input v-model="keyword" placeholder="搜索 Agent 名称" clearable style="width: 240px"
+      <el-input v-model="keyword" :placeholder="t('agentList.search')" clearable style="width: 240px"
                 @keyup.enter="load" @clear="load" />
-      <el-button @click="$router.push('/templates')">从模板创建</el-button>
-      <el-button type="primary" @click="openCreate">新建 Agent</el-button>
+      <el-button @click="$router.push('/templates')">{{ t('agentList.fromTemplate') }}</el-button>
+      <el-button type="primary" @click="openCreate">{{ t('agentList.create') }}</el-button>
     </div>
 
     <div v-if="loading" class="loading"><el-skeleton :rows="3" animated /></div>
 
-    <el-empty v-else-if="agents.length === 0" description="还没有 Agent，点击右上角「新建 Agent」创建一个" />
+    <el-empty v-else-if="agents.length === 0" :description="t('agentList.empty')" />
 
     <div v-else class="grid">
       <el-card v-for="a in agents" :key="a.id" class="card" shadow="hover" @click="enter(a)">
         <div class="card-head">
           <el-avatar :size="40" class="avatar">{{ initials(a.name) }}</el-avatar>
           <div class="title-wrap">
-            <div class="name">{{ a.name || '未命名' }}</div>
+            <div class="name">{{ a.name || t('agentList.unnamed') }}</div>
             <el-tag size="small" :type="a.status === 'PUBLISHED' ? 'success' : 'info'">
-              {{ a.status === 'PUBLISHED' ? '已发布' : '草稿' }}
+              {{ a.status === 'PUBLISHED' ? t('agentList.published') : t('agentList.draft') }}
             </el-tag>
           </div>
         </div>
-        <div class="desc">{{ a.description || '暂无描述' }}</div>
+        <div class="desc">{{ a.description || t('agentList.noDesc') }}</div>
         <div class="card-foot" @click.stop>
-          <el-button size="small" @click="edit(a)">编辑</el-button>
-          <el-button size="small" @click="observe(a)">观测</el-button>
-          <el-button size="small" @click="metrics(a)">监控</el-button>
-          <el-button size="small" :disabled="a.status !== 'PUBLISHED'" @click="enter(a)">对话</el-button>
-          <el-button v-if="a.status !== 'PUBLISHED'" size="small" type="success" plain @click="publish(a)">发布</el-button>
-          <el-button size="small" type="danger" plain @click="remove(a)">删除</el-button>
+          <el-button size="small" @click="edit(a)">{{ t('agentList.edit') }}</el-button>
+          <el-button size="small" @click="observe(a)">{{ t('agentList.observe') }}</el-button>
+          <el-button size="small" @click="metrics(a)">{{ t('agentList.metrics') }}</el-button>
+          <el-button size="small" :disabled="a.status !== 'PUBLISHED'" @click="enter(a)">{{ t('agentList.chat') }}</el-button>
+          <el-button v-if="a.status !== 'PUBLISHED'" size="small" type="success" plain @click="publish(a)">{{ t('agentList.publish') }}</el-button>
+          <el-button size="small" type="danger" plain @click="remove(a)">{{ t('agentList.delete') }}</el-button>
         </div>
       </el-card>
     </div>
 
-    <el-dialog v-model="createVisible" title="新建 Agent" width="560px">
+    <el-dialog v-model="createVisible" :title="t('agentList.createTitle')" width="560px">
       <el-form label-width="90px">
-        <el-form-item label="名称" required>
-          <el-input v-model="form.name" placeholder="如：售后客服助手" maxlength="64" />
+        <el-form-item :label="t('agentList.name')" required>
+          <el-input v-model="form.name" :placeholder="t('agentList.namePh')" maxlength="64" />
         </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="form.description" type="textarea" :rows="2" placeholder="一句话说明这个 Agent 做什么" />
+        <el-form-item :label="t('agentList.desc')">
+          <el-input v-model="form.description" type="textarea" :rows="2" :placeholder="t('agentList.descPh')" />
         </el-form-item>
-        <el-form-item label="模型" required>
-          <el-select v-model="form.modelName" placeholder="选择模型" style="width: 100%">
+        <el-form-item :label="t('agentList.model')" required>
+          <el-select v-model="form.modelName" :placeholder="t('agentList.selectModel')" style="width: 100%">
             <el-option v-for="m in models" :key="m.modelName" :value="m.modelName"
                        :label="modelLabel(m)" />
           </el-select>
         </el-form-item>
-        <el-form-item label="提示词" required>
+        <el-form-item :label="t('agentList.prompt')" required>
           <el-input v-model="form.systemPrompt" type="textarea" :rows="5"
-                    placeholder="系统提示词（System Prompt），定义 Agent 的角色与规则" />
+                    :placeholder="t('agentList.promptPh')" />
         </el-form-item>
-        <el-form-item label="温度">
+        <el-form-item :label="t('agentList.temperature')">
           <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" style="width: 90%" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="submit">创建并发布</el-button>
+        <el-button @click="createVisible = false">{{ t('agentList.cancel') }}</el-button>
+        <el-button type="primary" :loading="creating" @click="submit">{{ t('agentList.createPublish') }}</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
+
+const { t } = useI18n()
 
 interface AgentItem { id: number; agentKey: string; name: string; description: string; status: string }
 interface ModelItem { modelName: string; displayName: string }
@@ -137,7 +140,7 @@ async function publish(a: AgentItem) {
 }
 
 async function remove(a: AgentItem) {
-  await ElMessageBox.confirm(`确定删除「${a.name || '未命名'}」？`, '删除确认', { type: 'warning' })
+  await ElMessageBox.confirm(`确定删除「${a.name || t('agentList.unnamed')}」？`, '删除确认', { type: 'warning' })
   await http.delete(`/agent/${a.id}`)
   ElMessage.success('已删除')
   await load()

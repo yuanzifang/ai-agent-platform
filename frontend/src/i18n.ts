@@ -10,6 +10,27 @@ const messages = {
       usage: '用量看板', billing: '计费管理', users: '成员管理', tenant: '租户设置',
       audit: '审计日志', platform: '平台管理', settings: '系统设置'
     },
+    agentList: {
+      search: '搜索 Agent 名称', fromTemplate: '从模板创建', create: '新建 Agent',
+      empty: '还没有 Agent，点击右上角「新建 Agent」创建一个', unnamed: '未命名',
+      published: '已发布', draft: '草稿', noDesc: '暂无描述', edit: '编辑', observe: '观测',
+      metrics: '监控', chat: '对话', publish: '发布', delete: '删除',
+      createTitle: '新建 Agent', name: '名称', namePh: '如：售后客服助手', desc: '描述',
+      descPh: '一句话说明这个 Agent 做什么', model: '模型', selectModel: '选择模型',
+      prompt: '提示词', promptPh: '系统提示词（System Prompt），定义 Agent 的角色与规则',
+      temperature: '温度', cancel: '取消', createPublish: '创建并发布'
+    },
+    knowledgeList: {
+      searchPh: '搜索名称/描述', visibilityPh: '可见范围', private: '只有我',
+      tenant: '所有团队成员', partial: '部分成员', search: '搜索', create: '新建知识库',
+      empty: '暂无知识库，点击右上角创建', embedding: '嵌入模型', noDesc: '暂无描述',
+      docs: '文档', chunks: '分段', creator: '创建人', edit: '编辑', delete: '删除',
+      editTitle: '编辑知识库', name: '名称', desc: '描述', model: '嵌入模型',
+      modelLocked: '已有文档使用当前模型，不能直接切换', cancel: '取消', save: '保存',
+      createTitle: '新建知识库', namePh: '如：产品手册库',
+      modelHint: '需先在 Ollama 拉取对应模型；不同维度向量分表存储',
+      visibility: '可见范围', createBtn: '创建'
+    },
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
       templates: '模板库', approvals: '人工审批箱', audit: '审计日志', billing: '计费管理',
@@ -37,6 +58,27 @@ const messages = {
       mcp: 'MCP Server', approvals: 'Approvals', prompts: 'Prompt Templates', provider: 'Model Providers',
       usage: 'Usage', billing: 'Billing', users: 'Members', tenant: 'Tenant Settings',
       audit: 'Audit Log', platform: 'Platform Admin', settings: 'System Settings'
+    },
+    agentList: {
+      search: 'Search agents', fromTemplate: 'From template', create: 'New Agent',
+      empty: 'No agents yet. Click "New Agent" to create one.', unnamed: 'Untitled',
+      published: 'Published', draft: 'Draft', noDesc: 'No description', edit: 'Edit', observe: 'Observe',
+      metrics: 'Metrics', chat: 'Chat', publish: 'Publish', delete: 'Delete',
+      createTitle: 'New Agent', name: 'Name', namePh: 'e.g. Support Assistant', desc: 'Description',
+      descPh: 'One sentence about what this Agent does', model: 'Model', selectModel: 'Select model',
+      prompt: 'Prompt', promptPh: 'System prompt defining the Agent role and rules',
+      temperature: 'Temperature', cancel: 'Cancel', createPublish: 'Create & publish'
+    },
+    knowledgeList: {
+      searchPh: 'Search name/description', visibilityPh: 'Visibility', private: 'Only me',
+      tenant: 'All team members', partial: 'Selected members', search: 'Search', create: 'New Knowledge Base',
+      empty: 'No knowledge bases. Create one from the top right.', embedding: 'Embedding model', noDesc: 'No description',
+      docs: 'Documents', chunks: 'Chunks', creator: 'Creator', edit: 'Edit', delete: 'Delete',
+      editTitle: 'Edit Knowledge Base', name: 'Name', desc: 'Description', model: 'Embedding model',
+      modelLocked: 'Documents already use this model and it cannot be switched', cancel: 'Cancel', save: 'Save',
+      createTitle: 'New Knowledge Base', namePh: 'e.g. Product Manuals',
+      modelHint: 'Pull the model in Ollama first; embeddings of different dimensions use separate tables',
+      visibility: 'Visibility', createBtn: 'Create'
     },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',
