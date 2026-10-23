@@ -18,7 +18,15 @@ import org.apache.poi.xslf.usermodel.XSLFTableCell;
 import org.apache.poi.xslf.usermodel.XSLFTableRow;
 import org.apache.poi.xslf.usermodel.XSLFTextShape;
 import org.apache.poi.xslf.usermodel.XSLFPictureShape;
+import org.apache.poi.xslf.usermodel.XSLFChart;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFDrawing;
+import org.apache.poi.xssf.usermodel.XSSFChart;
+import org.apache.poi.xddf.usermodel.chart.XDDFChart;
+import org.apache.poi.xddf.usermodel.chart.XDDFChartData;
+import org.apache.poi.xddf.usermodel.chart.XDDFDataSource;
+import org.apache.poi.xddf.usermodel.chart.XDDFNumericalDataSource;
 import org.apache.poi.hwpf.HWPFDocument;
 import org.apache.poi.hwpf.extractor.WordExtractor;
 import org.apache.poi.hslf.usermodel.HSLFSlideShow;
@@ -320,9 +328,66 @@ public class DocumentParser {
                     sb.append("</tr>\n");
                 }
                 sb.append("</table>\n");
+                if (sheet instanceof XSSFSheet xssfSheet) {
+                    XSSFDrawing drawing = xssfSheet.getDrawingPatriarch();
+                    if (drawing != null) {
+                        for (XSSFChart chart : drawing.getCharts()) {
+                            String title = chart.getTitleText() == null ? null : chart.getTitleText().getString();
+                            appendChart(sb, chart, title);
+                        }
+                    }
+                }
             }
         }
         return sb.toString();
+    }
+
+    private void appendChart(StringBuilder sb, XDDFChart chart, String title) {
+        if (chart == null) return;
+        StringBuilder out = new StringBuilder();
+        if (title != null && !title.isBlank()) out.append("图表标题：").append(title.trim()).append("\n");
+        int seriesGroups = 0, totalPoints = 0;
+        try {
+            for (XDDFChartData data : chart.getChartSeries()) {
+                seriesGroups++;
+                int seriesIndex = 0;
+                for (XDDFChartData.Series series : data.getSeries()) {
+                    seriesIndex++;
+                    XDDFDataSource<?> categories = series.getCategoryData();
+                    XDDFNumericalDataSource<? extends Number> values = series.getValuesData();
+                    if (values == null) continue;
+                    int points = Math.min(values.getPointCount(), 20);
+                    out.append("系列").append(seriesIndex).append("：");
+                    for (int i = 0; i < points; i++) {
+                        Object category = null;
+                        try {
+                            category = categories == null ? null : categories.getPointAt(i);
+                        } catch (Exception ignored) {
+                        }
+                        Object value;
+                        try {
+                            value = values.getPointAt(i);
+                        } catch (Exception e) {
+                            continue;
+                        }
+                        if (i > 0) out.append("，");
+                        if (category != null && !String.valueOf(category).isBlank()) {
+                            out.append(category).append("=");
+                        }
+                        out.append(value);
+                        totalPoints++;
+                    }
+                    out.append("\n");
+                    if (out.length() > 6000 || totalPoints >= 200) break;
+                }
+                if (out.length() > 6000 || totalPoints >= 200) break;
+            }
+        } catch (Exception e) {
+            log.debug("提取图表数据失败（忽略）：{}", e.getMessage());
+        }
+        if (totalPoints > 0 || (title != null && !title.isBlank())) {
+            sb.append("[图表]\n").append(out).append("\n");
+        }
     }
 
     private boolean inMerged(Sheet sheet, int row, int col) {
@@ -365,6 +430,12 @@ public class DocumentParser {
             int index = 1;
             for (XSLFSlide slide : ppt.getSlides()) {
                 sb.append("## Slide ").append(index++).append('\n');
+                for (var relation : slide.getRelations()) {
+                    if (relation instanceof XSLFChart chart) {
+                        String title = chart.getTitleShape() == null ? null : chart.getTitleShape().getText();
+                        appendChart(sb, chart, title);
+                    }
+                }
                 for (XSLFShape shape : slide.getShapes()) {
                     if (shape instanceof XSLFTextShape textShape) {
                         String text = textShape.getText();

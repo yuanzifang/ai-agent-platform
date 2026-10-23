@@ -5,6 +5,16 @@ import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xslf.usermodel.XSLFTextBox;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFDrawing;
+import org.apache.poi.xssf.usermodel.XSSFChart;
+import org.apache.poi.xssf.usermodel.XSSFClientAnchor;
+import org.apache.poi.xddf.usermodel.chart.AxisPosition;
+import org.apache.poi.xddf.usermodel.chart.ChartTypes;
+import org.apache.poi.xddf.usermodel.chart.XDDFCategoryAxis;
+import org.apache.poi.xddf.usermodel.chart.XDDFChartData;
+import org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory;
+import org.apache.poi.xddf.usermodel.chart.XDDFValueAxis;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -283,6 +293,40 @@ class DocumentParserTest {
         String text = String.join("\n", parser.parse("book.epub", out.toByteArray()));
         assertTrue(text.contains("电子书标题"), text);
         assertTrue(text.contains("EPUB 正文内容"), text);
+    }
+
+    @Test
+    void parsesXlsxChartData() throws Exception {
+        byte[] bytes;
+        try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            XSSFSheet sheet = workbook.createSheet("销量");
+            var header = sheet.createRow(0);
+            header.createCell(0).setCellValue("月份");
+            header.createCell(1).setCellValue("销量");
+            String[] months = {"一月", "二月", "三月"};
+            int[] values = {10, 20, 30};
+            for (int i = 0; i < months.length; i++) {
+                var row = sheet.createRow(i + 1);
+                row.createCell(0).setCellValue(months[i]);
+                row.createCell(1).setCellValue(values[i]);
+            }
+            XSSFDrawing drawing = sheet.createDrawingPatriarch();
+            XSSFChart chart = drawing.createChart(new XSSFClientAnchor(0, 0, 0, 0, 3, 1, 10, 15));
+            chart.setTitleText("月度销量");
+            XDDFCategoryAxis bottom = chart.createCategoryAxis(AxisPosition.BOTTOM);
+            XDDFValueAxis left = chart.createValueAxis(AxisPosition.LEFT);
+            XDDFChartData data = chart.createData(ChartTypes.BAR, bottom, left);
+            data.addSeries(XDDFDataSourcesFactory.fromStringCellRange(sheet, new CellRangeAddress(1, 3, 0, 0)),
+                    XDDFDataSourcesFactory.fromNumericCellRange(sheet, new CellRangeAddress(1, 3, 1, 1)));
+            chart.plot(data);
+            workbook.write(out);
+            bytes = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("chart.xlsx", bytes));
+        assertTrue(text.contains("[图表]"), "应输出图表结构");
+        assertTrue(text.contains("月度销量"), "应包含图表标题");
+        assertTrue(text.contains("一月"), "应包含类目");
+        assertTrue(text.contains("10"), "应包含数值");
     }
 
     @Test
