@@ -160,6 +160,18 @@ const messages = {
       byModel: '按模型', model: '模型', count: '次数', details: '调用明细', time: '时间', source: '来源',
       chat: '对话', debug: '调试', embedding: '嵌入', costShort: '成本'
     },
+    memory: {
+      sub: '用户可见、可编辑的事实；对话时自动注入（最多 10 条 / 2000 字）', searchPh: '搜索记忆',
+      refresh: '刷新', create: '新增记忆', profileTitle: '用户画像',
+      emptyProfile: '暂无画像，聊天后会自动生成，也可手动添加', total: '共 ', autoCount: ' 条 · 自动生成 ',
+      empty: '还没有长期记忆。可记录称呼、偏好、长期目标等事实。', auto: '自动',
+      onlyAgent: '仅 Agent #', allAgents: '全部 Agent', updated: '更新', edit: '编辑', delete: '删除',
+      editTitle: '编辑记忆', newTitle: '新增记忆', content: '内容',
+      contentPh: '如：用户希望被称为「老王」；常住上海；偏好简洁回答', category: '分类',
+      fact: '事实', preference: '偏好', profile: '画像', other: '其他', scope: '适用范围',
+      cancel: '取消', save: '保存', contentRequired: '记忆内容不能为空', saved: '已保存',
+      deleteConfirm: '删除后该记忆不再注入对话，确认？', deleteTitle: '删除记忆', deleted: '已删除'
+    },
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
       templates: '模板库', approvals: '人工审批箱', audit: '审计日志', billing: '计费管理',
@@ -337,6 +349,18 @@ const messages = {
       dailyTrend: 'Daily trend (input/output tokens)', input: 'Input', output: 'Output', noData: 'No data',
       byModel: 'By model', model: 'Model', count: 'Calls', details: 'Call details', time: 'Time', source: 'Source',
       chat: 'Chat', debug: 'Debug', embedding: 'Embedding', costShort: 'Cost'
+    },
+    memory: {
+      sub: 'User-visible, editable facts injected into conversations (max 10 items / 2000 chars)', searchPh: 'Search memories',
+      refresh: 'Refresh', create: 'New memory', profileTitle: 'User profile',
+      emptyProfile: 'No profile yet; it is generated after chat or can be added manually', total: 'Total ',
+      autoCount: ' · auto-generated ', empty: 'No long-term memories yet. Record names, preferences, or goals.', auto: 'Auto',
+      onlyAgent: 'Agent #', allAgents: 'All Agents', updated: 'Updated', edit: 'Edit', delete: 'Delete',
+      editTitle: 'Edit memory', newTitle: 'New memory', content: 'Content',
+      contentPh: 'e.g. preferred name, city, concise answers', category: 'Category',
+      fact: 'Fact', preference: 'Preference', profile: 'Profile', other: 'Other', scope: 'Scope',
+      cancel: 'Cancel', save: 'Save', contentRequired: 'Memory content is required', saved: 'Saved',
+      deleteConfirm: 'This memory will no longer be injected. Continue?', deleteTitle: 'Delete memory', deleted: 'Deleted'
     },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',
