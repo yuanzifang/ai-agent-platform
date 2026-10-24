@@ -84,6 +84,7 @@
             <el-menu-item index="/provider">{{ t('menu.provider') }}</el-menu-item>
             <el-menu-item v-if="can('billing:read')" index="/settings/usage">{{ t('menu.usage') }}</el-menu-item>
             <el-menu-item v-if="can('billing:read')" index="/billing">{{ t('menu.billing') }}</el-menu-item>
+            <el-menu-item v-if="can('tenant:manage')" index="/gateway">{{ t('menu.gateway') }}</el-menu-item>
             <el-menu-item v-if="can('user:manage')" index="/admin/users">{{ t('menu.users') }}</el-menu-item>
             <el-menu-item v-if="can('tenant:manage')" index="/admin/tenant">{{ t('menu.tenant') }}</el-menu-item>
             <el-menu-item v-if="can('audit:read')" index="/audit">{{ t('menu.audit') }}</el-menu-item>

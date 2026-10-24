@@ -1637,6 +1637,78 @@ test('知识库上传→分段ACL→检索权限', async ({ request }) => {
 })
 
 
+
+test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const created = await (await request.post(`${P}/gateway/routes`, {
+    headers: auth(token!),
+    data: { name: `E2E Gateway-${Date.now()}`, targetUrl: 'http://localhost:8080/actuator',
+      timeoutMs: 5000, retries: 1, rateLimitPerMin: 100 }
+  })).json()
+  expect(created.code, JSON.stringify(created)).toBe(0)
+  const route = created.data
+  expect(route.apiKey).toMatch(/^gw_/)
+  try {
+    const ok = await request.get(`${P}/gateway/call/${route.routeKey}/health`, {
+      headers: { 'X-Gateway-Key': route.apiKey }
+    })
+    expect(ok.status()).toBe(200)
+    expect(await ok.text()).toContain('UP')
+
+    const denied = await request.get(`${P}/gateway/call/${route.routeKey}/health`, {
+      headers: { 'X-Gateway-Key': 'gw_invalid' }
+    })
+    expect(denied.status()).toBe(401)
+
+    const logs = await (await request.get(`${P}/gateway/routes/${route.id}/logs`, {
+      headers: auth(token!)
+    })).json()
+    expect((logs.data || []).length).toBeGreaterThanOrEqual(2)
+    expect(logs.data[0].path).toContain('/health')
+
+    const rotated = await (await request.post(`${P}/gateway/routes/${route.id}/rotate-key`, {
+      headers: auth(token!)
+    })).json()
+    expect(rotated.code, JSON.stringify(rotated)).toBe(0)
+    expect(rotated.data.apiKey).not.toBe(route.apiKey)
+    const oldKey = await request.get(`${P}/gateway/call/${route.routeKey}/health`, {
+      headers: { 'X-Gateway-Key': route.apiKey }
+    })
+    expect(oldKey.status()).toBe(401)
+    const newKey = await request.get(`${P}/gateway/call/${route.routeKey}/health`, {
+      headers: { 'X-Gateway-Key': rotated.data.apiKey }
+    })
+    expect(newKey.status()).toBe(200)
+
+    const limitedRoute = await (await request.post(`${P}/gateway/routes`, {
+      headers: auth(token!),
+      data: { name: `E2E Gateway Limit-${Date.now()}`, targetUrl: 'http://localhost:8080/actuator',
+        timeoutMs: 5000, retries: 0, rateLimitPerMin: 1 }
+    })).json()
+    try {
+      const first = await request.get(`${P}/gateway/call/${limitedRoute.data.routeKey}/health`, {
+        headers: { 'X-Gateway-Key': limitedRoute.data.apiKey }
+      })
+      expect(first.status()).toBe(200)
+      const second = await request.get(`${P}/gateway/call/${limitedRoute.data.routeKey}/health`, {
+        headers: { 'X-Gateway-Key': limitedRoute.data.apiKey }
+      })
+      expect(second.status()).toBe(429)
+    } finally {
+      await request.delete(`${P}/gateway/routes/${limitedRoute.data.id}`, { headers: auth(token!) })
+    }
+
+    await request.put(`${P}/gateway/routes/${route.id}`, { headers: auth(token!), data: { enabled: false } })
+    const disabled = await request.get(`${P}/gateway/call/${route.routeKey}/health`, {
+      headers: { 'X-Gateway-Key': rotated.data.apiKey }
+    })
+    expect(disabled.status()).toBe(503)
+  } finally {
+    await request.delete(`${P}/gateway/routes/${route.id}`, { headers: auth(token!) })
+  }
+})
+
 test('知识图谱实体/关系 CRUD', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()

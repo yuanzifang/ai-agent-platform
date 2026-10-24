@@ -1,0 +1,194 @@
+<template>
+  <div class="page">
+    <div class="toolbar">
+      <span class="title">{{ t('page.gateway') }}</span>
+      <span class="sub">{{ t('gatewayPage.sub') }}</span>
+      <div class="spacer" />
+      <el-button @click="load">{{ t('common.refresh') }}</el-button>
+      <el-button type="primary" @click="openCreate">{{ t('gatewayPage.create') }}</el-button>
+    </div>
+
+    <el-table :data="rows" size="small" v-loading="loading">
+      <el-table-column prop="name" :label="t('gatewayPage.name')" min-width="140" />
+      <el-table-column prop="targetUrl" :label="t('gatewayPage.target')" min-width="220" show-overflow-tooltip />
+      <el-table-column :label="t('gatewayPage.routeKey')" width="170">
+        <template #default="{ row }"><code>{{ row.routeKey }}</code></template>
+      </el-table-column>
+      <el-table-column :label="t('gatewayPage.rate')" width="90">
+        <template #default="{ row }">{{ row.rateLimitPerMin || '∞' }}</template>
+      </el-table-column>
+      <el-table-column :label="t('gatewayPage.timeout')" width="100">
+        <template #default="{ row }">{{ row.timeoutMs }}</template>
+      </el-table-column>
+      <el-table-column :label="t('gatewayPage.enabled')" width="90">
+        <template #default="{ row }">
+          <el-switch :model-value="row.enabled" @change="(v: boolean) => toggle(row, v)" />
+        </template>
+      </el-table-column>
+      <el-table-column :label="t('gatewayPage.actions')" width="250" fixed="right">
+        <template #default="{ row }">
+          <el-button size="small" text @click="openLogs(row)">{{ t('gatewayPage.logs') }}</el-button>
+          <el-button size="small" text @click="openEdit(row)">{{ t('gatewayPage.edit') }}</el-button>
+          <el-button size="small" text type="warning" @click="rotate(row)">{{ t('gatewayPage.rotate') }}</el-button>
+          <el-button size="small" text type="danger" @click="remove(row)">{{ t('gatewayPage.delete') }}</el-button>
+        </template>
+      </el-table-column>
+      <template #empty><el-empty :description="t('gatewayPage.empty')" :image-size="60" /></template>
+    </el-table>
+
+    <el-dialog v-model="formVisible" :title="form.id ? t('gatewayPage.edit') : t('gatewayPage.createTitle')" width="560px">
+      <el-form label-width="120px">
+        <el-form-item :label="t('gatewayPage.name')" required>
+          <el-input v-model="form.name" :placeholder="t('gatewayPage.namePh')" maxlength="128" />
+        </el-form-item>
+        <el-form-item :label="t('gatewayPage.target')" required>
+          <el-input v-model="form.targetUrl" :placeholder="t('gatewayPage.targetPh')" maxlength="512" />
+        </el-form-item>
+        <el-form-item :label="t('gatewayPage.timeoutLabel')">
+          <el-input-number v-model="form.timeoutMs" :min="1000" :max="120000" :step="1000" />
+        </el-form-item>
+        <el-form-item :label="t('gatewayPage.retryLabel')">
+          <el-input-number v-model="form.retries" :min="0" :max="3" />
+        </el-form-item>
+        <el-form-item :label="t('gatewayPage.rateLabel')">
+          <el-input-number v-model="form.rateLimitPerMin" :min="0" :max="100000" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="formVisible = false">{{ t('gatewayPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="save">{{ t('gatewayPage.save') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="secretVisible" :title="t('gatewayPage.secretTitle')" width="620px" :close-on-click-modal="false">
+      <el-form label-width="100px">
+        <el-form-item :label="t('gatewayPage.endpoint')"><code>{{ endpoint }}</code></el-form-item>
+        <el-form-item :label="t('gatewayPage.apiKey')"><code>{{ secretKey }}</code></el-form-item>
+      </el-form>
+      <el-alert type="warning" :closable="false" :title="t('gatewayPage.secretHint')" />
+      <template #footer>
+        <el-button type="primary" @click="copyKey">{{ t('gatewayPage.copy') }}</el-button>
+        <el-button @click="secretVisible = false">{{ t('gatewayPage.close') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-drawer v-model="logsVisible" :title="`${t('gatewayPage.logsTitle')}${logsName}`" size="720px">
+      <el-table :data="logs" size="small" max-height="620">
+        <el-table-column prop="createdAt" :label="t('gatewayPage.time')" width="170" />
+        <el-table-column prop="method" :label="t('gatewayPage.method')" width="80" />
+        <el-table-column prop="path" :label="t('gatewayPage.path')" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="status" :label="t('gatewayPage.status')" width="80" />
+        <el-table-column prop="upstreamStatus" :label="t('gatewayPage.upstream')" width="90" />
+        <el-table-column prop="latencyMs" :label="t('gatewayPage.latency')" width="90" />
+        <el-table-column prop="error" :label="t('gatewayPage.error')" min-width="140" show-overflow-tooltip />
+        <template #empty><el-empty :description="t('gatewayPage.noLogs')" :image-size="50" /></template>
+      </el-table>
+    </el-drawer>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import http from '../api/http'
+
+const { t } = useI18n()
+const rows = ref<any[]>([])
+const loading = ref(false)
+const saving = ref(false)
+const formVisible = ref(false)
+const secretVisible = ref(false)
+const secretKey = ref('')
+const endpoint = ref('')
+const logsVisible = ref(false)
+const logs = ref<any[]>([])
+const logsName = ref('')
+const form = reactive<any>({ id: 0, name: '', targetUrl: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60 })
+const currentRouteKey = ref('')
+
+const endpointBase = computed(() => `${location.origin}/api/v1/gateway/call/${currentRouteKey.value}`)
+
+onMounted(load)
+
+async function load() {
+  loading.value = true
+  try {
+    rows.value = (await http.get('/gateway/routes') as any) || []
+  } finally { loading.value = false }
+}
+
+function openCreate() {
+  Object.assign(form, { id: 0, name: '', targetUrl: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60 })
+  formVisible.value = true
+}
+
+function openEdit(row: any) {
+  Object.assign(form, {
+    id: row.id, name: row.name, targetUrl: row.targetUrl,
+    timeoutMs: row.timeoutMs, retries: row.retries, rateLimitPerMin: row.rateLimitPerMin
+  })
+  formVisible.value = true
+}
+
+async function save() {
+  if (!form.name.trim() || !form.targetUrl.trim()) {
+    ElMessage.warning(t('gatewayPage.nameRequired')); return
+  }
+  saving.value = true
+  try {
+    const res = form.id
+      ? await http.put(`/gateway/routes/${form.id}`, form) as any
+      : await http.post('/gateway/routes', form) as any
+    formVisible.value = false
+    await load()
+    if (res?.apiKey) showSecret(res)
+    ElMessage.success(t('gatewayPage.saved'))
+  } finally { saving.value = false }
+}
+
+function showSecret(row: any) {
+  currentRouteKey.value = row.routeKey
+  secretKey.value = row.apiKey
+  endpoint.value = endpointBase.value
+  secretVisible.value = true
+}
+
+async function rotate(row: any) {
+  const res = await http.post(`/gateway/routes/${row.id}/rotate-key`, {}) as any
+  await load()
+  showSecret(res)
+  ElMessage.success(t('gatewayPage.keyRotated'))
+}
+
+async function toggle(row: any, enabled: boolean) {
+  await http.put(`/gateway/routes/${row.id}`, { enabled })
+  await load()
+}
+
+async function remove(row: any) {
+  await ElMessageBox.confirm(t('gatewayPage.deleteConfirm'), t('gatewayPage.deleteTitle'), { type: 'warning' })
+  await http.delete(`/gateway/routes/${row.id}`)
+  ElMessage.success(t('gatewayPage.deleted'))
+  await load()
+}
+
+async function openLogs(row: any) {
+  logsName.value = row.name
+  logs.value = (await http.get(`/gateway/routes/${row.id}/logs`) as any) || []
+  logsVisible.value = true
+}
+
+async function copyKey() {
+  await navigator.clipboard.writeText(`X-Gateway-Key: ${secretKey.value}\n${endpoint.value}`)
+  ElMessage.success(t('gatewayPage.copied'))
+}
+</script>
+
+<style scoped>
+.page { background: #fff; border: 1px solid #e4e7ed; border-radius: 6px; padding: 14px; }
+.toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.title { font-weight: 600; font-size: 15px; }
+.sub, .hint { color: #909399; font-size: 12px; }
+.spacer { flex: 1; }
+</style>

@@ -709,13 +709,28 @@ const messages = {
       nameRequired: '实体名称不能为空', relationRequired: '关系起点/终点/名称不能为空',
       added: '已添加', deleted: '已删除', loadFail: '加载图谱失败', saveFail: '保存失败'
     },
+    gatewayPage: {
+      sub: '统一入口：路由、API Key、限流、超时重试与请求日志', create: '新建路由', name: '名称',
+      target: '上游地址', routeKey: '路由 Key', enabled: '启用', disabled: '停用', rate: '限流/分',
+      timeout: '超时(ms)', retries: '重试', actions: '操作', logs: '日志', rotate: '轮换 Key',
+      edit: '编辑', delete: '删除', empty: '暂无网关路由', createTitle: '新建网关路由',
+      namePh: '如：订单服务', targetPh: 'https://api.example.com', timeoutLabel: '超时(ms)',
+      retryLabel: '重试次数', rateLabel: '每分钟限流（0=不限）', cancel: '取消', save: '保存',
+      secretTitle: 'API Key（仅显示一次）', endpoint: '调用地址', apiKey: 'API Key', copy: '复制',
+      secretHint: '关闭后将无法再次查看明文；丢失请轮换 Key。', copied: '已复制',
+      logsTitle: '请求日志：', time: '时间', method: '方法', path: '路径', status: '状态',
+      latency: '耗时(ms)', upstream: '上游状态', error: '错误', noLogs: '暂无日志', close: '关闭',
+      nameRequired: '名称与上游地址必填', saved: '已保存', deleted: '已删除', keyRotated: 'Key 已轮换',
+      deleteConfirm: '删除后调用地址立即失效，确认？', deleteTitle: '删除路由',
+      requestPath: '请求路径', baseUrl: '基础地址', rateHint: '0 = 不限制'
+    },
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
       templates: '模板库', approvals: '人工审批箱', audit: '审计日志', billing: '计费管理',
       cases: '对话用例库', eval: 'Agent 结果评测', knowledge: '知识库', mcp: 'MCP Server',
       memories: '长期记忆', metrics: '监控统计', observability: '可观测', platform: '平台管理 · 租户',
       prompts: 'Prompt 模板', provider: '模型接入', skills: '技能管理', settings: '系统设置（平台级）',
-      tenant: '租户设置', tools: '工具管理', usage: '用量看板', users: '成员管理'
+      tenant: '租户设置', tools: '工具管理', usage: '用量看板', users: '成员管理', gateway: 'API 网关'
     },
     common: {
       user: '用户', notifications: '通知', markAllRead: '全部已读', noNotifications: '暂无通知',
@@ -1437,13 +1452,28 @@ const messages = {
       nameRequired: 'Entity name is required', relationRequired: 'From, to and relation are required',
       added: 'Added', deleted: 'Deleted', loadFail: 'Failed to load graph', saveFail: 'Save failed'
     },
+    gatewayPage: {
+      sub: 'Unified entry: routes, API keys, rate limit, timeout/retry and request logs', create: 'New route', name: 'Name',
+      target: 'Upstream', routeKey: 'Route key', enabled: 'Enabled', disabled: 'Disabled', rate: 'Rate/min',
+      timeout: 'Timeout(ms)', retries: 'Retries', actions: 'Actions', logs: 'Logs', rotate: 'Rotate key',
+      edit: 'Edit', delete: 'Delete', empty: 'No gateway routes', createTitle: 'New gateway route',
+      namePh: 'e.g. Order service', targetPh: 'https://api.example.com', timeoutLabel: 'Timeout(ms)',
+      retryLabel: 'Retries', rateLabel: 'Rate limit/min (0 = unlimited)', cancel: 'Cancel', save: 'Save',
+      secretTitle: 'API Key (shown once)', endpoint: 'Endpoint', apiKey: 'API Key', copy: 'Copy',
+      secretHint: 'The plaintext key cannot be viewed again; rotate it if lost.', copied: 'Copied',
+      logsTitle: 'Request logs: ', time: 'Time', method: 'Method', path: 'Path', status: 'Status',
+      latency: 'Latency(ms)', upstream: 'Upstream', error: 'Error', noLogs: 'No logs', close: 'Close',
+      nameRequired: 'Name and upstream URL are required', saved: 'Saved', deleted: 'Deleted', keyRotated: 'Key rotated',
+      deleteConfirm: 'The endpoint will stop working immediately. Continue?', deleteTitle: 'Delete route',
+      requestPath: 'Request path', baseUrl: 'Base URL', rateHint: '0 = unlimited'
+    },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',
       templates: 'Templates', approvals: 'Approvals', audit: 'Audit Log', billing: 'Billing',
       cases: 'Case Library', eval: 'Agent Evaluation', knowledge: 'Knowledge Base', mcp: 'MCP Server',
       memories: 'Long-term Memory', metrics: 'Metrics', observability: 'Observability', platform: 'Platform · Tenants',
       prompts: 'Prompt Templates', provider: 'Model Providers', skills: 'Skills', settings: 'System Settings (Platform)',
-      tenant: 'Tenant Settings', tools: 'Tools', usage: 'Usage', users: 'Members'
+      tenant: 'Tenant Settings', tools: 'Tools', usage: 'Usage', users: 'Members', gateway: 'API Gateway'
     },
     common: {
       user: 'User', notifications: 'Notifications', markAllRead: 'Mark all read', noNotifications: 'No notifications',
