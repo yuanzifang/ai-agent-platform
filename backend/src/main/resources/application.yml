@@ -187,6 +187,11 @@ observability:
     # 0~1；1=全量；错误/阻断默认始终保留
     sample-rate: ${TRACE_SAMPLE_RATE:1.0}
     always-sample-errors: ${TRACE_ALWAYS_SAMPLE_ERRORS:true}
+    # 自动保留清理：默认 30 天，分批删除 Span/Trace
+    retention-enabled: ${TRACE_RETENTION_ENABLED:true}
+    retention-days: ${TRACE_RETENTION_DAYS:30}
+    cleanup-batch: ${TRACE_CLEANUP_BATCH:1000}
+    cleanup-cron: ${TRACE_CLEANUP_CRON:0 50 4 * * *}
 
 otel:
   # 标准 OTLP Trace 导出（Jaeger/Tempo/Langfuse/Phoenix 等）

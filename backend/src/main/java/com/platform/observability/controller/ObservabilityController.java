@@ -3,8 +3,11 @@ package com.platform.observability.controller;
 import com.platform.common.response.ApiResponse;
 import com.platform.common.util.TimeFormat;
 import com.platform.observability.service.ObservabilityService;
+import com.platform.observability.service.TraceRetentionService;
+import com.platform.security.JwtPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -26,7 +29,17 @@ import java.util.Map;
 public class ObservabilityController {
 
     private final ObservabilityService observabilityService;
+    private final TraceRetentionService traceRetentionService;
     private final com.platform.observability.log.LogQueryService logQueryService;
+
+    @PostMapping("/retention/run")
+    public ApiResponse<Map<String, Object>> runRetention(
+            @org.springframework.security.core.annotation.AuthenticationPrincipal JwtPrincipal principal) {
+        if (principal == null || !principal.platformAdmin()) {
+            throw new com.platform.common.exception.BusinessException(403, "仅平台管理员可手动执行保留清理");
+        }
+        return ApiResponse.ok(traceRetentionService.cleanupExpired());
+    }
 
     @GetMapping("/logs")
     public ApiResponse<Map<String, Object>> logs(@RequestParam(required = false) String level,
