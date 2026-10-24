@@ -7,7 +7,7 @@ const messages = {
       agents: 'Agent 列表', memories: '长期记忆', cases: '用例库', square: 'Agent 广场',
       templates: '模板库', knowledge: '知识库', skills: '技能管理', tools: '工具管理',
       mcp: 'MCP Server', approvals: '审批箱', prompts: 'Prompt 模板', provider: '模型接入',
-      usage: '用量看板', billing: '计费管理', users: '成员管理', tenant: '租户管理',
+      usage: '用量看板', billing: '计费管理', users: '成员管理', tenant: '租户设置',
       metrics: '监控统计', observability: '可观测', audit: '审计日志', eval: '评测中心', platform: '平台管理', settings: '系统设置'
     },
     agentList: {
