@@ -79,6 +79,7 @@ public class McpClientService {
 
     private final CryptoService cryptoService;
     private final ObjectMapper objectMapper;
+    private final org.springframework.data.redis.core.StringRedisTemplate redis;
 
     /** 类级单例：HttpClient 线程安全且持有 selector 线程/连接池，不能每请求创建（无法关闭会泄漏）。 */
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -359,10 +360,17 @@ public class McpClientService {
                 invalidateHttpSession(server.getId());
             } catch (UnauthorizedException e) {
                 last = e;
-                if (!"OAUTH".equalsIgnoreCase(server.getAuthType())) throw e;
+                boolean oauth = "OAUTH".equalsIgnoreCase(server.getAuthType());
+                boolean feishu = "FEISHU_APP".equalsIgnoreCase(server.getAuthType());
+                if (!oauth && !feishu) throw e;
                 if (cancelled.getAsBoolean()) throw new IllegalStateException("MCP 调用已取消");
-                log.info("MCP OAuth 401，强制刷新 token 后重试：server={}", server.getId());
-                oauthService.forceRefresh(server);
+                if (feishu) {
+                    log.info("MCP 飞书 401，刷新 tenant_access_token 后重试：server={}", server.getId());
+                    clearFeishuToken(server);
+                } else {
+                    log.info("MCP OAuth 401，强制刷新 token 后重试：server={}", server.getId());
+                    oauthService.forceRefresh(server);
+                }
                 invalidateHttpSession(server.getId());
             }
         }
@@ -747,6 +755,12 @@ public class McpClientService {
                 if (value != null) env.put(key, value);
             }
             env.putAll(owner.stdioEnv(server));
+            // npx/uvx 的 shebang 依赖 PATH 找 node/python；后端常由精简环境启动
+            // （手动 nohup / systemd），这里追加常见运行时目录兜底
+            env.merge("PATH", owner.extraPathEntries(), (cur, extra) -> cur + ":" + extra);
+            if (env.get("HOME") == null) {
+                env.put("HOME", System.getProperty("user.home"));
+            }
             pb.directory(owner.stdioWorkDir(server));
             Process process = pb.start();
             StdioSession session = new StdioSession(server, owner, process);
@@ -1116,6 +1130,59 @@ public class McpClientService {
         }
     }
 
+    /**
+     * 飞书自建应用 tenant_access_token（app_id/app_secret → 2h token）。
+     * Redis 缓存至过期前 5 分钟；401 时由调用方 clearFeishuToken 强制刷新。
+     */
+    private String feishuTenantToken(McpServer server) {
+        String cacheKey = "mcp:feishu-token:" + server.getId();
+        try {
+            String cached = redis.opsForValue().get(cacheKey);
+            if (cached != null && !cached.isBlank()) return cached;
+        } catch (Exception e) {
+            log.debug("飞书 token 缓存读取失败：{}", e.getMessage());
+        }
+        Map<String, Object> auth = authOf(server);
+        String appId = str(auth.get("appId"));
+        String appSecret = str(auth.get("appSecret"));
+        if (appId.isBlank() || appSecret.isBlank()) {
+            throw new IllegalStateException("飞书应用凭证缺失（appId/appSecret）");
+        }
+        try {
+            HttpResponse<String> resp = httpClient.send(
+                    HttpRequest.newBuilder(URI.create("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"))
+                            .header("Content-Type", "application/json")
+                            .timeout(TIMEOUT)
+                            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(
+                                    Map.of("app_id", appId, "app_secret", appSecret)), StandardCharsets.UTF_8))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            JsonNode node = objectMapper.readTree(resp.body());
+            if (resp.statusCode() != 200 || node.path("code").asInt(-1) != 0) {
+                throw new IllegalStateException("飞书 token 获取失败：" + node.path("msg").asText(truncate(resp.body(), 120)));
+            }
+            String token = node.path("tenant_access_token").asText();
+            int expire = node.path("expire").asInt(7200);
+            try {
+                redis.opsForValue().set(cacheKey, token, java.time.Duration.ofSeconds(Math.max(60, expire - 300)));
+            } catch (Exception e) {
+                log.debug("飞书 token 缓存写入失败：{}", e.getMessage());
+            }
+            return token;
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("飞书 token 获取异常：" + rootMessage(e));
+        }
+    }
+
+    /** 401 后清缓存，下次调用重新获取 token。 */
+    private void clearFeishuToken(McpServer server) {
+        try {
+            redis.delete("mcp:feishu-token:" + server.getId());
+        } catch (Exception ignored) { }
+    }
+
     private Map<String, Object> authOf(McpServer server) {
         if (server.getEncryptedAuth() == null || server.getEncryptedAuth().isBlank()) return Map.of();
         try {
@@ -1149,5 +1216,17 @@ public class McpClientService {
         Throwable t = e;
         while (t.getCause() != null) t = t.getCause();
         return t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
+    }
+
+    /** STDIO 子进程的 PATH 兜底目录（node/python 常见安装位），避免 env: node: No such file。 */
+    private String extraPathEntries() {
+        String home = System.getProperty("user.home", "");
+        return String.join(":",
+                home + "/tools/node-v22.14.0-darwin-arm64/bin",
+                home + "/.local/bin",
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+                "/usr/bin",
+                "/bin");
     }
 }

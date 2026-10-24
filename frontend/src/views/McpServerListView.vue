@@ -94,6 +94,7 @@
               <el-option label="API Key" value="API_KEY" />
               <el-option label="Bearer" value="BEARER" />
               <el-option label="OAuth" value="OAUTH" />
+              <el-option label="飞书应用 (app_id/secret)" value="FEISHU_APP" />
             </el-select>
           </el-form-item>
           <template v-if="editForm.authType === 'API_KEY'">
@@ -109,6 +110,18 @@
             <el-input v-model="editForm.authToken" type="password" show-password
                       :placeholder="t('mcpPage.tokenPh')" />
           </el-form-item>
+          <template v-if="editForm.authType === 'FEISHU_APP'">
+            <el-form-item label="App ID">
+              <el-input v-model="editForm.feishuAppId" placeholder="cli_xxxxxxxx" style="width: 260px" />
+            </el-form-item>
+            <el-form-item label="App Secret">
+              <el-input v-model="editForm.feishuAppSecret" type="password" show-password
+                        placeholder="飞书自建应用 Secret" style="width: 260px" />
+            </el-form-item>
+            <div class="hint" style="margin: -8px 0 12px 0">
+              平台自动获取并缓存 tenant_access_token（约 2 小时），过期自动刷新。
+            </div>
+          </template>
           <el-form-item v-if="editForm.authType === 'OAUTH'" label="OAuth 2.1">
             <div class="oauth-box">
               <template v-if="oauthStatus?.connected">
@@ -260,7 +273,7 @@ const oauthStatus = ref<any>(null)
 const oauthLoading = ref(false)
 const editForm = reactive({
   id: 0, name: '', endpoint: '', transport: 'HTTP', headersText: '{}', authType: 'NONE',
-  authHeader: 'X-API-Key', authValue: '', authToken: '',
+  authHeader: 'X-API-Key', authValue: '', authToken: '', feishuAppId: '', feishuAppSecret: '',
   command: '', argsText: '[]', envText: ''
 })
 
@@ -395,7 +408,7 @@ function healthType(s?: string) {
 function openCreate() {
   Object.assign(editForm, {
     id: 0, name: '', endpoint: '', transport: 'HTTP', headersText: '{}', authType: 'NONE',
-    authHeader: 'X-API-Key', authValue: '', authToken: '',
+    authHeader: 'X-API-Key', authValue: '', authToken: '', feishuAppId: '', feishuAppSecret: '',
     command: '', argsText: '[]', envText: ''
   })
   oauthStatus.value = null
@@ -416,6 +429,8 @@ async function openEdit(row: any) {
     authHeader: auth.header || 'X-API-Key',
     authValue: auth.value || '',
     authToken: auth.token || '',
+    feishuAppId: auth.appId || '',
+    feishuAppSecret: '',
     command: detail.command || '',
     argsText: JSON.stringify(detail.args || []),
     envText: '{}'
@@ -449,6 +464,11 @@ async function save(silent = false): Promise<boolean> {
         auth.value = editForm.authValue
       } else if (editForm.authType === 'BEARER') {
         auth.token = editForm.authToken
+      } else if (editForm.authType === 'FEISHU_APP') {
+        if (!editForm.feishuAppId.trim()) { ElMessage.warning('App ID 必填'); return false }
+        auth.appId = editForm.feishuAppId.trim()
+        // Secret 留空 = 编辑时保持原值不覆盖
+        if (editForm.feishuAppSecret.trim()) auth.appSecret = editForm.feishuAppSecret.trim()
       }
       let headers: any = {}
       try { headers = JSON.parse(editForm.headersText || '{}') } catch { ElMessage.error(t('mcpPage.headersJson')); return false }

@@ -690,7 +690,7 @@ public class McpServerService {
 
     private String normalizeAuthType(Object raw) {
         String type = raw == null ? "NONE" : String.valueOf(raw).toUpperCase(Locale.ROOT);
-        if (!List.of("NONE", "API_KEY", "BEARER", "OAUTH", "BASIC").contains(type)) {
+        if (!List.of("NONE", "API_KEY", "BEARER", "OAUTH", "BASIC", "FEISHU_APP").contains(type)) {
             throw new BusinessException(400, "不支持的鉴权类型：" + type);
         }
         return type;
@@ -712,7 +712,7 @@ public class McpServerService {
             return merged.isEmpty() ? null : cryptoService.encrypt(json(merged));
         }
         Map<String, Object> auth = new LinkedHashMap<>(incoming);
-        for (String key : List.of("value", "token", "password")) {
+        for (String key : List.of("value", "token", "password", "appSecret")) {
             Object v = auth.get(key);
             if ((v == null || String.valueOf(v).isBlank() || MASK.equals(String.valueOf(v)))
                     && old.get(key) != null) {
