@@ -1958,16 +1958,59 @@ test('GraphRAG：高阈值下图谱关联 chunk 召回', async ({ request }) => 
     })).json()
     expect(entity.code, JSON.stringify(entity)).toBe(0)
 
+    // 第二跳：上传第二段无关文本，实体 C 关联它；A→B→C 才可达
+    const content2 = Buffer.from('石墨烯的晶格结构与电子迁移率研究，属于材料科学归档。', 'utf8')
+    const doc2 = await (await request.post(`${P}/knowledge-base/${kbId}/documents`, {
+      headers: auth(token!),
+      data: { fileName: `graphrag2-${suffix}.txt`, sizeBytes: content2.length, contentType: 'text/plain' }
+    })).json()
+    await request.put(doc2.data.uploadUrl, { data: content2, headers: { 'Content-Type': 'text/plain' } })
+    const cb2 = await (await request.post(`${P}/knowledge-base/${kbId}/documents/callback`, {
+      headers: auth(token!), data: { objectName: doc2.data.objectName }
+    })).json()
+    const docId2 = cb2.data.documentId
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 1000))
+      const docs = await (await request.get(`${P}/knowledge-base/${kbId}/documents`, {
+        headers: auth(token!)
+      })).json()
+      const row = (docs.data || []).find((d: any) => d.id === docId2)
+      if (row?.status === 'DONE') break
+      if (row?.status === 'FAILED') throw new Error('second document failed')
+    }
+    const chunks2 = await (await request.get(
+      `${P}/knowledge-base/${kbId}/documents/${docId2}/chunks?pageSize=20`,
+      { headers: auth(token!) })).json()
+    const chunkId2 = (chunks2.data.list || [])[0]?.id
+    const b = await (await request.post(`${P}/knowledge-base/${kbId}/graph/entities`, {
+      headers: auth(token!), data: { name: '售后政策', entityType: '政策' }
+    })).json()
+    const c = await (await request.post(`${P}/knowledge-base/${kbId}/graph/entities`, {
+      headers: auth(token!), data: { name: '石墨烯产品', entityType: '产品', chunkId: chunkId2 }
+    })).json()
+    expect(b.code, JSON.stringify(b)).toBe(0)
+    expect(c.code, JSON.stringify(c)).toBe(0)
+    await request.post(`${P}/knowledge-base/${kbId}/graph/relations`, {
+      headers: auth(token!), data: { fromId: entity.data.id, toId: b.data.id, relation: '关联' }
+    })
+    await request.post(`${P}/knowledge-base/${kbId}/graph/relations`, {
+      headers: auth(token!), data: { fromId: b.data.id, toId: c.data.id, relation: '包含' }
+    })
+
     const search = await (await request.post(`${P}/knowledge-base/${kbId}/search`, {
       headers: auth(token!),
       data: { query: '退款政策', topK: 5, scoreThreshold: 0.99, mode: 'hybrid' }
     })).json()
     expect(search.code, JSON.stringify(search)).toBe(0)
     const graphHit = (search.data || []).find((h: any) => String(h.content).includes('量子色动力学'))
-    expect(graphHit, '应通过图谱关联召回无关文本 chunk').toBeTruthy()
+    expect(graphHit, '应通过 1 跳图谱关联召回 chunk').toBeTruthy()
     const meta = typeof graphHit.metadata === 'string' ? JSON.parse(graphHit.metadata) : graphHit.metadata
     expect(meta.graph).toBe(true)
     expect(meta.entity_name).toBe('退款政策')
+    const secondHop = (search.data || []).find((h: any) => String(h.content).includes('石墨烯'))
+    expect(secondHop, '应通过 2 跳图谱关联召回 chunk').toBeTruthy()
+    const meta2 = typeof secondHop.metadata === 'string' ? JSON.parse(secondHop.metadata) : secondHop.metadata
+    expect(String(meta2.reason)).toContain('related2')
   } finally {
     await request.delete(`${P}/knowledge-base/${kbId}?force=true`, { headers: auth(token!) })
   }

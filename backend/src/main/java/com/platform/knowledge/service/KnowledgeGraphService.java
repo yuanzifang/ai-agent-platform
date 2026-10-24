@@ -80,22 +80,33 @@ public class KnowledgeGraphService {
         if (matched.isEmpty()) return List.of();
         Set<Long> ids = new LinkedHashSet<>();
         Map<Long, String> reasons = new LinkedHashMap<>();
+        Set<Long> frontier = new LinkedHashSet<>();
         for (KnowledgeGraphEntity e : matched) {
             ids.add(e.getId());
+            frontier.add(e.getId());
             reasons.put(e.getId(), "matched:" + e.getName());
         }
-        List<KnowledgeGraphRelation> relations = relationMapper.selectList(
-                new LambdaQueryWrapper<KnowledgeGraphRelation>()
-                        .eq(KnowledgeGraphRelation::getKbId, kbId)
-                        .and(w -> w.in(KnowledgeGraphRelation::getFromId, matched.stream().map(KnowledgeGraphEntity::getId).toList())
-                                .or().in(KnowledgeGraphRelation::getToId, matched.stream().map(KnowledgeGraphEntity::getId).toList())));
-        for (KnowledgeGraphRelation r : relations) {
-            if (ids.contains(r.getFromId()) && ids.add(r.getToId())) {
-                reasons.put(r.getToId(), "related:" + r.getRelation());
+        // 2 跳关系扩展（不引入无限遍历）
+        for (int depth = 1; depth <= 2 && !frontier.isEmpty() && ids.size() < 12; depth++) {
+            List<Long> current = new ArrayList<>(frontier);
+            List<KnowledgeGraphRelation> relations = relationMapper.selectList(
+                    new LambdaQueryWrapper<KnowledgeGraphRelation>()
+                            .eq(KnowledgeGraphRelation::getKbId, kbId)
+                            .and(w -> w.in(KnowledgeGraphRelation::getFromId, current)
+                                    .or().in(KnowledgeGraphRelation::getToId, current)));
+            Set<Long> next = new LinkedHashSet<>();
+            for (KnowledgeGraphRelation r : relations) {
+                if (current.contains(r.getFromId()) && ids.add(r.getToId())) {
+                    reasons.put(r.getToId(), "related" + depth + ":" + r.getRelation());
+                    next.add(r.getToId());
+                }
+                if (current.contains(r.getToId()) && ids.add(r.getFromId())) {
+                    reasons.put(r.getFromId(), "related" + depth + ":" + r.getRelation());
+                    next.add(r.getFromId());
+                }
+                if (ids.size() >= 12) break;
             }
-            if (ids.contains(r.getToId()) && ids.add(r.getFromId())) {
-                reasons.put(r.getFromId(), "related:" + r.getRelation());
-            }
+            frontier = next;
         }
         if (ids.size() > 12) ids = new java.util.LinkedHashSet<>(ids.stream().limit(12).toList());
         final Set<Long> selectedIds = ids;
