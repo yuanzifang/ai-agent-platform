@@ -214,3 +214,23 @@ test('变量弹窗与开场推荐问题', async ({ page, request }) => {
     })
   }
 })
+
+
+test('英文界面切换与核心文案', async ({ page }) => {
+  await page.goto('/login')
+  await page.evaluate(() => localStorage.setItem('locale', 'en-US'))
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
+  await expect(page.getByPlaceholder('Username')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Enterprise SSO' })).toBeVisible()
+
+  await page.getByPlaceholder('Username').fill(USER)
+  await page.getByPlaceholder('Password').fill(PASSWORD)
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await page.waitForURL(/\/agents/, { timeout: 20_000 })
+  await expect(page.getByText('Agents', { exact: true }).first()).toBeVisible()
+
+  await page.evaluate(() => localStorage.setItem('locale', 'zh-CN'))
+  await page.reload()
+  await expect(page.getByText('Agent 列表', { exact: true }).first()).toBeVisible()
+})
