@@ -14,28 +14,28 @@
 
     <el-empty v-if="!loading && list.length === 0" :description="t('tpl.empty')" />
     <div class="grid">
-      <el-card v-for="t in list" :key="t.id" class="tpl-card" shadow="hover">
+      <el-card v-for="tpl in list" :key="tpl.id" class="tpl-card" shadow="hover">
         <div class="card-head">
-          <div class="icon">{{ iconOf(t.category) }}</div>
+          <div class="icon">{{ iconOf(tpl.category) }}</div>
           <div class="title-wrap">
-            <div class="name">{{ t.name }}</div>
-            <el-tag v-if="t.category" size="small">{{ t.category }}</el-tag>
-            <el-tag v-if="t.isBuiltin" size="small" type="info">{{ t('tpl.builtin') }}</el-tag>
+            <div class="name">{{ tpl.name }}</div>
+            <el-tag v-if="tpl.category" size="small">{{ tpl.category }}</el-tag>
+            <el-tag v-if="tpl.isBuiltin" size="small" type="info">{{ t('tpl.builtin') }}</el-tag>
           </div>
         </div>
-        <div class="desc">{{ t.description }}</div>
+        <div class="desc">{{ tpl.description }}</div>
         <div class="tags">
-          <el-tag v-for="tool in t.tools || []" :key="'t' + tool.toolKey" size="small" type="success">
+          <el-tag v-for="tool in tpl.tools || []" :key="'t' + tool.toolKey" size="small" type="success">
             {{ t('tpl.tools') }} · {{ tool.name }}
           </el-tag>
-          <el-tag v-for="s in t.skills || []" :key="'s' + s.skillKey" size="small" type="warning">
+          <el-tag v-for="s in tpl.skills || []" :key="'s' + s.skillKey" size="small" type="warning">
             {{ t('tpl.skills') }} · {{ s.name }}
           </el-tag>
-          <span v-if="!(t.tools || []).length && !(t.skills || []).length" class="muted">{{ t('tpl.noBindings') }}</span>
+          <span v-if="!(tpl.tools || []).length && !(tpl.skills || []).length" class="muted">{{ t('tpl.noBindings') }}</span>
         </div>
         <div class="card-foot">
-          <el-button size="small" @click="openPreview(t)">{{ t('tpl.preview') }}</el-button>
-          <el-button v-if="canCreate" size="small" type="primary" @click="useTemplate(t)">{{ t('tpl.use') }}</el-button>
+          <el-button size="small" @click="openPreview(tpl)">{{ t('tpl.preview') }}</el-button>
+          <el-button v-if="canCreate" size="small" type="primary" @click="useTemplate(tpl)">{{ t('tpl.use') }}</el-button>
         </div>
       </el-card>
     </div>

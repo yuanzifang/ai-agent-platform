@@ -113,10 +113,14 @@ const callsErrorsOption = computed(() => ({
 }))
 
 onMounted(async () => {
-  if (agentId) {
+  if (!agentId) {
     const agents = await http.get('/agent', { params: { pageSize: 100 } }) as any
-    agentName.value = (agents.list || []).find((a: any) => a.id === agentId)?.name || ''
+    const first = (agents.list || [])[0]
+    router.replace(first ? `/metrics/${first.id}` : '/agents')
+    return
   }
+  const agents = await http.get('/agent', { params: { pageSize: 100 } }) as any
+  agentName.value = (agents.list || []).find((a: any) => a.id === agentId)?.name || ''
   await load()
 })
 
@@ -142,7 +146,7 @@ async function load() {
 }
 
 function drill(_key: string) {
-  router.push(`/observability/${agentId}`)
+  if (agentId) router.push(`/observability/${agentId}`)
 }
 
 function emptyTrend(list: number[] | undefined) {
