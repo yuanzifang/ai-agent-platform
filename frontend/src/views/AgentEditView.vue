@@ -92,6 +92,21 @@
                 <span class="hint">{{ t('agentEdit.reviewHint') }}</span>
               </el-form-item>
               <el-form-item :label="t('agentEdit.multimodal')"><el-switch v-model="form.capabilities.multimodal" /></el-form-item>
+              <el-form-item :label="t('agentEdit.writePolicy')">
+                <el-select v-model="form.capabilities.writeToolPolicy" style="width: 220px">
+                  <el-option :label="t('agentEdit.writePolicyAllowAll')" value="ALLOW_ALL" />
+                  <el-option :label="t('agentEdit.writePolicyBlock')" value="BLOCK" />
+                  <el-option :label="t('agentEdit.writePolicyAllowlist')" value="ALLOWLIST" />
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="form.capabilities.writeToolPolicy === 'ALLOWLIST'" :label="t('agentEdit.allowedWriteTools')">
+                <el-select v-model="form.capabilities.allowedWriteToolIds" multiple filterable style="width: 100%">
+                  <el-option v-for="row in toolRows" :key="row.id" :value="row.id" :label="row.name" />
+                </el-select>
+              </el-form-item>
+              <el-form-item :label="t('agentEdit.writeToolMaxArgs')">
+                <el-input-number v-model="form.capabilities.writeToolMaxArgs" :min="1024" :max="100000" :step="1024" />
+              </el-form-item>
             </el-form>
           </el-collapse-item>
 
@@ -1118,7 +1133,7 @@ const form = reactive({
   modelName: '', fallbackModelName: '', temperature: 0.7,
   systemPrompt: '', openingStatement: '',
   capabilities: { streamOutput: true, functionCall: false, multimodal: false, selfCorrection: false,
-    selfCorrectionRounds: 1 },
+    selfCorrectionRounds: 1, writeToolPolicy: 'ALLOW_ALL', allowedWriteToolIds: [] as number[], writeToolMaxArgs: 16384 },
   memory: { enabled: true, windowSize: 10, autoExtract: true },
   variables: [] as VariableRow[]
 })
@@ -1277,9 +1292,12 @@ onMounted(async () => {
   form.systemPrompt = detail.systemPrompt || ''
   form.openingStatement = detail.openingStatement || ''
   const caps = detail.agentCapabilities || {}
-  form.capabilities = { streamOutput: caps.streamOutput !== false, functionCall: !!caps.functionCall,
+  form.capabilities = { ...caps, streamOutput: caps.streamOutput !== false, functionCall: !!caps.functionCall,
     multimodal: !!caps.multimodal, selfCorrection: !!caps.selfCorrection,
-    selfCorrectionRounds: caps.selfCorrectionRounds ?? 1 }
+    selfCorrectionRounds: caps.selfCorrectionRounds ?? 1,
+    writeToolPolicy: caps.writeToolPolicy || 'ALLOW_ALL',
+    allowedWriteToolIds: Array.isArray(caps.allowedWriteToolIds) ? caps.allowedWriteToolIds : [],
+    writeToolMaxArgs: caps.writeToolMaxArgs ?? 16384 }
   const mem = detail.memoryConfig || {}
   form.memory = { enabled: mem.enabled !== false, windowSize: mem.windowSize ?? 10,
     autoExtract: mem.autoExtract !== false }

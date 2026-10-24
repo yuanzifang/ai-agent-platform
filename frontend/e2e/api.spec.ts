@@ -788,6 +788,64 @@ test('写工具默认阻断与显式允许', async ({ request }) => {
     expect(String(allowedBody.data.answer)).not.toContain('安全阻断')
     captured = await (await request.get(`${MOCK}/captured`)).json()
     expect(captured.filter((c: any) => c.path.includes('write-tool')).length).toBeGreaterThan(0)
+    const confirmAudit = await (await request.get(`${P}/audit/operations`, {
+      headers: auth(token!), params: { opType: 'tool.write.confirm', pageSize: 20 }
+    })).json()
+    expect((confirmAudit.data.list || []).some((a: any) => String(a.objectId) === String(conversationId))).toBe(true)
+
+    // 细粒度策略：BLOCK 即使消息显式允许也阻断
+    const blockedAgentRes = await request.post(`${P}/agent`, {
+      headers: auth(token!),
+      data: {
+        name: `E2E 写策略阻断-${Date.now()}`,
+        systemPrompt: '你是测试助手。',
+        modelConfig: { modelName: 'deepseek-flash' },
+        agentCapabilities: { functionCall: true, writeToolPolicy: 'BLOCK' },
+        tools: [{ toolId, enabled: true }],
+        visibility: 'PRIVATE'
+      }
+    })
+    const blockedAgentId = (await blockedAgentRes.json()).data.id as number
+    // ALLOWLIST 命中后可执行
+    const allowAgentRes = await request.post(`${P}/agent`, {
+      headers: auth(token!),
+      data: {
+        name: `E2E 写策略白名单-${Date.now()}`,
+        systemPrompt: '你是测试助手。',
+        modelConfig: { modelName: 'deepseek-flash' },
+        agentCapabilities: { functionCall: true, writeToolPolicy: 'ALLOWLIST', allowedWriteToolIds: [toolId] },
+        tools: [{ toolId, enabled: true }],
+        visibility: 'PRIVATE'
+      }
+    })
+    const allowAgentId = (await allowAgentRes.json()).data.id as number
+    await request.post(`${P}/agent/${blockedAgentId}/publish`, { headers: auth(token!), data: { force: true } })
+    await request.post(`${P}/agent/${allowAgentId}/publish`, { headers: auth(token!), data: { force: true } })
+    const policyConv1 = (await (await request.post(`${P}/conversations`, {
+      headers: auth(token!), data: { agentId: blockedAgentId, title: '写策略阻断' }
+    })).json()).data.id
+    const policyConv2 = (await (await request.post(`${P}/conversations`, {
+      headers: auth(token!), data: { agentId: allowAgentId, title: '写策略白名单' }
+    })).json()).data.id
+    const beforePolicy = (await (await request.get(`${MOCK}/captured`)).json())
+      .filter((c: any) => c.path.includes('write-tool')).length
+    const blockedPolicy = await (await request.post(`${P}/conversations/${policyConv1}/messages`, {
+      headers: auth(token!), data: { message: '请计算并调用写工具', stream: false, allowWriteTools: true },
+      timeout: 60_000
+    })).json()
+    expect(String(blockedPolicy.data.answer)).toContain('安全阻断')
+    const allowedPolicy = await (await request.post(`${P}/conversations/${policyConv2}/messages`, {
+      headers: auth(token!), data: { message: '请计算并调用写工具', stream: false, allowWriteTools: true },
+      timeout: 60_000
+    })).json()
+    expect(String(allowedPolicy.data.answer)).not.toContain('安全阻断')
+    const afterPolicy = (await (await request.get(`${MOCK}/captured`)).json())
+      .filter((c: any) => c.path.includes('write-tool')).length
+    expect(afterPolicy).toBeGreaterThan(beforePolicy)
+    await request.delete(`${P}/conversations/${policyConv1}`, { headers: auth(token!) })
+    await request.delete(`${P}/conversations/${policyConv2}`, { headers: auth(token!) })
+    await deleteAgent(request, token!, blockedAgentId)
+    await deleteAgent(request, token!, allowAgentId)
   } finally {
     if (conversationId) {
       await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
@@ -1772,15 +1830,27 @@ test('知识图谱实体/关系 CRUD', async ({ request }) => {
       headers: auth(token!), data: { name: '退款政策', entityType: '政策' }
     })).json()
     expect(duplicate.code).toBe(409)
+    const noType = await (await request.post(`${P}/knowledge-base/${kbId}/graph/entities`, {
+      headers: auth(token!), data: { name: '无类型实体' }
+    })).json()
+    expect(noType.code, JSON.stringify(noType)).toBe(0)
+    const noTypeDup = await (await request.post(`${P}/knowledge-base/${kbId}/graph/entities`, {
+      headers: auth(token!), data: { name: '无类型实体' }
+    })).json()
+    expect(noTypeDup.code).toBe(409)
 
     const relation = await (await request.post(`${P}/knowledge-base/${kbId}/graph/relations`, {
       headers: auth(token!), data: { fromId: e1.data.id, toId: e2.data.id, relation: '适用于', weight: 2 }
     })).json()
     expect(relation.code, JSON.stringify(relation)).toBe(0)
+    const relationDup = await (await request.post(`${P}/knowledge-base/${kbId}/graph/relations`, {
+      headers: auth(token!), data: { fromId: e1.data.id, toId: e2.data.id, relation: '适用于' }
+    })).json()
+    expect(relationDup.code).toBe(409)
     const graph = await (await request.get(`${P}/knowledge-base/${kbId}/graph`, {
       headers: auth(token!)
     })).json()
-    expect(graph.data.entityCount).toBe(2)
+    expect(graph.data.entityCount).toBe(3)
     expect(graph.data.relationCount).toBe(1)
     expect(graph.data.relations[0].relation).toBe('适用于')
 
@@ -1797,7 +1867,7 @@ test('知识图谱实体/关系 CRUD', async ({ request }) => {
     const after = await (await request.get(`${P}/knowledge-base/${kbId}/graph`, {
       headers: auth(token!)
     })).json()
-    expect(after.data.entityCount).toBe(1)
+    expect(after.data.entityCount).toBe(2)
     expect(after.data.relationCount).toBe(0)
   } finally {
     await request.delete(`${P}/knowledge-base/${kbId}?force=true`, { headers: auth(token!) })

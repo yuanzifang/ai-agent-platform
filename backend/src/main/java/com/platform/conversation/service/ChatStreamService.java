@@ -79,6 +79,7 @@ public class ChatStreamService {
     private final ModerationService moderationService;
     private final TraceService traceService;
     private final ObjectMapper objectMapper;
+    private final com.platform.system.service.AuditService auditService;
     private final StreamRegistryService streamRegistry;
     private final ChatLiveStateService liveState;
     private final com.platform.agent.service.UserMemoryService userMemoryService;
@@ -142,6 +143,14 @@ public class ChatStreamService {
                 || Boolean.TRUE.equals(caps.get("allowWriteTools"))
                 || "true".equals(String.valueOf(caps.get("allowWriteTools")));
         config.put("_allowWriteTools", allowWriteTools);
+        if (allowWriteTools) {
+            try {
+                auditService.record(principal.userId(), "tool.write.confirm", "conversation",
+                        String.valueOf(conversationId), "SUCCESS",
+                        Map.of("agentId", conv.getAgentId(), "message", req.message().length() > 120
+                                ? req.message().substring(0, 120) : req.message()));
+            } catch (Exception ignored) { }
+        }
 
         // 输入审核（P0：敏感词/注入，BLOCK 拦截并留痕）
         com.platform.capability.runtime.TraceStepCollector steps =

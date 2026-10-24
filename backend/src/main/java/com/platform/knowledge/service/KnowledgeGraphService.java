@@ -153,17 +153,18 @@ public class KnowledgeGraphService {
         for (Map<String, Object> draft : entities) {
             String name = String.valueOf(draft.get("name"));
             String type = (String) draft.get("entityType");
+            String normType = type == null ? "" : type;
             KnowledgeGraphEntity entity = entityMapper.selectOne(new LambdaQueryWrapper<KnowledgeGraphEntity>()
                     .eq(KnowledgeGraphEntity::getKbId, kb.getId())
                     .eq(KnowledgeGraphEntity::getName, name)
-                    .eq(type != null, KnowledgeGraphEntity::getEntityType, type)
+                    .eq(KnowledgeGraphEntity::getEntityType, normType)
                     .last("LIMIT 1"));
             if (entity == null) {
                 entity = new KnowledgeGraphEntity();
                 entity.setTenantId(kb.getTenantId());
                 entity.setKbId(kb.getId());
                 entity.setName(name);
-                entity.setEntityType(type);
+                entity.setEntityType(normType);
                 entity.setDescription((String) draft.get("description"));
                 entity.setDocumentId(documentId);
                 entity.setChunkId(chunkId);
@@ -217,16 +218,17 @@ public class KnowledgeGraphService {
         String name = text(req.get("name"), 128);
         if (name == null) throw new BusinessException(400, "实体名称不能为空");
         String type = text(req.get("entityType"), 64);
+        String normType = type == null ? "" : type;  // 与唯一键 uk_kb_entity 的 '' 语义一致（NULL 不去重）
         Long duplicate = entityMapper.selectCount(new LambdaQueryWrapper<KnowledgeGraphEntity>()
                 .eq(KnowledgeGraphEntity::getKbId, kbId)
                 .eq(KnowledgeGraphEntity::getName, name)
-                .eq(type != null, KnowledgeGraphEntity::getEntityType, type));
+                .eq(KnowledgeGraphEntity::getEntityType, normType));
         if (duplicate != null && duplicate > 0) throw new BusinessException(409, "实体已存在：" + name);
         KnowledgeGraphEntity entity = new KnowledgeGraphEntity();
         entity.setTenantId(kb.getTenantId());
         entity.setKbId(kbId);
         entity.setName(name);
-        entity.setEntityType(type);
+        entity.setEntityType(normType);
         entity.setDescription(text(req.get("description"), 1024));
         entity.setDocumentId(number(req.get("documentId")));
         entity.setChunkId(number(req.get("chunkId")));
@@ -246,7 +248,10 @@ public class KnowledgeGraphService {
         KnowledgeGraphEntity entity = requireEntity(kbId, entityId);
         String name = text(req.get("name"), 128);
         if (name != null) entity.setName(name);
-        if (req.containsKey("entityType")) entity.setEntityType(text(req.get("entityType"), 64));
+        if (req.containsKey("entityType")) {
+            String type = text(req.get("entityType"), 64);
+            entity.setEntityType(type == null ? "" : type);
+        }
         if (req.containsKey("description")) entity.setDescription(text(req.get("description"), 1024));
         entity.setUpdatedAt(LocalDateTime.now());
         entityMapper.updateById(entity);
@@ -281,6 +286,12 @@ public class KnowledgeGraphService {
         requireEntity(kbId, toId);
         String relation = text(req.get("relation"), 64);
         if (relation == null) throw new BusinessException(400, "关系名称不能为空");
+        Long duplicate = relationMapper.selectCount(new LambdaQueryWrapper<KnowledgeGraphRelation>()
+                .eq(KnowledgeGraphRelation::getKbId, kbId)
+                .eq(KnowledgeGraphRelation::getFromId, fromId)
+                .eq(KnowledgeGraphRelation::getToId, toId)
+                .eq(KnowledgeGraphRelation::getRelation, relation));
+        if (duplicate != null && duplicate > 0) throw new BusinessException(409, "关系已存在");
         KnowledgeGraphRelation row = new KnowledgeGraphRelation();
         row.setTenantId(kb.getTenantId());
         row.setKbId(kbId);
@@ -288,10 +299,17 @@ public class KnowledgeGraphService {
         row.setToId(toId);
         row.setRelation(relation);
         BigDecimal weight = decimal(req.get("weight"));
-        row.setWeight(weight == null ? BigDecimal.ONE : weight);
+        if (weight == null) weight = BigDecimal.ONE;
+        // weight 表示关系强度/置信度，范围 0.01-99.99（DECIMAL(5,2)）
+        weight = weight.max(new BigDecimal("0.01")).min(new BigDecimal("99.99"));
+        row.setWeight(weight);
         row.setDocumentId(number(req.get("documentId")));
         row.setCreatedAt(LocalDateTime.now());
-        relationMapper.insert(row);
+        try {
+            relationMapper.insert(row);
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            throw new BusinessException(409, "相同关系已存在");
+        }
         auditService.record(viewer.userId(), "knowledge.graph.relation.create", "knowledge_graph_relation",
                 String.valueOf(row.getId()), "SUCCESS", Map.of("kbId", kbId, "relation", relation));
         return row;
@@ -319,6 +337,19 @@ public class KnowledgeGraphService {
 
     @Transactional
     public void deleteByDocument(Long kbId, Long documentId) {
+        // 先取将删实体：指向它们的关系无论登记在哪个文档下都要清，避免孤儿边
+        List<KnowledgeGraphEntity> dying = entityMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeGraphEntity>()
+                        .eq(KnowledgeGraphEntity::getKbId, kbId)
+                        .eq(KnowledgeGraphEntity::getDocumentId, documentId)
+                        .select(KnowledgeGraphEntity::getId));
+        if (!dying.isEmpty()) {
+            List<Long> ids = dying.stream().map(KnowledgeGraphEntity::getId).toList();
+            relationMapper.delete(new LambdaQueryWrapper<KnowledgeGraphRelation>()
+                    .eq(KnowledgeGraphRelation::getKbId, kbId)
+                    .and(w -> w.in(KnowledgeGraphRelation::getFromId, ids)
+                            .or().in(KnowledgeGraphRelation::getToId, ids)));
+        }
         relationMapper.delete(new LambdaQueryWrapper<KnowledgeGraphRelation>()
                 .eq(KnowledgeGraphRelation::getKbId, kbId)
                 .eq(KnowledgeGraphRelation::getDocumentId, documentId));
