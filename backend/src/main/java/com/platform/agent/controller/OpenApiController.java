@@ -41,6 +41,7 @@ import java.util.UUID;
 public class OpenApiController {
 
     private final ApiKeyService apiKeyService;
+    private final com.platform.common.ratelimit.RedisRateLimiter rateLimiter;
     private final AgentRegistryMapper agentMapper;
     private final ConversationMapper conversationMapper;
     private final ChatStreamService chatStreamService;
@@ -80,6 +81,12 @@ public class OpenApiController {
             jakarta.servlet.http.HttpServletResponse httpResponse) {
         String rawKey = extractKey(xApiKey, authorization);
         IntegrationApiKey key = apiKeyService.authenticate(rawKey);
+        // 开放入口限流（按 Key 桶、租户配额值）：此前该入口完全不在限流范围内
+        int limit = rateLimiter.tenantLimitPerMinute(key.getTenantId());
+        if (limit < 0) limit = 60;
+        if (!rateLimiter.allow("ratelimit:open:" + key.getId() + ":" + (System.currentTimeMillis() / 60_000), limit)) {
+            throw new com.platform.common.exception.BusinessException(429, "开放接口限流（" + limit + "/分钟）");
+        }
         AgentRegistry agent = TenantContext.runWith(key.getTenantId(),
                 () -> agentMapper.selectById(key.getAgentId()));
         if (agent == null || !"PUBLISHED".equals(agent.getStatus())) {

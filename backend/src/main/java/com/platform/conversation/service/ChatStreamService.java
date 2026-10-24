@@ -314,10 +314,22 @@ public class ChatStreamService {
         String[] selfCorrectionIssues = {null};
         liveState.start(conv.getId(), traceId);
 
-        ChatClient.ChatClientRequestSpec spec = buildSpec(modelName, systemPrompt, history,
+        // 轻量熔断：主模型冷却期内直接走备用（避免每请求都撞一次超时）
+        String activeModel = modelName;
+        String activeFallback = fallbackModel;
+        if (chatModelRouter.modelCooling(activeModel) && activeFallback != null && !activeFallback.isBlank()
+                && !activeFallback.equals(activeModel)) {
+            steps.add("chain", "circuit-open", "SUCCESS", System.currentTimeMillis(), System.currentTimeMillis(),
+                    java.util.Map.of("model", activeModel, "action", "skip-to-fallback"));
+            activeModel = activeFallback;
+            activeFallback = null; // 备用再失败无路可走，直接报错
+        }
+        final String effModel = activeModel;
+        final String effFallback = activeFallback;
+        ChatClient.ChatClientRequestSpec spec = buildSpec(effModel, systemPrompt, history,
                 userMsgWithAttachments, runtime.callbacks(), temperature);
         AtomicBoolean emitted = new AtomicBoolean(false);
-        AtomicReference<String> usedModel = new AtomicReference<>(modelName);
+        AtomicReference<String> usedModel = new AtomicReference<>(effModel);
         Flux<org.springframework.ai.chat.model.ChatResponse> flux = spec.stream().chatResponse()
                 .doOnNext(resp -> {
                     String d = resp.getResult() == null ? null : resp.getResult().getOutput().getText();
@@ -329,6 +341,7 @@ public class ChatStreamService {
                         return Flux.error(err);
                     }
                     long fallbackStart = System.currentTimeMillis();
+                    chatModelRouter.recordModelFailure(modelName);
                     log.warn("模型失败，切换备用模型 {} -> {}：{}", modelName, fallbackModel, err.getMessage());
                     steps.add("chain", "model-fallback", "SUCCESS", fallbackStart, System.currentTimeMillis(),
                             Map.of("from", modelName, "to", fallbackModel,
@@ -640,12 +653,19 @@ public class ChatStreamService {
         history = fitted.history();
 
         String usedModel = modelName;
+        if (chatModelRouter.modelCooling(modelName) && fallbackModel != null && !fallbackModel.isBlank()
+                && !fallbackModel.equals(modelName)) {
+            steps.add("chain", "circuit-open", "SUCCESS", System.currentTimeMillis(), System.currentTimeMillis(),
+                    java.util.Map.of("model", modelName, "action", "skip-to-fallback"));
+            usedModel = fallbackModel;
+        }
         org.springframework.ai.chat.model.ChatResponse resp;
         try {
-            resp = buildSpec(modelName, systemPrompt, history, userMsgWithAttachments,
+            resp = buildSpec(usedModel, systemPrompt, history, userMsgWithAttachments,
                     runtime.callbacks(), temperature).call().chatResponse();
         } catch (Exception e) {
-            if (fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(modelName)
+            chatModelRouter.recordModelFailure(usedModel);
+            if (fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(usedModel)
                     || !chatModelRouter.isFallbackable(e)) {
                 throw e;
             }
@@ -657,6 +677,7 @@ public class ChatStreamService {
             resp = buildSpec(fallbackModel, systemPrompt, history, userMsgWithAttachments,
                     runtime.callbacks(), temperature).call().chatResponse();
         }
+        chatModelRouter.recordModelSuccess(usedModel);
         String answer = resp.getResult().getOutput().getText();
         var usage = resp.getMetadata().getUsage();
         var metrics = com.platform.model.service.UsageMetrics.of(usage);

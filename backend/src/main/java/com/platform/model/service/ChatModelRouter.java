@@ -39,6 +39,35 @@ public class ChatModelRouter {
     private final ProviderMapper providerMapper;
     private final ProviderService providerService;
     private final Map<String, ChatModel> cache = new ConcurrentHashMap<>();
+    private final org.springframework.data.redis.core.StringRedisTemplate redis;
+
+    /** 轻量熔断（跨请求状态）：连续失败 ≥3（5 分钟窗口）→ 冷却 60s 内直接走备用，成功清零。 */
+    public void recordModelFailure(String model) {
+        if (model == null || model.isBlank()) return;
+        try {
+            String failKey = "model:fail:" + model;
+            Long n = redis.opsForValue().increment(failKey);
+            if (n != null && n == 1L) redis.expire(failKey, java.time.Duration.ofMinutes(5));
+            if (n != null && n >= 3) redis.opsForValue().set("model:cooldown:" + model, "1", java.time.Duration.ofSeconds(60));
+        } catch (Exception ignored) { }
+    }
+
+    public void recordModelSuccess(String model) {
+        if (model == null || model.isBlank()) return;
+        try {
+            redis.delete("model:fail:" + model);
+            redis.delete("model:cooldown:" + model);
+        } catch (Exception ignored) { }
+    }
+
+    public boolean modelCooling(String model) {
+        if (model == null || model.isBlank()) return false;
+        try {
+            return Boolean.TRUE.equals(redis.hasKey("model:cooldown:" + model));
+        } catch (Exception e) {
+            return false;
+        }
+    }
 
     public ChatModel resolve(String modelName) {
         return resolve(TenantContext.getTenantId(), modelName);
