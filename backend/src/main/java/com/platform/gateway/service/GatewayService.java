@@ -78,6 +78,12 @@ public class GatewayService {
         route.setApiKeyHash(hash(apiKey));
         route.setApiKeyPrefix(apiKey.substring(0, 8));
         route.setTargetUrl(target.replaceAll("/+$", ""));
+        String fallback = text(req.get("fallbackUrl"), 512);
+        if (fallback != null) {
+            networkPolicy.validateHttpUrl(fallback, "备用上游地址");
+            fallback = fallback.replaceAll("/+$", "");
+        }
+        route.setFallbackUrl(fallback);
         route.setTimeoutMs(clamp(intValue(req.get("timeoutMs"), 15000), 1000, 120000));
         route.setRetries(clamp(intValue(req.get("retries"), 0), 0, 3));
         route.setRateLimitPerMin(clamp(intValue(req.get("rateLimitPerMin"), 60), 0, 100000));
@@ -105,6 +111,14 @@ public class GatewayService {
             String target = text(req.get("targetUrl"), 512);
             networkPolicy.validateHttpUrl(target, "上游地址");
             route.setTargetUrl(target.replaceAll("/+$", ""));
+        }
+        if (req.containsKey("fallbackUrl")) {
+            String fallback = text(req.get("fallbackUrl"), 512);
+            if (fallback != null) {
+                networkPolicy.validateHttpUrl(fallback, "备用上游地址");
+                fallback = fallback.replaceAll("/+$", "");
+            }
+            route.setFallbackUrl(fallback);
         }
         if (req.containsKey("timeoutMs")) route.setTimeoutMs(clamp(intValue(req.get("timeoutMs"), 15000), 1000, 120000));
         if (req.containsKey("retries")) route.setRetries(clamp(intValue(req.get("retries"), 0), 0, 3));
@@ -171,7 +185,6 @@ public class GatewayService {
         }
         String suffix = suffix(routeKey, request.getRequestURI());
         String query = request.getQueryString();
-        String target = route.getTargetUrl() + suffix + (query == null || query.isBlank() ? "" : "?" + query);
         try {
             byte[] body = "GET".equalsIgnoreCase(request.getMethod()) || "HEAD".equalsIgnoreCase(request.getMethod())
                     ? new byte[0] : request.getInputStream().readAllBytes();
@@ -179,38 +192,62 @@ public class GatewayService {
                 log(route, request, 413, null, started, "body too large");
                 return error(HttpStatus.PAYLOAD_TOO_LARGE, "请求体不能超过 5MB");
             }
-            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(target))
-                    .timeout(Duration.ofMillis(route.getTimeoutMs() == null ? 15000 : route.getTimeoutMs()));
-            HttpRequest.BodyPublisher publisher = body.length == 0
-                    ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(body);
-            builder.method(request.getMethod().toUpperCase(Locale.ROOT), publisher);
-            copyHeader(request, builder, "Content-Type");
-            copyHeader(request, builder, "Accept");
-            copyHeader(request, builder, "User-Agent");
-            HttpRequest httpRequest = builder.build();
-
-            int attempts = 1 + (isIdempotent(request.getMethod()) ? Math.max(0, route.getRetries() == null ? 0 : route.getRetries()) : 0);
-            HttpResponse<byte[]> response = null;
+            List<String> targets = new ArrayList<>();
+            targets.add(route.getTargetUrl());
+            if (route.getFallbackUrl() != null && !route.getFallbackUrl().isBlank()) {
+                targets.add(route.getFallbackUrl());
+            }
             Exception last = null;
-            for (int i = 0; i < attempts; i++) {
+            for (int ti = 0; ti < targets.size(); ti++) {
+                String target = targets.get(ti) + suffix
+                        + (query == null || query.isBlank() ? "" : "?" + query);
                 try {
-                    response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
-                    if (response.statusCode() < 500 || i == attempts - 1) break;
+                    HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(target))
+                            .timeout(Duration.ofMillis(route.getTimeoutMs() == null ? 15000 : route.getTimeoutMs()));
+                    HttpRequest.BodyPublisher publisher = body.length == 0
+                            ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(body);
+                    builder.method(request.getMethod().toUpperCase(Locale.ROOT), publisher);
+                    copyHeader(request, builder, "Content-Type");
+                    copyHeader(request, builder, "Accept");
+                    copyHeader(request, builder, "User-Agent");
+                    HttpRequest httpRequest = builder.build();
+
+                    int attempts = 1 + (isIdempotent(request.getMethod())
+                            ? Math.max(0, route.getRetries() == null ? 0 : route.getRetries()) : 0);
+                    HttpResponse<byte[]> response = null;
+                    Exception attemptError = null;
+                    for (int i = 0; i < attempts; i++) {
+                        try {
+                            response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
+                            if (response.statusCode() < 500 || i == attempts - 1) break;
+                        } catch (Exception e) {
+                            attemptError = e;
+                            if (i == attempts - 1) throw e;
+                        }
+                    }
+                    if (response == null) {
+                        throw attemptError == null ? new IllegalStateException("no upstream response") : attemptError;
+                    }
+                    if (response.statusCode() >= 500 && ti < targets.size() - 1) {
+                        last = new IllegalStateException("upstream " + response.statusCode());
+                        continue;
+                    }
+                    if (response.body().length > MAX_TARGET_BYTES) {
+                        log(route, request, 502, response.statusCode(), started, "upstream response too large");
+                        return error(HttpStatus.BAD_GATEWAY, "上游响应超过 10MB");
+                    }
+                    log(route, request, response.statusCode(), response.statusCode(), started,
+                            ti > 0 ? "fallback upstream" : null);
+                    HttpHeaders headers = new HttpHeaders();
+                    response.headers().firstValue("Content-Type").ifPresent(v -> headers.set(HttpHeaders.CONTENT_TYPE, v));
+                    response.headers().firstValue("Content-Disposition").ifPresent(v -> headers.set(HttpHeaders.CONTENT_DISPOSITION, v));
+                    return new ResponseEntity<>(response.body(), headers, HttpStatus.valueOf(response.statusCode()));
                 } catch (Exception e) {
                     last = e;
-                    if (i == attempts - 1) throw e;
+                    if (ti == targets.size() - 1) throw e;
                 }
             }
-            if (response == null) throw last == null ? new IllegalStateException("no upstream response") : last;
-            if (response.body().length > MAX_TARGET_BYTES) {
-                log(route, request, 502, response.statusCode(), started, "upstream response too large");
-                return error(HttpStatus.BAD_GATEWAY, "上游响应超过 10MB");
-            }
-            log(route, request, response.statusCode(), response.statusCode(), started, null);
-            HttpHeaders headers = new HttpHeaders();
-            response.headers().firstValue("Content-Type").ifPresent(v -> headers.set(HttpHeaders.CONTENT_TYPE, v));
-            response.headers().firstValue("Content-Disposition").ifPresent(v -> headers.set(HttpHeaders.CONTENT_DISPOSITION, v));
-            return new ResponseEntity<>(response.body(), headers, HttpStatus.valueOf(response.statusCode()));
+            throw last == null ? new IllegalStateException("no upstream response") : last;
         } catch (Exception e) {
             log(route, request, 502, null, started, root(e));
             return error(HttpStatus.BAD_GATEWAY, "上游调用失败：" + root(e));
@@ -279,6 +316,7 @@ public class GatewayService {
         m.put("routeKey", route.getRouteKey());
         m.put("apiKeyPrefix", route.getApiKeyPrefix());
         m.put("targetUrl", route.getTargetUrl());
+        m.put("fallbackUrl", route.getFallbackUrl());
         m.put("timeoutMs", route.getTimeoutMs());
         m.put("retries", route.getRetries());
         m.put("rateLimitPerMin", route.getRateLimitPerMin());

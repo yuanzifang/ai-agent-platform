@@ -18,6 +18,7 @@ public class GatewayRoute {
     private String apiKeyHash;
     private String apiKeyPrefix;
     private String targetUrl;
+    private String fallbackUrl;
     private Integer timeoutMs;
     private Integer retries;
     private Integer rateLimitPerMin;

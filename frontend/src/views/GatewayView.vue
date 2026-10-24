@@ -44,6 +44,9 @@
         <el-form-item :label="t('gatewayPage.target')" required>
           <el-input v-model="form.targetUrl" :placeholder="t('gatewayPage.targetPh')" maxlength="512" />
         </el-form-item>
+        <el-form-item :label="t('gatewayPage.fallback')">
+          <el-input v-model="form.fallbackUrl" :placeholder="t('gatewayPage.fallbackPh')" maxlength="512" />
+        </el-form-item>
         <el-form-item :label="t('gatewayPage.timeoutLabel')">
           <el-input-number v-model="form.timeoutMs" :min="1000" :max="120000" :step="1000" />
         </el-form-item>
@@ -104,7 +107,7 @@ const endpoint = ref('')
 const logsVisible = ref(false)
 const logs = ref<any[]>([])
 const logsName = ref('')
-const form = reactive<any>({ id: 0, name: '', targetUrl: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60 })
+const form = reactive<any>({ id: 0, name: '', targetUrl: '', fallbackUrl: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60 })
 const currentRouteKey = ref('')
 
 const endpointBase = computed(() => `${location.origin}/api/v1/gateway/call/${currentRouteKey.value}`)
@@ -119,13 +122,13 @@ async function load() {
 }
 
 function openCreate() {
-  Object.assign(form, { id: 0, name: '', targetUrl: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60 })
+  Object.assign(form, { id: 0, name: '', targetUrl: '', fallbackUrl: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60 })
   formVisible.value = true
 }
 
 function openEdit(row: any) {
   Object.assign(form, {
-    id: row.id, name: row.name, targetUrl: row.targetUrl,
+    id: row.id, name: row.name, targetUrl: row.targetUrl, fallbackUrl: row.fallbackUrl || '',
     timeoutMs: row.timeoutMs, retries: row.retries, rateLimitPerMin: row.rateLimitPerMin
   })
   formVisible.value = true

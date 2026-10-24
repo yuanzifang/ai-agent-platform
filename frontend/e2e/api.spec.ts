@@ -1739,6 +1739,23 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
     })
     expect(newKey.status()).toBe(200)
 
+    const fallbackRoute = await (await request.post(`${P}/gateway/routes`, {
+      headers: auth(token!),
+      data: { name: `E2E Gateway Fallback-${Date.now()}`,
+        targetUrl: 'http://127.0.0.1:9/actuator',
+        fallbackUrl: 'http://localhost:8080/actuator',
+        timeoutMs: 2000, retries: 0, rateLimitPerMin: 100 }
+    })).json()
+    try {
+      const viaFallback = await request.get(`${P}/gateway/call/${fallbackRoute.data.routeKey}/health`, {
+        headers: { 'X-Gateway-Key': fallbackRoute.data.apiKey }
+      })
+      expect(viaFallback.status()).toBe(200)
+      expect(await viaFallback.text()).toContain('UP')
+    } finally {
+      await request.delete(`${P}/gateway/routes/${fallbackRoute.data.id}`, { headers: auth(token!) })
+    }
+
     const limitedRoute = await (await request.post(`${P}/gateway/routes`, {
       headers: auth(token!),
       data: { name: `E2E Gateway Limit-${Date.now()}`, targetUrl: 'http://localhost:8080/actuator',
