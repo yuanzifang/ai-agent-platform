@@ -412,7 +412,9 @@ public class McpServerService {
                 tool.setCreatedAt(LocalDateTime.now());
             }
             tool.setName(t.name());
-            tool.setDescription(t.description() == null || t.description().isBlank() ? t.name() : t.description());
+            // 外部 Server 的工具描述可能超列宽（libgen 实测触发 MysqlDataTruncation），截断保护
+            String desc = t.description() == null || t.description().isBlank() ? t.name() : t.description();
+            tool.setDescription(desc.length() > 500 ? desc.substring(0, 500) : desc);
             tool.setCategory("MCP");
             tool.setStatus("ENABLED");
             tool.setTimeoutMs(30000);
@@ -557,9 +559,10 @@ public class McpServerService {
         s.setCommand(command);
         if (req.containsKey("args")) {
             List<String> args = normalizeArgs(req.get("args"));
-            s.setArgs(args.isEmpty() ? "" : json(args));
+            // JSON 列空串 = 非法 JSON 文档；无参命令必须写 "[]" 而非空串
+            s.setArgs(args.isEmpty() ? "[]" : json(args));
         } else {
-            s.setArgs(existing == null ? "" : existing.getArgs());
+            s.setArgs(existing == null ? "[]" : existing.getArgs());
         }
         if (req.containsKey("env")) {
             s.setEnvEncrypted(encryptEnv(req.get("env"), existing == null ? null : existing.getEnvEncrypted()));
