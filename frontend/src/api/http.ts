@@ -9,6 +9,11 @@ http.interceptors.request.use((config) => {
   const user = useUserStore()
   if (user.accessToken) config.headers.Authorization = `Bearer ${user.accessToken}`
   config.headers['Accept-Language'] = localStorage.getItem('locale') === 'en-US' ? 'en-US' : 'zh-CN'
+  // 平台管理员跨租户查看：全局注入所选租户（需求 4.3 租户切换）
+  if (user.userInfo?.isPlatformAdmin) {
+    const tenantId = localStorage.getItem('platformTenantId')
+    if (tenantId) config.headers['X-Tenant-Id'] = tenantId
+  }
   return config
 })
 

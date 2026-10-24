@@ -672,6 +672,7 @@ const messages = {
     },
     layout: {
       workbench: '工作台', assets: '资产', evalOps: '评测与运营', management: '管理',
+      pickTenant: '选择要查看的租户',
       lightMode: '切换浅色模式', darkMode: '切换深色模式', theme: '切换主题',
       security: '安全设置', mfa: '多因素认证（MFA / TOTP）', enabled: '已启用', disabled: '未启用',
       mfaHint: '启用后登录需要输入身份验证器中的 6 位动态码。', step1: '1. 在身份验证器（Google Authenticator / 1Password 等）添加账户，密钥：',
@@ -1399,6 +1400,7 @@ const messages = {
     },
     layout: {
       workbench: 'Workspace', assets: 'Assets', evalOps: 'Evaluation & Ops', management: 'Management',
+      pickTenant: 'Pick a tenant to view',
       lightMode: 'Switch to light mode', darkMode: 'Switch to dark mode', theme: 'Toggle theme',
       security: 'Security', mfa: 'Multi-factor authentication (MFA / TOTP)', enabled: 'Enabled', disabled: 'Disabled',
       mfaHint: 'When enabled, sign-in requires a 6-digit code from your authenticator.', step1: '1. Add the account in your authenticator (Google Authenticator / 1Password); secret:',

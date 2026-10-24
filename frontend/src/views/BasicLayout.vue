@@ -32,6 +32,12 @@
           <div class="notif-time">{{ fmtNotif(n.createdAt) }}</div>
         </div>
       </el-popover>
+      <el-select v-if="userStore.userInfo?.isPlatformAdmin"
+                 v-model="platformTenantId" size="small" style="width: 170px; margin-right: 10px"
+                 :placeholder="t('layout.pickTenant')" @change="onTenantSwitch">
+        <el-option v-for="tOpt in tenantOptions" :key="tOpt.id" :value="String(tOpt.id)"
+                   :label="tOpt.name || tOpt.tenantKey" />
+      </el-select>
       <el-dropdown @command="onCommand">
         <span class="user-chip">
           <el-icon><User /></el-icon>
@@ -179,6 +185,20 @@ const userName = computed(() => userStore.userInfo?.displayName || t('common.use
 
 // 侧栏二级菜单：默认只展开当前路由所在分组（切换路由时 el-sub-menu 自动跟随激活项）
 const route = useRoute()
+
+// 平台管理员：选择要查看的租户（选定后全局 X-Tenant-Id，刷新重载数据）
+const platformTenantId = ref(localStorage.getItem('platformTenantId') || '')
+const tenantOptions = ref<any[]>([])
+onMounted(async () => {
+  if (!userStore.userInfo?.isPlatformAdmin) return
+  try {
+    tenantOptions.value = await http.get('/platform/tenants') as any
+  } catch { /* 忽略：未授权时选择器隐藏 */ }
+})
+function onTenantSwitch(id: string) {
+  localStorage.setItem('platformTenantId', id)
+  router.go(0)
+}
 const openedGroups = ref<string[]>([groupOf(route.path)])
 function groupOf(path: string): string {
   if (/^\/(agents|square|templates|approvals)\b/.test(path)) return 'g-work'
