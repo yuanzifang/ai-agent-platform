@@ -167,7 +167,14 @@ import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
 const router = useRouter()
 const userStore = useUserStore()
 const { t, locale } = useI18n()
-const currentLocale = computed({ get: () => locale.value, set: (v: Locale) => setLocale(v) })
+const currentLocale = computed({
+  get: () => locale.value,
+  set: (v: Locale) => {
+    setLocale(v)
+    // 持久化用户语言偏好，供站内通知/邮件模板选择语言
+    void http.put('/auth/locale', { locale: v }).catch(() => {})
+  }
+})
 const userName = computed(() => userStore.userInfo?.displayName || t('common.user'))
 
 // 侧栏二级菜单：默认只展开当前路由所在分组（切换路由时 el-sub-menu 自动跟随激活项）

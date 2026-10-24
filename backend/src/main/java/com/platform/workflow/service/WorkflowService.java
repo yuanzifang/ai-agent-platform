@@ -457,7 +457,9 @@ public class WorkflowService {
                     run.getUserId() == null ? java.util.List.of() : java.util.List.of(run.getUserId()),
                     "workflow_result", "审批已通过：" + approval.getTitle(),
                     "工作流 " + run.getId() + " 已继续执行",
-                    "/agent/edit/" + run.getAgentId());
+                    "/agent/edit/" + run.getAgentId(),
+                    "Approved: " + approval.getTitle(),
+                    "Workflow " + run.getId() + " resumed");
             execute(run, next, principal);
         } else {
             if (nodeRun != null) {
@@ -476,7 +478,9 @@ public class WorkflowService {
                     run.getUserId() == null ? java.util.List.of() : java.util.List.of(run.getUserId()),
                     "workflow_result", "审批已拒绝：" + approval.getTitle(),
                     comment == null ? "工作流已拒绝" : comment,
-                    "/agent/edit/" + run.getAgentId());
+                    "/agent/edit/" + run.getAgentId(),
+                    "Rejected: " + approval.getTitle(),
+                    comment == null ? "Workflow rejected" : comment);
         }
         return runView(runMapper.selectById(run.getId()));
     }
@@ -588,7 +592,8 @@ public class WorkflowService {
                                 : userMapper.findUserIdsByRole(run.getTenantId(), requiredRole);
                         if (recipients.isEmpty()) recipients = userMapper.findOwnerAdminUserIds(run.getTenantId());
                         notificationService.notify(run.getTenantId(), recipients, "workflow_approval",
-                                "循环超限待处理：" + approval.getTitle(), output, "/approvals");
+                                "循环超限待处理：" + approval.getTitle(), output, "/approvals",
+                                "Loop limit awaiting review: " + approval.getTitle(), output);
                         nr.setStatus("WAITING");
                         nr.setOutputText(truncate(output, 20000));
                         nr.setEndedAt(LocalDateTime.now());
@@ -649,7 +654,10 @@ public class WorkflowService {
                     notificationService.notify(run.getTenantId(), recipients, "workflow_approval",
                             "待审批：" + approvalTitle,
                             "Agent 工作流 " + run.getId() + " 需要审批；输入：" + truncate(run.getInputText(), 200),
-                            "/approvals");
+                            "/approvals",
+                            "Pending approval: " + approvalTitle,
+                            "Agent workflow " + run.getId() + " requires approval; input: "
+                                    + truncate(run.getInputText(), 200));
                     nr.setStatus("WAITING");
                     nr.setOutputText(truncate(output, 20000));
                     nr.setEndedAt(LocalDateTime.now());
@@ -1057,7 +1065,9 @@ public class WorkflowService {
         if (recipients.isEmpty()) recipients = userMapper.findOwnerAdminUserIds(run.getTenantId());
         notificationService.notify(run.getTenantId(), recipients, "workflow_approval",
                 "并行分支待审批：" + approval.getTitle(), "工作流 " + run.getId() + " 需要审批",
-                "/approvals");
+                "/approvals",
+                "Parallel branches awaiting approval: " + approval.getTitle(),
+                "Workflow " + run.getId() + " requires approval");
         nr.setStatus("WAITING");
         nr.setOutputText("并行分支审批中");
         nr.setEndedAt(LocalDateTime.now());
@@ -1712,7 +1722,9 @@ public class WorkflowService {
                     run.getUserId() == null ? List.of() : List.of(run.getUserId()),
                     "workflow_result", "审批超时：" + approval.getTitle(),
                     "工作流 " + run.getId() + " 因审批超时已终止",
-                    "/agent/edit/" + run.getAgentId());
+                    "/agent/edit/" + run.getAgentId(),
+                    "Approval timed out: " + approval.getTitle(),
+                    "Workflow " + run.getId() + " terminated after approval timeout");
         }
         auditService.record(approval.getDecidedBy() == null ? 0L : approval.getDecidedBy(),
                 "workflow.timeout", "workflow_approval", String.valueOf(approval.getId()),

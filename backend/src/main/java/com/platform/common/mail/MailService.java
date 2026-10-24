@@ -28,7 +28,16 @@ public class MailService {
     }
 
     public boolean send(String to, String subject, String text) {
+        return sendLocalized(to, "zh-CN", subject, text, subject, text);
+    }
+
+    /** 按用户语言选择主题/正文；英文缺失时回退中文。 */
+    public boolean sendLocalized(String to, String locale, String subjectZh, String textZh,
+                                 String subjectEn, String textEn) {
         if (to == null || to.isBlank()) return false;
+        boolean en = locale != null && locale.toLowerCase().startsWith("en");
+        String subject = en && subjectEn != null && !subjectEn.isBlank() ? subjectEn : subjectZh;
+        String text = en && textEn != null && !textEn.isBlank() ? textEn : textZh;
         if (!enabled()) {
             log.info("[MAIL-DISABLED] to={} subject={} body={}", to, subject, text);
             return false;

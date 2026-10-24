@@ -1,0 +1,2 @@
+ALTER TABLE sys_user
+    ADD COLUMN locale VARCHAR(16) NOT NULL DEFAULT 'zh-CN' AFTER status;

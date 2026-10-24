@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.platform.common.context.TenantContext;
 import com.platform.security.JwtPrincipal;
+import com.platform.system.entity.SysUser;
 import com.platform.system.entity.UserNotification;
+import com.platform.system.mapper.SysUserMapper;
 import com.platform.system.mapper.UserNotificationMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,12 +26,24 @@ import java.util.Objects;
 public class NotificationService {
 
     private final UserNotificationMapper mapper;
+    private final SysUserMapper userMapper;
 
     public void notify(Long tenantId, List<Long> userIds, String type, String title,
                        String content, String link) {
+        notify(tenantId, userIds, type, title, content, link, title, content);
+    }
+
+    /** 站内通知双语模板：按收件人 sys_user.locale 选择标题/正文。 */
+    public void notify(Long tenantId, List<Long> userIds, String type, String titleZh,
+                       String contentZh, String link, String titleEn, String contentEn) {
         if (tenantId == null || userIds == null || userIds.isEmpty()) return;
         for (Long userId : userIds.stream().filter(Objects::nonNull).distinct().toList()) {
             try {
+                SysUser user = userMapper.selectById(userId);
+                boolean en = user != null && user.getLocale() != null
+                        && user.getLocale().toLowerCase().startsWith("en");
+                String title = en && titleEn != null && !titleEn.isBlank() ? titleEn : titleZh;
+                String content = en && contentEn != null && !contentEn.isBlank() ? contentEn : contentZh;
                 UserNotification n = new UserNotification();
                 n.setTenantId(tenantId);
                 n.setUserId(userId);

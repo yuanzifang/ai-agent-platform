@@ -42,7 +42,7 @@ public class AuthController {
     }
 
     public record UserInfo(String id, String displayName, boolean isPlatformAdmin, String tenantId,
-                           java.util.List<String> roles, java.util.List<String> permissions) {
+                           java.util.List<String> roles, java.util.List<String> permissions, String locale) {
     }
 
     public record RefreshResponse(String accessToken, long expiresIn) {
@@ -60,7 +60,7 @@ public class AuthController {
         LoginResponse body = new LoginResponse(r.accessToken(), r.expiresIn(),
                 new UserInfo(r.userId(), r.displayName(), r.platformAdmin(),
                         r.tenantId() == null ? null : String.valueOf(r.tenantId()),
-                        r.roles(), r.permissions()), false, null);
+                        r.roles(), r.permissions(), authService.localeOf(Long.parseLong(r.userId()))), false, null);
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, cookieService.create(r.refreshToken()).toString())
                 .body(ApiResponse.ok(body));
@@ -73,6 +73,14 @@ public class AuthController {
     }
 
     /** 登录第二步：MFA 动态码/恢复码校验（使用短期 mfaToken，无需 JWT）。 */
+    @org.springframework.web.bind.annotation.PutMapping("/locale")
+    public ApiResponse<Void> updateLocale(@RequestBody java.util.Map<String, Object> req,
+            @org.springframework.security.core.annotation.AuthenticationPrincipal
+            com.platform.security.JwtPrincipal principal) {
+        authService.updateLocale(principal.userId(), req == null ? null : String.valueOf(req.get("locale")));
+        return ApiResponse.ok();
+    }
+
     @PostMapping("/mfa/verify")
     public ResponseEntity<ApiResponse<LoginResponse>> verifyMfa(@Valid @RequestBody MfaVerifyRequest req,
                                                                 HttpServletRequest request) {
@@ -80,7 +88,7 @@ public class AuthController {
         LoginResponse body = new LoginResponse(r.accessToken(), r.expiresIn(),
                 new UserInfo(r.userId(), r.displayName(), r.platformAdmin(),
                         r.tenantId() == null ? null : String.valueOf(r.tenantId()),
-                        r.roles(), r.permissions()), false, null);
+                        r.roles(), r.permissions(), authService.localeOf(Long.parseLong(r.userId()))), false, null);
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, cookieService.create(r.refreshToken()).toString())
                 .body(ApiResponse.ok(body));

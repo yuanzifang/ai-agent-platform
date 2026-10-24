@@ -109,6 +109,21 @@ test('后端错误消息按 Accept-Language 返回英文', async ({ request }) =
   expect(zhBody.message).toContain('用户名或密码错误')
 })
 
+test('用户语言偏好持久化并回显', async ({ request }) => {
+  const first = await (await request.post(`${P}/auth/login`, {
+    headers: { 'Content-Type': 'application/json' },
+    data: { username: 'dev', password: 'Dev@123456', tenantKey: 'dev' }
+  })).json()
+  const token = first.data.accessToken
+  await request.put(`${P}/auth/locale`, { headers: auth(token), data: { locale: 'en-US' } })
+  const again = await (await request.post(`${P}/auth/login`, {
+    headers: { 'Content-Type': 'application/json' },
+    data: { username: 'dev', password: 'Dev@123456', tenantKey: 'dev' }
+  })).json()
+  expect(again.data.user.locale).toBe('en-US')
+  await request.put(`${P}/auth/locale`, { headers: auth(token), data: { locale: 'zh-CN' } })
+})
+
 test('Refresh Token 仅 HttpOnly Cookie', async ({ request }) => {
   const res = await request.post(`${P}/auth/login`, {
     data: { username: 'dev', password: 'Dev@123456', tenantKey: 'dev' }

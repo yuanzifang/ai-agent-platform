@@ -157,8 +157,14 @@ public class UserAdminService {
                 String.valueOf(inv.getId()), "SUCCESS", Map.of("role", role));
         if (email != null && email.contains("@")) {
             String link = frontendBase.replaceAll("/+$", "") + "/login?invite=" + inv.getToken();
-            mailService.send(email, "AI Agent 平台 - 团队邀请",
-                    "你被邀请加入团队，请在 7 天内打开以下链接设置账号：\n" + link);
+            boolean en = org.springframework.context.i18n.LocaleContextHolder.getLocale().getLanguage()
+                    .toLowerCase().startsWith("en");
+            mailService.sendLocalized(email, en ? "en-US" : "zh-CN",
+                    "AI Agent 平台 - 团队邀请",
+                    "你被邀请加入团队，请在 7 天内打开以下链接设置账号：\n" + link,
+                    "AI Agent Platform - Team invitation",
+                    "You have been invited to join the team. Open this link within 7 days to set up your account:\n"
+                            + link);
         }
         return Map.of("invitationId", inv.getId(), "token", inv.getToken(), "expiresAt", inv.getExpiresAt());
     }

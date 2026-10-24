@@ -19,6 +19,7 @@ public class SysUser {
     private Integer isServiceAccount;
     private Long tenantId;
     private String status;
+    private String locale;
     private LocalDateTime lastLoginAt;
     private LocalDateTime lockedUntil;
     private Integer failedAttempts;

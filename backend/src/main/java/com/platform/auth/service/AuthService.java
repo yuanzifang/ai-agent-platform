@@ -152,6 +152,20 @@ public class AuthService {
         sessionMapper.revokeAllByUser(userId);
     }
 
+    public String localeOf(Long userId) {
+        SysUser user = userMapper.findByIdIgnore(userId);
+        return user == null || user.getLocale() == null || user.getLocale().isBlank()
+                ? "zh-CN" : user.getLocale();
+    }
+
+    /** 保存用户语言偏好；仅接受 zh-CN / en-US。 */
+    public void updateLocale(Long userId, String locale) {
+        String value = "en-US".equalsIgnoreCase(locale) ? "en-US" : "zh-CN";
+        userMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<SysUser>()
+                .eq(SysUser::getId, userId)
+                .set(SysUser::getLocale, value));
+    }
+
     /** 找回密码第一步：生成一次性 Token（30 分钟）；开发环境未配置邮件时写入日志。 */
     public void requestPasswordReset(String username) {
         if (username == null || username.isBlank()) return;
@@ -169,8 +183,11 @@ public class AuthService {
         resetTokenMapper.insert(row);
         String link = frontendBase.replaceAll("/+$", "") + "/reset-password?token=" + token;
         boolean sent = user.getUsername() != null && user.getUsername().contains("@")
-                && mailService.send(user.getUsername(), "AI Agent 平台 - 重置密码",
-                "请在 30 分钟内打开以下链接重置密码：\n" + link + "\n如非本人操作请忽略。");
+                && mailService.sendLocalized(user.getUsername(), user.getLocale(),
+                "AI Agent 平台 - 重置密码", "请在 30 分钟内打开以下链接重置密码：\n" + link + "\n如非本人操作请忽略。",
+                "AI Agent Platform - Reset password",
+                "Open this link within 30 minutes to reset your password:\n" + link
+                        + "\nIf this was not you, ignore this email.");
         if (!sent) {
             // 未配置 SMTP 或发送失败：写入日志，便于管理员/开发环境使用
             log.info("密码重置链接（30 分钟有效）：{}", link);
@@ -204,9 +221,14 @@ public class AuthService {
             log.warn("异常登录告警：账号 {} 连续失败 {} 次，已锁定至 {}（IP={}）",
                     user.getUsername(), failed, lockedUntil, clientIp(request));
             if (user.getUsername() != null && user.getUsername().contains("@")) {
-                mailService.send(user.getUsername(), "AI Agent 平台 - 安全提醒",
+                mailService.sendLocalized(user.getUsername(), user.getLocale(),
+                        "AI Agent 平台 - 安全提醒",
                         "你的账号因连续 " + failed + " 次登录失败已被锁定至 " + lockedUntil
-                                + "。如非本人操作，请联系管理员。\nIP：" + clientIp(request));
+                                + "。如非本人操作，请联系管理员。\nIP：" + clientIp(request),
+                        "AI Agent Platform - Security alert",
+                        "Your account was locked until " + lockedUntil + " after " + failed
+                                + " failed sign-in attempts. If this was not you, contact an administrator.\nIP: "
+                                + clientIp(request));
             }
         }
     }

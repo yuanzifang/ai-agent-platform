@@ -149,8 +149,12 @@ public class QuotaService {
                     .eq(SysUser::getTenantId, tenantId).eq(SysUser::getStatus, "ENABLED"))) {
                 if (u.getUsername() != null && u.getUsername().contains("@")
                         && userMapper.findRoleKeys(u.getId()).contains("OWNER")) {
-                    mailService.send(u.getUsername(), "AI Agent 平台 - 配额告警",
-                            metric + " 使用率已达 " + percent + "%（" + used + "/" + max + "），请及时调整配额或充值。");
+                    mailService.sendLocalized(u.getUsername(), u.getLocale(),
+                            "AI Agent 平台 - 配额告警",
+                            metric + " 使用率已达 " + percent + "%（" + used + "/" + max + "），请及时调整配额或充值。",
+                            "AI Agent Platform - Quota alert",
+                            metric + " usage has reached " + percent + "% (" + used + "/" + max
+                                    + "). Adjust the quota or recharge.");
                 }
             }
         } catch (Exception e) {
