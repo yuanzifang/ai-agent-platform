@@ -8,6 +8,7 @@
       <el-tag size="small" :type="visTag(detail.visibility)">{{ visText(detail.visibility) }}</el-tag>
       <span class="kb-meta">{{ t('kbDetail.metaDocs') }}{{ detail.documentCount }}{{ t('kbDetail.metaChunks') }}{{ detail.chunkCount }}{{ t('kbDetail.creator') }}{{ detail.creatorName || '-' }}</span>
       <el-button v-if="detail.canEdit" @click="openEdit">{{ t('kbDetail.edit') }}</el-button>
+      <el-button @click="$router.push(`/knowledge/${kbId}/graph`)">{{ t('graphPage.title') }}</el-button>
       <el-button v-if="detail.canEdit" @click="openPermission">{{ t('kbDetail.permission') }}</el-button>
       <el-upload v-if="detail.canEdit" :show-file-list="false" :before-upload="upload" :disabled="uploading"
                  accept=".md,.txt,.docx,.pdf,.xlsx,.xls,.pptx,.html,.htm,.csv,.json,.png,.jpg,.jpeg,.bmp,.tif,.tiff">

@@ -698,6 +698,16 @@ const messages = {
       activateInvalid: '用户名必填，密码至少 8 位', activated: '激活成功，请登录'
     },
 
+    graphPage: {
+      title: '知识图谱', back: '返回知识库', entities: '实体', relations: '关系', addEntity: '新增实体',
+      entityName: '实体名称', entityNamePh: '如：退款政策', entityType: '实体类型', entityTypePh: '如：政策/产品/组织',
+      description: '描述', descriptionPh: '可选，实体说明', add: '添加', remove: '删除',
+      relationFrom: '起点', relationTo: '终点', relationName: '关系', relationNamePh: '如：适用于/属于',
+      weight: '权重', addRelation: '新增关系', empty: '暂无实体，先添加实体再连线',
+      noRelations: '暂无关系', graph: '图谱', entityCount: '实体数', relationCount: '关系数',
+      nameRequired: '实体名称不能为空', relationRequired: '关系起点/终点/名称不能为空',
+      added: '已添加', deleted: '已删除', loadFail: '加载图谱失败', saveFail: '保存失败'
+    },
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
       templates: '模板库', approvals: '人工审批箱', audit: '审计日志', billing: '计费管理',
@@ -1415,6 +1425,16 @@ const messages = {
       activateInvalid: 'Username required; password must be at least 8 characters', activated: 'Activated; please sign in'
     },
 
+    graphPage: {
+      title: 'Knowledge Graph', back: 'Back to knowledge base', entities: 'Entities', relations: 'Relations', addEntity: 'Add entity',
+      entityName: 'Entity name', entityNamePh: 'e.g. Refund policy', entityType: 'Entity type', entityTypePh: 'e.g. Policy/Product/Org',
+      description: 'Description', descriptionPh: 'Optional description', add: 'Add', remove: 'Delete',
+      relationFrom: 'From', relationTo: 'To', relationName: 'Relation', relationNamePh: 'e.g. applies-to/belongs-to',
+      weight: 'Weight', addRelation: 'Add relation', empty: 'No entities; add one first',
+      noRelations: 'No relations', graph: 'Graph', entityCount: 'Entities', relationCount: 'Relations',
+      nameRequired: 'Entity name is required', relationRequired: 'From, to and relation are required',
+      added: 'Added', deleted: 'Deleted', loadFail: 'Failed to load graph', saveFail: 'Save failed'
+    },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',
       templates: 'Templates', approvals: 'Approvals', audit: 'Audit Log', billing: 'Billing',

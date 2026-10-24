@@ -1636,6 +1636,61 @@ test('知识库上传→分段ACL→检索权限', async ({ request }) => {
   }
 })
 
+
+test('知识图谱实体/关系 CRUD', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const kb = await (await request.post(`${P}/knowledge-base`, {
+    headers: auth(token!), data: { name: `E2E 图谱-${Date.now()}`, visibility: 'PRIVATE',
+      embeddingModel: 'nomic-embed-text' }
+  })).json()
+  expect(kb.code, JSON.stringify(kb)).toBe(0)
+  const kbId = kb.data.id
+  try {
+    const e1 = await (await request.post(`${P}/knowledge-base/${kbId}/graph/entities`, {
+      headers: auth(token!), data: { name: '退款政策', entityType: '政策', description: '7 天无理由' }
+    })).json()
+    expect(e1.code, JSON.stringify(e1)).toBe(0)
+    const e2 = await (await request.post(`${P}/knowledge-base/${kbId}/graph/entities`, {
+      headers: auth(token!), data: { name: '净水器', entityType: '产品' }
+    })).json()
+    expect(e2.code, JSON.stringify(e2)).toBe(0)
+    const duplicate = await (await request.post(`${P}/knowledge-base/${kbId}/graph/entities`, {
+      headers: auth(token!), data: { name: '退款政策', entityType: '政策' }
+    })).json()
+    expect(duplicate.code).toBe(409)
+
+    const relation = await (await request.post(`${P}/knowledge-base/${kbId}/graph/relations`, {
+      headers: auth(token!), data: { fromId: e1.data.id, toId: e2.data.id, relation: '适用于', weight: 2 }
+    })).json()
+    expect(relation.code, JSON.stringify(relation)).toBe(0)
+    const graph = await (await request.get(`${P}/knowledge-base/${kbId}/graph`, {
+      headers: auth(token!)
+    })).json()
+    expect(graph.data.entityCount).toBe(2)
+    expect(graph.data.relationCount).toBe(1)
+    expect(graph.data.relations[0].relation).toBe('适用于')
+
+    const updated = await (await request.put(
+      `${P}/knowledge-base/${kbId}/graph/entities/${e1.data.id}`,
+      { headers: auth(token!), data: { description: '更新后的说明' } }
+    )).json()
+    expect(updated.data.description).toBe('更新后的说明')
+
+    await request.delete(`${P}/knowledge-base/${kbId}/graph/relations/${relation.data.id}`,
+      { headers: auth(token!) })
+    await request.delete(`${P}/knowledge-base/${kbId}/graph/entities/${e1.data.id}`,
+      { headers: auth(token!) })
+    const after = await (await request.get(`${P}/knowledge-base/${kbId}/graph`, {
+      headers: auth(token!)
+    })).json()
+    expect(after.data.entityCount).toBe(1)
+    expect(after.data.relationCount).toBe(0)
+  } finally {
+    await request.delete(`${P}/knowledge-base/${kbId}?force=true`, { headers: auth(token!) })
+  }
+})
+
 test('知识库按库选择 embedding 模型', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()

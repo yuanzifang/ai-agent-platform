@@ -25,6 +25,7 @@ const router = createRouter({
         { path: 'templates', component: () => import('../views/AgentTemplateView.vue') },
         { path: 'square', component: () => import('../views/AgentSquareView.vue') },
         { path: 'knowledge/:id', component: () => import('../views/KnowledgeDetailView.vue') },
+        { path: 'knowledge/:id/graph', component: () => import('../views/KnowledgeGraphView.vue') },
         { path: 'settings/usage', component: () => import('../views/UsageView.vue') },
         { path: 'billing', component: () => import('../views/BillingView.vue') },
         { path: 'provider', component: () => import('../views/ProviderAdminView.vue') },

@@ -4,6 +4,7 @@ import com.platform.common.response.ApiResponse;
 import com.platform.knowledge.entity.KnowledgeDocument;
 import com.platform.knowledge.service.EmbeddingService;
 import com.platform.knowledge.service.KnowledgePermissionService;
+import com.platform.knowledge.service.KnowledgeGraphService;
 import com.platform.knowledge.service.KnowledgeService;
 import com.platform.security.JwtPrincipal;
 import jakarta.validation.Valid;
@@ -28,6 +29,7 @@ import java.util.Map;
 public class KnowledgeController {
 
     private final KnowledgeService knowledgeService;
+    private final KnowledgeGraphService graphService;
     private final KnowledgePermissionService permissionService;
     private final EmbeddingService embeddingService;
 
@@ -195,6 +197,47 @@ public class KnowledgeController {
     }
 
     public record SearchRequest(@NotBlank String query, Integer topK, Double scoreThreshold, String mode) {
+    }
+
+    @GetMapping("/{id}/graph")
+    public ApiResponse<Map<String, Object>> graph(@PathVariable Long id,
+                                                   @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(graphService.graph(id, viewer(principal)));
+    }
+
+    @PostMapping("/{id}/graph/entities")
+    public ApiResponse<com.platform.knowledge.entity.KnowledgeGraphEntity> createEntity(
+            @PathVariable Long id, @RequestBody Map<String, Object> req,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(graphService.createEntity(id, req, viewer(principal)));
+    }
+
+    @PutMapping("/{id}/graph/entities/{entityId}")
+    public ApiResponse<com.platform.knowledge.entity.KnowledgeGraphEntity> updateEntity(
+            @PathVariable Long id, @PathVariable Long entityId, @RequestBody Map<String, Object> req,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(graphService.updateEntity(id, entityId, req, viewer(principal)));
+    }
+
+    @DeleteMapping("/{id}/graph/entities/{entityId}")
+    public ApiResponse<Void> deleteEntity(@PathVariable Long id, @PathVariable Long entityId,
+                                          @AuthenticationPrincipal JwtPrincipal principal) {
+        graphService.deleteEntity(id, entityId, viewer(principal));
+        return ApiResponse.ok();
+    }
+
+    @PostMapping("/{id}/graph/relations")
+    public ApiResponse<com.platform.knowledge.entity.KnowledgeGraphRelation> createRelation(
+            @PathVariable Long id, @RequestBody Map<String, Object> req,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(graphService.createRelation(id, req, viewer(principal)));
+    }
+
+    @DeleteMapping("/{id}/graph/relations/{relationId}")
+    public ApiResponse<Void> deleteRelation(@PathVariable Long id, @PathVariable Long relationId,
+                                            @AuthenticationPrincipal JwtPrincipal principal) {
+        graphService.deleteRelation(id, relationId, viewer(principal));
+        return ApiResponse.ok();
     }
 
     @PostMapping("/{id}/search")

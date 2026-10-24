@@ -65,6 +65,7 @@ public class KnowledgeService {
     private final HybridRetrievalService hybridRetrieval;
     private final DocumentParser parser;
     private final ImageUnderstandingService imageUnderstanding;
+    private final KnowledgeGraphService graphService;
     private final ObjectMapper objectMapper;
     private final KnowledgePermissionService permissionService;
     private final SysUserMapper userMapper;
@@ -270,6 +271,7 @@ public class KnowledgeService {
         } catch (Exception e) {
             log.warn("删除知识库向量失败 kb={} err={}（数据库记录继续清理）", id, e.getMessage());
         }
+        graphService.deleteByKnowledgeBase(id);
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getKnowledgeBaseId, id));
         docMapper.delete(new LambdaQueryWrapper<KnowledgeDocument>()
@@ -292,6 +294,7 @@ public class KnowledgeService {
         deleteVectorsQuietly(kb.getTenantId(), docId);
         storage.remove(doc.getObjectName());
         deleteDocumentImages(doc);
+        graphService.deleteByDocument(kbId, docId);
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getDocumentId, docId));
         docMapper.deleteById(docId);
