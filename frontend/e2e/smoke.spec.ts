@@ -234,3 +234,14 @@ test('英文界面切换与核心文案', async ({ page }) => {
   await page.reload()
   await expect(page.getByText('Agent 列表', { exact: true }).first()).toBeVisible()
 })
+
+test('顶栏全局搜索 Agent/知识库/用例/工具', async ({ page }) => {
+  await login(page)
+  const input = page.getByPlaceholder('搜索 Agent / 知识库 / 用例 / 工具')
+  await input.fill('客服')
+  const first = page.locator('.gs-item').first()
+  await expect(first).toBeVisible({ timeout: 10_000 })
+  await expect(first).toContainText(/客服/)
+  await first.click()
+  await page.waitForURL(/\/agent\/edit\/\d+/, { timeout: 10_000 })
+})

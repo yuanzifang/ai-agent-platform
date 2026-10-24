@@ -694,8 +694,15 @@ public class ChatStreamService {
         List<ModerationService.Hit> outHits = moderationService.moderate("OUT",
                 answer == null ? "" : answer, conv.getId(), null);
         boolean outBlocked = moderationService.blocked(outHits);
+        boolean toolDenied = collector.events().stream()
+                .anyMatch(e -> "DENIED".equalsIgnoreCase(e.status()));
+        String finalAnswer = outBlocked ? "【内容已按安全策略拦截】" : (answer == null ? "" : answer);
+        if (!outBlocked && toolDenied) {
+            finalAnswer = (finalAnswer == null || finalAnswer.isBlank() ? "" : finalAnswer + "\n\n")
+                    + "【安全提示】部分写操作已被安全策略阻断，实际未执行；请确认后再重试。";
+        }
         Message ai = newMessage(conv, traceId, null, false);
-        ai.setContent(outBlocked ? "【内容已按安全策略拦截】" : (answer == null ? "" : answer));
+        ai.setContent(finalAnswer);
         ai.setStatus(outBlocked ? "BLOCKED" : "SUCCESS");
         ai.setTokens((int) (in + out));
         long persistStart = System.currentTimeMillis();

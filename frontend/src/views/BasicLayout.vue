@@ -2,6 +2,20 @@
   <el-container class="layout">
     <el-header class="header">
       <div class="brand" @click="$router.push('/agents')">{{ t('app.name') }}</div>
+      <div class="global-search">
+        <el-input v-model="searchKeyword" size="small" clearable :placeholder="t('layout.searchPh')"
+                  @input="scheduleSearch" @focus="onSearchFocus" @blur="hideSearchSoon" />
+        <div v-if="searchVisible" class="gs-panel" @mousedown.prevent>
+          <div v-if="searchKeyword.trim().length < 2" class="gs-empty">{{ t('layout.searchHint') }}</div>
+          <div v-else-if="searchLoading" class="gs-empty">…</div>
+          <div v-else-if="searchResults.length === 0" class="gs-empty">{{ t('layout.searchEmpty') }}</div>
+          <div v-for="(r, i) in searchResults" :key="i" class="gs-item" @click="goSearch(r)">
+            <el-tag size="small" :type="r.tagType">{{ r.group }}</el-tag>
+            <span class="gs-name">{{ r.name }}</span>
+            <span class="gs-desc">{{ r.desc }}</span>
+          </div>
+        </div>
+      </div>
       <div class="spacer" />
       <el-select v-model="currentLocale" size="small" style="width: 92px" :aria-label="t('common.language')">
         <el-option :label="t('common.chinese')" value="zh-CN" />
@@ -211,6 +225,70 @@ function groupOf(path: string): string {
 const notifications = ref<any[]>([])
 const unreadCount = ref(0)
 const dark = ref(localStorage.getItem('theme') === 'dark')
+const searchKeyword = ref('')
+const searchVisible = ref(false)
+const searchLoading = ref(false)
+const searchResults = ref<any[]>([])
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+
+function onSearchFocus() {
+  searchVisible.value = true
+  if (searchKeyword.value.trim().length >= 2) scheduleSearch()
+}
+
+function hideSearchSoon() {
+  setTimeout(() => { searchVisible.value = false }, 150)
+}
+
+function scheduleSearch() {
+  if (searchTimer) clearTimeout(searchTimer)
+  if (searchKeyword.value.trim().length < 2) {
+    searchResults.value = []
+    return
+  }
+  searchTimer = setTimeout(runSearch, 250)
+}
+
+async function runSearch() {
+  const kw = searchKeyword.value.trim()
+  if (kw.length < 2) return
+  searchLoading.value = true
+  try {
+    const [agents, kbs, cases, tools] = await Promise.all([
+      http.get('/agent', { params: { keyword: kw, page: 1, pageSize: 5 } }).catch(() => ({ list: [] })),
+      http.get('/knowledge-base', { params: { keyword: kw, page: 1, pageSize: 5 } }).catch(() => ({ list: [] })),
+      http.get('/cases', { params: { keyword: kw, page: 1, pageSize: 5 } }).catch(() => ({ list: [] })),
+      http.get('/tools', { params: { keyword: kw } }).catch(() => ({ list: [] }))
+    ]) as any[]
+    const rows: any[] = []
+    for (const a of (agents?.list || []).slice(0, 5)) {
+      rows.push({ group: t('layout.searchAgent'), tagType: 'success', name: a.name, desc: a.description || '',
+        path: `/agent/edit/${a.id}` })
+    }
+    for (const k of (kbs?.list || []).slice(0, 5)) {
+      rows.push({ group: t('layout.searchKb'), tagType: 'primary', name: k.name, desc: k.description || '',
+        path: `/knowledge/${k.knowledgeBaseId || k.id}` })
+    }
+    for (const c of (cases?.list || []).slice(0, 5)) {
+      rows.push({ group: t('layout.searchCase'), tagType: 'warning', name: c.question,
+        desc: String(c.expectedAnswer || '').slice(0, 60), path: '/cases' })
+    }
+    for (const tool of (tools?.list || []).slice(0, 5)) {
+      rows.push({ group: t('layout.searchTool'), tagType: 'info', name: tool.name, desc: tool.description || '',
+        path: '/tools' })
+    }
+    searchResults.value = rows.slice(0, 20)
+    searchVisible.value = true
+  } finally {
+    searchLoading.value = false
+  }
+}
+
+function goSearch(row: any) {
+  searchVisible.value = false
+  searchKeyword.value = ''
+  if (row.path) router.push(row.path)
+}
 let notifTimer: any = null
 
 function applyTheme() {
