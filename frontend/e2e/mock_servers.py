@@ -279,6 +279,18 @@ class CaptureHandler(BaseHTTPRequestHandler):
         self._json(200, {"ok": True})
 
     def do_GET(self):
+        if self.path == "/gateway-sse":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            for i in range(3):
+                self.wfile.write(f"data: chunk-{i}\n\n".encode())
+                self.wfile.flush()
+                time.sleep(0.15)
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+            return
         if self.path == "/captured":
             return self._json(200, CAPTURED)
         if self.path == "/reset":

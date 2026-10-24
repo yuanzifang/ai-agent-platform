@@ -11,16 +11,18 @@ import com.platform.gateway.mapper.GatewayRouteMapper;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.service.AuditService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -165,23 +167,24 @@ public class GatewayService {
     }
 
     /** 公开代理入口：X-Gateway-Key 鉴权，路径后缀转发到上游。 */
-    public ResponseEntity<byte[]> proxy(String routeKey, HttpServletRequest request) {
+    public StreamingResponseBody proxy(String routeKey, HttpServletRequest request,
+                                       HttpServletResponse servletResponse) {
         long started = System.currentTimeMillis();
         GatewayRoute route = routeMapper.findByRouteKeyIgnore(routeKey);
-        if (route == null) return error(HttpStatus.NOT_FOUND, "网关路由不存在");
+        if (route == null) return error(servletResponse, HttpStatus.NOT_FOUND, "网关路由不存在");
         if (route.getEnabled() == null || route.getEnabled() != 1) {
-            return error(HttpStatus.SERVICE_UNAVAILABLE, "网关路由已停用");
+            return error(servletResponse, HttpStatus.SERVICE_UNAVAILABLE, "网关路由已停用");
         }
         String provided = request.getHeader("X-Gateway-Key");
         if (provided == null || !MessageDigest.isEqual(
                 hash(provided).getBytes(StandardCharsets.UTF_8),
                 route.getApiKeyHash().getBytes(StandardCharsets.UTF_8))) {
             log(route, request, 401, null, started, "invalid api key");
-            return error(HttpStatus.UNAUTHORIZED, "网关 API Key 无效");
+            return error(servletResponse, HttpStatus.UNAUTHORIZED, "网关 API Key 无效");
         }
         if (!allow(route)) {
             log(route, request, 429, null, started, "rate limit");
-            return error(HttpStatus.TOO_MANY_REQUESTS, "网关路由限流");
+            return error(servletResponse, HttpStatus.TOO_MANY_REQUESTS, "网关路由限流");
         }
         String suffix = suffix(routeKey, request.getRequestURI());
         String query = request.getQueryString();
@@ -190,12 +193,15 @@ public class GatewayService {
                     ? new byte[0] : request.getInputStream().readAllBytes();
             if (body.length > MAX_BODY) {
                 log(route, request, 413, null, started, "body too large");
-                return error(HttpStatus.PAYLOAD_TOO_LARGE, "请求体不能超过 5MB");
+                return error(servletResponse, HttpStatus.PAYLOAD_TOO_LARGE, "请求体不能超过 5MB");
             }
             List<String> targets = new ArrayList<>();
             targets.add(route.getTargetUrl());
             if (route.getFallbackUrl() != null && !route.getFallbackUrl().isBlank()) {
                 targets.add(route.getFallbackUrl());
+            }
+            if (wantsEventStream(request)) {
+                return proxyStream(route, request, body, query, targets, suffix, started, servletResponse);
             }
             Exception last = null;
             for (int ti = 0; ti < targets.size(); ti++) {
@@ -234,14 +240,17 @@ public class GatewayService {
                     }
                     if (response.body().length > MAX_TARGET_BYTES) {
                         log(route, request, 502, response.statusCode(), started, "upstream response too large");
-                        return error(HttpStatus.BAD_GATEWAY, "上游响应超过 10MB");
+                        return error(servletResponse, HttpStatus.BAD_GATEWAY, "上游响应超过 10MB");
                     }
                     log(route, request, response.statusCode(), response.statusCode(), started,
                             ti > 0 ? "fallback upstream" : null);
                     HttpHeaders headers = new HttpHeaders();
                     response.headers().firstValue("Content-Type").ifPresent(v -> headers.set(HttpHeaders.CONTENT_TYPE, v));
                     response.headers().firstValue("Content-Disposition").ifPresent(v -> headers.set(HttpHeaders.CONTENT_DISPOSITION, v));
-                    return new ResponseEntity<>(response.body(), headers, HttpStatus.valueOf(response.statusCode()));
+                    applyHeaders(servletResponse, headers, response.statusCode());
+                    byte[] resultBody = response.body();
+                    servletResponse.setContentLength(resultBody.length);
+                    return out -> out.write(resultBody);
                 } catch (Exception e) {
                     last = e;
                     if (ti == targets.size() - 1) throw e;
@@ -250,8 +259,91 @@ public class GatewayService {
             throw last == null ? new IllegalStateException("no upstream response") : last;
         } catch (Exception e) {
             log(route, request, 502, null, started, root(e));
-            return error(HttpStatus.BAD_GATEWAY, "上游调用失败：" + root(e));
+            return error(servletResponse, HttpStatus.BAD_GATEWAY, "上游调用失败：" + root(e));
         }
+    }
+
+    /**
+     * SSE/流式响应透传：拿到上游响应头后逐块 flush，不做整包缓冲。
+     * 日志中的 latency 是到响应头的时间，不代表整个流结束时间。
+     */
+    private StreamingResponseBody proxyStream(GatewayRoute route, HttpServletRequest request, byte[] body,
+                                              String query, List<String> targets, String suffix,
+                                              long started, HttpServletResponse servletResponse) {
+        Exception last = null;
+        for (int ti = 0; ti < targets.size(); ti++) {
+            String target = targets.get(ti) + suffix
+                    + (query == null || query.isBlank() ? "" : "?" + query);
+            try {
+                HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(target))
+                        .timeout(Duration.ofSeconds(300));
+                HttpRequest.BodyPublisher publisher = body.length == 0
+                        ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(body);
+                builder.method(request.getMethod().toUpperCase(Locale.ROOT), publisher);
+                copyHeader(request, builder, "Content-Type");
+                copyHeader(request, builder, "Accept");
+                copyHeader(request, builder, "User-Agent");
+                copyHeader(request, builder, "Authorization");
+                HttpRequest httpRequest = builder.build();
+
+                HttpResponse<InputStream> response = httpClient.send(
+                        httpRequest, HttpResponse.BodyHandlers.ofInputStream());
+                if (response.statusCode() >= 500 && ti < targets.size() - 1) {
+                    try (InputStream ignored = response.body()) {
+                        last = new IllegalStateException("upstream " + response.statusCode());
+                    }
+                    continue;
+                }
+                HttpHeaders headers = new HttpHeaders();
+                String upstreamType = response.headers().firstValue("Content-Type").orElse(null);
+                headers.set(HttpHeaders.CONTENT_TYPE,
+                        upstreamType == null || upstreamType.isBlank() ? "text/event-stream" : upstreamType);
+                response.headers().firstValue("Cache-Control")
+                        .ifPresent(v -> headers.set(HttpHeaders.CACHE_CONTROL, v));
+                headers.set("X-Accel-Buffering", "no");
+
+                if (response.statusCode() >= 500) {
+                    byte[] errorBody;
+                    try (InputStream in = response.body()) {
+                        errorBody = in.readAllBytes();
+                    }
+                    log(route, request, response.statusCode(), response.statusCode(), started,
+                            ti > 0 ? "fallback upstream" : null);
+                    applyHeaders(servletResponse, headers, response.statusCode());
+                    servletResponse.setContentLength(errorBody.length);
+                    return out -> out.write(errorBody);
+                }
+
+                log(route, request, response.statusCode(), response.statusCode(), started,
+                        ti > 0 ? "fallback upstream" : null);
+                InputStream upstream = response.body();
+                StreamingResponseBody stream = out -> {
+                    try (InputStream in = upstream) {
+                        byte[] buffer = new byte[8192];
+                        int read;
+                        while ((read = in.read(buffer)) != -1) {
+                            out.write(buffer, 0, read);
+                            out.flush();
+                        }
+                    }
+                };
+                applyHeaders(servletResponse, headers, response.statusCode());
+                return stream;
+            } catch (Exception e) {
+                last = e;
+                if (ti == targets.size() - 1) {
+                    log(route, request, 502, null, started, root(e));
+                    return error(servletResponse, HttpStatus.BAD_GATEWAY, "上游流式调用失败：" + root(e));
+                }
+            }
+        }
+        return error(servletResponse, HttpStatus.BAD_GATEWAY, "上游流式调用失败："
+                + (last == null ? "无可用上游" : root(last)));
+    }
+
+    private boolean wantsEventStream(HttpServletRequest request) {
+        String accept = request.getHeader("Accept");
+        return accept != null && accept.toLowerCase(Locale.ROOT).contains("text/event-stream");
     }
 
     private void log(GatewayRoute route, HttpServletRequest request, int status, Integer upstream,
@@ -332,11 +424,18 @@ public class GatewayService {
         return m;
     }
 
-    private ResponseEntity<byte[]> error(HttpStatus status, String message) {
-        return ResponseEntity.status(status)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(("{\"code\":" + status.value() + ",\"message\":\"" + message.replace("\"", "'") + "\"}")
-                        .getBytes(StandardCharsets.UTF_8));
+    private StreamingResponseBody error(HttpServletResponse servletResponse, HttpStatus status, String message) {
+        servletResponse.setStatus(status.value());
+        servletResponse.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        byte[] body = ("{\"code\":" + status.value() + ",\"message\":\"" + message.replace("\"", "'") + "\"}")
+                .getBytes(StandardCharsets.UTF_8);
+        servletResponse.setContentLength(body.length);
+        return out -> out.write(body);
+    }
+
+    private void applyHeaders(HttpServletResponse servletResponse, HttpHeaders headers, int status) {
+        servletResponse.setStatus(status);
+        headers.forEach((name, values) -> values.forEach(value -> servletResponse.addHeader(name, value)));
     }
 
     private String newApiKey() {

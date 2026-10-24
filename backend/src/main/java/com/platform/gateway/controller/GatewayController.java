@@ -5,8 +5,9 @@ import com.platform.gateway.entity.GatewayRequestLog;
 import com.platform.gateway.service.GatewayService;
 import com.platform.security.JwtPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -66,7 +67,8 @@ public class GatewayController {
 
     /** 公开代理入口：/api/v1/gateway/call/{routeKey}/...，X-Gateway-Key 鉴权。 */
     @RequestMapping("/call/{routeKey}/**")
-    public ResponseEntity<byte[]> call(@PathVariable String routeKey, HttpServletRequest request) {
-        return gatewayService.proxy(routeKey, request);
+    public StreamingResponseBody call(@PathVariable String routeKey, HttpServletRequest request,
+                                       HttpServletResponse response) {
+        return gatewayService.proxy(routeKey, request, response);
     }
 }

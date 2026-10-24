@@ -18,10 +18,13 @@ X-Gateway-Key: gw_xxx
 ```
 
 - 支持方法：GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS；
-- 请求体上限 5MB，上游响应上限 10MB；
-- 超时 1–120 秒；GET/HEAD/OPTIONS 可重试 0–3 次（5xx/IO）；
+- 请求体上限 5MB；缓冲响应上游上限 10MB；SSE 流式响应不占缓冲上限；
+- 超时 1–120 秒；GET/HEAD/OPTIONS 可重试 0–3 次（5xx/IO）；SSE 流最长 300 秒；
 - 路由级 Redis 固定窗口限流（0=不限）；
 - 主上游 5xx/连接失败自动切备用上游；日志记录 fallback；
+- **SSE 流式透传**：请求头 `Accept: text/event-stream` 时使用 `StreamingResponseBody`，上游响应逐块 flush，
+  返回 `Transfer-Encoding: chunked`，并设置 `X-Accel-Buffering: no`；不做整包缓冲；
+- 普通响应也通过 `StreamingResponseBody` 异步写出，缓冲响应保留 `Content-Length`；
 - 请求日志：方法、路径、状态、上游状态、耗时、错误；
 - 管理页：路由 CRUD、启停、Key 轮换、调用地址/Key 一次性展示、请求日志；
 - 权限：`tenant:manage`；
@@ -30,14 +33,15 @@ X-Gateway-Key: gw_xxx
 ## 已验证
 
 - E2E：创建路由 → 上游 `/actuator/health` 200 → 错误 Key 401 → 日志 → 轮换 Key（旧 401/新 200）→ 停用 503 → 限流 429；
-- 完整 E2E 43/43。
+- E2E：`Accept: text/event-stream` → mock 上游 3 个 SSE chunk + `[DONE]`，网关返回 200、`text/event-stream`、`chunked`，内容完整；
+- 完整 E2E 46/46。
 
 ## 未完成
 
 - 多上游负载均衡/权重/主动健康检查/熔断（当前仅主+备故障切换）；
 - Header 改写、路径重写、请求/响应体转换；
 - OAuth2/JWT 上游鉴权、IP 白名单；
-- WebSocket/SSE 流式透传（当前缓冲响应体）；
+- WebSocket 透传；
 - 管理端审计报表/用量计费；
 - WAF、防重放、签名；
 - 生产级 Key 生命周期（过期、scope、多 Key）。

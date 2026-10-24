@@ -1771,6 +1771,27 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
     })
     expect(newKey.status()).toBe(200)
 
+    const sseRoute = await (await request.post(`${P}/gateway/routes`, {
+      headers: auth(token!),
+      data: { name: `E2E Gateway SSE-${Date.now()}`, targetUrl: MOCK,
+        timeoutMs: 5000, retries: 0, rateLimitPerMin: 100 }
+    })).json()
+    expect(sseRoute.code, JSON.stringify(sseRoute)).toBe(0)
+    try {
+      const sse = await request.get(`${P}/gateway/call/${sseRoute.data.routeKey}/gateway-sse`, {
+        headers: { 'X-Gateway-Key': sseRoute.data.apiKey, Accept: 'text/event-stream' }
+      })
+      expect(sse.status()).toBe(200)
+      expect(String(sse.headers()['content-type'])).toContain('text/event-stream')
+      expect(String(sse.headers()['transfer-encoding'] || '')).toContain('chunked')
+      const sseText = await sse.text()
+      expect(sseText).toContain('data: chunk-0')
+      expect(sseText).toContain('data: chunk-2')
+      expect(sseText).toContain('data: [DONE]')
+    } finally {
+      await request.delete(`${P}/gateway/routes/${sseRoute.data.id}`, { headers: auth(token!) })
+    }
+
     const fallbackRoute = await (await request.post(`${P}/gateway/routes`, {
       headers: auth(token!),
       data: { name: `E2E Gateway Fallback-${Date.now()}`,
