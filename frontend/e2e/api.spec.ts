@@ -1891,6 +1891,72 @@ test('知识图谱实体/关系 CRUD', async ({ request }) => {
   }
 })
 
+
+test('GraphRAG：高阈值下图谱关联 chunk 召回', async ({ request }) => {
+  let ollamaReady = false
+  try {
+    const tags = await (await request.get('http://127.0.0.1:11434/api/tags', { timeout: 3000 })).json()
+    ollamaReady = (tags.models || []).some((m: any) => String(m.name).startsWith('nomic-embed-text'))
+  } catch { /* CI 无 Ollama */ }
+  test.skip(!ollamaReady, '需要本机 Ollama + nomic-embed-text')
+
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const suffix = Date.now()
+  const kb = await (await request.post(`${P}/knowledge-base`, {
+    headers: auth(token!), data: { name: `E2E GraphRAG-${suffix}`, visibility: 'PRIVATE',
+      embeddingModel: 'nomic-embed-text' }
+  })).json()
+  expect(kb.code, JSON.stringify(kb)).toBe(0)
+  const kbId = kb.data.id
+  try {
+    const content = Buffer.from('量子色动力学中的胶子禁闭现象与渐近自由，属于高能物理归档材料。', 'utf8')
+    const doc = await (await request.post(`${P}/knowledge-base/${kbId}/documents`, {
+      headers: auth(token!),
+      data: { fileName: `graphrag-${suffix}.txt`, sizeBytes: content.length, contentType: 'text/plain' }
+    })).json()
+    expect(doc.code, JSON.stringify(doc)).toBe(0)
+    await request.put(doc.data.uploadUrl, { data: content, headers: { 'Content-Type': 'text/plain' } })
+    const callback = await (await request.post(`${P}/knowledge-base/${kbId}/documents/callback`, {
+      headers: auth(token!), data: { objectName: doc.data.objectName }
+    })).json()
+    const docId = callback.data.documentId
+    let done = false
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 1000))
+      const docs = await (await request.get(`${P}/knowledge-base/${kbId}/documents`, {
+        headers: auth(token!)
+      })).json()
+      const row = (docs.data || []).find((d: any) => d.id === docId)
+      if (row?.status === 'DONE') { done = true; break }
+      if (row?.status === 'FAILED') break
+    }
+    expect(done, '文档应解析入库').toBe(true)
+    const chunks = await (await request.get(
+      `${P}/knowledge-base/${kbId}/documents/${docId}/chunks?pageSize=20`,
+      { headers: auth(token!) })).json()
+    const chunkId = (chunks.data.list || [])[0]?.id
+    expect(chunkId).toBeTruthy()
+    const entity = await (await request.post(`${P}/knowledge-base/${kbId}/graph/entities`, {
+      headers: auth(token!), data: { name: '退款政策', entityType: '政策', chunkId }
+    })).json()
+    expect(entity.code, JSON.stringify(entity)).toBe(0)
+
+    const search = await (await request.post(`${P}/knowledge-base/${kbId}/search`, {
+      headers: auth(token!),
+      data: { query: '退款政策', topK: 5, scoreThreshold: 0.99, mode: 'hybrid' }
+    })).json()
+    expect(search.code, JSON.stringify(search)).toBe(0)
+    const graphHit = (search.data || []).find((h: any) => String(h.content).includes('量子色动力学'))
+    expect(graphHit, '应通过图谱关联召回无关文本 chunk').toBeTruthy()
+    const meta = typeof graphHit.metadata === 'string' ? JSON.parse(graphHit.metadata) : graphHit.metadata
+    expect(meta.graph).toBe(true)
+    expect(meta.entity_name).toBe('退款政策')
+  } finally {
+    await request.delete(`${P}/knowledge-base/${kbId}?force=true`, { headers: auth(token!) })
+  }
+})
+
 test('知识库按库选择 embedding 模型', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()

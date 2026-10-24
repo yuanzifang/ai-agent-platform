@@ -25,6 +25,7 @@ import com.platform.knowledge.mapper.KnowledgeDocumentMapper;
 import com.platform.system.entity.SysUser;
 import com.platform.system.mapper.SysUserMapper;
 import com.platform.system.service.AuditService;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
@@ -617,10 +618,23 @@ public class KnowledgeService {
         Long tenantId = TenantContext.getTenantId();
         Map<String, Object> retrievalConfig = mode == null || mode.isBlank()
                 ? Map.of() : Map.of("mode", mode);
-        return hybridRetrieval.search(tenantId, query, kbId,
+        List<Map<String, Object>> hits = new ArrayList<>(hybridRetrieval.search(tenantId, query, kbId,
                 topK == null ? 5 : topK,
                 threshold == null ? 0.5 : threshold, retrievalConfig,
-                viewer.userId(), permissionService.tenantWide(viewer)).hits();
+                viewer.userId(), permissionService.tenantWide(viewer)).hits());
+        Set<Long> existing = new java.util.HashSet<>();
+        List<String> contents = new ArrayList<>();
+        for (Map<String, Object> hit : hits) {
+            contents.add(String.valueOf(hit.getOrDefault("content", "")));
+            try {
+                if (hit.get("metadata") instanceof String meta && !meta.isBlank()) {
+                    JsonNode node = objectMapper.readTree(meta);
+                    if (node.has("chunk_id")) existing.add(node.get("chunk_id").asLong());
+                }
+            } catch (Exception ignored) { }
+        }
+        hits.addAll(graphService.expandChunks(kbId, query, contents, existing, viewer));
+        return hits;
     }
 
     /** 文档分段浏览（架构 4.8 KnowledgeDetail/ChunkPanel 数据源）；需可见权限。 */

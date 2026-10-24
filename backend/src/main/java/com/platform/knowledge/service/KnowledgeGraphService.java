@@ -24,6 +24,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.LinkedHashSet;
 
 /** 知识图谱 MVP：实体/关系手工维护，供可视化与后续 GraphRAG 检索扩展。 */
 @Service
@@ -54,6 +56,88 @@ public class KnowledgeGraphService {
         result.put("entityCount", entities.size());
         result.put("relationCount", relations.size());
         return result;
+    }
+
+    /**
+     * GraphRAG MVP：查询/命中文本匹配实体名，沿 1 跳关系找邻居实体，
+     * 拉取实体显式关联的 chunk（entity.chunk_id），按 Chunk ACL 过滤后追加。
+     */
+    public List<Map<String, Object>> expandChunks(Long kbId, String query, List<String> hitContents,
+                                                  Set<Long> existingChunkIds,
+                                                  KnowledgePermissionService.Viewer viewer) {
+        List<KnowledgeGraphEntity> entities = entityMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeGraphEntity>()
+                        .eq(KnowledgeGraphEntity::getKbId, kbId)
+                        .orderByAsc(KnowledgeGraphEntity::getId));
+        if (entities.isEmpty()) return List.of();
+        String q = query == null ? "" : query.toLowerCase();
+        String joined = (hitContents == null ? List.<String>of() : hitContents).stream()
+                .filter(Objects::nonNull).collect(java.util.stream.Collectors.joining("\n")).toLowerCase();
+        List<KnowledgeGraphEntity> matched = entities.stream()
+                .filter(e -> e.getName() != null && !e.getName().isBlank()
+                        && (q.contains(e.getName().toLowerCase()) || joined.contains(e.getName().toLowerCase())))
+                .limit(8).toList();
+        if (matched.isEmpty()) return List.of();
+        Set<Long> ids = new LinkedHashSet<>();
+        Map<Long, String> reasons = new LinkedHashMap<>();
+        for (KnowledgeGraphEntity e : matched) {
+            ids.add(e.getId());
+            reasons.put(e.getId(), "matched:" + e.getName());
+        }
+        List<KnowledgeGraphRelation> relations = relationMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeGraphRelation>()
+                        .eq(KnowledgeGraphRelation::getKbId, kbId)
+                        .and(w -> w.in(KnowledgeGraphRelation::getFromId, matched.stream().map(KnowledgeGraphEntity::getId).toList())
+                                .or().in(KnowledgeGraphRelation::getToId, matched.stream().map(KnowledgeGraphEntity::getId).toList())));
+        for (KnowledgeGraphRelation r : relations) {
+            if (ids.contains(r.getFromId()) && ids.add(r.getToId())) {
+                reasons.put(r.getToId(), "related:" + r.getRelation());
+            }
+            if (ids.contains(r.getToId()) && ids.add(r.getFromId())) {
+                reasons.put(r.getFromId(), "related:" + r.getRelation());
+            }
+        }
+        if (ids.size() > 12) ids = new java.util.LinkedHashSet<>(ids.stream().limit(12).toList());
+        final Set<Long> selectedIds = ids;
+        List<KnowledgeGraphEntity> selected = entities.stream().filter(e -> selectedIds.contains(e.getId())).toList();
+        List<Map<String, Object>> extras = new ArrayList<>();
+        boolean tenantWide = permissionService.tenantWide(viewer);
+        for (KnowledgeGraphEntity e : selected) {
+            if (e.getChunkId() == null || existingChunkIds.contains(e.getChunkId())) continue;
+            com.platform.knowledge.entity.KnowledgeChunk chunk = chunkMapper.selectById(e.getChunkId());
+            if (chunk == null || !Objects.equals(chunk.getKnowledgeBaseId(), kbId)) continue;
+            if (!aclAllows(chunk, viewer, tenantWide)) continue;
+            existingChunkIds.add(chunk.getId());
+            Map<String, Object> hit = new LinkedHashMap<>();
+            hit.put("content", chunk.getContent());
+            hit.put("score", 0.55);
+            try {
+                hit.put("metadata", objectMapper.writeValueAsString(Map.of(
+                        "chunk_id", chunk.getId(),
+                        "knowledge_base_id", kbId,
+                        "graph", true,
+                        "entity_id", e.getId(),
+                        "entity_name", e.getName(),
+                        "reason", reasons.getOrDefault(e.getId(), "graph"))));
+            } catch (Exception ignored) {
+                hit.put("metadata", "{\"chunk_id\":" + chunk.getId() + ",\"graph\":true}");
+            }
+            extras.add(hit);
+            if (extras.size() >= 5) break;
+        }
+        return extras;
+    }
+
+    private boolean aclAllows(com.platform.knowledge.entity.KnowledgeChunk chunk,
+                              KnowledgePermissionService.Viewer viewer, boolean tenantWide) {
+        if (chunk.getTenantVisible() != null && chunk.getTenantVisible() == 1 && tenantWide) return true;
+        try {
+            List<?> users = objectMapper.readValue(chunk.getAllowedUsers() == null ? "[]" : chunk.getAllowedUsers(), List.class);
+            for (Object id : users) {
+                if (viewer.userId() != null && viewer.userId().equals(Long.valueOf(String.valueOf(id)))) return true;
+            }
+        } catch (Exception ignored) { }
+        return false;
     }
 
     /** AI 抽取预览/提交：text 为空时读取知识库分段；默认只预览，commit=true 才入库。 */
