@@ -1531,6 +1531,111 @@ test('长期记忆注入与编辑', async ({ request }) => {
   }
 })
 
+
+test('知识库上传→分段ACL→检索权限', async ({ request }) => {
+  let ollamaReady = false
+  try {
+    const tags = await (await request.get('http://127.0.0.1:11434/api/tags', { timeout: 3000 })).json()
+    ollamaReady = (tags.models || []).some((m: any) => String(m.name).startsWith('nomic-embed-text'))
+  } catch { /* CI 无 Ollama */ }
+  test.skip(!ollamaReady, '需要本机 Ollama + nomic-embed-text')
+
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const suffix = Date.now()
+  const userA = `e2e-acl-a-${suffix}`
+  const userB = `e2e-acl-b-${suffix}`
+  const password = 'Acl@123456'
+  let kbId: number | null = null
+  let userAId: number | null = null
+  let userBId: number | null = null
+
+  async function createMember(username: string): Promise<number> {
+    const inv = await (await request.post(`${P}/auth/invitations`, {
+      headers: auth(token!), data: { email: `${username}@example.com`, role: 'MEMBER' }
+    })).json()
+    expect(inv.code, JSON.stringify(inv)).toBe(0)
+    const accepted = await (await request.post(`${P}/auth/invitations/accept`, {
+      data: { token: inv.data.token, username, password }
+    })).json()
+    expect(accepted.code, JSON.stringify(accepted)).toBe(0)
+    const users = await (await request.get(`${P}/users`, { headers: auth(token!) })).json()
+    const row = (users.data || []).find((u: any) => u.username === username)
+    expect(row, '新成员应出现在成员列表').toBeTruthy()
+    return row.id
+  }
+
+  try {
+    userAId = await createMember(userA)
+    userBId = await createMember(userB)
+
+    const kb = await (await request.post(`${P}/knowledge-base`, {
+      headers: auth(token!),
+      data: { name: `E2E ACL-${suffix}`, visibility: 'TENANT', embeddingModel: 'nomic-embed-text' }
+    })).json()
+    expect(kb.code, JSON.stringify(kb)).toBe(0)
+    kbId = kb.data.id
+    const content = Buffer.from('退款政策：支持 7 天无理由退款，退款将在 3 个工作日内原路退回。', 'utf8')
+    const doc = await (await request.post(`${P}/knowledge-base/${kbId}/documents`, {
+      headers: auth(token!),
+      data: { fileName: `acl-${suffix}.txt`, sizeBytes: content.length, contentType: 'text/plain' }
+    })).json()
+    expect(doc.code, JSON.stringify(doc)).toBe(0)
+    const put = await request.put(doc.data.uploadUrl, {
+      data: content, headers: { 'Content-Type': 'text/plain' }
+    })
+    expect(put.status(), 'MinIO 直传').toBeLessThan(300)
+    const callback = await (await request.post(`${P}/knowledge-base/${kbId}/documents/callback`, {
+      headers: auth(token!), data: { objectName: doc.data.objectName }
+    })).json()
+    expect(callback.code, JSON.stringify(callback)).toBe(0)
+    const docId = callback.data.documentId
+
+    let status = 'PENDING'
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 1000))
+      const docs = await (await request.get(`${P}/knowledge-base/${kbId}/documents`, {
+        headers: auth(token!)
+      })).json()
+      const row = (docs.data || []).find((d: any) => d.id === docId)
+      status = row?.status
+      if (status === 'DONE' || status === 'FAILED') break
+    }
+    expect(status, '文档应解析入库').toBe('DONE')
+
+    const chunksRes = await (await request.get(
+      `${P}/knowledge-base/${kbId}/documents/${docId}/chunks?pageSize=20`,
+      { headers: auth(token!) })).json()
+    expect((chunksRes.data.list || []).length).toBeGreaterThan(0)
+    const chunkId = chunksRes.data.list[0].id
+
+    const tokenA = await login(request, userA, password, 'dev')
+    const tokenB = await login(request, userB, password, 'dev')
+    expect(tokenA).toBeTruthy()
+    expect(tokenB).toBeTruthy()
+
+    const search = async (tk: string | null) => (await (await request.post(
+      `${P}/knowledge-base/${kbId}/search`, {
+        headers: auth(tk!), data: { query: '退款政策是什么', topK: 5, scoreThreshold: 0.1, mode: 'hybrid' }
+      })).json()).data as any[]
+    expect((await search(tokenA)).length, 'ACL 前 A 可检索').toBeGreaterThan(0)
+    expect((await search(tokenB)).length, 'ACL 前 B 可检索').toBeGreaterThan(0)
+
+    const acl = await (await request.put(`${P}/knowledge-base/${kbId}/chunks/${chunkId}/acl`, {
+      headers: auth(token!), data: { allowedUsers: [userAId], tenantVisible: false }
+    })).json()
+    expect(acl.code, JSON.stringify(acl)).toBe(0)
+
+    expect((await search(tokenA)).length, 'ACL 后 A 仍可检索').toBeGreaterThan(0)
+    expect((await search(tokenB)).length, 'ACL 后 B 不可检索').toBe(0)
+  } finally {
+    if (kbId) await request.delete(`${P}/knowledge-base/${kbId}?force=true`, { headers: auth(token!) })
+    for (const id of [userAId, userBId]) {
+      if (id) await request.delete(`${P}/users/${id}`, { headers: auth(token!) })
+    }
+  }
+})
+
 test('知识库按库选择 embedding 模型', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()
