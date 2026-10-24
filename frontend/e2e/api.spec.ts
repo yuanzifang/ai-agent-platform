@@ -274,6 +274,22 @@ test('渠道入站与出站', async ({ request }) => {
     const hit = captured.filter((c: any) => c.path.includes('e2e-hook'))
     expect(hit.length).toBeGreaterThan(0)
     expect(String(hit[hit.length - 1].body.answer).length).toBeGreaterThan(0)
+
+    // 媒体入站兜底 + 出站第一次 500 后重试成功
+    const mediaCh = await (await request.post(`${P}/agent/${agentId}/channels`, {
+      headers: auth(token!),
+      data: { name: 'E2E Media Retry', type: 'WEBHOOK', outboundUrl: `${MOCK}/flaky` }
+    })).json()
+    expect(mediaCh.code, JSON.stringify(mediaCh)).toBe(0)
+    const mediaInbound = await (await request.post(`${P}/channels/${mediaCh.data.token}/message`, {
+      data: { image_url: 'https://example.com/media.png', userId: 'e2e-media' }, timeout: 120_000
+    })).json()
+    expect(mediaInbound.code, JSON.stringify(mediaInbound)).toBe(0)
+    expect(mediaInbound.data.outboundSent).toBe(true)
+    const afterRetry = (await (await request.get(`${MOCK}/captured`)).json())
+      .filter((c: any) => c.path.includes('/flaky'))
+    expect(afterRetry.length).toBeGreaterThanOrEqual(2)
+    await request.delete(`${P}/agent/${agentId}/channels/${mediaCh.data.id}`, { headers: auth(token!) })
   } finally {
     if (channelId) {
       await request.delete(`${P}/agent/${agentId}/channels/${channelId}`, { headers: auth(token!) })

@@ -13,6 +13,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CAPTURED = []
+FLAKY = {"count": 0}
 LAST_OPENAI = {}
 LAST_CHAT = {}
 CHAT_COUNT = {"value": 0}
@@ -271,6 +272,10 @@ class CaptureHandler(BaseHTTPRequestHandler):
         except Exception:
             body = {"raw": raw}
         CAPTURED.append({"path": self.path, "body": body})
+        if self.path.split("?", 1)[0] == "/flaky":
+            FLAKY["count"] += 1
+            if FLAKY["count"] == 1:
+                return self._json(500, {"error": "first attempt fails"})
         self._json(200, {"ok": True})
 
     def do_GET(self):
@@ -278,6 +283,7 @@ class CaptureHandler(BaseHTTPRequestHandler):
             return self._json(200, CAPTURED)
         if self.path == "/reset":
             CAPTURED.clear()
+            FLAKY["count"] = 0
             return self._json(200, {"ok": True})
         self._json(404, {"error": "not found"})
 

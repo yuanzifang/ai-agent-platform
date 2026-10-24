@@ -67,6 +67,7 @@ public class ChannelService {
     private final NetworkPolicyService networkPolicy;
     private final CryptoService cryptoService;
     private final AuditService auditService;
+    private final com.platform.system.service.NotificationService notificationService;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
 
@@ -177,7 +178,12 @@ public class ChannelService {
             return "WECOM".equals(type) ? Map.of("_wecomPlain", "success") : Map.of("duplicate", true);
         }
         String text = extractText(payload);
+        if (text == null || text.isBlank()) {
+            String mediaUrl = extractMediaUrl(payload);
+            if (mediaUrl != null && !mediaUrl.isBlank()) text = "[媒体消息] " + mediaUrl;
+        }
         if (text == null || text.isBlank()) throw new BusinessException(400, "未识别到消息文本");
+        final String messageText = text;
         String externalUserId = extractUserId(payload);
         return TenantContext.runWith(channel.getTenantId(), () -> {
             AgentRegistry agent = agentMapper.selectById(channel.getAgentId());
@@ -190,11 +196,11 @@ public class ChannelService {
             String sessionId = "ch_" + channel.getId()
                     + (externalUserId == null || externalUserId.isBlank() ? "" : "_" + externalUserId);
             Conversation conversation = resolveConversation(channel, agent, sessionId, externalUserId, serviceUserId);
-            record(channel, "IN", externalUserId, sessionId, truncate(text, 8000), "SUCCESS", null);
+            record(channel, "IN", externalUserId, sessionId, truncate(messageText, 8000), "SUCCESS", null);
             Object result;
             try {
                 result = chatStreamService.sendWithSource(conversation.getId(),
-                        new ChatStreamService.SendRequest(text, false, Map.of(), null), principal, "channel");
+                        new ChatStreamService.SendRequest(messageText, false, Map.of(), null), principal, "channel");
             } catch (Exception e) {
                 record(channel, "OUT", externalUserId, sessionId, null, "ERROR", rootMessage(e));
                 throw new BusinessException(502, "渠道对话失败：" + rootMessage(e));
@@ -206,11 +212,12 @@ public class ChannelService {
             String outboundError = null;
             if (channel.getOutboundUrl() != null && !channel.getOutboundUrl().isBlank()) {
                 try {
-                    sendOutbound(channel, answer == null ? "" : answer, sessionId);
+                    sendOutboundWithRetry(channel, answer == null ? "" : answer, sessionId);
                     outboundSent = true;
                 } catch (Exception e) {
                     outboundError = rootMessage(e);
                     log.warn("渠道出站失败 channel={}：{}", channel.getId(), outboundError);
+                    notifyOutboundFailure(channel, outboundError);
                 }
             }
             record(channel, "OUT", externalUserId, sessionId, truncate(answer, 8000),
@@ -613,6 +620,61 @@ public class ChannelService {
         } catch (Exception e) {
             log.debug("渠道消息记录失败：{}", e.getMessage());
         }
+    }
+
+    private void sendOutboundWithRetry(AgentChannel channel, String answer, String sessionId) throws Exception {
+        Exception last = null;
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                sendOutbound(channel, answer, sessionId);
+                return;
+            } catch (Exception e) {
+                last = e;
+                if (attempt < 2) {
+                    try { Thread.sleep(250L * attempt); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw e;
+                    }
+                }
+            }
+        }
+        throw last == null ? new IllegalStateException("outbound failed") : last;
+    }
+
+    private void notifyOutboundFailure(AgentChannel channel, String error) {
+        try {
+            List<Long> recipients = channel.getCreatedBy() == null ? List.of() : List.of(channel.getCreatedBy());
+            notificationService.notify(channel.getTenantId(), recipients, "channel_error",
+                    "渠道出站失败：" + channel.getName(), truncate(error, 500),
+                    "/agent/edit/" + channel.getAgentId(),
+                    "Channel delivery failed: " + channel.getName(),
+                    "Outbound webhook failed after retries: " + truncate(error, 500));
+        } catch (Exception e) {
+            log.debug("渠道失败通知写入失败：{}", e.getMessage());
+        }
+    }
+
+    /** 从常见 Webhook/飞书/企微/钉钉 payload 中提取媒体 URL（仅兜底路由，不下载媒体）。 */
+    private String extractMediaUrl(Object payload) {
+        if (payload == null) return null;
+        if (payload instanceof Map<?, ?> map) {
+            for (String key : List.of("image_url", "imageUrl", "pic_url", "picUrl",
+                    "media_url", "mediaUrl", "file_url", "fileUrl", "url")) {
+                Object v = map.get(key);
+                if (v instanceof String s && s.startsWith("http")) return s;
+                if (v instanceof Map<?, ?> nested && nested.get("url") instanceof String s && s.startsWith("http")) return s;
+            }
+            for (Object value : map.values()) {
+                String found = extractMediaUrl(value);
+                if (found != null) return found;
+            }
+        } else if (payload instanceof List<?> list) {
+            for (Object value : list) {
+                String found = extractMediaUrl(value);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     @SuppressWarnings("unchecked")
