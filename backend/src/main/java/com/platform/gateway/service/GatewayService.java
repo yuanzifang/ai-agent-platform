@@ -279,10 +279,16 @@ public class GatewayService {
     private boolean allow(GatewayRoute route) {
         int limit = route.getRateLimitPerMin() == null ? 0 : route.getRateLimitPerMin();
         if (limit <= 0) return true;
-        String bucket = "ratelimit:gw:" + route.getId() + ":" + (System.currentTimeMillis() / 60_000);
-        Long count = redis.opsForValue().increment(bucket);
-        if (count != null && count == 1L) redis.expire(bucket, Duration.ofSeconds(70));
-        return count == null || count <= limit;
+        try {
+            String bucket = "ratelimit:gw:" + route.getId() + ":" + (System.currentTimeMillis() / 60_000);
+            Long count = redis.opsForValue().increment(bucket);
+            if (count != null && count == 1L) redis.expire(bucket, Duration.ofSeconds(70));
+            return count == null || count <= limit;
+        } catch (Exception e) {
+            // Redis 故障时放行并记录（网关可用性优先；限流计数缺失可在日志侧发现）
+            log.warn("网关限流检查失败（已放行）：route={} {}", route.getId(), e.getMessage());
+            return true;
+        }
     }
 
     private String suffix(String routeKey, String uri) {
