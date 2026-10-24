@@ -1,0 +1,19 @@
+title = "AI Agent Platform gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Local development fixtures and documented demo credentials"
+paths = [
+  '''frontend/e2e/''',
+  '''docs/''',
+  '''scripts/''',
+  '''.env.example''',
+  '''backend/src/test/'''
+]
+regexes = [
+  '''Dev@123456''',
+  '''Admin@123456''',
+  '''Acl@123456'''
+]

@@ -107,7 +107,7 @@ config:
   otelEnabled: "false"
   otelEndpoint: "http://otel-collector:4318"
   rateLimitPerMinute: "60"
-  skillScriptEnabled: "true"
+  skillScriptEnabled: "false"
   asrEnabled: "false"
   asrEndpoint: ""
   smtpHost: ""
