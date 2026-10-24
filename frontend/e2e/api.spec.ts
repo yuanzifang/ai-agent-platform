@@ -1709,6 +1709,47 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
   }
 })
 
+
+test('知识图谱 AI 抽取并提交', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const kb = await (await request.post(`${P}/knowledge-base`, {
+    headers: auth(token!), data: { name: `E2E 图谱抽取-${Date.now()}`, visibility: 'PRIVATE',
+      embeddingModel: 'nomic-embed-text' }
+  })).json()
+  expect(kb.code, JSON.stringify(kb)).toBe(0)
+  const kbId = kb.data.id
+  try {
+    const preview = await (await request.post(`${P}/knowledge-base/${kbId}/graph/extract`, {
+      headers: auth(token!),
+      data: { text: '智云科技生产净水器，净水器提供 7 天无理由退款。', commit: false }
+    })).json()
+    expect(preview.code, JSON.stringify(preview)).toBe(0)
+    expect(preview.data.entityCount).toBe(2)
+    expect(preview.data.relationCount).toBe(1)
+    expect(preview.data.committed).toBe(false)
+    let graph = await (await request.get(`${P}/knowledge-base/${kbId}/graph`, {
+      headers: auth(token!)
+    })).json()
+    expect(graph.data.entityCount).toBe(0)
+
+    const committed = await (await request.post(`${P}/knowledge-base/${kbId}/graph/extract`, {
+      headers: auth(token!),
+      data: { text: '智云科技生产净水器，净水器提供 7 天无理由退款。', commit: true }
+    })).json()
+    expect(committed.code, JSON.stringify(committed)).toBe(0)
+    expect(committed.data.committed).toBe(true)
+    graph = await (await request.get(`${P}/knowledge-base/${kbId}/graph`, {
+      headers: auth(token!)
+    })).json()
+    expect(graph.data.entityCount).toBe(2)
+    expect(graph.data.relationCount).toBe(1)
+    expect(graph.data.relations[0].relation).toBe('生产')
+  } finally {
+    await request.delete(`${P}/knowledge-base/${kbId}?force=true`, { headers: auth(token!) })
+  }
+})
+
 test('知识图谱实体/关系 CRUD', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()

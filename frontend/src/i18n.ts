@@ -707,7 +707,12 @@ const messages = {
       weight: '权重', addRelation: '新增关系', empty: '暂无实体，先添加实体再连线',
       noRelations: '暂无关系', graph: '图谱', entityCount: '实体数', relationCount: '关系数',
       nameRequired: '实体名称不能为空', relationRequired: '关系起点/终点/名称不能为空',
-      added: '已添加', deleted: '已删除', loadFail: '加载图谱失败', saveFail: '保存失败'
+      added: '已添加', deleted: '已删除', loadFail: '加载图谱失败', saveFail: '保存失败',
+      aiExtract: 'AI 抽取', extractTitle: 'AI 抽取实体与关系', extractText: '待抽取文本',
+      extractTextPh: '粘贴文本，留空则读取该知识库前 5 个分段', commit: '确认写入图谱',
+      extract: '开始抽取', extracting: '抽取中…', extractEmpty: '没有可抽取的文本',
+      extracted: '抽取完成：实体 ', extractedMid: ' 个，关系 ', extractedSuffix: ' 条',
+      noExtract: '未返回实体/关系', close: '关闭'
     },
     gatewayPage: {
       sub: '统一入口：路由、API Key、限流、超时重试与请求日志', create: '新建路由', name: '名称',
@@ -1450,7 +1455,12 @@ const messages = {
       weight: 'Weight', addRelation: 'Add relation', empty: 'No entities; add one first',
       noRelations: 'No relations', graph: 'Graph', entityCount: 'Entities', relationCount: 'Relations',
       nameRequired: 'Entity name is required', relationRequired: 'From, to and relation are required',
-      added: 'Added', deleted: 'Deleted', loadFail: 'Failed to load graph', saveFail: 'Save failed'
+      added: 'Added', deleted: 'Deleted', loadFail: 'Failed to load graph', saveFail: 'Save failed',
+      aiExtract: 'AI extract', extractTitle: 'Extract entities & relations', extractText: 'Text to extract',
+      extractTextPh: 'Paste text; leave blank to use the first 5 chunks', commit: 'Commit to graph',
+      extract: 'Extract', extracting: 'Extracting…', extractEmpty: 'No text to extract',
+      extracted: 'Extracted entities: ', extractedMid: ', relations: ', extractedSuffix: '',
+      noExtract: 'No entities/relations returned', close: 'Close'
     },
     gatewayPage: {
       sub: 'Unified entry: routes, API keys, rate limit, timeout/retry and request logs', create: 'New route', name: 'Name',

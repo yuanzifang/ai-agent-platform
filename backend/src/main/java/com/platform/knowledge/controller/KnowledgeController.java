@@ -205,6 +205,13 @@ public class KnowledgeController {
         return ApiResponse.ok(graphService.graph(id, viewer(principal)));
     }
 
+    @PostMapping("/{id}/graph/extract")
+    public ApiResponse<Map<String, Object>> extractGraph(@PathVariable Long id,
+                                                          @RequestBody Map<String, Object> req,
+                                                          @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(graphService.extract(id, req, viewer(principal)));
+    }
+
     @PostMapping("/{id}/graph/entities")
     public ApiResponse<com.platform.knowledge.entity.KnowledgeGraphEntity> createEntity(
             @PathVariable Long id, @RequestBody Map<String, Object> req,

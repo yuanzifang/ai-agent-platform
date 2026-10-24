@@ -8,8 +8,24 @@
       <el-tag size="small">{{ t('graphPage.entityCount') }} {{ graph.entityCount || 0 }}</el-tag>
       <el-tag size="small" type="success">{{ t('graphPage.relationCount') }} {{ graph.relationCount || 0 }}</el-tag>
       <div class="spacer" />
+      <el-button type="primary" plain @click="extractVisible = true">{{ t('graphPage.aiExtract') }}</el-button>
       <el-button @click="load">{{ t('common.refresh') }}</el-button>
     </div>
+
+    <el-dialog v-model="extractVisible" :title="t('graphPage.extractTitle')" width="640px">
+      <el-form label-width="110px">
+        <el-form-item :label="t('graphPage.extractText')">
+          <el-input v-model="extractText" type="textarea" :rows="5" :placeholder="t('graphPage.extractTextPh')" />
+        </el-form-item>
+        <el-form-item :label="t('graphPage.commit')">
+          <el-checkbox v-model="extractCommit" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="extractVisible = false">{{ t('graphPage.close') }}</el-button>
+        <el-button type="primary" :loading="extracting" @click="runExtract">{{ t('graphPage.extract') }}</el-button>
+      </template>
+    </el-dialog>
 
     <el-row :gutter="12">
       <el-col :span="8">
@@ -136,6 +152,10 @@ const savingEntity = ref(false)
 const savingRelation = ref(false)
 const entityForm = reactive({ name: '', entityType: '', description: '' })
 const relationForm = reactive<any>({ fromId: null, toId: null, relation: '', weight: 1 })
+const extractVisible = ref(false)
+const extracting = ref(false)
+const extractText = ref('')
+const extractCommit = ref(true)
 
 onMounted(load)
 
@@ -172,6 +192,25 @@ async function addRelation() {
     ElMessage.success(t('graphPage.added'))
     await load()
   } finally { savingRelation.value = false }
+}
+
+async function runExtract() {
+  extracting.value = true
+  try {
+    const res = await http.post(`/knowledge-base/${kbId}/graph/extract`, {
+      text: extractText.value || null, commit: extractCommit.value
+    }) as any
+    if (!res || (!res.entityCount && !res.relationCount)) {
+      ElMessage.warning(t('graphPage.noExtract')); return
+    }
+    ElMessage.success(`${t('graphPage.extracted')}${res.entityCount}${t('graphPage.extractedMid')}${res.relationCount}${t('graphPage.extractedSuffix')}`)
+    if (extractCommit.value) {
+      extractVisible.value = false
+      await load()
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || t('graphPage.saveFail'))
+  } finally { extracting.value = false }
 }
 
 async function removeEntity(row: any) {

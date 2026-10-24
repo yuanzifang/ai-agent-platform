@@ -40,6 +40,16 @@ def answer_for(body):
     if tools and ("计算" in last_user or "calc" in json.dumps(tools).lower()):
         name = tools[0].get("function", {}).get("name", "calculator")
         return {"tool_call": name}
+    if "知识图谱抽取器" in system:
+        return json.dumps({
+            "entities": [
+                {"name": "智云科技", "type": "组织", "description": "净水器厂商"},
+                {"name": "净水器", "type": "产品", "description": "X3 净水器"}
+            ],
+            "relations": [
+                {"from": "智云科技", "to": "净水器", "relation": "生产"}
+            ]
+        }, ensure_ascii=False)
     if "模型回归裁判" in system:
         return json.dumps({"score": 0.9, "reason": "语义一致"}, ensure_ascii=False)
     if "质量审查" in system:
