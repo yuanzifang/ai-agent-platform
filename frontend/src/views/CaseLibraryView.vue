@@ -184,6 +184,13 @@
             <el-tag v-if="row.assigneeId" type="success" size="small">{{ t('casePage.assignedTag') }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column :label="t('casePage.arbitration')" width="110">
+          <template #default="{ row }">
+            <el-tag v-if="row.arbitratedLabel" type="success" size="small">{{ row.arbitratedLabel }}</el-tag>
+            <el-tag v-else-if="row.arbitrationRequired" type="warning" size="small">{{ t('casePage.needArbitration') }}</el-tag>
+            <span v-else class="hint">-</span>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('casePage.judge')" width="90">
           <template #default="{ row }">
             <el-tag size="small" :type="row.judgePassed ? 'success' : 'danger'">
@@ -207,8 +214,10 @@
         <el-table-column :label="t('casePage.noteCol')" width="140">
           <template #default="{ row }"><el-input v-model="row.reviewNote" size="small" /></template>
         </el-table-column>
-        <el-table-column :label="t('casePage.actions')" width="170" fixed="right">
+        <el-table-column :label="t('casePage.actions')" width="230" fixed="right">
           <template #default="{ row }">
+            <el-button v-if="row.arbitrationRequired" size="small" text type="warning"
+                       @click="openArbitration(row)">{{ t('casePage.arbitration') }}</el-button>
             <el-button size="small" text @click="assignToMe(row)">{{ t('casePage.assignMe') }}</el-button>
             <el-button size="small" type="primary" text @click="saveCalibration(row)">{{ t('casePage.save') }}</el-button>
           </template>
@@ -263,6 +272,10 @@ const calRows = ref<any[]>([])
 const calStats = ref<any>({})
 const calPage = ref(1)
 const calTotal = ref(0)
+const arbitrationVisible = ref(false)
+const arbitrationSaving = ref(false)
+const arbitrationRow = ref<any>(null)
+const arbitrationForm = reactive({ humanLabel: 'PASS', humanScore: 0.8, note: '' })
 
 onMounted(async () => {
   const models = await http.get('/provider/models', { params: { purpose: 'CHAT' } }) as any
@@ -388,6 +401,33 @@ async function sampleCalibration() {
     await loadCalibration()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || t('casePage.sampleFail'))
+  }
+}
+
+function openArbitration(row: any) {
+  arbitrationRow.value = row
+  arbitrationForm.humanLabel = row.humanLabel === 'FAIL' ? 'FAIL' : 'PASS'
+  arbitrationForm.humanScore = row.humanScore ?? 0.8
+  arbitrationForm.note = ''
+  arbitrationVisible.value = true
+}
+
+async function saveArbitration() {
+  if (!arbitrationRow.value) return
+  arbitrationSaving.value = true
+  try {
+    await http.put(`/cases/calibrations/${arbitrationRow.value.id}/arbitrate`, {
+      humanLabel: arbitrationForm.humanLabel,
+      humanScore: arbitrationForm.humanScore,
+      note: arbitrationForm.note
+    })
+    ElMessage.success(t('casePage.arbitrationSaved'))
+    arbitrationVisible.value = false
+    await loadCalibration()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || t('casePage.saveFail'))
+  } finally {
+    arbitrationSaving.value = false
   }
 }
 

@@ -26,6 +26,11 @@ public class TestCaseRunItem {
     private Integer labelCount;
     private Integer sampled;
     private Long assigneeId;
+    private String arbitratedLabel;
+    private java.math.BigDecimal arbitratedScore;
+    private Long arbitratedBy;
+    private LocalDateTime arbitratedAt;
+    private String arbitrationNote;
     private Integer passed;
     private Long latencyMs;
     private String error;

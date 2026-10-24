@@ -474,6 +474,39 @@ public class CaseService {
         return Map.of("list", rows, "total", total, "page", current, "pageSize", size);
     }
 
+    /** 复核仲裁：仅 Owner/Admin 可对冲突标注给出最终标签。 */
+    @Transactional
+    public Map<String, Object> arbitrate(Long itemId, Map<String, Object> req, JwtPrincipal principal) {
+        if (!principal.platformAdmin() && !principal.roles().contains("OWNER")
+                && !principal.roles().contains("ADMIN")) {
+            throw new BusinessException(403, "需要 Owner 或 Admin 进行仲裁");
+        }
+        TestCaseRunItem item = runItemMapper.selectById(itemId);
+        if (item == null) throw new BusinessException(404, "回归明细不存在");
+        TestCaseRun run = runMapper.selectById(item.getRunId());
+        if (run == null || (!principal.platformAdmin()
+                && !java.util.Objects.equals(run.getTenantId(), principal.tenantId()))) {
+            throw new BusinessException(404, "回归明细不存在");
+        }
+        String label = str(req == null ? null : req.get("humanLabel"));
+        if (!"PASS".equalsIgnoreCase(label) && !"FAIL".equalsIgnoreCase(label)) {
+            throw new BusinessException(400, "仲裁标签必须是 PASS 或 FAIL");
+        }
+        BigDecimal score = decimal(req == null ? null : req.get("humanScore"));
+        String note = str(req == null ? null : req.get("note"));
+        runItemMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<TestCaseRunItem>()
+                .eq(TestCaseRunItem::getId, itemId)
+                .set(TestCaseRunItem::getArbitratedLabel, label.toUpperCase())
+                .set(TestCaseRunItem::getArbitratedScore, score)
+                .set(TestCaseRunItem::getArbitratedBy, principal.userId())
+                .set(TestCaseRunItem::getArbitratedAt, LocalDateTime.now())
+                .set(TestCaseRunItem::getArbitrationNote, note));
+        auditService.record(principal.userId(), "case.calibration.arbitrate", "test_case_run_item",
+                String.valueOf(itemId), "SUCCESS", Map.of("label", label.toUpperCase()));
+        TestCaseRunItem fresh = runItemMapper.selectById(itemId);
+        return calibrationView(fresh, run);
+    }
+
     /** 随机抽检：按当前租户回归明细的比例置 sampled=1（至少 1 条）。 */
     @Transactional
     public Map<String, Object> sampleCalibrations(int percent, JwtPrincipal principal) {
@@ -530,7 +563,7 @@ public class CaseService {
         }
         List<TestCaseRunItem> items = runItemMapper.selectList(new LambdaQueryWrapper<TestCaseRunItem>()
                 .in(TestCaseRunItem::getRunId, runIds));
-        int labeled = 0, pending = 0, agree = 0, sampled = 0, assigned = 0;
+        int labeled = 0, pending = 0, agree = 0, sampled = 0, assigned = 0, arbitrationPending = 0, arbitrated = 0;
         double errorSum = 0;
         int errorCount = 0;
         Map<Long, List<CaseCalibrationLabel>> labelsByItem = new java.util.HashMap<>();
@@ -552,8 +585,14 @@ public class CaseService {
             labeled++;
             boolean judgePass = i.getScore() != null
                     && i.getScore().compareTo(BigDecimal.valueOf(0.6)) >= 0;
-            boolean humanPass = "PASS".equalsIgnoreCase(i.getHumanLabel());
+            String effectiveLabel = i.getArbitratedLabel() != null ? i.getArbitratedLabel() : i.getHumanLabel();
+            boolean humanPass = "PASS".equalsIgnoreCase(effectiveLabel);
             if (judgePass == humanPass) agree++;
+            if (i.getArbitratedLabel() != null) arbitrated++;
+            else if (labelsByItem.getOrDefault(i.getId(), List.of()).stream()
+                    .anyMatch(l -> "PASS".equalsIgnoreCase(l.getHumanLabel()))
+                    && labelsByItem.getOrDefault(i.getId(), List.of()).stream()
+                    .anyMatch(l -> "FAIL".equalsIgnoreCase(l.getHumanLabel()))) arbitrationPending++;
             if (i.getHumanScore() != null && i.getScore() != null) {
                 errorSum += Math.abs(i.getHumanScore().doubleValue() - i.getScore().doubleValue());
                 errorCount++;
@@ -571,11 +610,19 @@ public class CaseService {
                 }
             }
         }
-        return Map.of("total", items.size(), "labeled", labeled, "pending", pending,
-                "agreementRate", labeled == 0 ? 0 : round4(agree / (double) labeled),
-                "meanAbsError", errorCount == 0 ? 0 : round4(errorSum / errorCount),
-                "interAnnotatorAgreement", pairs == 0 ? 0 : round4(pairAgree / (double) pairs),
-                "interAnnotatorPairs", pairs, "sampled", sampled, "assigned", assigned);
+        Map<String, Object> stats = new java.util.LinkedHashMap<>();
+        stats.put("total", items.size());
+        stats.put("labeled", labeled);
+        stats.put("pending", pending);
+        stats.put("agreementRate", labeled == 0 ? 0 : round4(agree / (double) labeled));
+        stats.put("meanAbsError", errorCount == 0 ? 0 : round4(errorSum / errorCount));
+        stats.put("interAnnotatorAgreement", pairs == 0 ? 0 : round4(pairAgree / (double) pairs));
+        stats.put("interAnnotatorPairs", pairs);
+        stats.put("sampled", sampled);
+        stats.put("assigned", assigned);
+        stats.put("arbitrationPending", arbitrationPending);
+        stats.put("arbitrated", arbitrated);
+        return stats;
     }
 
     public Map<String, Object> calibrate(Long itemId, Map<String, Object> req, JwtPrincipal principal) {
@@ -614,6 +661,19 @@ public class CaseService {
         existing.setUpdatedAt(LocalDateTime.now());
         if (existing.getId() == null) calibrationMapper.insert(existing);
         else calibrationMapper.updateById(existing);
+        // 新标注可能改变冲突状态，旧仲裁失效，需重新仲裁
+        runItemMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<TestCaseRunItem>()
+                .eq(TestCaseRunItem::getId, itemId)
+                .set(TestCaseRunItem::getArbitratedLabel, null)
+                .set(TestCaseRunItem::getArbitratedScore, null)
+                .set(TestCaseRunItem::getArbitratedBy, null)
+                .set(TestCaseRunItem::getArbitratedAt, null)
+                .set(TestCaseRunItem::getArbitrationNote, null));
+        item.setArbitratedLabel(null);
+        item.setArbitratedScore(null);
+        item.setArbitratedBy(null);
+        item.setArbitratedAt(null);
+        item.setArbitrationNote(null);
         recomputeConsensus(item, run.getTenantId());
         auditService.record(principal.userId(), "case.calibration", "test_case_run_item",
                 String.valueOf(itemId), "SUCCESS",
@@ -687,6 +747,20 @@ public class CaseService {
         m.put("reviewNote", i.getReviewNote());
         m.put("sampled", i.getSampled() != null && i.getSampled() == 1);
         m.put("assigneeId", i.getAssigneeId());
+        List<CaseCalibrationLabel> labels = calibrationMapper.selectList(
+                new LambdaQueryWrapper<CaseCalibrationLabel>()
+                        .eq(CaseCalibrationLabel::getRunItemId, i.getId())
+                        .orderByAsc(CaseCalibrationLabel::getId));
+        boolean hasPass = labels.stream().anyMatch(l -> "PASS".equalsIgnoreCase(l.getHumanLabel()));
+        boolean hasFail = labels.stream().anyMatch(l -> "FAIL".equalsIgnoreCase(l.getHumanLabel()));
+        boolean conflict = labels.size() >= Math.max(1, minAnnotators) && hasPass && hasFail
+                && i.getArbitratedLabel() == null;
+        m.put("arbitrationRequired", conflict);
+        m.put("arbitratedLabel", i.getArbitratedLabel());
+        m.put("arbitratedScore", i.getArbitratedScore());
+        m.put("arbitratedBy", i.getArbitratedBy());
+        m.put("arbitratedAt", i.getArbitratedAt());
+        m.put("arbitrationNote", i.getArbitrationNote());
         m.put("error", i.getError());
         return m;
     }

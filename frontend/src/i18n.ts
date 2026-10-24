@@ -339,7 +339,10 @@ const messages = {
       regressionDone: '回归完成：通过 ', sampledToast: '已抽检 ', sampledSlash: '/', sampleFail: '抽检失败',
       assignedToast: '已指派给我', assignFail: '指派失败', labelRequired: '请选择人工标签 PASS/FAIL',
       labelSaved: '已保存标注', saveFail: '保存失败', sourceManual: '手动收藏', sourceAutoBad: '点踩自动',
-      sourceAutoClassic: '点赞自动', badgeGolden: '黄金集', badgeApproved: '已审核', badgeCandidate: '候选'
+      sourceAutoClassic: '点赞自动', badgeGolden: '黄金集', badgeApproved: '已审核', badgeCandidate: '候选',
+      arbitration: '仲裁', needArbitration: '需仲裁', arbitrated: '已仲裁', arbitrationTitle: '标注冲突仲裁',
+      finalLabel: '最终标签', arbitrationNote: '仲裁说明', submitArbitration: '提交仲裁', arbitrationSaved: '仲裁已保存',
+      arbitrationRequiredMsg: '多个标注人结论冲突，请复核后给出最终标签'
     },
     kbDetail: {
       back: '返回', metaDocs: '文档 ', metaChunks: ' · 分段 ', creator: ' · 创建人 ', edit: '编辑',
@@ -1053,7 +1056,10 @@ const messages = {
       regressionDone: 'Regression complete: passed ', sampledToast: 'Sampled ', sampledSlash: '/', sampleFail: 'Sampling failed',
       assignedToast: 'Assigned to me', assignFail: 'Assignment failed', labelRequired: 'Please choose PASS/FAIL',
       labelSaved: 'Label saved', saveFail: 'Save failed', sourceManual: 'Manual', sourceAutoBad: 'Auto (dislike)',
-      sourceAutoClassic: 'Auto (like)', badgeGolden: 'Golden', badgeApproved: 'Approved', badgeCandidate: 'Candidate'
+      sourceAutoClassic: 'Auto (like)', badgeGolden: 'Golden', badgeApproved: 'Approved', badgeCandidate: 'Candidate',
+      arbitration: 'Arbitration', needArbitration: 'Needs arbitration', arbitrated: 'Arbitrated', arbitrationTitle: 'Resolve conflicting labels',
+      finalLabel: 'Final label', arbitrationNote: 'Arbitration note', submitArbitration: 'Submit arbitration', arbitrationSaved: 'Arbitration saved',
+      arbitrationRequiredMsg: 'Annotators disagree; review and choose the final label'
     },
     kbDetail: {
       back: 'Back', metaDocs: 'Documents ', metaChunks: ' · Chunks ', creator: ' · Creator ', edit: 'Edit',

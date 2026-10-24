@@ -84,6 +84,14 @@ public class CaseController {
         return ApiResponse.ok(service.sampleCalibrations(percent, principal));
     }
 
+    @PutMapping("/calibrations/{id}/arbitrate")
+    @PreAuthorize("hasAuthority('eval:manage')")
+    public ApiResponse<Map<String, Object>> arbitrate(@PathVariable Long id,
+                                                      @RequestBody Map<String, Object> req,
+                                                      @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(service.arbitrate(id, req, principal));
+    }
+
     @PutMapping("/calibrations/{id}/assign")
     @PreAuthorize("hasAuthority('eval:manage')")
     public ApiResponse<Map<String, Object>> assignCalibration(@PathVariable Long id,

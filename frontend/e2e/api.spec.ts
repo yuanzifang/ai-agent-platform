@@ -1781,6 +1781,29 @@ test('对话用例库：反馈沉淀与模型回归', async ({ request }) => {
       headers: auth(token!), params: { status: 'DONE' }
     })).json()
     expect(done.data.list.some((x: any) => x.id === item.id)).toBe(true)
+
+    // 复核仲裁：第二标注人改为 FAIL，形成冲突；平台管理员给出最终标签
+    const conflictLabel = await (await request.put(`${P}/cases/calibrations/${item.id}`, {
+      headers: { ...auth(admin!), 'X-Tenant-Id': '1' },
+      data: { humanScore: 0.2, humanLabel: 'FAIL', note: '冲突标注' }
+    })).json()
+    expect(conflictLabel.code, JSON.stringify(conflictLabel)).toBe(0)
+    const conflictList = await (await request.get(`${P}/cases/calibrations`, {
+      headers: auth(token!), params: { status: 'DONE' }
+    })).json()
+    const conflictItem = (conflictList.data.list || []).find((x: any) => x.id === item.id)
+    expect(conflictItem.arbitrationRequired).toBe(true)
+    const arbitrated = await (await request.put(`${P}/cases/calibrations/${item.id}/arbitrate`, {
+      headers: { ...auth(admin!), 'X-Tenant-Id': '1' },
+      data: { humanLabel: 'PASS', humanScore: 0.9, note: '复核结论' }
+    })).json()
+    expect(arbitrated.code, JSON.stringify(arbitrated)).toBe(0)
+    expect(arbitrated.data.arbitratedLabel).toBe('PASS')
+    expect(arbitrated.data.arbitrationRequired).toBe(false)
+    const afterArbitration = await (await request.get(`${P}/cases/calibrations/stats`, {
+      headers: auth(token!)
+    })).json()
+    expect(afterArbitration.data.arbitrated).toBeGreaterThanOrEqual(1)
   } finally {
     if (runId) {
       // 回归记录保留用于审计；用例本身删除
