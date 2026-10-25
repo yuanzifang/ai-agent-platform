@@ -14,6 +14,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CAPTURED = []
 FLAKY = {"count": 0}
+FAIL_CALLS = {"value": 0}
+OK_CALLS = {"value": 0}
 LAST_OPENAI = {}
 LAST_CHAT = {}
 CHAT_COUNT = {"value": 0}
@@ -279,6 +281,14 @@ class CaptureHandler(BaseHTTPRequestHandler):
         self._json(200, {"ok": True})
 
     def do_GET(self):
+        if self.path.startswith("/always-fail"):
+            FAIL_CALLS["value"] += 1
+            return self._json(500, {"error": "always fail"})
+        if self.path.startswith("/always-ok"):
+            OK_CALLS["value"] += 1
+            return self._json(200, {"ok": True})
+        if self.path == "/stats":
+            return self._json(200, {"failCalls": FAIL_CALLS["value"], "okCalls": OK_CALLS["value"]})
         if self.path == "/gateway-sse":
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -296,6 +306,8 @@ class CaptureHandler(BaseHTTPRequestHandler):
         if self.path == "/reset":
             CAPTURED.clear()
             FLAKY["count"] = 0
+            FAIL_CALLS["value"] = 0
+            OK_CALLS["value"] = 0
             return self._json(200, {"ok": True})
         self._json(404, {"error": "not found"})
 

@@ -49,6 +49,9 @@ public class GatewayService {
 
     private static final int MAX_BODY = 5 * 1024 * 1024;
     private static final long MAX_TARGET_BYTES = 10 * 1024 * 1024;
+    private static final int UPSTREAM_FAIL_THRESHOLD = 3;
+    private static final Duration UPSTREAM_FAIL_WINDOW = Duration.ofMinutes(2);
+    private static final Duration UPSTREAM_COOLDOWN = Duration.ofSeconds(60);
 
     private final GatewayRouteMapper routeMapper;
     private final GatewayRequestLogMapper logMapper;
@@ -154,6 +157,8 @@ public class GatewayService {
         routeMapper.deleteById(id);
         logMapper.delete(new LambdaQueryWrapper<GatewayRequestLog>()
                 .eq(GatewayRequestLog::getRouteId, id));
+        clearCircuit(id, route.getTargetUrl());
+        clearCircuit(id, route.getFallbackUrl());
         auditService.record(principal.userId(), "gateway.route.delete", "gateway_route",
                 String.valueOf(id), "SUCCESS", Map.of("name", route.getName()));
     }
@@ -204,8 +209,19 @@ public class GatewayService {
                 return proxyStream(route, request, body, query, targets, suffix, started, servletResponse);
             }
             Exception last = null;
+            boolean primaryCircuitOpen = false;
             for (int ti = 0; ti < targets.size(); ti++) {
-                String target = targets.get(ti) + suffix
+                String upstream = targets.get(ti);
+                if (circuitOpen(route.getId(), upstream)) {
+                    if (ti < targets.size() - 1) {
+                        primaryCircuitOpen = true;
+                        last = new IllegalStateException("primary upstream circuit open");
+                        continue;
+                    }
+                    log(route, request, 503, null, started, "upstream circuit open");
+                    return error(servletResponse, HttpStatus.SERVICE_UNAVAILABLE, "上游熔断中，请稍后重试");
+                }
+                String target = upstream + suffix
                         + (query == null || query.isBlank() ? "" : "?" + query);
                 try {
                     HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(target))
@@ -234,6 +250,8 @@ public class GatewayService {
                     if (response == null) {
                         throw attemptError == null ? new IllegalStateException("no upstream response") : attemptError;
                     }
+                    if (response.statusCode() >= 500) recordUpstreamFailure(route.getId(), upstream);
+                    else recordUpstreamSuccess(route.getId(), upstream);
                     if (response.statusCode() >= 500 && ti < targets.size() - 1) {
                         last = new IllegalStateException("upstream " + response.statusCode());
                         continue;
@@ -243,7 +261,8 @@ public class GatewayService {
                         return error(servletResponse, HttpStatus.BAD_GATEWAY, "上游响应超过 10MB");
                     }
                     log(route, request, response.statusCode(), response.statusCode(), started,
-                            ti > 0 ? "fallback upstream" : null);
+                            ti > 0 ? (primaryCircuitOpen ? "fallback upstream; primary circuit open"
+                                    : "fallback upstream") : null);
                     HttpHeaders headers = new HttpHeaders();
                     response.headers().firstValue("Content-Type").ifPresent(v -> headers.set(HttpHeaders.CONTENT_TYPE, v));
                     response.headers().firstValue("Content-Disposition").ifPresent(v -> headers.set(HttpHeaders.CONTENT_DISPOSITION, v));
@@ -252,6 +271,7 @@ public class GatewayService {
                     servletResponse.setContentLength(resultBody.length);
                     return out -> out.write(resultBody);
                 } catch (Exception e) {
+                    recordUpstreamFailure(route.getId(), upstream);
                     last = e;
                     if (ti == targets.size() - 1) throw e;
                 }
@@ -271,8 +291,19 @@ public class GatewayService {
                                               String query, List<String> targets, String suffix,
                                               long started, HttpServletResponse servletResponse) {
         Exception last = null;
+        boolean primaryCircuitOpen = false;
         for (int ti = 0; ti < targets.size(); ti++) {
-            String target = targets.get(ti) + suffix
+            String upstreamBase = targets.get(ti);
+            if (circuitOpen(route.getId(), upstreamBase)) {
+                if (ti < targets.size() - 1) {
+                    primaryCircuitOpen = true;
+                    last = new IllegalStateException("primary upstream circuit open");
+                    continue;
+                }
+                log(route, request, 503, null, started, "upstream circuit open");
+                return error(servletResponse, HttpStatus.SERVICE_UNAVAILABLE, "上游熔断中，请稍后重试");
+            }
+            String target = upstreamBase + suffix
                     + (query == null || query.isBlank() ? "" : "?" + query);
             try {
                 HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(target))
@@ -288,6 +319,8 @@ public class GatewayService {
 
                 HttpResponse<InputStream> response = httpClient.send(
                         httpRequest, HttpResponse.BodyHandlers.ofInputStream());
+                if (response.statusCode() >= 500) recordUpstreamFailure(route.getId(), upstreamBase);
+                else recordUpstreamSuccess(route.getId(), upstreamBase);
                 if (response.statusCode() >= 500 && ti < targets.size() - 1) {
                     try (InputStream ignored = response.body()) {
                         last = new IllegalStateException("upstream " + response.statusCode());
@@ -308,17 +341,19 @@ public class GatewayService {
                         errorBody = in.readAllBytes();
                     }
                     log(route, request, response.statusCode(), response.statusCode(), started,
-                            ti > 0 ? "fallback upstream" : null);
+                            ti > 0 ? (primaryCircuitOpen ? "fallback upstream; primary circuit open"
+                                    : "fallback upstream") : null);
                     applyHeaders(servletResponse, headers, response.statusCode());
                     servletResponse.setContentLength(errorBody.length);
                     return out -> out.write(errorBody);
                 }
 
                 log(route, request, response.statusCode(), response.statusCode(), started,
-                        ti > 0 ? "fallback upstream" : null);
-                InputStream upstream = response.body();
+                        ti > 0 ? (primaryCircuitOpen ? "fallback upstream; primary circuit open"
+                                : "fallback upstream") : null);
+                InputStream upstreamBody = response.body();
                 StreamingResponseBody stream = out -> {
-                    try (InputStream in = upstream) {
+                    try (InputStream in = upstreamBody) {
                         byte[] buffer = new byte[8192];
                         int read;
                         while ((read = in.read(buffer)) != -1) {
@@ -330,6 +365,7 @@ public class GatewayService {
                 applyHeaders(servletResponse, headers, response.statusCode());
                 return stream;
             } catch (Exception e) {
+                recordUpstreamFailure(route.getId(), upstreamBase);
                 last = e;
                 if (ti == targets.size() - 1) {
                     log(route, request, 502, null, started, root(e));
@@ -366,6 +402,49 @@ public class GatewayService {
         } catch (Exception e) {
             log.debug("gateway log insert failed: {}", e.getMessage());
         }
+    }
+
+    /** 轻量熔断：连续 3 次 5xx/IO 失败后短路 60 秒；Redis 故障时 fail-open。 */
+    private boolean circuitOpen(Long routeId, String upstream) {
+        if (routeId == null || upstream == null || upstream.isBlank()) return false;
+        try {
+            return Boolean.TRUE.equals(redis.hasKey(circuitKey("open", routeId, upstream)));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void recordUpstreamFailure(Long routeId, String upstream) {
+        if (routeId == null || upstream == null || upstream.isBlank()) return;
+        try {
+            String failKey = circuitKey("fail", routeId, upstream);
+            Long count = redis.opsForValue().increment(failKey);
+            if (count != null && count == 1L) redis.expire(failKey, UPSTREAM_FAIL_WINDOW);
+            if (count != null && count >= UPSTREAM_FAIL_THRESHOLD) {
+                redis.opsForValue().set(circuitKey("open", routeId, upstream), "1", UPSTREAM_COOLDOWN);
+                log.warn("网关上游熔断打开 route={} upstream={}", routeId, upstream);
+            }
+        } catch (Exception e) {
+            log.debug("网关熔断计数失败（忽略）：{}", e.getMessage());
+        }
+    }
+
+    private void recordUpstreamSuccess(Long routeId, String upstream) {
+        if (routeId == null || upstream == null || upstream.isBlank()) return;
+        try {
+            redis.delete(circuitKey("fail", routeId, upstream));
+            redis.delete(circuitKey("open", routeId, upstream));
+        } catch (Exception e) {
+            log.debug("网关熔断状态清理失败（忽略）：{}", e.getMessage());
+        }
+    }
+
+    private void clearCircuit(Long routeId, String upstream) {
+        recordUpstreamSuccess(routeId, upstream);
+    }
+
+    private String circuitKey(String kind, Long routeId, String upstream) {
+        return "gateway:cb:" + kind + ":" + routeId + ":" + Integer.toHexString(upstream.hashCode());
     }
 
     private boolean allow(GatewayRoute route) {

@@ -1792,6 +1792,29 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
       await request.delete(`${P}/gateway/routes/${sseRoute.data.id}`, { headers: auth(token!) })
     }
 
+    await request.get(`${MOCK}/reset`).catch(() => {})
+    const cbRoute = await (await request.post(`${P}/gateway/routes`, {
+      headers: auth(token!),
+      data: { name: `E2E Gateway Circuit-${Date.now()}`,
+        targetUrl: `${MOCK}/always-fail`, fallbackUrl: `${MOCK}/always-ok`,
+        timeoutMs: 2000, retries: 0, rateLimitPerMin: 100 }
+    })).json()
+    expect(cbRoute.code, JSON.stringify(cbRoute)).toBe(0)
+    try {
+      for (let i = 0; i < 4; i++) {
+        const cb = await request.get(`${P}/gateway/call/${cbRoute.data.routeKey}/probe`, {
+          headers: { 'X-Gateway-Key': cbRoute.data.apiKey }
+        })
+        expect(cb.status()).toBe(200)
+        expect(await cb.json()).toEqual({ ok: true })
+      }
+      const stats = await (await request.get(`${MOCK}/stats`)).json()
+      expect(stats.failCalls).toBe(3)
+      expect(stats.okCalls).toBe(4)
+    } finally {
+      await request.delete(`${P}/gateway/routes/${cbRoute.data.id}`, { headers: auth(token!) })
+    }
+
     const fallbackRoute = await (await request.post(`${P}/gateway/routes`, {
       headers: auth(token!),
       data: { name: `E2E Gateway Fallback-${Date.now()}`,
