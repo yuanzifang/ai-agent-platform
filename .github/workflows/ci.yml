@@ -123,6 +123,14 @@ jobs:
           --health-interval=5s
           --health-timeout=5s
           --health-retries=20
+      # MinIO 社区版最后发布 tag（2025-04 后官方停更；dl.min.io 下载 410、quay 匿名 401，仅 Docker Hub 可匿名拉）
+      minio:
+        image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports:
+          - 9000:9000
 
     env:
       MYSQL_HOST: 127.0.0.1
@@ -201,12 +209,8 @@ jobs:
           cat /tmp/mock-servers.log
           exit 1
 
-      - name: 启动 MinIO（官方二进制直跑，绕开镜像仓库匿名拉取限制）
+      - name: 等待 MinIO 就绪（镜像内无 mc/curl，用宿主机轮询健康端点）
         run: |
-          curl -fsSL -o /tmp/minio https://dl.min.io/server/minio/release/linux-amd64/minio
-          chmod +x /tmp/minio
-          MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
-            nohup /tmp/minio server /tmp/minio-data --address :9000 --console-address :9001 > /tmp/minio.log 2>&1 &
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1; then
               echo "minio ready"
@@ -214,7 +218,7 @@ jobs:
             fi
             sleep 1
           done
-          cat /tmp/minio.log
+          docker logs ${{ job.services.minio.id }}
           exit 1
 
       - name: 启动后端
