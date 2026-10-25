@@ -41,6 +41,7 @@ final class OcrTableExtractor {
                             word.width, word.height))
                     .toList();
             table = OcrGridTableExtractor.extract(image, boxes);
+            if (!table.isBlank()) table = decorateGridTable(table, lines);
         }
         if (table.isBlank()) table = toTable(lines);
         return new Result(text.toString().trim(), table);
@@ -135,6 +136,26 @@ final class OcrTableExtractor {
             table.append("\n<p class=\"table-note\">").append(escape(note)).append("</p>");
         }
         return table.toString();
+    }
+
+    /** 网格表格仍保留表格标题/脚注，避免图像网格路径丢失 caption。 */
+    private static String decorateGridTable(String table, List<Line> lines) {
+        List<Line> candidates = lines.stream()
+                .filter(line -> line.cells.size() >= 2)
+                .filter(line -> !isCaption(line.text) && !isNote(line.text))
+                .toList();
+        if (candidates.isEmpty()) return table;
+        String caption = findCaption(lines, candidates.get(0).top);
+        List<String> notes = findNotes(lines, candidates.get(candidates.size() - 1).top);
+        StringBuilder html = new StringBuilder(table);
+        if (caption != null) {
+            int open = html.indexOf(">");
+            if (open >= 0) html.insert(open + 1, "\n<caption>" + escape(caption) + "</caption>");
+        }
+        for (String note : notes) {
+            html.append("\n<p class=\"table-note\">").append(escape(note)).append("</p>");
+        }
+        return html.toString();
     }
 
     private static int[][] inferRowSpans(List<Line> lines, int headers, List<Float> anchors) {
@@ -385,7 +406,7 @@ final class OcrTableExtractor {
     private static String findCaption(List<Line> lines, float tableTop) {
         String best = null;
         for (Line line : lines) {
-            if (line.top >= tableTop - LINE_TOLERANCE || line.top < tableTop - 120f) continue;
+            if (line.top >= tableTop - LINE_TOLERANCE || line.top < tableTop - 240f) continue;
             if (isCaption(line.text)) best = line.text;
         }
         return best;

@@ -1203,6 +1203,8 @@ class DocumentParserTest {
             g.drawLine(550, 620, 1270, 620);
             g.drawLine(70, 750, 1270, 750);
             g.setColor(Color.BLACK);
+            g.setFont(new Font("SansSerif", Font.PLAIN, 32));
+            g.drawString("Table 2: Sales", 100, 60);
             g.setFont(new Font("SansSerif", Font.PLAIN, 40));
             g.drawString("Product", 100, 190);
             g.drawString("Sales", 650, 190);
@@ -1216,6 +1218,8 @@ class DocumentParserTest {
             g.drawString("5", 950, 580);
             g.drawString("Pear", 600, 710);
             g.drawString("6", 950, 710);
+            g.setFont(new Font("SansSerif", Font.PLAIN, 32));
+            g.drawString("Note: sample", 100, 810);
         } finally {
             g.dispose();
         }
@@ -1239,6 +1243,8 @@ class DocumentParserTest {
         assertTrue(text.contains("rowspan=\"2\"") && text.contains("Fruit"),
                 "扫描网格数据应输出 rowspan，实际=" + text);
         assertTrue(text.contains("Water") && text.contains("Apple"), "扫描网格文字应保留，实际=" + text);
+        assertTrue(text.contains("<caption>") && text.contains("Table 2"), "扫描网格标题应保留，实际=" + text);
+        assertTrue(text.contains("table-note") && text.contains("Note: sample"), "扫描网格脚注应保留，实际=" + text);
     }
 
     @Test
