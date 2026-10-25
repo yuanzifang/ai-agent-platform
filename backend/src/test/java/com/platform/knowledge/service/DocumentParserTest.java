@@ -1182,6 +1182,66 @@ class DocumentParserTest {
     }
 
     @Test
+    void ocrScannedGridTableRestoresSpans() throws Exception {
+        Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过扫描网格合并");
+        BufferedImage image = new BufferedImage(1400, 850, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, 1400, 850);
+            g.setColor(Color.DARK_GRAY);
+            g.setStroke(new java.awt.BasicStroke(2f));
+            int[] xs = {70, 550, 900, 1270};
+            // 外框、表头分隔线；首列缺横线形成 Product/Fruit 的 rowspan
+            for (int x : xs) {
+                g.drawLine(x, x == 900 ? 230 : 100, x, 750);
+            }
+            g.drawLine(70, 100, 1270, 100);
+            g.drawLine(550, 230, 1270, 230);
+            g.drawLine(70, 360, 1270, 360);
+            g.drawLine(70, 490, 1270, 490);
+            g.drawLine(550, 620, 1270, 620);
+            g.drawLine(70, 750, 1270, 750);
+            g.setColor(Color.BLACK);
+            g.setFont(new Font("SansSerif", Font.PLAIN, 40));
+            g.drawString("Product", 100, 190);
+            g.drawString("Sales", 650, 190);
+            g.drawString("2024", 600, 320);
+            g.drawString("2025", 950, 320);
+            g.drawString("Water", 100, 440);
+            g.drawString("10", 600, 440);
+            g.drawString("20", 950, 440);
+            g.drawString("Fruit", 100, 580);
+            g.drawString("Apple", 600, 580);
+            g.drawString("5", 950, 580);
+            g.drawString("Pear", 600, 710);
+            g.drawString("6", 950, 710);
+        } finally {
+            g.dispose();
+        }
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            var pdImage = LosslessFactory.createFromImage(doc, image);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.drawImage(pdImage, 40, 250, 515, 313);
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        ReflectionTestUtils.setField(parser, "ocrEnabled", true);
+        ReflectionTestUtils.setField(parser, "ocrCommand", "tesseract");
+        ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
+        String text = String.join("\n", parser.parse("scan-table-grid-spans.pdf", pdf));
+        assertTrue(text.contains("colspan=\"2\"") && text.contains("Sales"),
+                "扫描网格表头应输出 colspan，实际=" + text);
+        assertTrue(text.contains("rowspan=\"2\"") && text.contains("Fruit"),
+                "扫描网格数据应输出 rowspan，实际=" + text);
+        assertTrue(text.contains("Water") && text.contains("Apple"), "扫描网格文字应保留，实际=" + text);
+    }
+
+    @Test
     void ocrScannedTwoColumnTable() throws Exception {
         Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过两列扫描表格");
         BufferedImage image = new BufferedImage(1000, 800, BufferedImage.TYPE_INT_RGB);

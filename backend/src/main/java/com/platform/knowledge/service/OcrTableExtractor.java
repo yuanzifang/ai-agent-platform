@@ -1,5 +1,6 @@
 package com.platform.knowledge.service;
 
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -21,6 +22,11 @@ final class OcrTableExtractor {
     }
 
     static Result extract(String tsv) {
+        return extract(tsv, null);
+    }
+
+    /** 带页面图时优先尝试网格结构；无合并单元格则回退到 TSV 文本重建。 */
+    static Result extract(String tsv, BufferedImage image) {
         List<Word> words = parseWords(tsv);
         if (words.isEmpty()) return new Result("", "");
         List<Line> lines = groupLines(words);
@@ -28,7 +34,16 @@ final class OcrTableExtractor {
         for (Line line : lines) {
             if (!line.text.isBlank()) text.append(line.text.trim()).append('\n');
         }
-        return new Result(text.toString().trim(), toTable(lines));
+        String table = "";
+        if (image != null) {
+            List<OcrGridTableExtractor.Box> boxes = words.stream()
+                    .map(word -> new OcrGridTableExtractor.Box(word.text, word.left, word.top,
+                            word.width, word.height))
+                    .toList();
+            table = OcrGridTableExtractor.extract(image, boxes);
+        }
+        if (table.isBlank()) table = toTable(lines);
+        return new Result(text.toString().trim(), table);
     }
 
     private static List<Word> parseWords(String tsv) {

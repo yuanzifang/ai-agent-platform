@@ -776,7 +776,7 @@ public class DocumentParser {
                 BufferedImage image = renderer.renderImageWithDPI(i, Math.max(72, opts().ocrDpi()));
                 Path imagePath = tempDir.resolve("page-" + (i + 1) + ".png");
                 ImageIO.write(image, "png", imagePath.toFile());
-                OcrTableExtractor.Result ocr = OcrTableExtractor.extract(runOcrTsv(imagePath));
+                OcrTableExtractor.Result ocr = OcrTableExtractor.extract(runOcrTsv(imagePath), image);
                 sb.append("\n## Page ").append(i + 1).append('\n')
                         .append(ocr.text()).append('\n');
                 if (!ocr.table().isBlank()) {
@@ -1083,7 +1083,8 @@ public class DocumentParser {
             if (!ext.startsWith(".")) ext = "." + ext;
             temp = Files.createTempFile("kb-ocr-", ext);
             Files.write(temp, bytes);
-            return OcrTableExtractor.extract(runOcrTsv(temp));
+            BufferedImage source = ImageIO.read(new ByteArrayInputStream(bytes));
+            return OcrTableExtractor.extract(runOcrTsv(temp), source);
         } catch (Exception e) {
             log.debug("内嵌图片 OCR 失败：{}", e.getMessage());
             return new OcrTableExtractor.Result("", "");
