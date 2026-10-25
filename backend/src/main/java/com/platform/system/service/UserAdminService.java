@@ -49,6 +49,7 @@ public class UserAdminService {
     private String frontendBase;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final com.platform.system.mapper.UserQuotaMapper userQuotaMapper;
     private final AgentRegistryMapper agentMapper;
     private final KnowledgeBaseMapper kbMapper;
     private final UserSessionMapper sessionMapper;
@@ -137,6 +138,65 @@ public class UserAdminService {
         userMapper.updateById(patch);
         auditService.record(principal.userId(), "member.remove", "user",
                 String.valueOf(userId), "SUCCESS", Map.of("username", target.getUsername()));
+    }
+
+    /** 成员配额读取（评审：人员维度）；未配置返回空对象。 */
+    public Map<String, Object> userQuota(Long userId, JwtPrincipal principal) {
+        SysUser target = userMapper.selectById(userId);
+        if (target == null || !principal.tenantId().equals(target.getTenantId())) {
+            throw new BusinessException(404, "成员不存在");
+        }
+        com.platform.system.entity.UserQuota q = userQuotaMapper.selectOne(
+                new LambdaQueryWrapper<com.platform.system.entity.UserQuota>()
+                        .eq(com.platform.system.entity.UserQuota::getTenantId, principal.tenantId())
+                        .eq(com.platform.system.entity.UserQuota::getUserId, userId));
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("userId", userId);
+        m.put("dailyTokenLimit", q == null ? null : q.getDailyTokenLimit());
+        m.put("monthlyCostLimit", q == null ? null : q.getMonthlyCostLimit());
+        m.put("enabled", q != null && (q.getEnabled() == null || q.getEnabled() == 1));
+        return m;
+    }
+
+    /** 成员配额保存（部分更新：null 项清除该限制）。 */
+    public void saveUserQuota(Long userId, Map<String, Object> req, JwtPrincipal principal) {
+        SysUser target = userMapper.selectById(userId);
+        if (target == null || !principal.tenantId().equals(target.getTenantId())) {
+            throw new BusinessException(404, "成员不存在");
+        }
+        Long dailyToken = toLongOrNull(req.get("dailyTokenLimit"));
+        java.math.BigDecimal monthlyCost = toDecimalOrNull(req.get("monthlyCostLimit"));
+        Boolean enabled = req.get("enabled") instanceof Boolean b ? b : Boolean.TRUE;
+        com.platform.system.entity.UserQuota q = userQuotaMapper.selectOne(
+                new LambdaQueryWrapper<com.platform.system.entity.UserQuota>()
+                        .eq(com.platform.system.entity.UserQuota::getTenantId, principal.tenantId())
+                        .eq(com.platform.system.entity.UserQuota::getUserId, userId));
+        if (q == null) {
+            q = new com.platform.system.entity.UserQuota();
+            q.setTenantId(principal.tenantId());
+            q.setUserId(userId);
+        }
+        q.setDailyTokenLimit(dailyToken);
+        q.setMonthlyCostLimit(monthlyCost);
+        q.setEnabled(enabled ? 1 : 0);
+        q.setUpdatedBy(principal.userId());
+        if (q.getId() == null) userQuotaMapper.insert(q);
+        else userQuotaMapper.updateById(q);
+        auditService.record(principal.userId(), "member.quota.save", "user",
+                String.valueOf(userId), "SUCCESS",
+                Map.of("dailyTokenLimit", String.valueOf(dailyToken),
+                       "monthlyCostLimit", String.valueOf(monthlyCost)));
+    }
+
+    private Long toLongOrNull(Object o) {
+        if (o == null) return null;
+        try { return Long.valueOf(String.valueOf(o)); } catch (NumberFormatException e) { return null; }
+    }
+
+    private java.math.BigDecimal toDecimalOrNull(Object o) {
+        if (o == null || String.valueOf(o).isBlank()) return null;
+        try { return new java.math.BigDecimal(String.valueOf(o)); }
+        catch (NumberFormatException e) { return null; }
     }
 
     public Map<String, Object> invite(String email, String role, JwtPrincipal principal) {

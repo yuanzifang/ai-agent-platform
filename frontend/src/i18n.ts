@@ -182,7 +182,7 @@ const messages = {
       deleteConfirm: '删除后该记忆不再注入对话，确认？', deleteTitle: '删除记忆', deleted: '已删除'
     },
     userAdmin: {
-      invite: '邀请成员', members: '成员（', username: '用户名', displayName: '显示名', role: '角色',
+      invite: '邀请成员', quota: '配额', quotaTitle: '成员配额', dailyTokenLimit: '每日 Token 上限', monthlyCostLimit: '月度金额上限', quotaEnabled: '启用限制', quotaHint: '0 或留空表示不限；仅约束该成员，租户级配额仍然生效。', quotaSaved: '成员配额已保存', members: '成员（', username: '用户名', displayName: '显示名', role: '角色',
       status: '状态', lastLogin: '最近登录', actions: '操作', save: '保存', cancel: '取消',
       adjustRole: '调整角色', remove: '移除', invitations: '邀请记录', email: '邮箱',
       preRole: '预分配角色', expires: '过期时间', copyLink: '复制链接', inviteTitle: '邀请成员',
@@ -970,7 +970,7 @@ const messages = {
       deleteConfirm: 'This memory will no longer be injected. Continue?', deleteTitle: 'Delete memory', deleted: 'Deleted'
     },
     userAdmin: {
-      invite: 'Invite member', members: 'Members (', username: 'Username', displayName: 'Display name', role: 'Role',
+      invite: 'Invite member', quota: 'Quota', quotaTitle: 'Member quota', dailyTokenLimit: 'Daily token limit', monthlyCostLimit: 'Monthly cost limit', quotaEnabled: 'Enable limits', quotaHint: '0 or empty means unlimited; tenant-level quota still applies.', quotaSaved: 'Member quota saved', members: 'Members (', username: 'Username', displayName: 'Display name', role: 'Role',
       status: 'Status', lastLogin: 'Last login', actions: 'Actions', save: 'Save', cancel: 'Cancel',
       adjustRole: 'Adjust roles', remove: 'Remove', invitations: 'Invitations', email: 'Email',
       preRole: 'Assigned role', expires: 'Expires', copyLink: 'Copy link', inviteTitle: 'Invite member',

@@ -132,6 +132,7 @@ public class ChatStreamService {
             throw new BusinessException(400, "消息不能为空");
         }
         quotaService.checkTokensToday(Math.max(50, req.message().length() / 2 + 200));
+        quotaService.checkUserQuota(principal.userId(), Math.max(50, req.message().length() / 2 + 200));
         AgentRegistry agent = agentMapper.selectById(conv.getAgentId());
         Published published = publishedOrThrow(agent);
         Map<String, Object> config = published.config();
@@ -363,7 +364,7 @@ public class ChatStreamService {
                             usedModel.get(), userMsg.getContent(), current);
                     if (review == null) break;
                     if (review.inputTokens() > 0 || review.outputTokens() > 0) {
-                        recordUsage(tenantId, conv.getAgentId(), usedModel.get(),
+                        recordUsage(tenantId, conv.getAgentId(), conv.getUserId(), usedModel.get(),
                                 review.inputTokens(), review.outputTokens(), 0, 0, 0, "self-correction");
                     }
                     boolean changed = review.revised() != null && !review.revised().isBlank()
@@ -411,7 +412,7 @@ public class ChatStreamService {
                 memoryExtractionService.extractAsync(tenantId, conv.getUserId(), conv.getAgentId(),
                         usedModel.get(), userMsg.getContent(), ai.getContent());
             }
-            recordUsage(tenantId, conv.getAgentId(), usedModel.get(), tokens[0], tokens[1],
+            recordUsage(tenantId, conv.getAgentId(), conv.getUserId(), usedModel.get(), tokens[0], tokens[1],
                     usageExtras[0], usageExtras[1], usageExtras[2], source);
             liveState.finish(conv.getId(), traceId, ai.getContent(), ai.getStatus(), ai.getId(),
                     tokens[0], tokens[1], citations);
@@ -486,7 +487,7 @@ public class ChatStreamService {
                                 ai.setTokens((int) (tokens[0] + tokens[1]));
                                 messageMapper.insert(ai);
                                 conversationService.touch(conv.getId());
-                                recordUsage(tenantId, conv.getAgentId(), usedModel.get(), tokens[0], tokens[1],
+                                recordUsage(tenantId, conv.getAgentId(), conv.getUserId(), usedModel.get(), tokens[0], tokens[1],
                                         usageExtras[0], usageExtras[1], usageExtras[2], source);
                                 liveState.finish(conv.getId(), traceId, acc.toString(), "STOPPED", ai.getId(),
                                         tokens[0], tokens[1], citations);
@@ -567,7 +568,7 @@ public class ChatStreamService {
                     ai.setTokens((int) (tokens[0] + tokens[1]));
                     messageMapper.insert(ai);
                     conversationService.touch(conv.getId());
-                    recordUsage(tenantId, conv.getAgentId(), usedModel.get(), tokens[0], tokens[1],
+                    recordUsage(tenantId, conv.getAgentId(), conv.getUserId(), usedModel.get(), tokens[0], tokens[1],
                             usageExtras[0], usageExtras[1], usageExtras[2], source);
                     liveState.finish(conv.getId(), traceId, acc.toString(), "STOPPED", ai.getId(),
                             tokens[0], tokens[1], citations);
@@ -701,7 +702,7 @@ public class ChatStreamService {
                     current = review.revised();
                 }
                 if (review.inputTokens() > 0 || review.outputTokens() > 0) {
-                    recordUsage(tenantId, conv.getAgentId(), usedModel,
+                    recordUsage(tenantId, conv.getAgentId(), conv.getUserId(), usedModel,
                             review.inputTokens(), review.outputTokens(), 0, 0, 0, "self-correction");
                 }
                 steps.add("chain", "self-correction", "SUCCESS", reviewStart,
@@ -745,7 +746,7 @@ public class ChatStreamService {
             memoryExtractionService.extractAsync(tenantId, conv.getUserId(), conv.getAgentId(),
                     usedModel, userMsg.getContent(), ai.getContent());
         }
-        recordUsage(tenantId, conv.getAgentId(), usedModel, in, out,
+        recordUsage(tenantId, conv.getAgentId(), conv.getUserId(), usedModel, in, out,
                 metrics.cachedInputTokens(), metrics.cacheWriteTokens(), metrics.reasoningTokens(), source);
         steps.add("chain", "persist", "SUCCESS", persistStart, System.currentTimeMillis(),
                 java.util.Map.of("messageId", ai.getId()));
@@ -1024,10 +1025,11 @@ public class ChatStreamService {
         }
     }
 
-    private void recordUsage(Long tenantId, Long agentId, String modelName, long in, long out,
+    private void recordUsage(Long tenantId, Long agentId, Long userId, String modelName, long in, long out,
                              long cached, long cacheWrite, long reasoning, String source) {
         BillingUsage u = new BillingUsage();
         u.setTenantId(tenantId);
+        u.setUserId(userId);
         u.setAgentId(agentId);
         u.setSource(source == null || source.isBlank() ? "chat" : source);
         u.setModelName(modelName);

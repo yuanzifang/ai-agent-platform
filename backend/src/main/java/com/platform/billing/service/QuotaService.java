@@ -46,6 +46,7 @@ public class QuotaService {
     private final BillingAccountMapper accountMapper;
     private final com.platform.system.service.AlertWebhookService alertWebhook;
     private final SysUserMapper userMapper;
+    private final com.platform.system.mapper.UserQuotaMapper userQuotaMapper;
     private final MailService mailService;
     private final StringRedisTemplate redis;
     private final MeterRegistry meterRegistry;
@@ -88,7 +89,37 @@ public class QuotaService {
         alertQuota("每日Token", used, max);
     }
 
-    /** 预付费余额阻断：仅当租户发生过充值（account 存在）且可用余额 <= 0 时阻断。
+    /**
+     * 人员维度配额：每日 Token 上限 + 本月消费上限；未配置/disabled 时不限制。
+     * 只校验已发生用量与本次预估，成本估算仍由租户余额/模型计价负责。
+     */
+    public void checkUserQuota(Long userId, long estimatedTokens) {
+        if (userId == null) return;
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null) return;
+        com.platform.system.entity.UserQuota q = userQuotaMapper.selectOne(
+                new LambdaQueryWrapper<com.platform.system.entity.UserQuota>()
+                        .eq(com.platform.system.entity.UserQuota::getTenantId, tenantId)
+                        .eq(com.platform.system.entity.UserQuota::getUserId, userId));
+        if (q == null || (q.getEnabled() != null && q.getEnabled() == 0)) return;
+        if (q.getDailyTokenLimit() != null && q.getDailyTokenLimit() > 0) {
+            long used = usageMapper.sumTokensTodayByUser(userId);
+            long max = q.getDailyTokenLimit();
+            if (used >= max || used + Math.max(estimatedTokens, 0) > max) {
+                throw new BusinessException(429, "个人今日 Token 配额不足（已用 " + used + "/" + max + "），请联系管理员调整");
+            }
+        }
+        if (q.getMonthlyCostLimit() != null && q.getMonthlyCostLimit().signum() > 0) {
+            java.math.BigDecimal used = usageMapper.sumMonthCostByUser(userId,
+                    LocalDate.now().withDayOfMonth(1));
+            if (used.compareTo(q.getMonthlyCostLimit()) >= 0) {
+                throw new BusinessException(429, "个人本月消费配额已用尽（" + used + "/"
+                        + q.getMonthlyCostLimit() + "），请联系管理员调整");
+            }
+        }
+    }
+
+        /** 预付费余额阻断：仅当租户发生过充值（account 存在）且可用余额 <= 0 时阻断。
      * 成本用 SQL 聚合（曾全表拉取到内存求和，量级增长后拖垮每次对话）。 */
     public void checkBalance() {
         Long tenantId = TenantContext.getTenantId();

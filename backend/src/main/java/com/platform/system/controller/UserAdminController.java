@@ -53,6 +53,24 @@ public class UserAdminController {
         return ApiResponse.ok();
     }
 
+    /** 成员配额读取（评审：人员维度 Token/金额上限）。 */
+    @GetMapping("/users/{id}/quota")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('user:manage')")
+    public ApiResponse<Map<String, Object>> userQuota(@PathVariable Long id,
+                                                      @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(userAdminService.userQuota(id, principal));
+    }
+
+    /** 成员配额保存（部分更新：null 项清除限制）。 */
+    @PutMapping("/users/{id}/quota")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('user:manage')")
+    public ApiResponse<Void> saveUserQuota(@PathVariable Long id,
+                                           @RequestBody Map<String, Object> req,
+                                           @AuthenticationPrincipal JwtPrincipal principal) {
+        userAdminService.saveUserQuota(id, req, principal);
+        return ApiResponse.ok();
+    }
+
     @PostMapping("/auth/invitations")
     @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('user:manage')")
     public ApiResponse<Map<String, Object>> invite(@Valid @RequestBody InviteRequest req,

@@ -16,6 +16,7 @@ public class BillingUsage {
     private Long id;
     private Long tenantId;
     private Long agentId;
+    private Long userId;
     private Long knowledgeBaseId;
     private String source;   // chat / debug / intelligent / scheduled / embedding / eval
     private String modelName;

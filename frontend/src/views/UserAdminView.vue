@@ -24,7 +24,7 @@
         <el-table-column :label="t('userAdmin.lastLogin')" width="150">
           <template #default="{ row }">{{ fmt(row.lastLoginAt) }}</template>
         </el-table-column>
-        <el-table-column :label="t('userAdmin.actions')" width="210">
+        <el-table-column :label="t('userAdmin.actions')" width="300">
           <template #default="{ row }">
             <template v-if="row.id === editingId">
               <el-button size="small" type="primary" @click="saveRoles(row)">{{ t('userAdmin.save') }}</el-button>
@@ -32,6 +32,7 @@
             </template>
             <template v-else>
               <el-button size="small" @click="startEdit(row)">{{ t('userAdmin.adjustRole') }}</el-button>
+              <el-button size="small" text type="primary" @click="openQuota(row)">{{ t('userAdmin.quota') }}</el-button>
               <el-button size="small" text type="danger" @click="removeMember(row)">{{ t('userAdmin.remove') }}</el-button>
             </template>
           </template>
@@ -61,6 +62,25 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-dialog v-model="quotaVisible" :title="t('userAdmin.quotaTitle')" width="460px">
+      <el-form label-width="150px">
+        <el-form-item :label="t('userAdmin.dailyTokenLimit')">
+          <el-input-number v-model="quotaForm.dailyTokenLimit" :min="0" :step="100000" style="width: 100%" />
+        </el-form-item>
+        <el-form-item :label="t('userAdmin.monthlyCostLimit')">
+          <el-input-number v-model="quotaForm.monthlyCostLimit" :min="0" :precision="2" :step="10" style="width: 100%" />
+        </el-form-item>
+        <el-form-item :label="t('userAdmin.quotaEnabled')">
+          <el-switch v-model="quotaForm.enabled" />
+        </el-form-item>
+        <div class="hint">{{ t('userAdmin.quotaHint') }}</div>
+      </el-form>
+      <template #footer>
+        <el-button @click="quotaVisible = false">{{ t('userAdmin.cancel') }}</el-button>
+        <el-button type="primary" :loading="quotaSaving" @click="saveQuota">{{ t('userAdmin.save') }}</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="inviteVisible" :title="t('userAdmin.inviteTitle')" width="460px">
       <el-form label-width="90px">
@@ -95,6 +115,12 @@ const editingId = ref<number | null>(null)
 const editingRoles = ref<string[]>([])
 const inviteVisible = ref(false)
 const inviteForm = reactive({ email: '', role: 'MEMBER' })
+const quotaVisible = ref(false)
+const quotaSaving = ref(false)
+const quotaUser = ref<any>(null)
+const quotaForm = reactive<{ dailyTokenLimit: number | null; monthlyCostLimit: number | null; enabled: boolean }>({
+  dailyTokenLimit: null, monthlyCostLimit: null, enabled: true
+})
 const editableRoles = ['ADMIN', 'EDITOR', 'MEMBER', 'RESTRICTED']
 
 onMounted(load)
@@ -114,6 +140,31 @@ async function saveRoles(row: any) {
   ElMessage.success(t('userAdmin.rolesUpdated'))
   editingId.value = null
   await load()
+}
+
+async function openQuota(row: any) {
+  quotaUser.value = row
+  const q = await http.get(`/users/${row.id}/quota`) as any
+  quotaForm.dailyTokenLimit = q.dailyTokenLimit ?? null
+  quotaForm.monthlyCostLimit = q.monthlyCostLimit ?? null
+  quotaForm.enabled = q.enabled !== false
+  quotaVisible.value = true
+}
+
+async function saveQuota() {
+  if (!quotaUser.value) return
+  quotaSaving.value = true
+  try {
+    await http.put(`/users/${quotaUser.value.id}/quota`, {
+      dailyTokenLimit: quotaForm.dailyTokenLimit || null,
+      monthlyCostLimit: quotaForm.monthlyCostLimit || null,
+      enabled: quotaForm.enabled
+    })
+    ElMessage.success(t('userAdmin.quotaSaved'))
+    quotaVisible.value = false
+  } finally {
+    quotaSaving.value = false
+  }
 }
 
 async function removeMember(row: any) {
@@ -147,6 +198,7 @@ function statusText(s: string) {
 </script>
 
 <style scoped>
+.hint { color: #909399; font-size: 12px; line-height: 1.5; }
 .page { max-width: 1100px; margin: 0 auto; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .page-title { font-size: 16px; font-weight: 600; }
