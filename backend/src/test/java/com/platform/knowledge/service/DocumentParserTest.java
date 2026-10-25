@@ -2060,6 +2060,30 @@ class DocumentParserTest {
     }
 
     @Test
+    void ocrTextProvidesChartEvidence() throws Exception {
+        Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过图表 OCR 证据");
+        BufferedImage image = new BufferedImage(500, 160, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, 500, 160);
+            g.setColor(Color.BLACK);
+            g.setFont(new Font("SansSerif", Font.PLAIN, 56));
+            g.drawString("1999", 60, 100);
+        } finally {
+            g.dispose();
+        }
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", png);
+        ParseOptions opts = new ParseOptions(true, "tesseract", "eng", 150, 20,
+                false, "", "", 3);
+
+        String text = parser.ocrText(png.toByteArray(), "png", opts);
+
+        assertTrue(text.contains("1999"), "图表 OCR 证据应包含数值，实际=" + text);
+    }
+
+    @Test
     void parsesEncryptedPdfWithPassword() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {

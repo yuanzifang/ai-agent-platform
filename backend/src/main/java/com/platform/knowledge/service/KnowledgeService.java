@@ -759,9 +759,18 @@ public class KnowledgeService {
                         if (chart != null) {
                             ChartDataValidator.CrossCheck cross =
                                     ChartDataValidator.crossCheck(chart, chartEvidence);
+                            String evidenceSource = "document_text";
+                            if (!"verified".equals(cross.status()) && parseOptions.ocrEnabled()) {
+                                String imageOcr = parser.ocrText(image.data(), image.extension(), parseOptions);
+                                if (imageOcr != null && !imageOcr.isBlank()) {
+                                    cross = ChartDataValidator.crossCheck(chart,
+                                            chartEvidence + "\n" + imageOcr);
+                                    evidenceSource = "document_text+ocr";
+                                }
+                            }
                             ObjectNode enriched = ((ObjectNode) chart).deepCopy();
                             enriched.put("validationStatus", cross.status());
-                            enriched.put("validationSource", "document_text");
+                            enriched.put("validationSource", evidenceSource);
                             enriched.put("validationChecked", cross.checked());
                             enriched.put("validationMissing", cross.missing());
                             if ("conflict".equals(cross.status())) enriched.put("confidence", "low");

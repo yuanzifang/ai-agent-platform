@@ -897,6 +897,28 @@ public class DocumentParser {
         return sb.toString();
     }
 
+    /** 图表交叉校验用 OCR：只读取图片文字，不返回表格结构；失败时返回空串。 */
+    public String ocrText(byte[] bytes, String extension, ParseOptions options) {
+        if (bytes == null || bytes.length == 0 || options == null || !options.ocrEnabled()) return "";
+        optsHolder.set(options);
+        Path temp = null;
+        try {
+            String ext = extension == null || extension.isBlank() ? "png" : extension.toLowerCase(Locale.ROOT);
+            if (!ext.startsWith(".")) ext = "." + ext;
+            temp = Files.createTempFile("kb-chart-ocr-", ext);
+            Files.write(temp, bytes);
+            return runOcr(temp);
+        } catch (Exception e) {
+            log.debug("图表 OCR 交叉校验失败（忽略）：{}", e.getMessage());
+            return "";
+        } finally {
+            if (temp != null) {
+                try { Files.deleteIfExists(temp); } catch (Exception ignored) { }
+            }
+            optsHolder.remove();
+        }
+    }
+
     private String ocrImage(byte[] bytes, String lower) throws Exception {
         if (!ocrEnabled) {
             throw new BusinessException(422, "图片解析需要启用 OCR（knowledge.ocr.enabled=true）");
