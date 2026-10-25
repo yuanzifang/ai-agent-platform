@@ -363,7 +363,9 @@ public class DocumentParser {
             StringBuilder sb = new StringBuilder(new PDFTextStripper().getText(doc));
             appendPdfMetadata(doc, sb);
             String rectTables = PdfRectangleTableExtractor.extract(doc);
-            String tables = rectTables.isBlank() ? PdfTableExtractor.extract(doc) : rectTables;
+            String gridTables = rectTables.isBlank() ? PdfGridLineTableExtractor.extract(doc) : "";
+            String tables = !rectTables.isBlank() ? rectTables
+                    : !gridTables.isBlank() ? gridTables : PdfTableExtractor.extract(doc);
             if (!tables.isBlank()) sb.append("\n").append(tables).append('\n');
             appendPdfFormsAndAnnotations(doc, sb);
             appendPdfOutlineAndLinks(doc, sb);

@@ -1727,6 +1727,55 @@ class DocumentParserTest {
     }
 
     @Test
+    void parsesPdfLineGridTableSpans() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setLineWidth(1f);
+                float[] xs = {50, 200, 300, 420};
+                for (int i = 0; i < 4; i++) {
+                    float x = xs[i];
+                    content.moveTo(x, 610);
+                    content.lineTo(x, i == 0 || i == 3 ? 730 : 700);
+                    content.stroke();
+                }
+                for (float y : new float[]{730, 700, 670, 610}) {
+                    content.moveTo(50, y);
+                    content.lineTo(420, y);
+                    content.stroke();
+                }
+                // Fruit 首列跨两行：第 2/3 行之间首列不画分隔线
+                content.moveTo(200, 640);
+                content.lineTo(420, 640);
+                content.stroke();
+
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                String[][] texts = {
+                        {"Product", "60", "710"}, {"Sales", "220", "710"},
+                        {"Water", "60", "680"}, {"10", "210", "680"}, {"20", "310", "680"},
+                        {"Fruit", "60", "650"}, {"Apple", "210", "650"}, {"10x", "310", "650"},
+                        {"Pear", "210", "620"}, {"12x", "310", "620"}
+                };
+                for (String[] t : texts) {
+                    content.beginText();
+                    content.newLineAtOffset(Float.parseFloat(t[1]), Float.parseFloat(t[2]));
+                    content.showText(t[0]);
+                    content.endText();
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("line-grid.pdf", pdf));
+        assertTrue(text.contains("colspan=\"2\"") && text.contains("Sales"),
+                "线条表头应输出 colspan，实际=" + text);
+        assertTrue(text.contains("rowspan=\"2\"") && text.contains("Fruit"),
+                "线条数据应输出 rowspan，实际=" + text);
+    }
+
+    @Test
     void parsesPdfMetadata() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
