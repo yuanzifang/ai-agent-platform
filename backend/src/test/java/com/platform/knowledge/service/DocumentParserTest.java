@@ -24,6 +24,9 @@ import org.apache.pdfbox.cos.COSDictionary;
 import org.apache.pdfbox.cos.COSInteger;
 import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.pdmodel.PDResources;
+import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationText;
+import org.apache.pdfbox.pdmodel.interactive.form.PDAcroForm;
+import org.apache.pdfbox.pdmodel.interactive.form.PDTextField;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.graphics.image.PDInlineImage;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
@@ -1484,6 +1487,45 @@ class DocumentParserTest {
         assertTrue(text.contains("Row 10"), "续页少量行不应丢失，实际=" + text);
         assertTrue(text.split("<table", -1).length == 2,
                 "跨页续表应合并为一个 table，实际=" + text);
+    }
+
+    @Test
+    void parsesPdfFormsAndAnnotations() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.beginText();
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 14);
+                content.newLineAtOffset(50, 760);
+                content.showText("Customer form");
+                content.endText();
+            }
+            PDAcroForm form = new PDAcroForm(doc);
+            PDResources formResources = new PDResources();
+            formResources.put(COSName.getPDFName("Helv"),
+                    new PDType1Font(Standard14Fonts.FontName.HELVETICA));
+            form.setDefaultResources(formResources);
+            doc.getDocumentCatalog().setAcroForm(form);
+            PDTextField field = new PDTextField(form);
+            field.setPartialName("customer");
+            field.setDefaultAppearance("/Helv 12 Tf 0 g");
+            field.setValue("Alice");
+            form.getFields().add(field);
+
+            PDAnnotationText note = new PDAnnotationText();
+            note.setContents("请核对金额");
+            note.setRectangle(new PDRectangle(50, 600, 100, 30));
+            page.getAnnotations().add(note);
+
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("form.pdf", pdf));
+        assertTrue(text.contains("[表单]customer: Alice"), "应提取 PDF 表单字段，实际=" + text);
+        assertTrue(text.contains("[批注]") && text.contains("请核对金额"),
+                "应提取 PDF 批注，实际=" + text);
     }
 
     @Test

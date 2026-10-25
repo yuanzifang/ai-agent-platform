@@ -359,6 +359,7 @@ public class DocumentParser {
             StringBuilder sb = new StringBuilder(new PDFTextStripper().getText(doc));
             String tables = PdfTableExtractor.extract(doc);
             if (!tables.isBlank()) sb.append("\n").append(tables).append('\n');
+            appendPdfFormsAndAnnotations(doc, sb);
             if (opts().ocrEnabled()) {
                 StringBuilder embeddedTables = new StringBuilder();
                 int count = 0;
@@ -376,6 +377,43 @@ public class DocumentParser {
                 if (!embeddedTables.isEmpty()) sb.append('\n').append(embeddedTables).append('\n');
             }
             return sb.toString();
+        }
+    }
+
+    /** PDF 表单字段/批注：表单值不进入正文文本层时，作为补充知识进入解析结果。 */
+    private void appendPdfFormsAndAnnotations(PDDocument doc, StringBuilder sb) {
+        try {
+            var acroForm = doc.getDocumentCatalog().getAcroForm();
+            if (acroForm != null) {
+                for (var field : acroForm.getFieldTree()) {
+                    try {
+                        String value = field.getValueAsString();
+                        String name = field.getFullyQualifiedName();
+                        if (name != null && value != null && !value.isBlank()) {
+                            sb.append("\n[表单]").append(name.trim()).append(": ").append(value.trim()).append('\n');
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("PDF 表单字段读取失败（忽略）：{}", e.getMessage());
+        }
+        try {
+            for (var page : doc.getPages()) {
+                for (var annotation : page.getAnnotations()) {
+                    try {
+                        String contents = annotation.getContents();
+                        if (contents == null || contents.isBlank()) continue;
+                        String subtype = annotation.getSubtype();
+                        sb.append("\n[批注]").append(subtype == null ? "ANNOTATION" : subtype)
+                                .append(": ").append(contents.trim()).append('\n');
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("PDF 批注读取失败（忽略）：{}", e.getMessage());
         }
     }
 
