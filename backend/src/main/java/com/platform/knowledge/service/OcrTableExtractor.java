@@ -1,5 +1,8 @@
 package com.platform.knowledge.service;
 
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Element;
+
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -217,16 +220,22 @@ final class OcrTableExtractor {
         List<List<String>> currRows = bodyRows(current);
         if (prevHead == null || currHead == null || prevRows == null || currRows == null) return null;
         java.util.LinkedHashMap<String, Integer> union = new java.util.LinkedHashMap<>();
+        java.util.LinkedHashMap<String, String> labels = new java.util.LinkedHashMap<>();
         for (String name : prevHead) {
             if (name == null || name.isBlank()) return null;
-            if (union.putIfAbsent(name.toLowerCase(java.util.Locale.ROOT), union.size()) != null) return null;
+            String key = name.toLowerCase(java.util.Locale.ROOT);
+            if (union.putIfAbsent(key, union.size()) != null) return null;
+            labels.putIfAbsent(key, name);
         }
         int common = 0;
         for (String name : currHead) {
             if (name == null || name.isBlank()) return null;
             String key = name.toLowerCase(java.util.Locale.ROOT);
             if (union.containsKey(key)) common++;
-            else union.put(key, union.size());
+            else {
+                union.put(key, union.size());
+                labels.putIfAbsent(key, name);
+            }
         }
         if (common < 2 || union.size() > 30) return null;
         int[] prevMap = headerMap(prevHead, union);
@@ -245,7 +254,7 @@ final class OcrTableExtractor {
         }
         html.append("<thead>\n<tr>");
         for (String name : union.keySet()) {
-            html.append("<th>").append(escape(name)).append("</th>");
+            html.append("<th>").append(escape(labels.getOrDefault(name, name))).append("</th>");
         }
         html.append("</tr>\n</thead>\n<tbody>\n");
         appendMappedRows(html, prevRows, prevMap, union.size());
@@ -287,14 +296,71 @@ final class OcrTableExtractor {
         int end = html.indexOf("</thead>", start);
         if (end < 0) return null;
         String head = html.substring(start, end);
+        if (head.contains("colspan") || head.contains("rowspan")) {
+            return headerCellsSpanAware(html);
+        }
         java.util.regex.Matcher matcher = java.util.regex.Pattern
                 .compile("<th([^>]*)>(.*?)</th>", java.util.regex.Pattern.DOTALL).matcher(head);
         List<String> cells = new ArrayList<>();
         while (matcher.find()) {
-            if (matcher.group(1).contains("colspan") || matcher.group(1).contains("rowspan")) return null;
             cells.add(unescape(matcher.group(2).trim()));
         }
         return cells.isEmpty() ? null : cells;
+    }
+
+    /** 展开 thead 的 colspan/rowspan，按最末级叶列生成唯一列键。 */
+    private static List<String> headerCellsSpanAware(String html) {
+        try {
+            Element head = Jsoup.parse(html).selectFirst("thead");
+            if (head == null) return null;
+            List<Element> rows = head.select("tr");
+            List<List<String>> grid = new ArrayList<>();
+            for (int r = 0; r < rows.size(); r++) {
+                grid.add(new ArrayList<>());
+                int col = 0;
+                for (Element cell : rows.get(r).children()) {
+                    String tag = cell.tagName();
+                    if (!"th".equals(tag) && !"td".equals(tag)) continue;
+                    while (col < grid.get(r).size() && grid.get(r).get(col) != null) col++;
+                    int colspan = Math.max(1, intAttr(cell, "colspan"));
+                    int rowspan = Math.max(1, intAttr(cell, "rowspan"));
+                    String text = cell.text().trim();
+                    for (int rr = r; rr < r + rowspan && rr < rows.size(); rr++) {
+                        while (grid.size() <= rr) grid.add(new ArrayList<>());
+                        for (int cc = col; cc < col + colspan; cc++) {
+                            while (grid.get(rr).size() <= cc) grid.get(rr).add(null);
+                            grid.get(rr).set(cc, text);
+                        }
+                    }
+                    col += colspan;
+                }
+            }
+            int columns = grid.stream().mapToInt(List::size).max().orElse(0);
+            if (columns < 2) return null;
+            List<String> keys = new ArrayList<>();
+            for (int c = 0; c < columns; c++) {
+                List<String> parts = new ArrayList<>();
+                for (List<String> row : grid) {
+                    String value = c < row.size() ? row.get(c) : null;
+                    if (value == null || value.isBlank()) continue;
+                    if (parts.isEmpty() || !parts.get(parts.size() - 1).equals(value)) parts.add(value);
+                }
+                String key = String.join(" / ", parts).trim();
+                if (key.isBlank()) return null;
+                keys.add(key);
+            }
+            return keys;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static int intAttr(Element cell, String name) {
+        try {
+            return Integer.parseInt(cell.attr(name));
+        } catch (Exception e) {
+            return 1;
+        }
     }
 
     private static List<List<String>> bodyRows(String html) {
