@@ -131,24 +131,46 @@ test('技能脚本可直跑并保存', async ({ page, request }) => {
 })
 
 test('Markdown 渲染与工具步骤卡片', async ({ page, request }) => {
+  test.setTimeout(120_000) // CI 冷启动 Vite + 两段对话，60s 全局预算不够
   await login(page)
+  const token = await tokenOf(page)
 
   // 回答内容由模型决定，E2E 只验证 Markdown 组件接入与回复落位；
   // 加粗/表格/代码块/复制按钮和 XSS 过滤由 MarkdownContent.spec.ts 单测覆盖。
-  await page.goto('/chat/1')
-  await page.waitForLoadState('networkidle')
-  const assistantCount = await page.locator('.messages .msg.assistant').count()
-  const input = page.getByPlaceholder(/输入消息/)
-  await input.fill('markdown测试')
-  await page.getByRole('button', { name: '发送' }).click()
-  await expect(page.locator('.messages .msg.assistant')).toHaveCount(assistantCount + 1,
-    { timeout: 30_000 })
-  const reply = page.locator('.messages .msg.assistant .markdown-body').last()
-  await expect(reply).toBeVisible({ timeout: 30_000 })
-  await expect(reply).not.toBeEmpty()
+  // 自建纯对话 Agent：不依赖库内已有 agent id（CI 全新库没有 id=1，曾致 404 后超时）。
+  const plainName = `E2E UI对话-${Date.now()}`
+  const plainRes = await request.post('/api/v1/agent', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      name: plainName,
+      systemPrompt: '你是测试助手。',
+      modelConfig: { modelName: 'deepseek-flash' },
+      agentCapabilities: { functionCall: false },
+      visibility: 'PRIVATE'
+    }
+  })
+  const plainBody = await plainRes.json()
+  expect(plainBody.code, JSON.stringify(plainBody)).toBe(0)
+  const plainId = plainBody.data.id as number
+  try {
+    await page.goto(`/chat/${plainId}`)
+    await page.waitForLoadState('networkidle')
+    const assistantCount = await page.locator('.messages .msg.assistant').count()
+    const input = page.getByPlaceholder(/输入消息/)
+    await input.fill('markdown测试')
+    await page.getByRole('button', { name: '发送' }).click()
+    await expect(page.locator('.messages .msg.assistant')).toHaveCount(assistantCount + 1,
+      { timeout: 30_000 })
+    const reply = page.locator('.messages .msg.assistant .markdown-body').last()
+    await expect(reply).toBeVisible({ timeout: 30_000 })
+    await expect(reply).not.toBeEmpty()
+  } finally {
+    await request.delete(`/api/v1/agent/${plainId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+  }
 
   // 工具步骤卡片：创建临时 Agent（绑定计算器）→ 发布 → 对话
-  const token = await tokenOf(page)
   const name = `E2E UI工具-${Date.now()}`
   const created = await request.post('/api/v1/agent', {
     headers: { Authorization: `Bearer ${token}` },
