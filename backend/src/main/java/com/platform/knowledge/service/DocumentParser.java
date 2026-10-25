@@ -36,7 +36,10 @@ import org.apache.poi.hslf.usermodel.HSLFSlideShow;
 import org.apache.poi.hslf.usermodel.HSLFSlide;
 import org.apache.poi.hslf.usermodel.HSLFShape;
 import org.apache.poi.hslf.usermodel.HSLFTextShape;
+import org.apache.poi.ss.util.AreaReference;
 import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.ss.util.CellReference;
+import org.apache.poi.ss.SpreadsheetVersion;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
@@ -786,7 +789,7 @@ public class DocumentParser {
                     if (drawing != null) {
                         for (XSSFChart chart : drawing.getCharts()) {
                             String title = chart.getTitleText() == null ? null : chart.getTitleText().getString();
-                            appendChart(sb, chart, title);
+                            appendChart(sb, chart, title, workbook);
                         }
                     }
                 }
@@ -795,7 +798,7 @@ public class DocumentParser {
         return sb.toString();
     }
 
-    private void appendChart(StringBuilder sb, XDDFChart chart, String title) {
+    private void appendChart(StringBuilder sb, XDDFChart chart, String title, Workbook workbook) {
         if (chart == null) return;
         StringBuilder out = new StringBuilder();
         if (title != null && !title.isBlank()) out.append("图表标题：").append(title.trim()).append("\n");
@@ -839,8 +842,50 @@ public class DocumentParser {
             log.debug("提取图表数据失败（忽略）：{}", e.getMessage());
         }
         if (totalPoints > 0 || (title != null && !title.isBlank())) {
+            String sourceCheck = validateChartSources(chart, workbook);
+            if (sourceCheck != null) out.append(sourceCheck).append("\n");
             sb.append("[图表]\n").append(out).append("\n");
         }
+    }
+
+    /** 将图表系列缓存值与源单元格逐点比对；仅在有可定位单元格时输出结果。 */
+    private String validateChartSources(XDDFChart chart, Workbook workbook) {
+        if (workbook == null) return null;
+        int checked = 0;
+        int mismatch = 0;
+        try {
+            for (XDDFChartData data : chart.getChartSeries()) {
+                for (XDDFChartData.Series series : data.getSeries()) {
+                    XDDFNumericalDataSource<? extends Number> values = series.getValuesData();
+                    if (values == null || !values.isCellRange()) continue;
+                    String reference = values.getDataRangeReference();
+                    if (reference == null || reference.isBlank()) continue;
+                    AreaReference area = new AreaReference(reference, SpreadsheetVersion.EXCEL2007);
+                    CellReference first = area.getFirstCell();
+                    CellReference last = area.getLastCell();
+                    org.apache.poi.ss.usermodel.Sheet sheet = workbook.getSheet(first.getSheetName());
+                    if (sheet == null) continue;
+                    int rows = last.getRow() - first.getRow() + 1;
+                    int cols = last.getCol() - first.getCol() + 1;
+                    int count = Math.min(values.getPointCount(), Math.min(200, rows * cols));
+                    for (int i = 0; i < count; i++) {
+                        int row = first.getRow() + i / cols;
+                        int col = first.getCol() + i % cols;
+                        org.apache.poi.ss.usermodel.Row sourceRow = sheet.getRow(row);
+                        if (sourceRow == null) continue;
+                        org.apache.poi.ss.usermodel.Cell cell = sourceRow.getCell(col);
+                        if (cell == null || cell.getCellType() != org.apache.poi.ss.usermodel.CellType.NUMERIC) continue;
+                        Number expected = values.getPointAt(i);
+                        if (expected == null) continue;
+                        checked++;
+                        if (Math.abs(expected.doubleValue() - cell.getNumericCellValue()) > 0.000001) mismatch++;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            return null;
+        }
+        return checked == 0 ? null : "[图表源校验] 已核对 " + checked + " 个点，差异 " + mismatch + " 个";
     }
 
     private boolean inMerged(Sheet sheet, int row, int col) {
@@ -886,7 +931,11 @@ public class DocumentParser {
                 for (var relation : slide.getRelations()) {
                     if (relation instanceof XSLFChart chart) {
                         String title = chart.getTitleShape() == null ? null : chart.getTitleShape().getText();
-                        appendChart(sb, chart, title);
+                        try {
+                            appendChart(sb, chart, title, chart.getWorkbook());
+                        } catch (Exception ignored) {
+                            appendChart(sb, chart, title, null);
+                        }
                     }
                 }
                 for (XSLFShape shape : slide.getShapes()) {

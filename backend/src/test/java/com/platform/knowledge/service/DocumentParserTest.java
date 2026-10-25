@@ -2499,6 +2499,8 @@ class DocumentParserTest {
         assertTrue(text.contains("月度销量"), "应包含图表标题");
         assertTrue(text.contains("一月"), "应包含类目");
         assertTrue(text.contains("10"), "应包含数值");
+        assertTrue(text.contains("[图表源校验]") && text.contains("差异 0"),
+                "图表值应与源单元格逐点一致，实际=" + text);
     }
 
     @Test
