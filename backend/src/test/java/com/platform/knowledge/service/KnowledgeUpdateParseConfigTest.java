@@ -1,6 +1,9 @@
 package com.platform.knowledge.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.platform.agent.mapper.AgentKnowledgeBaseMapper;
 import com.platform.agent.mapper.AgentRegistryMapper;
@@ -48,6 +51,11 @@ class KnowledgeUpdateParseConfigTest {
 
     @BeforeEach
     void setUp() {
+        // LambdaUpdateWrapper 解析列名需要实体 TableInfo 缓存
+        MapperBuilderAssistant assistant =
+                new MapperBuilderAssistant(new MybatisConfiguration(), "");
+        TableInfoHelper.initTableInfo(assistant, KnowledgeBase.class);
+
         kbMapper = mock(KnowledgeBaseMapper.class);
         com.platform.knowledge.mapper.KnowledgeDocumentMapper docMapper =
                 mock(com.platform.knowledge.mapper.KnowledgeDocumentMapper.class);
@@ -94,7 +102,6 @@ class KnowledgeUpdateParseConfigTest {
                 graphService, objectMapper, permissionService, userMapper, agentKbMapper,
                 agentRegistryMapper, auditService, networkPolicy);
 
-        viewer = new com.platform.knowledge.service.KnowledgePermissionService.Viewer(2L, List.of("OWNER"));
         kb = new KnowledgeBase();
         kb.setId(161L);
         kb.setTenantId(1L);

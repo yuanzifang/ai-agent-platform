@@ -315,7 +315,9 @@ const aclForm = reactive<{ tenantVisible: boolean; users: number[] }>({ tenantVi
 // ---- 编辑/删除 ----
 const editVisible = ref(false)
 const editSaving = ref(false)
-const editForm = reactive({ name: '', description: '', graphEnabled: false })
+const editForm = reactive({
+  name: '', description: '', graphEnabled: false, parseConfig: {} as Record<string, any>
+})
 
 // ---- 权限设置 ----
 const permVisible = ref(false)
@@ -357,6 +359,7 @@ function openEdit() {
   editForm.name = detail.name
   editForm.description = detail.description || ''
   editForm.graphEnabled = detail.graphEnabled !== false
+  editForm.parseConfig = detail.parseConfig || {}
   editVisible.value = true
 }
 
@@ -365,7 +368,8 @@ async function saveEdit() {
   editSaving.value = true
   try {
     await http.put(`/knowledge-base/${kbId}`, {
-      name: editForm.name.trim(), description: editForm.description, graphEnabled: editForm.graphEnabled
+      name: editForm.name.trim(), description: editForm.description,
+      graphEnabled: editForm.graphEnabled, parseConfig: editForm.parseConfig
     })
     ElMessage.success(t('kbDetail.saved'))
     editVisible.value = false
@@ -693,5 +697,6 @@ function statusText(s: string) {
 .pct { font-size: 12px; color: #909399; width: 48px; text-align: right; }
 .hit-text { font-size: 13px; color: #303133; margin-top: 6px; white-space: pre-wrap; }
 .member-table { width: 100%; }
+.hint { color: #909399; font-size: 12px; margin-left: 8px; }
 .perm-tip { color: #909399; font-size: 12px; line-height: 20px; padding-left: 90px; }
 </style>
