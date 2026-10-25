@@ -24,6 +24,9 @@ import org.apache.pdfbox.cos.COSDictionary;
 import org.apache.pdfbox.cos.COSInteger;
 import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.pdmodel.PDResources;
+import com.platform.common.exception.BusinessException;
+import org.apache.pdfbox.pdmodel.encryption.AccessPermission;
+import org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationText;
 import org.apache.pdfbox.pdmodel.interactive.form.PDAcroForm;
 import org.apache.pdfbox.pdmodel.interactive.form.PDTextField;
@@ -58,6 +61,8 @@ import java.util.zip.ZipOutputStream;
 
 import javax.imageio.ImageIO;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DocumentParserTest {
@@ -1526,6 +1531,31 @@ class DocumentParserTest {
         assertTrue(text.contains("[表单]customer: Alice"), "应提取 PDF 表单字段，实际=" + text);
         assertTrue(text.contains("[批注]") && text.contains("请核对金额"),
                 "应提取 PDF 批注，实际=" + text);
+    }
+
+    @Test
+    void rejectsEncryptedPdfWithClearMessage() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.beginText();
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 14);
+                content.newLineAtOffset(50, 760);
+                content.showText("encrypted document");
+                content.endText();
+            }
+            StandardProtectionPolicy policy = new StandardProtectionPolicy(
+                    "owner-password", "user-password", new AccessPermission());
+            doc.protect(policy);
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> parser.parse("encrypted.pdf", pdf));
+        assertEquals(422, error.getCode());
+        assertTrue(String.valueOf(error.getMessage()).contains("加密"));
     }
 
     @Test

@@ -262,6 +262,8 @@ public class DocumentParser {
                     "不支持的格式（支持 PDF/DOC/DOCX/XLSX/XLS/PPT/PPTX/EPUB/HTML/TXT/MD/CSV/JSON/PNG/JPG）：" + fileName);
         } catch (BusinessException e) {
             throw e;
+        } catch (org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException e) {
+            throw new BusinessException(422, "PDF 已加密，请先解除密码后再上传");
         } catch (Exception e) {
             throw new BusinessException(422, "文档解析失败：" + e.getMessage());
         }
