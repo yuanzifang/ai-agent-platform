@@ -86,12 +86,12 @@ public class ImageUnderstandingService {
             if (response.statusCode() != 200) return null;
             JsonNode outer = objectMapper.readTree(response.body());
             String text = outer.path("response").asText("").trim();
+            if (text.isBlank()) text = outer.path("thinking").asText("").trim();
             if (text.startsWith("```")) {
                 int first = text.indexOf('{');
                 int last = text.lastIndexOf('}');
                 if (first >= 0 && last > first) text = text.substring(first, last + 1);
             }
-            System.out.println("[CHART-RAW] " + text);
             JsonNode dataNode = objectMapper.readTree(text);
             return dataNode.path("isChart").asBoolean(false) ? dataNode : null;
         } catch (Exception e) {
