@@ -448,6 +448,62 @@ class DocumentParserTest {
     }
 
     @Test
+    void mergesPdfCrossPageAddedColumn() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDType1Font font = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
+            PDPage first = new PDPage(PDRectangle.A4);
+            doc.addPage(first);
+            try (PDPageContentStream content = new PDPageContentStream(doc, first)) {
+                content.setFont(font, 12);
+                String[][] rows = new String[10][];
+                rows[0] = new String[]{"Product", "Price", "Qty"};
+                for (int i = 1; i <= 9; i++) {
+                    rows[i] = new String[]{"Row " + i, String.valueOf(100 + i), String.valueOf(i)};
+                }
+                float y = 780;
+                for (String[] row : rows) {
+                    float[] xs = {50, 220, 360};
+                    for (int col = 0; col < row.length; col++) {
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 60;
+                }
+            }
+            PDPage second = new PDPage(PDRectangle.A4);
+            doc.addPage(second);
+            try (PDPageContentStream content = new PDPageContentStream(doc, second)) {
+                content.setFont(font, 12);
+                String[][] rows = {
+                        {"Product", "Price", "Qty", "Discount"},
+                        {"Row 10", "110", "10", "5"}
+                };
+                float y = 800;
+                for (String[] row : rows) {
+                    float[] xs = {50, 220, 360, 500};
+                    for (int col = 0; col < row.length; col++) {
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 40;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("cross-page-added-column.pdf", pdf));
+        assertTrue(text.contains("Row 10"), "新增列续页不应丢失，实际=" + text);
+        assertTrue(text.contains("Discount"), "新增列表头应合并，实际=" + text);
+        assertTrue(text.split("<table", -1).length == 2,
+                "新增列续页应合并为一个 table，实际=" + text);
+    }
+
+    @Test
     void parsesPdfMultiLevelHeader() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {

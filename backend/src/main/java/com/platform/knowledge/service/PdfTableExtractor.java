@@ -113,11 +113,10 @@ final class PdfTableExtractor {
     private static boolean isCrossPage(Table previous, Table current, float pageHeight) {
         if (previous.lastY < previous.pageHeight * 0.65f
                 || current.firstY > pageHeight * 0.45f) return false;
-        if (anchorsOverlap(previous.anchors, current.anchors)) return true;
-        // 续页列位置整体平移但列结构一致，且重复了表头：按列序号合并。
-        return previous.anchors.size() == current.anchors.size()
-                && !previous.rows.isEmpty() && !current.rows.isEmpty()
-                && sameRow(previous.rows.get(0), current.rows.get(0));
+        if (previous.anchors.size() == current.anchors.size()
+                && anchorsOverlap(previous.anchors, current.anchors)) return true;
+        // 列位置平移或新增列：要求重复表头与共同前缀，避免把另一张表误合并。
+        return compatibleHeader(previous, current);
     }
 
     private static boolean anchorsOverlap(List<Float> left, List<Float> right) {
@@ -129,18 +128,78 @@ final class PdfTableExtractor {
     }
 
     private static void mergeContinuation(Table previous, Table current) {
-        if (!previous.rows.isEmpty() && !current.rows.isEmpty()
-                && sameRow(previous.rows.get(0), current.rows.get(0))) {
-            current.rows.remove(0);
-        }
+        LogicalRow previousHeader = previous.rows.isEmpty() ? null : previous.rows.get(0);
+        LogicalRow currentHeader = current.rows.isEmpty() ? null : current.rows.get(0);
+        boolean duplicateHeader = !previous.rows.isEmpty() && !current.rows.isEmpty()
+                && (sameRow(previousHeader, currentHeader) || compatibleHeader(previous, current));
+        if (duplicateHeader) current.rows.remove(0);
         if (!current.rows.isEmpty()) {
-            previous.rows.addAll(current.rows);
+            if (previous.anchors.size() == current.anchors.size()) {
+                previous.rows.addAll(current.rows);
+            } else {
+                List<Float> union = unionAnchors(previous.anchors, current.anchors);
+                List<LogicalRow> oldRows = remapRows(previous.rows, previous.anchors, union);
+                List<LogicalRow> newRows = remapRows(current.rows, current.anchors, union);
+                if (duplicateHeader && currentHeader != null && !oldRows.isEmpty()) {
+                    LogicalRow mappedHeader = remapRows(List.of(currentHeader), current.anchors, union).get(0);
+                    LogicalRow previousHeaderMapped = oldRows.get(0);
+                    for (int i = 0; i < union.size(); i++) {
+                        if (previousHeaderMapped.values[i] == null && mappedHeader.values[i] != null) {
+                            previousHeaderMapped.values[i] = mappedHeader.values[i];
+                        }
+                    }
+                }
+                previous.rows.clear();
+                previous.rows.addAll(oldRows);
+                previous.rows.addAll(newRows);
+                previous.anchors = union;
+            }
             previous.lastY = current.lastY;
             previous.pageHeight = current.pageHeight;
         }
         if (previous.notes.size() < 3) {
             previous.notes.addAll(current.notes.subList(0, Math.min(current.notes.size(), 3 - previous.notes.size())));
         }
+    }
+
+    private static List<Float> unionAnchors(List<Float> left, List<Float> right) {
+        List<Float> union = new ArrayList<>(left);
+        for (Float anchor : right) {
+            if (union.stream().noneMatch(existing -> Math.abs(existing - anchor) <= ALIGN_TOLERANCE)) {
+                union.add(anchor);
+            }
+        }
+        union.sort(Float::compare);
+        return union;
+    }
+
+    private static List<LogicalRow> remapRows(List<LogicalRow> rows, List<Float> source, List<Float> target) {
+        List<LogicalRow> remapped = new ArrayList<>();
+        for (LogicalRow row : rows) {
+            LogicalRow copy = new LogicalRow(row.lastY, row.height, target.size());
+            for (int i = 0; i < source.size() && i < row.values.length; i++) {
+                if (row.values[i] == null) continue;
+                int column = nearestAnchor(target, source.get(i));
+                copy.values[column] = copy.values[column] == null
+                        ? row.values[i] : copy.values[column] + " " + row.values[i];
+            }
+            remapped.add(copy);
+        }
+        return remapped;
+    }
+
+    private static boolean compatibleHeader(Table previous, Table current) {
+        if (previous.rows.isEmpty() || current.rows.isEmpty()) return false;
+        LogicalRow left = previous.rows.get(0);
+        LogicalRow right = current.rows.get(0);
+        int common = Math.min(left.values.length, right.values.length);
+        if (common < 2) return false;
+        for (int i = 0; i < common; i++) {
+            String a = left.values[i] == null ? "" : left.values[i].trim();
+            String b = right.values[i] == null ? "" : right.values[i].trim();
+            if (!a.equalsIgnoreCase(b)) return false;
+        }
+        return true;
     }
 
     private static boolean sameRow(LogicalRow left, LogicalRow right) {
@@ -523,7 +582,7 @@ final class PdfTableExtractor {
 
     private static final class Table {
         private final List<LogicalRow> rows;
-        private final List<Float> anchors;
+        private List<Float> anchors;
         private final float firstY;
         private float lastY;
         private float pageHeight;
