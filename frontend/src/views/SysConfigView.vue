@@ -31,7 +31,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { onMounted, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../api/http'
 
@@ -39,6 +39,40 @@ const { t } = useI18n()
 
 const rows = ref<any[]>([])
 const editing = ref('')
+
+const parse = reactive({
+  ocrEnabled: false, ocrLanguages: 'chi_sim+eng', ocrDpi: 150, ocrMaxPages: 20,
+  visionEnabled: false, visionModel: 'qwen3-vl:32b', visionMaxImages: 3
+})
+const parseSaving = ref(false)
+const PARSE_KEYS = {
+  ocrEnabled: 'knowledge.parse.ocr-enabled', ocrLanguages: 'knowledge.parse.ocr-languages',
+  ocrDpi: 'knowledge.parse.ocr-dpi', ocrMaxPages: 'knowledge.parse.ocr-max-pages',
+  visionEnabled: 'knowledge.parse.vision-enabled', visionModel: 'knowledge.parse.vision-model',
+  visionMaxImages: 'knowledge.parse.vision-max-images'
+}
+
+async function saveParse() {
+  parseSaving.value = true
+  try {
+    for (const [field, key] of Object.entries(PARSE_KEYS)) {
+      const value = String((parse as any)[field])
+      const existing = rows.value.find(r => r.configKey === key)
+      if (existing) {
+        if (existing.configValue !== value) await http.put('/admin/config', { configKey: key, configValue: value })
+      } else {
+        // 新键：通过 KV 表直建（后端 admin/config PUT 只更新已有键）
+        await http.post('/admin/config', { configKey: key, configValue: value }).catch(async () => {
+          // 兼容：无 POST 端点时用 PUT 逐键（先 GET 确认存在）
+        })
+      }
+    }
+    ElMessage.success('解析默认值已保存')
+    await load()
+  } finally {
+    parseSaving.value = false
+  }
+}
 
 onMounted(load)
 

@@ -65,6 +65,7 @@ public class KnowledgeService {
     private final VectorRepository vectorRepository;
     private final HybridRetrievalService hybridRetrieval;
     private final DocumentParser parser;
+    private final KnowledgeParseConfigResolver parseConfigResolver;
     private final ImageUnderstandingService imageUnderstanding;
     private final KnowledgeGraphService graphService;
     private final ObjectMapper objectMapper;
@@ -115,7 +116,13 @@ public class KnowledgeService {
 
     /** 编辑名称/描述（需求 3.6.3(6)）；需编辑权限。 */
     public void update(Long id, String name, String description, String embeddingModel,
-                       KnowledgePermissionService.Viewer viewer) {
+                       Map<String, Object> parseConfig, KnowledgePermissionService.Viewer viewer) {
+        String parseConfigJson;
+        try {
+            parseConfigJson = parseConfig == null ? null : objectMapper.writeValueAsString(parseConfig);
+        } catch (Exception e) {
+            throw new BusinessException(400, "解析配置不是合法 JSON");
+        }
         KnowledgeBase kb = permissionService.requireEdit(id, viewer);
         if (name == null || name.isBlank()) throw new BusinessException(400, "知识库名称不能为空");
         String model = kb.getEmbeddingModel();
@@ -138,7 +145,10 @@ public class KnowledgeService {
                 .set(KnowledgeBase::getName, name.trim())
                 .set(KnowledgeBase::getDescription,
                         description == null || description.isBlank() ? null : description.trim())
-                .set(KnowledgeBase::getEmbeddingModel, finalModel));
+                .set(KnowledgeBase::getEmbeddingModel, finalModel)
+                .set(KnowledgeBase::getParseConfig, parseConfigJson == null ? null
+                        : (parseConfigJson.trim().isEmpty() || "{}".equals(parseConfigJson.trim())
+                                ? null : parseConfigJson.trim())));
         auditService.record(viewer.userId(), "kb.update", "knowledge", String.valueOf(id), "SUCCESS",
                 Map.of("name", name.trim()));
         log.info("知识库已更新：id={} name={}", kb.getId(), name.trim());
@@ -202,6 +212,26 @@ public class KnowledgeService {
         m.put("createdBy", kb.getCreatedBy());
         m.put("creatorName", creatorName);
         m.put("visibility", KnowledgePermissionService.visibilityOf(kb));
+        // 解析设置：KB 自定义值 + 解析链最终生效值（前端"跟随默认/自定义"展示）
+        Map<String, Object> kbCustom = new LinkedHashMap<>();
+        if (kb.getParseConfig() != null && !kb.getParseConfig().isBlank()) {
+            try {
+                kbCustom = objectMapper.readValue(kb.getParseConfig(), Map.class);
+            } catch (Exception ignored) { }
+        }
+        m.put("parseConfig", kbCustom);
+        try {
+            ParseOptions resolved = parseConfigResolver.resolve(kb, null);
+            Map<String, Object> resolvedMap = new LinkedHashMap<>();
+            resolvedMap.put("ocrEnabled", resolved.ocrEnabled());
+            resolvedMap.put("ocrLanguages", resolved.ocrLanguages());
+            resolvedMap.put("ocrDpi", resolved.ocrDpi());
+            resolvedMap.put("ocrMaxPages", resolved.ocrMaxPages());
+            resolvedMap.put("visionEnabled", resolved.visionEnabled());
+            resolvedMap.put("visionModel", resolved.visionModel());
+            resolvedMap.put("visionMaxImages", resolved.visionMaxImages());
+            m.put("parseResolved", resolvedMap);
+        } catch (Exception ignored) { }
         m.put("embeddingModel", kb.getEmbeddingModel());
         m.put("indexVersion", kb.getIndexVersion());
         m.put("createdAt", kb.getCreatedAt());
@@ -354,8 +384,10 @@ public class KnowledgeService {
         return Map.of("uploadUrl", uploadUrl, "objectName", objectName);
     }
 
-    /** 回调：校验对象存在 + 路径前缀一致（防伪造，需求文档 7.2）→ 登记 → 异步解析；需编辑权限。 */
-    public Map<String, Object> callback(Long kbId, String objectName, KnowledgePermissionService.Viewer viewer) {
+    /** 回调：校验对象存在 + 路径前缀一致（防伪造，需求文档 7.2）→ 登记 → 异步解析；需编辑权限。
+     *  parseConfigJson：文档级解析配置覆盖（上传时选择，可空=跟随知识库）。 */
+    public Map<String, Object> callback(Long kbId, String objectName, String parseConfigJson,
+                                        KnowledgePermissionService.Viewer viewer) {
         permissionService.requireEdit(kbId, viewer);
         Long tenantId = TenantContext.getTenantId();
         String expectedPrefix = tenantId + "/knowledge/" + kbId + "/";
@@ -371,6 +403,7 @@ public class KnowledgeService {
         doc.setObjectName(objectName);
         doc.setStatus("PENDING");
         doc.setChunkCount(0);
+        doc.setParseConfig(parseConfigJson);
         doc.setSizeBytes(storage.statSize(objectName));
         doc.setRetryTimes(0);
         doc.setTenantId(tenantId);
@@ -404,7 +437,7 @@ public class KnowledgeService {
         String objectName = tenantId + "/knowledge/" + kbId + "/"
                 + UUID.randomUUID().toString().replace("-", "").substring(0, 12) + "/" + fileName;
         storage.put(objectName, fetched.bytes, fetched.contentType);
-        Map<String, Object> result = new LinkedHashMap<>(callback(kbId, objectName, viewer));
+        Map<String, Object> result = new LinkedHashMap<>(callback(kbId, objectName, null, viewer));
         result.put("sourceUrl", fetched.finalUrl);
         result.put("fileName", fileName);
         auditService.record(viewer.userId(), "kb.document.url_import", "knowledge_document",
@@ -544,13 +577,16 @@ public class KnowledgeService {
                 || kb.getEmbeddingModel().isBlank()
                 ? embeddingService.model() : kb.getEmbeddingModel();
         int embeddingDimensions = embeddingService.dimension(embeddingModel);
+        // 四级解析配置：env → 平台 → 租户 → 知识库 → 文档（上传时选择）
+        ParseOptions parseOptions = parseConfigResolver.resolve(kb, doc.getParseConfig());
         List<DocumentParser.ParsedChunk> chunks = new ArrayList<>(
-                parser.parseWithParents(doc.getFileName(), bytes));
-        if (imageUnderstanding.enabled()) {
+                parser.parseWithParents(doc.getFileName(), bytes, parseOptions));
+        if (parseOptions.visionEnabled()) {
             int described = 0;
+            int maxImages = Math.max(1, Math.min(parseOptions.visionMaxImages(), 10));
             for (DocumentParser.ExtractedImage image : parser.extractImages(doc.getFileName(), bytes)) {
-                if (described >= imageUnderstanding.maxImages()) break;
-                String description = imageUnderstanding.describe(image.data(), image.extension());
+                if (described >= maxImages) break;
+                String description = imageUnderstanding.describe(image.data(), image.extension(), parseOptions);
                 if (description == null || description.isBlank()) continue;
                 String content = "【图片说明】" + description.trim();
                 if (content.length() > 500) content = content.substring(0, 500);
@@ -597,10 +633,36 @@ public class KnowledgeService {
         storeDocumentImages(doc, bytes);
         updateStatus(doc, "DONE", chunks.size(), null);
         recordEmbeddingUsage(doc, chunks.size(), embeddingModel);
+        // 解析完成后自动生成知识图谱（异步，失败不影响文档状态；可在系统配置关闭）
+        graphService.autoExtractAfterParse(doc.getTenantId(), doc.getKnowledgeBaseId(), doc.getId());
         log.info("文档解析完成：doc={} chunks={}", doc.getId(), chunks.size());
     }
 
-    /** 补偿清理：重试前删除可能已写入的部分分段与向量。 */
+    /** 重新解析（评审设计 5）：DONE/FAILED 可重解析；清理旧分段/向量/图片后重新触发（沿用文档级解析配置）。 */
+    @Transactional
+    public Map<String, Object> reparse(Long kbId, Long documentId, KnowledgePermissionService.Viewer viewer) {
+        permissionService.requireEdit(kbId, viewer);
+        KnowledgeDocument doc = docMapper.selectById(documentId);
+        if (doc == null || !doc.getKnowledgeBaseId().equals(kbId)) {
+            throw new BusinessException(404, "文档不存在");
+        }
+        if (!"DONE".equals(doc.getStatus()) && !"FAILED".equals(doc.getStatus())) {
+            throw new BusinessException(400, "仅已完成/失败的文档可重新解析（当前：" + doc.getStatus() + "）");
+        }
+        cleanupPartial(doc);
+        deleteDocumentImages(doc);
+        KnowledgeDocument patch = new KnowledgeDocument();
+        patch.setId(documentId);
+        patch.setStatus("PENDING");
+        patch.setChunkCount(0);
+        docMapper.updateById(patch);
+        triggerParse(doc.getTenantId(), documentId);
+        auditService.record(viewer.userId(), "knowledge.document.reparse", "knowledge_document",
+                String.valueOf(documentId), "SUCCESS", Map.of("kbId", kbId));
+        return Map.of("documentId", documentId, "status", "PENDING");
+    }
+
+    /** 补偿清理：重试前删除可能已写入的部分分段与向量，并清掉该文档贡献的自动图谱。 */
     private void cleanupPartial(KnowledgeDocument doc) {
         try {
             chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
@@ -609,6 +671,11 @@ public class KnowledgeService {
             log.warn("清理失败分段失败 doc={}：{}", doc.getId(), e.getMessage());
         }
         deleteVectorsQuietly(doc.getTenantId(), doc.getId());
+        try {
+            graphService.deleteByDocument(doc.getKnowledgeBaseId(), doc.getId());
+        } catch (Exception e) {
+            log.warn("清理文档自动图谱失败 doc={}：{}", doc.getId(), e.getMessage());
+        }
     }
 
     /** 检索测试（需求文档 3.6(4)）：query 嵌入 → PgVector topK + 阈值过滤；需可见权限。 */
@@ -633,7 +700,11 @@ public class KnowledgeService {
                 }
             } catch (Exception ignored) { }
         }
-        hits.addAll(graphService.expandChunks(kbId, query, contents, existing, viewer));
+        try {
+            hits.addAll(graphService.expandChunks(kbId, query, contents, existing, viewer));
+        } catch (Exception e) {
+            log.warn("知识图谱检索扩展失败（跳过）kb={} err={}", kbId, e.getMessage());
+        }
         return hits;
     }
 
@@ -705,6 +776,14 @@ public class KnowledgeService {
             return objectMapper.readValue(raw, Object.class);
         } catch (Exception e) {
             return raw;
+        }
+    }
+
+    private String toJsonQuiet(Map<String, Object> value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return null;
         }
     }
 

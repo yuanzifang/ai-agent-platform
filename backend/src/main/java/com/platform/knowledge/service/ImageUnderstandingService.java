@@ -33,7 +33,7 @@ public class ImageUnderstandingService {
     @Value("${knowledge.vision.model:qwen3-vl:32b}")
     private String model;
 
-    @Value("${knowledge.vision.timeout-seconds:180}")
+    @Value("${knowledge.vision.timeout-seconds:600}")
     private int timeoutSeconds;
 
     @Value("${knowledge.vision.max-images:3}")
@@ -57,10 +57,18 @@ public class ImageUnderstandingService {
 
     /** 返回空串表示未启用或失败；调用方按空描述跳过。 */
     public String describe(byte[] data, String extension) {
-        if (!enabled || data == null || data.length == 0) return "";
+        return describe(data, extension, null);
+    }
+
+    /** 支持解析级覆盖（知识库/文档解析设置）：覆盖启用开关/模型；endpoint 仅平台级不开放覆盖。 */
+    public String describe(byte[] data, String extension, ParseOptions overrides) {
+        boolean effEnabled = overrides != null ? overrides.visionEnabled() : enabled;
+        String effModel = overrides != null && overrides.visionModel() != null && !overrides.visionModel().isBlank()
+                ? overrides.visionModel() : model;
+        if (!effEnabled || data == null || data.length == 0) return "";
         try {
             Map<String, Object> body = new LinkedHashMap<>();
-            body.put("model", model);
+            body.put("model", effModel);
             body.put("prompt", "请先判断图片类型：只有明显存在坐标轴、图例或数据系列时才归为图表；"
                     + "风景、人物、物体、纯图形归为照片/插图；以文字/表格为主的页面归为扫描文档。"
                     + "图表：提取标题、坐标轴、图例、系列、数据点或趋势；"

@@ -135,7 +135,7 @@ knowledge:
     enabled: ${KNOWLEDGE_VISION_ENABLED:false}
     endpoint: ${KNOWLEDGE_VISION_ENDPOINT:http://127.0.0.1:11434}
     model: ${KNOWLEDGE_VISION_MODEL:qwen3-vl:32b}
-    timeout-seconds: ${KNOWLEDGE_VISION_TIMEOUT_SECONDS:180}
+    timeout-seconds: ${KNOWLEDGE_VISION_TIMEOUT_SECONDS:600}
     max-images: ${KNOWLEDGE_VISION_MAX_IMAGES:3}
 
 pgvector:

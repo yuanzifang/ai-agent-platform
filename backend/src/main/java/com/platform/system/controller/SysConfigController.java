@@ -8,6 +8,8 @@ import com.platform.system.mapper.SysConfigMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -19,12 +21,11 @@ import java.util.Map;
 
 /**
  * 平台系统设置（需求 3.8）：sys_config KV，仅平台管理员。
+ * 含知识库解析默认值（knowledge.parse.* / knowledge.vision.endpoint）的读写与新建。
  */
 @RestController
 @RequestMapping("/api/v1/admin/config")
 @RequiredArgsConstructor
-
-@io.swagger.v3.oas.annotations.tags.Tag(name = "系统设置")
 public class SysConfigController {
 
     private final SysConfigMapper configMapper;
@@ -45,22 +46,42 @@ public class SysConfigController {
         }).toList());
     }
 
+    /** Upsert：存在则更新，不存在则新建（解析默认值卡片需要新建键）。 */
+    @PostMapping
+    public ApiResponse<Void> upsert(@RequestBody UpdateRequest req,
+                                    @AuthenticationPrincipal JwtPrincipal principal) {
+        if (!principal.platformAdmin()) {
+            throw new com.platform.common.exception.BusinessException(403, "仅平台管理员可访问");
+        }
+        doUpsert(req.configKey(), req.configValue());
+        return ApiResponse.ok();
+    }
+
     @PutMapping
     public ApiResponse<Void> update(@RequestBody UpdateRequest req,
                                     @AuthenticationPrincipal JwtPrincipal principal) {
         if (!principal.platformAdmin()) {
             throw new com.platform.common.exception.BusinessException(403, "仅平台管理员可访问");
         }
-        SysConfig existing = configMapper.selectOne(new LambdaQueryWrapper<SysConfig>()
-                .eq(SysConfig::getConfigKey, req.configKey()));
-        if (existing == null) {
-            throw new com.platform.common.exception.BusinessException(404, "配置项不存在");
-        }
-        SysConfig patch = new SysConfig();
-        patch.setId(existing.getId());
-        patch.setConfigValue(req.configValue());
-        configMapper.updateById(patch);
+        doUpsert(req.configKey(), req.configValue());
         return ApiResponse.ok();
+    }
+
+    private void doUpsert(String key, String value) {
+        SysConfig existing = configMapper.selectOne(new LambdaQueryWrapper<SysConfig>()
+                .eq(SysConfig::getConfigKey, key));
+        if (existing != null) {
+            SysConfig patch = new SysConfig();
+            patch.setId(existing.getId());
+            patch.setConfigValue(value);
+            configMapper.updateById(patch);
+            return;
+        }
+        SysConfig c = new SysConfig();
+        c.setConfigKey(key);
+        c.setConfigValue(value);
+        c.setDescription("解析默认值（系统设置卡片）");
+        configMapper.insert(c);
     }
 
     public record UpdateRequest(String configKey, String configValue) {

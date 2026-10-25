@@ -21,4 +21,5 @@ public class KnowledgeBase {
     private String embeddingModel;
     private String indexVersion;
     private LocalDateTime createdAt;
+    private String parseConfig; // JSON：解析配置覆盖（KB 默认 / 文档上传时选择）
 }

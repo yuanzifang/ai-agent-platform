@@ -16,12 +16,32 @@
           {{ uploading ? t('kbDetail.uploading') : t('kbDetail.upload') }}
         </el-button>
       </el-upload>
+      <el-button v-if="detail.canEdit" @click="parseVisible = true">{{ t('kbDetail.parseSettings') }}</el-button>
       <el-button v-if="detail.canEdit" @click="urlVisible = true">{{ t('kbDetail.urlImport') }}</el-button>
       <el-button v-if="detail.canEdit" type="danger" plain @click="removeKb">{{ t('kbDetail.deleteKb') }}</el-button>
     </div>
 
     <div v-if="detail.canEdit" class="upload-hint">
       {{ t('kbDetail.uploadHint') }}
+      <el-collapse class="upload-cfg">
+        <el-collapse-item :title="t('kbDetail.uploadCfgTitle')" name="cfg">
+          <el-form inline label-width="130px" size="small">
+            <el-form-item :label="t('kbDetail.poOcrEnabled')">
+              <el-switch v-model="uploadCfg.ocrEnabled" />
+            </el-form-item>
+            <el-form-item :label="t('kbDetail.poOcrLanguages')">
+              <el-input v-model="uploadCfg.ocrLanguages" placeholder="chi_sim+eng" style="width: 160px" />
+            </el-form-item>
+            <el-form-item :label="t('kbDetail.poVisionEnabled')">
+              <el-switch v-model="uploadCfg.visionEnabled" />
+            </el-form-item>
+            <el-form-item :label="t('kbDetail.poVisionModel')">
+              <el-input v-model="uploadCfg.visionModel" style="width: 160px" />
+            </el-form-item>
+          </el-form>
+          <div class="hint">{{ t('kbDetail.uploadCfgHint') }}</div>
+        </el-collapse-item>
+      </el-collapse>
     </div>
 
     <div class="body">
@@ -90,6 +110,40 @@
         </div>
       </div>
     </div>
+
+    <!-- 解析设置（跟随默认/自定义） -->
+    <el-dialog v-model="parseVisible" :title="t('kbDetail.parseTitle')" width="640px">
+      <el-form label-width="150px">
+        <el-divider content-position="left">OCR（扫描件/图片文字）</el-divider>
+        <el-form-item :label="t('kbDetail.poOcrEnabled')">
+          <el-switch v-model="po.ocrEnabled" />
+        </el-form-item>
+        <el-form-item :label="t('kbDetail.poOcrLanguages')">
+          <el-input v-model="po.ocrLanguages" placeholder="chi_sim+eng" style="width: 220px" />
+        </el-form-item>
+        <el-form-item :label="t('kbDetail.poOcrDpi')">
+          <el-input-number v-model="po.ocrDpi" :min="72" :max="400" :step="10" />
+        </el-form-item>
+        <el-form-item :label="t('kbDetail.poOcrMaxPages')">
+          <el-input-number v-model="po.ocrMaxPages" :min="1" :max="200" />
+        </el-form-item>
+        <el-divider content-position="left">图片理解（视觉模型描述图片）</el-divider>
+        <el-form-item :label="t('kbDetail.poVisionEnabled')">
+          <el-switch v-model="po.visionEnabled" />
+        </el-form-item>
+        <el-form-item :label="t('kbDetail.poVisionModel')">
+          <el-input v-model="po.visionModel" placeholder="qwen3-vl:32b" style="width: 220px" />
+        </el-form-item>
+        <el-form-item :label="t('kbDetail.poVisionMaxImages')">
+          <el-input-number v-model="po.visionMaxImages" :min="1" :max="10" />
+        </el-form-item>
+      </el-form>
+      <div class="hint">默认值来自 系统设置 → 知识库解析默认值；此处为本知识库的覆盖配置。</div>
+      <template #footer>
+        <el-button @click="resetParseToDefault">{{ t('kbDetail.poFollowDefault') }}</el-button>
+        <el-button type="primary" :loading="parseSaving" @click="saveParse">{{ t('kbDetail.poSave') }}</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="editVisible" :title="t('kbDetail.editTitle')" width="480px">
       <el-form label-width="70px">
@@ -253,6 +307,7 @@ onMounted(async () => {
 async function loadDetail() {
   const data = await http.get(`/knowledge-base/${kbId}`) as any
   Object.assign(detail, data)
+  loadParse()
 }
 
 async function loadDocs() {
@@ -321,6 +376,73 @@ async function removeDoc(row: any) {
   }
 }
 
+// ---- 本次上传解析配置（可选覆盖） ----
+const uploadCustomEnabled = ref(false)
+const uploadCfg = reactive({
+  ocrEnabled: false, ocrLanguages: 'chi_sim+eng',
+  visionEnabled: false, visionModel: 'qwen3-vl:32b'
+})
+
+// ---- 解析设置 ----
+const parseVisible = ref(false)
+const parseSaving = ref(false)
+const po = reactive({
+  ocrEnabled: false, ocrLanguages: 'chi_sim+eng', ocrDpi: 150, ocrMaxPages: 20,
+  visionEnabled: false, visionModel: 'qwen3-vl:32b', visionMaxImages: 3
+})
+
+function loadParse() {
+  // KB 自定义优先展示；无自定义回落解析链默认值
+  const src = (detail.parseConfig && Object.keys(detail.parseConfig).length) ? detail.parseConfig : detail.parseResolved
+  if (src) Object.assign(po, {
+    ocrEnabled: !!src.ocrEnabled, ocrLanguages: src.ocrLanguages || 'chi_sim+eng',
+    ocrDpi: Number(src.ocrDpi ?? 150), ocrMaxPages: Number(src.ocrMaxPages ?? 20),
+    visionEnabled: !!src.visionEnabled, visionModel: src.visionModel || 'qwen3-vl:32b',
+    visionMaxImages: Number(src.visionMaxImages ?? 3)
+  })
+}
+
+function resetParseToDefault() {
+  if (detail.parseResolved) Object.assign(po, {
+    ocrEnabled: !!detail.parseResolved.ocrEnabled,
+    ocrLanguages: detail.parseResolved.ocrLanguages || 'chi_sim+eng',
+    ocrDpi: Number(detail.parseResolved.ocrDpi ?? 150),
+    ocrMaxPages: Number(detail.parseResolved.ocrMaxPages ?? 20),
+    visionEnabled: !!detail.parseResolved.visionEnabled,
+    visionModel: detail.parseResolved.visionModel || 'qwen3-vl:32b',
+    visionMaxImages: Number(detail.parseResolved.visionMaxImages ?? 3)
+  })
+}
+
+async function saveParse() {
+  parseSaving.value = true
+  try {
+    const cfg = {
+      ocrEnabled: po.ocrEnabled, ocrLanguages: po.ocrLanguages, ocrDpi: po.ocrDpi,
+      ocrMaxPages: po.ocrMaxPages, visionEnabled: po.visionEnabled,
+      visionModel: po.visionModel, visionMaxImages: po.visionMaxImages
+    }
+    await http.put(`/knowledge-base/${kbId}`, { parseConfig: cfg })
+    ElMessage.success(t('kbDetail.parseSaved'))
+    parseVisible.value = false
+    detail.parseConfig = cfg
+  } finally {
+    parseSaving.value = false
+  }
+}
+
+async function reparseDoc(row: any) {
+  row.reparseLoading = true
+  try {
+    await http.post(`/knowledge-base/${kbId}/documents/${row.id}/reparse`)
+    ElMessage.success(t('kbDetail.reparseSubmitted'))
+    await loadDocs()
+    pollDocs()
+  } finally {
+    row.reparseLoading = false
+  }
+}
+
 async function retryDoc(row: any) {
   try {
     await http.post(`/knowledge-base/${kbId}/documents/${row.id}/retry`)
@@ -346,7 +468,12 @@ async function upload(file: File) {
       body: file
     })
     if (!putResp.ok) throw new Error(t('kbDetail.uploadFailed') + putResp.status)
-    await http.post(`/knowledge-base/${kbId}/documents/callback`, { objectName: presign.objectName })
+    const cbBody: any = { objectName: presign.objectName }
+    if (uploadCustomEnabled.value) cbBody.parseConfig = {
+      ocrEnabled: uploadCfg.ocrEnabled, ocrLanguages: uploadCfg.ocrLanguages,
+      visionEnabled: uploadCfg.visionEnabled, visionModel: uploadCfg.visionModel
+    }
+    await http.post(`/knowledge-base/${kbId}/documents/callback`, cbBody)
     ElMessage.success(t('kbDetail.uploaded'))
     await loadDocs()
     pollDocs()
@@ -497,6 +624,8 @@ function statusText(s: string) {
 </script>
 
 <style scoped>
+.upload-cfg { margin-top: 6px; }
+.upload-cfg :deep(.el-form-item) { margin-bottom: 6px; }
 .upload-hint { font-size: 12px; color: #909399; margin: 0 0 10px 4px; }
 .page { height: 100%; display: flex; flex-direction: column; }
 .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }

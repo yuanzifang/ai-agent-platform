@@ -65,14 +65,15 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.detail(id, viewer(principal)));
     }
 
-    public record UpdateKbRequest(@NotBlank String name, String description, String embeddingModel) {
+    public record UpdateKbRequest(@NotBlank String name, String description, String embeddingModel,
+                                  Map<String, Object> parseConfig) {
     }
 
     /** 编辑名称/描述（需编辑权限）。 */
     @PutMapping("/{id}")
     public ApiResponse<Void> update(@PathVariable Long id, @Valid @RequestBody UpdateKbRequest req,
                                     @AuthenticationPrincipal JwtPrincipal principal) {
-        knowledgeService.update(id, req.name(), req.description(), req.embeddingModel(), viewer(principal));
+        knowledgeService.update(id, req.name(), req.description(), req.embeddingModel(), req.parseConfig(), viewer(principal));
         return ApiResponse.ok();
     }
 
@@ -128,14 +129,21 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.requestUpload(id, req.fileName(), req.sizeBytes(), viewer(principal)));
     }
 
-    public record CallbackRequest(@NotBlank String objectName) {
+    public record CallbackRequest(@NotBlank String objectName, String parseConfig) {
     }
 
     @PostMapping("/{id}/documents/callback")
     public ApiResponse<Map<String, Object>> callback(@PathVariable Long id,
                                                      @Valid @RequestBody CallbackRequest req,
                                                      @AuthenticationPrincipal JwtPrincipal principal) {
-        return ApiResponse.ok(knowledgeService.callback(id, req.objectName(), viewer(principal)));
+        return ApiResponse.ok(knowledgeService.callback(id, req.objectName(), req.parseConfig(), viewer(principal)));
+    }
+
+    /** 重新解析（DONE/FAILED）：清理旧分段/向量/图片后按最新解析配置重跑。 */
+    @PostMapping("/{id}/documents/{docId}/reparse")
+    public ApiResponse<Map<String, Object>> reparse(@PathVariable Long id, @PathVariable Long docId,
+                                                    @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(knowledgeService.reparse(id, docId, viewer(principal)));
     }
 
     public record UrlImportRequest(@NotBlank String url) {
@@ -205,11 +213,38 @@ public class KnowledgeController {
         return ApiResponse.ok(graphService.graph(id, viewer(principal)));
     }
 
+    /** 解析后自动抽取之外，允许对全库 DONE 文档做一次异步重建（保留手工实体/关系）。 */
+    @PostMapping("/{id}/graph/build")
+    public ApiResponse<Map<String, Object>> buildGraph(@PathVariable Long id,
+                                                        @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(graphService.buildAll(id, viewer(principal)));
+    }
+
+    @GetMapping("/{id}/graph/jobs/latest")
+    public ApiResponse<Map<String, Object>> latestGraphJob(@PathVariable Long id,
+                                                           @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(graphService.latestJob(id, viewer(principal)));
+    }
+
+    @GetMapping("/{id}/graph/entities/{entityId}")
+    public ApiResponse<Map<String, Object>> graphEntity(@PathVariable Long id, @PathVariable Long entityId,
+                                                        @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(graphService.entityDetail(id, entityId, viewer(principal)));
+    }
+
     @PostMapping("/{id}/graph/extract")
     public ApiResponse<Map<String, Object>> extractGraph(@PathVariable Long id,
                                                           @RequestBody Map<String, Object> req,
                                                           @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(graphService.extract(id, req, viewer(principal)));
+    }
+
+    /** 提交 AI 抽取预览结果，避免用户确认时重复调用模型。 */
+    @PostMapping("/{id}/graph/commit")
+    public ApiResponse<Map<String, Object>> commitGraph(@PathVariable Long id,
+                                                         @RequestBody Map<String, Object> req,
+                                                         @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(graphService.commitPreview(id, req, viewer(principal)));
     }
 
     @PostMapping("/{id}/graph/entities")
@@ -238,6 +273,13 @@ public class KnowledgeController {
             @PathVariable Long id, @RequestBody Map<String, Object> req,
             @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(graphService.createRelation(id, req, viewer(principal)));
+    }
+
+    @PutMapping("/{id}/graph/relations/{relationId}")
+    public ApiResponse<com.platform.knowledge.entity.KnowledgeGraphRelation> updateRelation(
+            @PathVariable Long id, @PathVariable Long relationId, @RequestBody Map<String, Object> req,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(graphService.updateRelation(id, relationId, req, viewer(principal)));
     }
 
     @DeleteMapping("/{id}/graph/relations/{relationId}")
