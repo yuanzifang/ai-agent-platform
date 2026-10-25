@@ -232,6 +232,7 @@ public class GatewayService {
                     copyHeader(request, builder, "Content-Type");
                     copyHeader(request, builder, "Accept");
                     copyHeader(request, builder, "User-Agent");
+                    copyHeader(request, builder, "Authorization");
                     HttpRequest httpRequest = builder.build();
 
                     int attempts = 1 + (isIdempotent(request.getMethod())
