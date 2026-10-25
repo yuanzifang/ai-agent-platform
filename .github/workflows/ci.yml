@@ -26,13 +26,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Trivy 文件系统扫描（依赖/配置 HIGH/CRITICAL）
+      - name: 后端打包（跳过测试）
+        working-directory: backend
+        run: mvn -q package -DskipTests
+      - name: Trivy 扫描后端制品（jar 内嵌依赖，不访问 Maven Central）
         uses: aquasecurity/trivy-action@master
         with:
-          scan-type: fs
-          scan-ref: .
+          scan-type: archive
+          input: backend/target/*.jar
           severity: HIGH,CRITICAL
-          exit-code: '0'          # 先观察基线，稳定后改 1 转为阻断
           ignore-unfixed: true
       - name: 前端依赖审计
         working-directory: frontend
