@@ -92,6 +92,8 @@ public class DocumentParser {
     private int ocrMaxPages;
     @Value("${knowledge.ocr.dpi:150}")
     private int ocrDpi;
+    @Value("${knowledge.ocr.preprocess:true}")
+    private boolean ocrPreprocess;
     @Value("${knowledge.pdf.vector-chart-render-enabled:true}")
     private boolean vectorChartRenderEnabled;
 
@@ -530,7 +532,8 @@ public class DocumentParser {
             PDFRenderer renderer = new PDFRenderer(doc);
             int pages = Math.min(doc.getNumberOfPages(), Math.max(1, ocrMaxPages));
             for (int i = 0; i < pages; i++) {
-                BufferedImage image = renderer.renderImageWithDPI(i, Math.max(72, ocrDpi));
+                BufferedImage image = preprocessForOcr(
+                        renderer.renderImageWithDPI(i, Math.max(72, ocrDpi)));
                 Path imagePath = tempDir.resolve("page-" + (i + 1) + ".png");
                 ImageIO.write(image, "png", imagePath.toFile());
                 OcrTableExtractor.Result ocr = OcrTableExtractor.extract(runOcrTsv(imagePath));
@@ -566,6 +569,7 @@ public class DocumentParser {
     private void appendOcr(StringBuilder sb, BufferedImage image, String extension) {
         if (image == null) return;
         try {
+            image = preprocessForOcr(image);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(image, "png", out);
             appendOcr(sb, out.toByteArray(), extension);
@@ -586,6 +590,55 @@ public class DocumentParser {
             if (!result.table().isBlank()) sb.append(result.table()).append('\n');
         } catch (Exception e) {
             log.debug("内嵌图片 OCR 跳过：{}", e.getMessage());
+        }
+    }
+
+    /**
+     * 低质量扫描预处理：灰度 + 对比度拉伸；小图放大，放大后再拉伸。
+     * 只做基础增强，不替代倾斜校正/去噪等专业图像处理。
+     */
+    private BufferedImage preprocessForOcr(BufferedImage source) {
+        if (!ocrPreprocess || source == null) return source;
+        try {
+            BufferedImage image = source;
+            if (image.getWidth() < 1200 || image.getHeight() < 800) {
+                int width = Math.max(1, image.getWidth() * 2);
+                int height = Math.max(1, image.getHeight() * 2);
+                BufferedImage scaled = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+                java.awt.Graphics2D graphics = scaled.createGraphics();
+                graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                        java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                graphics.drawImage(image, 0, 0, width, height, null);
+                graphics.dispose();
+                image = scaled;
+            }
+            BufferedImage gray = new BufferedImage(image.getWidth(), image.getHeight(),
+                    BufferedImage.TYPE_BYTE_GRAY);
+            java.awt.Graphics2D graphics = gray.createGraphics();
+            graphics.drawImage(image, 0, 0, null);
+            graphics.dispose();
+            int min = 255;
+            int max = 0;
+            for (int y = 0; y < gray.getHeight(); y++) {
+                for (int x = 0; x < gray.getWidth(); x++) {
+                    int value = gray.getRaster().getSample(x, y, 0);
+                    min = Math.min(min, value);
+                    max = Math.max(max, value);
+                }
+            }
+            if (max - min < 8) return gray;
+            double scale = 255.0 / (max - min);
+            for (int y = 0; y < gray.getHeight(); y++) {
+                for (int x = 0; x < gray.getWidth(); x++) {
+                    int value = gray.getRaster().getSample(x, y, 0);
+                    gray.getRaster().setSample(x, y, 0,
+                            Math.max(0, Math.min(255, (int) ((value - min) * scale))));
+                }
+            }
+            return gray;
+        } catch (Exception e) {
+            log.debug("OCR 预处理失败（使用原图）：{}", e.getMessage());
+            return source;
         }
     }
 
