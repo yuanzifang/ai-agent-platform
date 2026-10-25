@@ -50,17 +50,29 @@ public class EmbeddingService {
         return embedBatch(texts, properties.getModel());
     }
 
-    @SuppressWarnings("unchecked")
     public float[][] embedBatch(List<String> texts, String modelName) {
         String effectiveModel = modelName == null || modelName.isBlank()
                 ? properties.getModel() : modelName;
         if (!properties.supports(effectiveModel)) {
             throw new BusinessException(400, "未配置的 embedding 模型：" + effectiveModel);
         }
-        int expectedDim = properties.dimensionOf(effectiveModel);
         if (texts == null || texts.isEmpty()) return new float[0][];
         long chars = texts.stream().mapToLong(t -> t == null ? 0 : t.length()).sum();
         quotaService.checkTokensToday(Math.max(50, chars / 2));
+        int batchSize = Math.max(1, Math.min(properties.getBatchSize(), 128));
+        if (texts.size() <= batchSize) return requestBatch(texts, effectiveModel);
+        float[][] result = new float[texts.size()][];
+        for (int start = 0; start < texts.size(); start += batchSize) {
+            int end = Math.min(texts.size(), start + batchSize);
+            float[][] part = requestBatch(texts.subList(start, end), effectiveModel);
+            System.arraycopy(part, 0, result, start, part.length);
+        }
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private float[][] requestBatch(List<String> texts, String effectiveModel) {
+        int expectedDim = properties.dimensionOf(effectiveModel);
         try {
             Map<String, Object> resp = client().post()
                     .uri("/v1/embeddings")

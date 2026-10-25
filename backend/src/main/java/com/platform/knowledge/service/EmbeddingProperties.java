@@ -17,6 +17,8 @@ public class EmbeddingProperties {
     private String endpoint = "http://localhost:11434";
     private String model = "nomic-embed-text";
     private int dimensions = 768;
+    /** 单次 embedding HTTP 请求的最大文本数。 */
+    private int batchSize = 32;
     /** modelName -> dimensions；未配置时只有默认模型。 */
     private Map<String, Integer> available = new LinkedHashMap<>();
 

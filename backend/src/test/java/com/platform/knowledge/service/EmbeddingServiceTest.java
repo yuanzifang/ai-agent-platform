@@ -1,16 +1,61 @@
 package com.platform.knowledge.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.billing.service.QuotaService;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 class EmbeddingServiceTest {
+
+    @Test
+    void batchesLargeEmbeddingRequests() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        ObjectMapper mapper = new ObjectMapper();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/v1/embeddings", exchange -> {
+            requests.incrementAndGet();
+            int count = mapper.readTree(exchange.getRequestBody()).path("input").size();
+            StringBuilder data = new StringBuilder("[");
+            for (int i = 0; i < count; i++) {
+                if (i > 0) data.append(',');
+                data.append("{\"index\":").append(i).append(",\"embedding\":[1.0,2.0]}");
+            }
+            data.append(']');
+            byte[] response = ("{\"data\":" + data + "}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            EmbeddingProperties props = new EmbeddingProperties();
+            props.setModel("test-embed");
+            props.setDimensions(2);
+            props.setAvailable(Map.of("test-embed", 2));
+            props.setEndpoint("http://127.0.0.1:" + server.getAddress().getPort());
+            props.setBatchSize(2);
+            EmbeddingService service = new EmbeddingService(props, mock(QuotaService.class));
+
+            float[][] result = service.embedBatch(List.of("a", "b", "c"), "test-embed");
+
+            assertEquals(3, result.length);
+            assertEquals(2, result[2].length);
+            assertEquals(2, requests.get());
+        } finally {
+            server.stop(0);
+        }
+    }
 
     @Test
     void exposesConfiguredModels() {
