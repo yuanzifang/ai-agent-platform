@@ -243,6 +243,12 @@
         <el-form-item label="URL" required>
           <el-input v-model="urlForm.url" placeholder="https://example.com/manual.html" />
         </el-form-item>
+        <el-form-item :label="t('kbDetail.contentValidity')">
+          <el-date-picker v-model="urlForm.effectiveRange" type="datetimerange" size="small"
+                          :start-placeholder="t('kbDetail.validFrom')"
+                          :end-placeholder="t('kbDetail.validTo')"
+                          style="width: 320px" />
+        </el-form-item>
       </el-form>
       <div class="hint">{{ t('kbDetail.urlHint') }}</div>
       <template #footer>
@@ -378,7 +384,7 @@ const uploading = computed(() => uploadTasks.value.some(
   task => task.status === 'uploading' || task.status === 'parsing'))
 const urlVisible = ref(false)
 const urlImporting = ref(false)
-const urlForm = reactive({ url: '' })
+const urlForm = reactive({ url: '', effectiveRange: null as Date[] | null })
 const searching = ref(false)
 const searched = ref(false)
 const results = ref<any[]>([])
@@ -697,10 +703,16 @@ async function importUrl() {
   if (!urlForm.url.trim()) { ElMessage.warning(t('kbDetail.urlRequired')); return }
   urlImporting.value = true
   try {
-    await http.post(`/knowledge-base/${kbId}/documents/url`, { url: urlForm.url.trim() })
+    const range = urlForm.effectiveRange
+    await http.post(`/knowledge-base/${kbId}/documents/url`, {
+      url: urlForm.url.trim(),
+      effectiveFrom: range?.[0] ? new Date(range[0]).toISOString() : undefined,
+      effectiveTo: range?.[1] ? new Date(range[1]).toISOString() : undefined
+    })
     ElMessage.success(t('kbDetail.urlSubmitted'))
     urlVisible.value = false
     urlForm.url = ''
+    urlForm.effectiveRange = null
     await loadDocs()
     pollDocs()
   } finally {

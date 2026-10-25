@@ -531,6 +531,11 @@ public class KnowledgeService {
 
     /** URL 导入：抓取网页/PDF/文本并存入对象存储，复用回调登记与异步解析。 */
     public Map<String, Object> importUrl(Long kbId, String rawUrl, KnowledgePermissionService.Viewer viewer) {
+        return importUrl(kbId, rawUrl, null, null, viewer);
+    }
+
+    public Map<String, Object> importUrl(Long kbId, String rawUrl, Instant effectiveFrom, Instant effectiveTo,
+                                          KnowledgePermissionService.Viewer viewer) {
         permissionService.requireEdit(kbId, viewer);
         if (rawUrl == null || rawUrl.isBlank()) throw new BusinessException(400, "URL 不能为空");
         String url = rawUrl.trim();
@@ -552,7 +557,8 @@ public class KnowledgeService {
         String objectName = tenantId + "/knowledge/" + kbId + "/"
                 + UUID.randomUUID().toString().replace("-", "").substring(0, 12) + "/" + fileName;
         storage.put(objectName, fetched.bytes, fetched.contentType);
-        Map<String, Object> result = new LinkedHashMap<>(callback(kbId, objectName, null, null, viewer));
+        Map<String, Object> result = new LinkedHashMap<>(callback(kbId, objectName, null, null,
+                effectiveFrom, effectiveTo, viewer));
         result.put("sourceUrl", fetched.finalUrl);
         result.put("fileName", fileName);
         auditService.record(viewer.userId(), "kb.document.url_import", "knowledge_document",

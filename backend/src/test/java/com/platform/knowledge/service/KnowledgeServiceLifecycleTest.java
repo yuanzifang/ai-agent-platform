@@ -349,6 +349,31 @@ class KnowledgeServiceLifecycleTest {
     }
 
     @Test
+    void importUrlPersistsContentValidity() throws Exception {
+        ReflectionTestUtils.setField(service, "importMaxBytes", 64);
+        byte[] payload = "hello validity".getBytes(StandardCharsets.UTF_8);
+        String url = serve(payload, payload.length, "text/plain");
+        when(storage.exists(anyString())).thenReturn(true);
+        when(storage.statSize(anyString())).thenReturn((long) payload.length);
+        doAnswer(invocation -> {
+            KnowledgeDocument row = invocation.getArgument(0);
+            row.setId(124L);
+            return 1;
+        }).when(docMapper).insert(any(KnowledgeDocument.class));
+        Instant from = Instant.parse("2026-03-01T00:00:00Z");
+        Instant to = Instant.parse("2026-04-01T00:00:00Z");
+
+        service.importUrl(1L, url, from, to, viewer);
+
+        ArgumentCaptor<KnowledgeDocument> captor = ArgumentCaptor.forClass(KnowledgeDocument.class);
+        verify(docMapper).insert(captor.capture());
+        assertEquals(LocalDateTime.ofInstant(from, ZoneId.systemDefault()),
+                captor.getValue().getEffectiveFrom());
+        assertEquals(LocalDateTime.ofInstant(to, ZoneId.systemDefault()),
+                captor.getValue().getEffectiveTo());
+    }
+
+    @Test
     void importUrlStreamsAndStoresPayloadWithinLimit() throws Exception {
         ReflectionTestUtils.setField(service, "importMaxBytes", 64);
         byte[] payload = "hello url import".getBytes(StandardCharsets.UTF_8);

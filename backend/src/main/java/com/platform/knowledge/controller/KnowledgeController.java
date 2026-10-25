@@ -164,7 +164,7 @@ public class KnowledgeController {
                 req.effectiveFrom(), req.effectiveTo(), viewer(principal)));
     }
 
-    public record UrlImportRequest(@NotBlank String url) {
+    public record UrlImportRequest(@NotBlank String url, Instant effectiveFrom, Instant effectiveTo) {
     }
 
     /** URL 导入（网页/PDF/文本），复用对象存储 + 异步解析。 */
@@ -172,7 +172,8 @@ public class KnowledgeController {
     public ApiResponse<Map<String, Object>> importUrl(@PathVariable Long id,
                                                       @Valid @RequestBody UrlImportRequest req,
                                                       @AuthenticationPrincipal JwtPrincipal principal) {
-        return ApiResponse.ok(knowledgeService.importUrl(id, req.url(), viewer(principal)));
+        return ApiResponse.ok(knowledgeService.importUrl(id, req.url(),
+                req.effectiveFrom(), req.effectiveTo(), viewer(principal)));
     }
 
     @GetMapping("/{id}/documents")
