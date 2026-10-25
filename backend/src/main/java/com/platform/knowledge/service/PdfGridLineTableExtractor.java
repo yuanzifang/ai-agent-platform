@@ -26,7 +26,7 @@ final class PdfGridLineTableExtractor {
     }
 
     static String extract(PDDocument doc) {
-        StringBuilder tables = new StringBuilder();
+        String merged = "";
         try {
             for (int p = 0; p < Math.min(doc.getNumberOfPages(), 50); p++) {
                 PDPage page = doc.getPage(p);
@@ -43,12 +43,12 @@ final class PdfGridLineTableExtractor {
                 stripper.setEndPage(p + 1);
                 stripper.getText(doc);
                 String table = toTable(glyphs, segments(page), page.getMediaBox().getHeight());
-                if (!table.isBlank()) tables.append('\n').append(table).append('\n');
+                if (!table.isBlank()) merged = OcrTableExtractor.mergeTables(merged, table);
             }
         } catch (Exception e) {
             return "";
         }
-        return tables.toString();
+        return merged;
     }
 
     private static List<Segment> segments(PDPage page) {
@@ -72,21 +72,32 @@ final class PdfGridLineTableExtractor {
             gy0 = Math.min(gy0, g.getYDirAdj());
             gy1 = Math.max(gy1, g.getYDirAdj());
         }
+        // 以文字附近的横线定位表格外框，再纳入外框内的竖线，避免只按文字宽度截断右侧空白列。
+        float yMargin = 80f;
+        List<Segment> horizontals = new ArrayList<>();
+        float left = Float.MAX_VALUE, right = -Float.MAX_VALUE;
+        float top = Float.MAX_VALUE, bottom = -Float.MAX_VALUE;
         for (Segment s : segments) {
-            if (s.length() < 20) continue;
-            float a = s.horizontal ? s.fixed : s.from;
-            float b = s.horizontal ? s.fixed : s.to;
-            if (s.horizontal) {
-                if (s.fixed < gy0 - 40 || s.fixed > gy1 + 40) continue;
-                addEdge(ys, s.fixed);
-                if (s.from >= gx0 - 40 && s.from <= gx1 + 40) addEdge(xs, s.from);
-                if (s.to >= gx0 - 40 && s.to <= gx1 + 40) addEdge(xs, s.to);
-            } else {
-                if (s.fixed < gx0 - 40 || s.fixed > gx1 + 40) continue;
-                addEdge(xs, s.fixed);
-                if (s.from >= gy0 - 40 && s.from <= gy1 + 40) addEdge(ys, s.from);
-                if (s.to >= gy0 - 40 && s.to <= gy1 + 40) addEdge(ys, s.to);
-            }
+            if (!s.horizontal || s.length() < 20) continue;
+            if (s.fixed < gy0 - yMargin || s.fixed > gy1 + yMargin) continue;
+            horizontals.add(s);
+            left = Math.min(left, s.from);
+            right = Math.max(right, s.to);
+            top = Math.min(top, s.fixed);
+            bottom = Math.max(bottom, s.fixed);
+        }
+        if (horizontals.size() < 2 || right - left < 20) return "";
+        for (Segment s : horizontals) {
+            addEdge(ys, s.fixed);
+            addEdge(xs, s.from);
+            addEdge(xs, s.to);
+        }
+        for (Segment s : segments) {
+            if (s.horizontal || s.length() < 20) continue;
+            if (s.fixed < left - TOL || s.fixed > right + TOL) continue;
+            addEdge(xs, s.fixed);
+            if (s.from >= top - TOL && s.from <= bottom + TOL) addEdge(ys, s.from);
+            if (s.to >= top - TOL && s.to <= bottom + TOL) addEdge(ys, s.to);
         }
         xs.sort(Float::compare);
         ys.sort(Float::compare);

@@ -167,7 +167,8 @@ final class OcrTableExtractor {
             String mapped = mergeByHeaderNames(previous, current);
             return mapped == null ? previous + "\n" + current : mapped;
         }
-        int close = previous.indexOf("</tbody>", previous.indexOf("<tbody>"));
+        int close = previous.indexOf("</tbody>");
+        if (close < 0) close = previous.lastIndexOf("</table>");
         if (close < 0) return previous + "\n" + current;
         return previous.substring(0, close) + currBody + previous.substring(close);
     }
@@ -301,9 +302,13 @@ final class OcrTableExtractor {
 
     private static String bodyOf(String html) {
         int start = html.indexOf("<tbody>");
-        if (start < 0) return "";
-        int end = html.indexOf("</tbody>", start);
-        return end > start ? html.substring(start + 7, end) : "";
+        if (start >= 0) {
+            int end = html.indexOf("</tbody>", start);
+            return end > start ? html.substring(start + 7, end) : "";
+        }
+        int first = html.indexOf("</tr>");
+        int end = html.lastIndexOf("</table>");
+        return first >= 0 && end > first ? html.substring(first + 5, end) : "";
     }
 
     private static String renderHeaderRow(Line line, List<Float> anchors) {

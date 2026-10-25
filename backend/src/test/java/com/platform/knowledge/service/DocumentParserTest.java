@@ -1738,7 +1738,7 @@ class DocumentParserTest {
                 for (int i = 0; i < 4; i++) {
                     float x = xs[i];
                     content.moveTo(x, 610);
-                    content.lineTo(x, i == 0 || i == 3 ? 730 : 700);
+                    content.lineTo(x, i == 0 || i == 1 || i == 3 ? 730 : 700);
                     content.stroke();
                 }
                 for (float y : new float[]{730, 700, 670, 610}) {
@@ -1769,10 +1769,61 @@ class DocumentParserTest {
             pdf = out.toByteArray();
         }
         String text = String.join("\n", parser.parse("line-grid.pdf", pdf));
-        assertTrue(text.contains("colspan=\"2\"") && text.contains("Sales"),
-                "线条表头应输出 colspan，实际=" + text);
+        assertTrue(text.contains("<td>Product</td>") && text.contains("colspan=\"2\"") && text.contains("Sales"),
+                "线条表头应输出 Product 与跨两列 Sales，实际=" + text);
         assertTrue(text.contains("rowspan=\"2\"") && text.contains("Fruit"),
                 "线条数据应输出 rowspan，实际=" + text);
+    }
+
+    @Test
+    void mergesPlainGridTables() {
+        String one = "<table border=\"1\">\n<tr><td>Product</td><td>Price</td></tr>"
+                + "<tr><td>Water</td><td>1999</td></tr></table>";
+        String two = "<table border=\"1\">\n<tr><td>Product</td><td>Price</td></tr>"
+                + "<tr><td>Service</td><td>299</td></tr></table>";
+        String merged = OcrTableExtractor.mergeTables(one, two);
+        assertTrue(merged.split("<table", -1).length == 2, "应合并为一个表格，实际=" + merged);
+        assertTrue(merged.contains("Water") && merged.contains("Service"), "应保留两页数据");
+        assertTrue(merged.split("<td>Product</td>", -1).length == 2, "表头应只保留一次");
+    }
+
+    @Test
+    void mergesPdfGridTablesAcrossPages() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            for (String[] row : new String[][]{{"Water", "1999"}, {"Service", "299"}}) {
+                PDPage page = new PDPage(PDRectangle.A4);
+                doc.addPage(page);
+                try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                    content.setLineWidth(1f);
+                    for (float x : new float[]{50, 200, 300}) {
+                        content.moveTo(x, 670);
+                        content.lineTo(x, 730);
+                        content.stroke();
+                    }
+                    for (float y : new float[]{730, 700, 670}) {
+                        content.moveTo(50, y);
+                        content.lineTo(300, y);
+                        content.stroke();
+                    }
+                    content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                    String[][] texts = {{"Product", "60", "710"}, {"Price", "210", "710"},
+                            {row[0], "60", "680"}, {row[1], "210", "680"}};
+                    for (String[] t : texts) {
+                        content.beginText();
+                        content.newLineAtOffset(Float.parseFloat(t[1]), Float.parseFloat(t[2]));
+                        content.showText(t[0]);
+                        content.endText();
+                    }
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("grid-pages.pdf", pdf));
+        assertTrue(text.split("<table", -1).length == 2, "跨页同表头应合并为一个表格，实际=" + text);
+        assertTrue(text.contains("Water") && text.contains("Service"), "应保留两页数据");
+        assertTrue(text.split("<td>Product</td>", -1).length == 2, "表头应只保留一次，实际=" + text);
     }
 
     @Test

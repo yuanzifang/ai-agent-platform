@@ -26,7 +26,7 @@ final class PdfRectangleTableExtractor {
     }
 
     static String extract(PDDocument doc) {
-        StringBuilder tables = new StringBuilder();
+        String merged = "";
         try {
             int pages = Math.min(doc.getNumberOfPages(), 50);
             for (int p = 0; p < pages; p++) {
@@ -44,12 +44,12 @@ final class PdfRectangleTableExtractor {
                 stripper.setEndPage(p + 1);
                 stripper.getText(doc);
                 String table = toTable(glyphs, rectangles(page), page.getMediaBox().getHeight());
-                if (!table.isBlank()) tables.append('\n').append(table).append('\n');
+                if (!table.isBlank()) merged = OcrTableExtractor.mergeTables(merged, table);
             }
         } catch (Exception e) {
             return "";
         }
-        return tables.toString();
+        return merged;
     }
 
     private static List<Rect> rectangles(PDPage page) {
