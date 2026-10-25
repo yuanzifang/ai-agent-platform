@@ -1589,6 +1589,7 @@ class DocumentParserTest {
             PDDocumentOutline outline = new PDDocumentOutline();
             PDOutlineItem item = new PDOutlineItem();
             item.setTitle("第一章");
+            item.setDestination(page);
             outline.addLast(item);
             doc.getDocumentCatalog().setDocumentOutline(outline);
 
@@ -1602,7 +1603,8 @@ class DocumentParserTest {
             pdf = out.toByteArray();
         }
         String text = String.join("\n", parser.parse("outline.pdf", pdf));
-        assertTrue(text.contains("[书签]第一章"), "应提取 PDF 书签，实际=" + text);
+        assertTrue(text.contains("[书签]第一章") && text.contains("第1页"),
+                "应提取 PDF 书签及目标页码，实际=" + text);
         assertTrue(text.contains("[链接]https://example.com/docs"), "应提取 PDF 超链接，实际=" + text);
     }
 

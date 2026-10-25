@@ -478,7 +478,7 @@ public class DocumentParser {
             var outline = doc.getDocumentCatalog().getDocumentOutline();
             if (outline != null) {
                 int[] count = {0};
-                appendOutlineItems(outline.getFirstChild(), sb, count);
+                appendOutlineItems(outline.getFirstChild(), sb, count, doc);
             }
         } catch (Exception e) {
             log.debug("PDF 书签读取失败（忽略）：{}", e.getMessage());
@@ -503,16 +503,25 @@ public class DocumentParser {
     }
 
     private void appendOutlineItems(org.apache.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem item,
-                                    StringBuilder sb, int[] count) {
+                                    StringBuilder sb, int[] count, PDDocument doc) {
         if (item == null || count[0] >= 100) return;
         try {
             String title = item.getTitle();
             if (title != null && !title.isBlank()) {
-                sb.append("\n[书签]").append(title.trim()).append('\n');
+                sb.append("\n[书签]").append(title.trim());
+                try {
+                    var page = item.findDestinationPage(doc);
+                    if (page != null) {
+                        int number = doc.getPages().indexOf(page) + 1;
+                        if (number > 0) sb.append("（第").append(number).append("页）");
+                    }
+                } catch (Exception ignored) {
+                }
+                sb.append('\n');
                 count[0]++;
             }
-            appendOutlineItems(item.getFirstChild(), sb, count);
-            appendOutlineItems(item.getNextSibling(), sb, count);
+            appendOutlineItems(item.getFirstChild(), sb, count, doc);
+            appendOutlineItems(item.getNextSibling(), sb, count, doc);
         } catch (Exception ignored) {
         }
     }
