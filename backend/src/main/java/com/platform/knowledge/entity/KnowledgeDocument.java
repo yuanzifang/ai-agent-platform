@@ -22,5 +22,7 @@ public class KnowledgeDocument {
     private Integer retryTimes;
     private Long tenantId;
     private LocalDateTime createdAt;
+    private LocalDateTime effectiveFrom;
+    private LocalDateTime effectiveTo;
     private String parseConfig; // JSON：解析配置覆盖（KB 默认 / 文档上传时选择）
 }

@@ -46,7 +46,7 @@ class VectorRepositoryTest {
         assertTrue(all.contains("ADD COLUMN IF NOT EXISTS created_at"), "旧表应补 created_at");
         assertTrue(all.contains("ADD COLUMN IF NOT EXISTS updated_at"), "旧表应补 updated_at");
         assertTrue(all.contains("SET metadata ="), "旧数据应回填 metadata 时间");
-        assertTrue(all.contains("idx_embeddings_created_at"), "应按入库时间建索引");
+        assertTrue(all.contains("idx_embeddings_effective"), "应按生效时间建索引");
     }
 
     @Test
@@ -64,6 +64,8 @@ class VectorRepositoryTest {
         verify(jdbc).update(sql.capture(), any(Object[].class));
         assertTrue(sql.getValue().contains("created_at"));
         assertTrue(sql.getValue().contains("updated_at"));
+        assertTrue(sql.getValue().contains("effective_from"));
+        assertTrue(sql.getValue().contains("effective_to"));
         assertTrue(sql.getValue().contains("jsonb_set"));
     }
 
@@ -79,9 +81,9 @@ class VectorRepositoryTest {
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).queryForList(sql.capture(), any(Object[].class));
-        assertTrue(sql.getValue().contains("created_at >= CAST(? AS timestamptz)"));
-        assertTrue(sql.getValue().contains("created_at <= CAST(? AS timestamptz)"));
-        assertTrue(sql.getValue().contains("to_char(created_at"));
-        assertTrue(sql.getValue().contains("to_char(updated_at"));
+        assertTrue(sql.getValue().contains("effective_to >= CAST(? AS timestamptz)"));
+        assertTrue(sql.getValue().contains("effective_from <= CAST(? AS timestamptz)"));
+        assertTrue(sql.getValue().contains("to_char(effective_from"));
+        assertTrue(sql.getValue().contains("to_char(effective_to"));
     }
 }

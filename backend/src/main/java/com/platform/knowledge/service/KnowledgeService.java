@@ -46,6 +46,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 
 /**
@@ -425,6 +426,10 @@ public class KnowledgeService {
         return result;
     }
 
+    private LocalDateTime toLocalDateTime(Instant instant) {
+        return LocalDateTime.ofInstant(instant, ZoneId.systemDefault());
+    }
+
     /** 文档级 PDF 密码落库前 AES-GCM 加密；密码不进入日志或知识库级配置。 */
     private String protectPdfPassword(String json) {
         if (json == null || json.isBlank()) return json;
@@ -453,7 +458,16 @@ public class KnowledgeService {
      *  parseConfigJson：文档级解析配置覆盖（上传时选择，可空=跟随知识库）。 */
     public Map<String, Object> callback(Long kbId, String objectName, Long documentId,
                                         String parseConfigJson, KnowledgePermissionService.Viewer viewer) {
+        return callback(kbId, objectName, documentId, parseConfigJson, null, null, viewer);
+    }
+
+    public Map<String, Object> callback(Long kbId, String objectName, Long documentId,
+                                        String parseConfigJson, Instant effectiveFrom, Instant effectiveTo,
+                                        KnowledgePermissionService.Viewer viewer) {
         permissionService.requireEdit(kbId, viewer);
+        if (effectiveFrom != null && effectiveTo != null && effectiveFrom.isAfter(effectiveTo)) {
+            throw new BusinessException(400, "内容生效开始时间不能晚于结束时间");
+        }
         String protectedConfig = protectPdfPassword(parseConfigJson);
         Long tenantId = TenantContext.getTenantId();
         String expectedPrefix = tenantId + "/knowledge/" + kbId + "/";
@@ -480,6 +494,8 @@ public class KnowledgeService {
             doc.setStatus("PENDING");
             doc.setChunkCount(0);
             doc.setParseConfig(protectedConfig);
+            if (effectiveFrom != null) doc.setEffectiveFrom(toLocalDateTime(effectiveFrom));
+            if (effectiveTo != null) doc.setEffectiveTo(toLocalDateTime(effectiveTo));
             doc.setSizeBytes(storage.statSize(objectName));
             doc.setRetryTimes(0);
             doc.setErrorMessage(null);
@@ -501,6 +517,8 @@ public class KnowledgeService {
         doc.setStatus("PENDING");
         doc.setChunkCount(0);
         doc.setParseConfig(protectedConfig);
+        doc.setEffectiveFrom(effectiveFrom == null ? null : toLocalDateTime(effectiveFrom));
+        doc.setEffectiveTo(effectiveTo == null ? null : toLocalDateTime(effectiveTo));
         doc.setSizeBytes(storage.statSize(objectName));
         doc.setRetryTimes(0);
         doc.setTenantId(tenantId);
@@ -742,6 +760,11 @@ public class KnowledgeService {
         }
         float[][] vectors = embeddingService.embedBatch(
                 chunks.stream().map(DocumentParser.ParsedChunk::content).toList(), embeddingModel);
+        // 业务有效期优先；未配置时回退文档入库时间，而不是向量写入时间。
+        LocalDateTime effectiveFrom = doc.getEffectiveFrom() != null
+                ? doc.getEffectiveFrom() : doc.getCreatedAt();
+        if (effectiveFrom == null) effectiveFrom = LocalDateTime.now();
+        LocalDateTime effectiveTo = doc.getEffectiveTo();
 
         List<Map<String, Object>> rows = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
@@ -762,16 +785,22 @@ public class KnowledgeService {
             Map<String, Object> row = new HashMap<>();
             row.put("content", parsed.content());
             row.put("embedding", vectors[i]);
-            row.put("metadata", objectMapper.writeValueAsString(Map.of(
-                    "knowledge_base_id", doc.getKnowledgeBaseId(),
-                    "document_id", doc.getId(),
-                    "chunk_id", chunk.getId(),
-                    "chunk_index", i,
-                    "parent_index", parsed.parentIndex(),
-                    "embedding_model", embeddingModel,
-                    "allowed_users", acl.allowedUsers().stream().map(String::valueOf).toList(),
-                    "tenant_visible", acl.tenantWide(),
-                    "file_name", doc.getFileName())));
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("knowledge_base_id", doc.getKnowledgeBaseId());
+            metadata.put("document_id", doc.getId());
+            metadata.put("chunk_id", chunk.getId());
+            metadata.put("chunk_index", i);
+            metadata.put("parent_index", parsed.parentIndex());
+            metadata.put("embedding_model", embeddingModel);
+            metadata.put("allowed_users", acl.allowedUsers().stream().map(String::valueOf).toList());
+            metadata.put("tenant_visible", acl.tenantWide());
+            metadata.put("file_name", doc.getFileName());
+            metadata.put("document_created_at", doc.getCreatedAt() == null ? null : doc.getCreatedAt().toString());
+            metadata.put("effective_from", effectiveFrom.toString());
+            if (effectiveTo != null) metadata.put("effective_to", effectiveTo.toString());
+            row.put("metadata", objectMapper.writeValueAsString(metadata));
+            row.put("effective_from", java.sql.Timestamp.valueOf(effectiveFrom));
+            row.put("effective_to", effectiveTo == null ? null : java.sql.Timestamp.valueOf(effectiveTo));
             rows.add(row);
         }
         vectorRepository.saveBatch(doc.getTenantId(), rows, embeddingDimensions);
@@ -829,15 +858,15 @@ public class KnowledgeService {
         return search(kbId, query, topK, threshold, mode, null, null, viewer);
     }
 
-    /** 带入库时间范围的检索：在 PgVector SQL 层过滤，避免先取 topK 后截断有效数据。 */
+    /** 带内容有效期范围的检索：在 PgVector SQL 层做区间重叠过滤，避免先取 topK 后截断有效数据。 */
     public List<Map<String, Object>> search(Long kbId, String query, Integer topK, Double threshold,
-                                            String mode, Instant createdAfter, Instant createdBefore,
+                                            String mode, Instant effectiveAfter, Instant effectiveBefore,
                                             KnowledgePermissionService.Viewer viewer) {
         permissionService.requireView(kbId, viewer);
         Long tenantId = TenantContext.getTenantId();
-        if (createdAfter != null || createdBefore != null) {
-            if (createdAfter != null && createdBefore != null && createdAfter.isAfter(createdBefore)) {
-                throw new BusinessException(400, "开始时间不能晚于结束时间");
+        if (effectiveAfter != null || effectiveBefore != null) {
+            if (effectiveAfter != null && effectiveBefore != null && effectiveAfter.isAfter(effectiveBefore)) {
+                throw new BusinessException(400, "生效开始时间不能晚于生效结束时间");
             }
             KnowledgeBase kb = kbMapper.selectById(kbId);
             if (kb == null) throw new BusinessException(404, "知识库不存在");
@@ -849,7 +878,7 @@ public class KnowledgeService {
             int limit = Math.max(1, Math.min(topK == null ? 5 : topK, 20));
             double scoreThreshold = Math.max(0, Math.min(threshold == null ? 0.5 : threshold, 1));
             return vectorRepository.search(tenantId, vector, kbId, limit, scoreThreshold, dimensions,
-                    viewer.userId(), permissionService.tenantWide(viewer), createdAfter, createdBefore);
+                    viewer.userId(), permissionService.tenantWide(viewer), effectiveAfter, effectiveBefore);
         }
         Map<String, Object> retrievalConfig = mode == null || mode.isBlank()
                 ? Map.of() : Map.of("mode", mode);

@@ -32,9 +32,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.net.InetSocketAddress;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -67,6 +72,7 @@ class KnowledgeServiceLifecycleTest {
     private VectorRepository vectorRepository;
     private StorageService storage;
     private KnowledgeGraphService graphService;
+    private DocumentParser parser;
     private KnowledgePermissionService permissionService;
     private SysUserMapper userMapper;
     private AgentKnowledgeBaseMapper agentKbMapper;
@@ -95,6 +101,7 @@ class KnowledgeServiceLifecycleTest {
         vectorRepository = mock(VectorRepository.class);
         storage = mock(StorageService.class);
         graphService = mock(KnowledgeGraphService.class);
+        parser = mock(DocumentParser.class);
         permissionService = mock(KnowledgePermissionService.class);
         userMapper = mock(SysUserMapper.class);
         agentKbMapper = mock(AgentKnowledgeBaseMapper.class);
@@ -107,7 +114,7 @@ class KnowledgeServiceLifecycleTest {
         service = new KnowledgeService(kbMapper, docMapper, chunkMapper, imageMapper,
                 mock(BillingUsageMapper.class), mock(PricingService.class), mock(QuotaService.class),
                 storage, embeddingService, vectorRepository, mock(HybridRetrievalService.class),
-                mock(DocumentParser.class), resolver, mock(ImageUnderstandingService.class),
+                parser, resolver, mock(ImageUnderstandingService.class),
                 graphService, new ObjectMapper(), permissionService, userMapper,
                 agentKbMapper, agentRegistryMapper, auditService, mock(NetworkPolicyService.class),
                 mock(CryptoService.class));
@@ -161,6 +168,65 @@ class KnowledgeServiceLifecycleTest {
 
         assertEquals(400, error.getCode());
         verify(kbMapper, never()).insert(any(KnowledgeBase.class));
+    }
+
+    @Test
+    void callbackPersistsContentValidityRange() {
+        ReflectionTestUtils.setField(service, "documentParseExecutor", mock(ThreadPoolTaskExecutor.class));
+        when(storage.exists("9/knowledge/1/abc/file.pdf")).thenReturn(true);
+        when(storage.statSize("9/knowledge/1/abc/file.pdf")).thenReturn(12L);
+        doAnswer(invocation -> {
+            KnowledgeDocument doc = invocation.getArgument(0);
+            doc.setId(55L);
+            return 1;
+        }).when(docMapper).insert(any(KnowledgeDocument.class));
+        Instant from = Instant.parse("2026-01-01T00:00:00Z");
+        Instant to = Instant.parse("2026-12-31T23:59:59Z");
+
+        service.callback(1L, "9/knowledge/1/abc/file.pdf", null, null, from, to, viewer);
+
+        ArgumentCaptor<KnowledgeDocument> captor = ArgumentCaptor.forClass(KnowledgeDocument.class);
+        verify(docMapper).insert(captor.capture());
+        assertEquals(LocalDateTime.ofInstant(from, ZoneId.systemDefault()),
+                captor.getValue().getEffectiveFrom());
+        assertEquals(LocalDateTime.ofInstant(to, ZoneId.systemDefault()),
+                captor.getValue().getEffectiveTo());
+    }
+
+    @Test
+    void parseUsesDocumentValidityFallbackForVectorRows() throws Exception {
+        KnowledgeDocument doc = new KnowledgeDocument();
+        doc.setId(55L);
+        doc.setKnowledgeBaseId(1L);
+        doc.setTenantId(9L);
+        doc.setObjectName("obj");
+        doc.setFileName("a.pdf");
+        doc.setCreatedAt(LocalDateTime.of(2026, 1, 1, 10, 0));
+        when(storage.get("obj")).thenReturn("pdf".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        when(parser.parseWithParents(anyString(), any(), any()))
+                .thenReturn(List.of(new DocumentParser.ParsedChunk("hello", 0, "hello")));
+        when(parser.extractImages(anyString(), any())).thenReturn(List.of());
+        when(permissionService.aclOf(kb)).thenReturn(
+                new KnowledgePermissionService.Acl(List.of(), true));
+        when(embeddingService.dimension("default-embed")).thenReturn(2);
+        when(embeddingService.embedBatch(anyList(), anyString()))
+                .thenReturn(new float[][]{{0.1f, 0.2f}});
+        doAnswer(invocation -> {
+            KnowledgeChunk chunk = invocation.getArgument(0);
+            chunk.setId(77L);
+            return 1;
+        }).when(chunkMapper).insert(any(KnowledgeChunk.class));
+
+        ReflectionTestUtils.invokeMethod(service, "parseOnce", doc);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Map<String, Object>>> rows = ArgumentCaptor.forClass(List.class);
+        verify(vectorRepository).saveBatch(eq(9L), rows.capture(), eq(2));
+        Map<String, Object> row = rows.getValue().get(0);
+        assertEquals(java.sql.Timestamp.valueOf(doc.getCreatedAt()), row.get("effective_from"));
+        assertEquals(null, row.get("effective_to"));
+        assertTrue(String.valueOf(row.get("metadata")).contains(
+                "\"effective_from\":\"2026-01-01T10:00\""));
     }
 
     @Test

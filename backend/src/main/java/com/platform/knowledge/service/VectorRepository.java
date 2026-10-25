@@ -34,13 +34,19 @@ public class VectorRepository {
                         embedding vector(%d) NOT NULL,
                         metadata JSONB NOT NULL,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        effective_from TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        effective_to TIMESTAMPTZ NULL
                     )
                     """.formatted(schema, table, dim));
             // 兼容已存在的租户向量表：补 updated_at，并把 created_at 设为非空。
             pgJdbcTemplate.execute("ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ"
                     .formatted(schema, table));
             pgJdbcTemplate.execute("ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"
+                    .formatted(schema, table));
+            pgJdbcTemplate.execute("ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS effective_from TIMESTAMPTZ"
+                    .formatted(schema, table));
+            pgJdbcTemplate.execute("ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS effective_to TIMESTAMPTZ"
                     .formatted(schema, table));
             pgJdbcTemplate.execute("ALTER TABLE %s.%s ALTER COLUMN created_at SET DEFAULT now()"
                     .formatted(schema, table));
@@ -52,10 +58,19 @@ public class VectorRepository {
                     .formatted(schema, table));
             pgJdbcTemplate.execute("UPDATE %s.%s SET updated_at = created_at WHERE updated_at IS NULL"
                     .formatted(schema, table));
+            // 没有显式业务有效期时，用文档/向量已有时间回填，保证可直接按有效期筛选。
+            pgJdbcTemplate.execute("UPDATE %s.%s SET effective_from = created_at WHERE effective_from IS NULL"
+                    .formatted(schema, table));
+            pgJdbcTemplate.execute("ALTER TABLE %s.%s ALTER COLUMN effective_from SET DEFAULT now()"
+                    .formatted(schema, table));
+            pgJdbcTemplate.execute("ALTER TABLE %s.%s ALTER COLUMN effective_from SET NOT NULL"
+                    .formatted(schema, table));
             pgJdbcTemplate.execute(("UPDATE %s.%s SET metadata = " +
-                    "jsonb_set(jsonb_set(metadata, '{created_at}', to_jsonb(created_at)), " +
-                    "'{updated_at}', to_jsonb(updated_at)) " +
-                    "WHERE metadata->>'created_at' IS NULL OR metadata->>'updated_at' IS NULL")
+                    "jsonb_set(jsonb_set(jsonb_set(jsonb_set(metadata, '{created_at}', to_jsonb(created_at)), " +
+                    "'{updated_at}', to_jsonb(updated_at)), '{effective_from}', to_jsonb(effective_from)), " +
+                    "'{effective_to}', COALESCE(to_jsonb(effective_to), 'null'::jsonb)) " +
+                    "WHERE metadata->>'created_at' IS NULL OR metadata->>'updated_at' IS NULL " +
+                    "OR metadata->>'effective_from' IS NULL")
                     .formatted(schema, table));
             pgJdbcTemplate.execute("ALTER TABLE %s.%s ALTER COLUMN created_at SET NOT NULL"
                     .formatted(schema, table));
@@ -66,6 +81,9 @@ public class VectorRepository {
                     """.formatted(table, schema, table));
             pgJdbcTemplate.execute("""
                     CREATE INDEX IF NOT EXISTS idx_%s_created_at ON %s.%s (created_at)
+                    """.formatted(table, schema, table));
+            pgJdbcTemplate.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_%s_effective ON %s.%s (effective_from, effective_to)
                     """.formatted(table, schema, table));
         }
     }
@@ -78,12 +96,15 @@ public class VectorRepository {
     public void saveBatch(Long tenantId, List<Map<String, Object>> rows, int dimensions) {
         String table = "%s.%s".formatted(schema(tenantId), table(dimensions));
         rows.forEach(r -> pgJdbcTemplate.update(
-                ("INSERT INTO %s (content, embedding, metadata, created_at, updated_at) " +
+                ("INSERT INTO %s (content, embedding, metadata, created_at, updated_at, " +
+                        "effective_from, effective_to) " +
                         "VALUES (?, ?::vector, " +
                         "jsonb_set(jsonb_set(?::jsonb, '{created_at}', to_jsonb(now())), " +
-                        "'{updated_at}', to_jsonb(now())), now(), now())")
+                        "'{updated_at}', to_jsonb(now())), now(), now(), " +
+                        "COALESCE(?::timestamptz, now()), ?::timestamptz)")
                         .formatted(table),
-                r.get("content"), vectorLiteral((float[]) r.get("embedding")), r.get("metadata")));
+                r.get("content"), vectorLiteral((float[]) r.get("embedding")), r.get("metadata"),
+                r.get("effective_from"), r.get("effective_to")));
     }
 
     public List<Map<String, Object>> search(Long tenantId, float[] queryVector, Long knowledgeBaseId,
@@ -136,24 +157,27 @@ public class VectorRepository {
                 userId, tenantWide, null, null);
     }
 
-    /** 在向量检索层按入库时间过滤，避免先取 topK 再过滤导致有效数据被截断。 */
+    /** 在向量检索层按内容有效期区间过滤，避免先取 topK 再过滤导致有效数据被截断。 */
     public List<Map<String, Object>> search(Long tenantId, float[] queryVector, Long knowledgeBaseId,
                                             int topK, double threshold, int dimensions,
                                             Long userId, boolean tenantWide,
-                                            Instant createdAfter, Instant createdBefore) {
+                                            Instant effectiveAfter, Instant effectiveBefore) {
         String q = vectorLiteral(queryVector);
-        Timestamp after = createdAfter == null ? null : Timestamp.from(createdAfter);
-        Timestamp before = createdBefore == null ? null : Timestamp.from(createdBefore);
+        Timestamp after = effectiveAfter == null ? null : Timestamp.from(effectiveAfter);
+        Timestamp before = effectiveBefore == null ? null : Timestamp.from(effectiveBefore);
         String base = """
                 SELECT id, content, metadata,
                        to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
                        to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at,
+                       to_char(effective_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS effective_from,
+                       to_char(effective_to AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS effective_to,
                        1 - (embedding <=> ?::vector) AS score
                 FROM %s.%s
                 WHERE metadata->>'knowledge_base_id' = ?
                   AND 1 - (embedding <=> ?::vector) >= ?
-                  AND (CAST(? AS timestamptz) IS NULL OR created_at >= CAST(? AS timestamptz))
-                  AND (CAST(? AS timestamptz) IS NULL OR created_at <= CAST(? AS timestamptz))
+                  AND (CAST(? AS timestamptz) IS NULL OR effective_to IS NULL
+                       OR effective_to >= CAST(? AS timestamptz))
+                  AND (CAST(? AS timestamptz) IS NULL OR effective_from <= CAST(? AS timestamptz))
                 """.formatted(schema(tenantId), table(dimensions));
         if (userId == null) {
             return pgJdbcTemplate.queryForList(base + " ORDER BY embedding <=> ?::vector LIMIT ?",

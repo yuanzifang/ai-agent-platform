@@ -51,6 +51,12 @@
               <el-input v-model="uploadCfg.pdfPassword" type="password" show-password clearable
                         style="width: 220px" :placeholder="t('kbDetail.poPdfPasswordHint')" />
             </el-form-item>
+            <el-form-item :label="t('kbDetail.contentValidity')">
+              <el-date-picker v-model="uploadEffectiveRange" type="datetimerange" size="small"
+                              :start-placeholder="t('kbDetail.validFrom')"
+                              :end-placeholder="t('kbDetail.validTo')"
+                              style="width: 340px" />
+            </el-form-item>
           </el-form>
           <div class="hint">{{ t('kbDetail.uploadCfgHint') }}</div>
         </el-collapse-item>
@@ -155,8 +161,8 @@
             <span class="pct">{{ (r.score * 100).toFixed(1) }}%</span>
           </div>
           <div class="hit-text">{{ r.content }}</div>
-          <div v-if="hitCreatedAt(r)" class="hit-time">
-            {{ t('kbDetail.ingestedAt') }}{{ hitCreatedAt(r) }}
+          <div v-if="hitEffectiveTime(r)" class="hit-time">
+            {{ t('kbDetail.effectiveAt') }}{{ hitEffectiveTime(r) }}
           </div>
         </div>
       </div>
@@ -473,6 +479,7 @@ async function removeDoc(row: any) {
 
 // ---- 本次上传解析配置（可选覆盖） ----
 const uploadCustomEnabled = ref(false)
+const uploadEffectiveRange = ref<Date[] | null>(null)
 const uploadCfg = reactive({
   ocrEnabled: false, ocrLanguages: 'chi_sim+eng',
   visionEnabled: false, visionModel: 'qwen3-vl:32b', pdfPassword: ''
@@ -600,6 +607,10 @@ async function startUpload(file: File, replaceRow: any, options?: any) {
     task.percent = 100
     const cbBody: any = { objectName: presign.objectName }
     if (replaceRow?.id) cbBody.documentId = replaceRow.id
+    const effectiveFrom = uploadEffectiveRange.value?.[0]
+    const effectiveTo = uploadEffectiveRange.value?.[1]
+    if (effectiveFrom) cbBody.effectiveFrom = new Date(effectiveFrom).toISOString()
+    if (effectiveTo) cbBody.effectiveTo = new Date(effectiveTo).toISOString()
     if (uploadCustomEnabled.value || uploadCfg.pdfPassword) {
       const parseConfig: any = {
         ocrEnabled: uploadCfg.ocrEnabled, ocrLanguages: uploadCfg.ocrLanguages,
@@ -762,13 +773,13 @@ async function toggleChunkReview(c: any) {
   }
 }
 
-function hitCreatedAt(r: any) {
-  if (r?.created_at) return r.created_at
+function hitEffectiveTime(r: any) {
+  if (r?.effective_from) return r.effective_from
   try {
     const meta = typeof r?.metadata === 'string' ? JSON.parse(r.metadata) : r?.metadata
-    return meta?.created_at || meta?.updated_at || ''
+    return meta?.effective_from || meta?.document_created_at || r?.created_at || ''
   } catch {
-    return ''
+    return r?.created_at || ''
   }
 }
 
@@ -778,12 +789,12 @@ async function doSearch() {
   searched.value = true
   try {
     const range = search.range
-    const createdAfter = range?.[0] ? new Date(range[0]).toISOString() : undefined
-    const createdBefore = range?.[1] ? new Date(range[1]).toISOString() : undefined
+    const effectiveAfter = range?.[0] ? new Date(range[0]).toISOString() : undefined
+    const effectiveBefore = range?.[1] ? new Date(range[1]).toISOString() : undefined
     results.value = await http.post(`/knowledge-base/${kbId}/search`, {
       query: search.query, topK: search.topK, scoreThreshold: search.scoreThreshold,
-      mode: createdAfter || createdBefore ? 'vector' : search.mode,
-      createdAfter, createdBefore
+      mode: effectiveAfter || effectiveBefore ? 'vector' : search.mode,
+      effectiveAfter, effectiveBefore
     }) as any
   } finally {
     searching.value = false

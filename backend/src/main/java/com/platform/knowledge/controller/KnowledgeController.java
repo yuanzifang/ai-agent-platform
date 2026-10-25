@@ -133,7 +133,8 @@ public class KnowledgeController {
                 req.documentId(), viewer(principal)));
     }
 
-    public record CallbackRequest(@NotBlank String objectName, String parseConfig, Long documentId) {
+    public record CallbackRequest(@NotBlank String objectName, String parseConfig, Long documentId,
+                                  Instant effectiveFrom, Instant effectiveTo) {
     }
 
     @PostMapping("/{id}/documents/callback")
@@ -141,7 +142,7 @@ public class KnowledgeController {
                                                      @Valid @RequestBody CallbackRequest req,
                                                      @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(knowledgeService.callback(id, req.objectName(), req.documentId(),
-                req.parseConfig(), viewer(principal)));
+                req.parseConfig(), req.effectiveFrom(), req.effectiveTo(), viewer(principal)));
     }
 
     /** 重新解析（DONE/FAILED）：清理旧分段/向量/图片后按最新解析配置重跑。 */
@@ -221,7 +222,7 @@ public class KnowledgeController {
     }
 
     public record SearchRequest(@NotBlank String query, Integer topK, Double scoreThreshold, String mode,
-                                Instant createdAfter, Instant createdBefore) {
+                                Instant effectiveAfter, Instant effectiveBefore) {
     }
 
     @GetMapping("/{id}/graph")
@@ -311,6 +312,6 @@ public class KnowledgeController {
                                                          @Valid @RequestBody SearchRequest req,
                                                          @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(knowledgeService.search(id, req.query(), req.topK(), req.scoreThreshold(),
-                req.mode(), req.createdAfter(), req.createdBefore(), viewer(principal)));
+                req.mode(), req.effectiveAfter(), req.effectiveBefore(), viewer(principal)));
     }
 }
