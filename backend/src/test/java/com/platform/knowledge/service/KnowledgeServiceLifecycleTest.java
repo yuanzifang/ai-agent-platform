@@ -259,6 +259,24 @@ class KnowledgeServiceLifecycleTest {
     }
 
     @Test
+    void rebuildValidityUsesDocumentDatesForAllVectors() {
+        KnowledgeDocument doc = new KnowledgeDocument();
+        doc.setId(55L);
+        doc.setKnowledgeBaseId(1L);
+        doc.setTenantId(9L);
+        doc.setCreatedAt(LocalDateTime.of(2026, 1, 1, 10, 0));
+        doc.setEffectiveTo(LocalDateTime.of(2026, 12, 31, 23, 59));
+        when(docMapper.selectList(any())).thenReturn(List.of(doc));
+
+        Map<String, Object> result = service.rebuildValidity(1L, viewer);
+
+        assertEquals(1, result.get("documents"));
+        verify(vectorRepository).updateValidityForDocument(9L, 1L, 55L,
+                java.sql.Timestamp.valueOf(doc.getCreatedAt()),
+                java.sql.Timestamp.valueOf(doc.getEffectiveTo()));
+    }
+
+    @Test
     void listFiltersInvisibleKnowledgeBasesAndCapsPageSize() {
         KnowledgeBase hidden = new KnowledgeBase();
         hidden.setId(2L);

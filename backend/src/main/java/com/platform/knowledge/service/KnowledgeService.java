@@ -886,6 +886,27 @@ public class KnowledgeService {
         return result;
     }
 
+    /** 按文档当前有效期/入库时间重建该知识库所有向量有效期（修复历史向量回填值）。 */
+    public Map<String, Object> rebuildValidity(Long kbId, KnowledgePermissionService.Viewer viewer) {
+        permissionService.requireEdit(kbId, viewer);
+        List<KnowledgeDocument> docs = docMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeDocument>()
+                        .eq(KnowledgeDocument::getKnowledgeBaseId, kbId));
+        int updated = 0;
+        for (KnowledgeDocument doc : docs) {
+            LocalDateTime from = doc.getEffectiveFrom() != null
+                    ? doc.getEffectiveFrom() : doc.getCreatedAt();
+            if (from == null) continue;
+            vectorRepository.updateValidityForDocument(doc.getTenantId(), kbId, doc.getId(),
+                    java.sql.Timestamp.valueOf(from),
+                    doc.getEffectiveTo() == null ? null : java.sql.Timestamp.valueOf(doc.getEffectiveTo()));
+            updated++;
+        }
+        auditService.record(viewer.userId(), "kb.validity.rebuild", "knowledge",
+                String.valueOf(kbId), "SUCCESS", Map.of("documents", updated));
+        return Map.of("documents", updated);
+    }
+
     /** 补偿清理：重试前删除可能已写入的部分分段与向量，并清掉该文档贡献的自动图谱。 */
     private void cleanupPartial(KnowledgeDocument doc) {
         try {

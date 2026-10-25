@@ -84,6 +84,10 @@
         <div class="sec-title">{{ t('kbDetail.docs') }}{{ documents.length }}）
           <el-switch v-model="validOnly" size="small" />
           <span class="hint">{{ t('kbDetail.validOnly') }}</span>
+          <el-button v-if="detail.canEdit" size="small" text type="primary"
+                     :loading="validityRebuilding" @click="rebuildValidity">
+            {{ t('kbDetail.rebuildValidity') }}
+          </el-button>
         </div>
         <el-table :data="visibleDocuments" size="small" @row-click="toggleChunks">
           <el-table-column prop="fileName" :label="t('kbDetail.fileName')" min-width="180" />
@@ -388,6 +392,7 @@ const detail = reactive<Record<string, any>>({
 })
 const documents = ref<any[]>([])
 const validOnly = ref(false)
+const validityRebuilding = ref(false)
 const uploadTasks = ref<any[]>([])
 let uploadSeq = 0
 const visibleDocuments = computed(() => validOnly.value
@@ -835,6 +840,22 @@ function validityRangeText(row: any) {
   const to = row?.effectiveTo
   if (!from && !to) return '-'
   return `${from ? String(from).slice(0, 10) : '-'} ~ ${to ? String(to).slice(0, 10) : t('kbDetail.longTerm')}`
+}
+
+async function rebuildValidity() {
+  try {
+    await ElMessageBox.confirm(t('kbDetail.rebuildValidityConfirm'), t('kbDetail.rebuildValidity'),
+      { type: 'warning' })
+  } catch {
+    return
+  }
+  validityRebuilding.value = true
+  try {
+    const data = await http.post(`/knowledge-base/${kbId}/validity/rebuild`) as any
+    ElMessage.success(t('kbDetail.rebuildValidityDone') + (data?.documents || 0))
+  } finally {
+    validityRebuilding.value = false
+  }
 }
 
 function openValidity(row: any) {

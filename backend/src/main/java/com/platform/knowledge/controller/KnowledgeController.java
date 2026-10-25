@@ -164,6 +164,12 @@ public class KnowledgeController {
                 req.effectiveFrom(), req.effectiveTo(), viewer(principal)));
     }
 
+    @PostMapping("/{id}/validity/rebuild")
+    public ApiResponse<Map<String, Object>> rebuildValidity(@PathVariable Long id,
+                                                             @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(knowledgeService.rebuildValidity(id, viewer(principal)));
+    }
+
     public record UrlImportRequest(@NotBlank String url, Instant effectiveFrom, Instant effectiveTo) {
     }
 
