@@ -1274,6 +1274,39 @@ class DocumentParserTest {
     }
 
     @Test
+    void ocrScannedTableMergesChangedColumns() throws Exception {
+        Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过扫描换列");
+        String[][] pageOne = {
+                {"Product", "Price", "Qty"},
+                {"Water", "1999", "2"},
+                {"Filter", "99", "10"},
+                {"Install", "0", "1"}
+        };
+        String[][] pageTwo = {
+                {"Product", "Qty", "Discount"},
+                {"Service", "5", "299"},
+                {"Support", "3", "199"},
+                {"Return", "1", "0"}
+        };
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            addScannedTablePage(doc, pageOne);
+            addScannedTablePage(doc, pageTwo);
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        ReflectionTestUtils.setField(parser, "ocrEnabled", true);
+        ReflectionTestUtils.setField(parser, "ocrCommand", "tesseract");
+        ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
+        ReflectionTestUtils.setField(parser, "ocrPreprocess", true);
+        String text = String.join("\n", parser.parse("scan-table-column-change.pdf", pdf));
+        assertTrue(text.contains("Discount") && text.contains("Service"),
+                "扫描换列续页应保留，实际=" + text);
+        assertTrue(text.split("<table", -1).length == 2,
+                "扫描换列应合并为一个 table，实际=" + text);
+    }
+
+    @Test
     void ocrLowContrastScannedTable() throws Exception {
         Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过低对比度 OCR");
         BufferedImage image = new BufferedImage(1400, 700, BufferedImage.TYPE_INT_RGB);

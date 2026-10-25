@@ -164,11 +164,127 @@ final class OcrTableExtractor {
         String prevBody = bodyOf(previous);
         String currBody = bodyOf(current);
         if (prevHead.isBlank() || !prevHead.equals(currHead) || prevBody.isBlank() || currBody.isBlank()) {
-            return previous + "\n" + current;
+            String mapped = mergeByHeaderNames(previous, current);
+            return mapped == null ? previous + "\n" + current : mapped;
         }
         int close = previous.indexOf("</tbody>", previous.indexOf("<tbody>"));
         if (close < 0) return previous + "\n" + current;
         return previous.substring(0, close) + currBody + previous.substring(close);
+    }
+
+    /** 简单扫描表（无 colspan/rowspan）按表头名称对齐列，支持插入/删除/换序。 */
+    private static String mergeByHeaderNames(String previous, String current) {
+        List<String> prevHead = headerCells(previous);
+        List<String> currHead = headerCells(current);
+        List<List<String>> prevRows = bodyRows(previous);
+        List<List<String>> currRows = bodyRows(current);
+        if (prevHead == null || currHead == null || prevRows == null || currRows == null) return null;
+        java.util.LinkedHashMap<String, Integer> union = new java.util.LinkedHashMap<>();
+        for (String name : prevHead) {
+            if (name == null || name.isBlank()) return null;
+            if (union.putIfAbsent(name.toLowerCase(java.util.Locale.ROOT), union.size()) != null) return null;
+        }
+        int common = 0;
+        for (String name : currHead) {
+            if (name == null || name.isBlank()) return null;
+            String key = name.toLowerCase(java.util.Locale.ROOT);
+            if (union.containsKey(key)) common++;
+            else union.put(key, union.size());
+        }
+        if (common < 2 || union.size() > 30) return null;
+        int[] prevMap = headerMap(prevHead, union);
+        int[] currMap = headerMap(currHead, union);
+        if (prevMap == null || currMap == null) return null;
+        if (prevRows.stream().anyMatch(row -> row.size() != prevHead.size())
+                || currRows.stream().anyMatch(row -> row.size() != currHead.size())) return null;
+
+        StringBuilder html = new StringBuilder("<table border=\"1\">\n");
+        int captionStart = previous.indexOf("<caption>");
+        if (captionStart >= 0) {
+            int captionEnd = previous.indexOf("</caption>", captionStart);
+            if (captionEnd > captionStart) {
+                html.append(previous, captionStart, captionEnd + 10).append("\n");
+            }
+        }
+        html.append("<thead>\n<tr>");
+        for (String name : union.keySet()) {
+            html.append("<th>").append(escape(name)).append("</th>");
+        }
+        html.append("</tr>\n</thead>\n<tbody>\n");
+        appendMappedRows(html, prevRows, prevMap, union.size());
+        appendMappedRows(html, currRows, currMap, union.size());
+        html.append("</tbody>\n</table>");
+        java.util.regex.Matcher note = java.util.regex.Pattern
+                .compile("<p class=\"table-note\">(.*?)</p>", java.util.regex.Pattern.DOTALL)
+                .matcher(previous + "\n" + current);
+        while (note.find()) html.append("\n<p class=\"table-note\">").append(note.group(1)).append("</p>");
+        return html.toString();
+    }
+
+    private static int[] headerMap(List<String> head, java.util.Map<String, Integer> union) {
+        int[] map = new int[head.size()];
+        for (int i = 0; i < map.length; i++) {
+            Integer target = union.get(head.get(i).toLowerCase(java.util.Locale.ROOT));
+            if (target == null) return null;
+            map[i] = target;
+        }
+        return map;
+    }
+
+    private static void appendMappedRows(StringBuilder html, List<List<String>> rows,
+                                         int[] map, int columns) {
+        for (List<String> row : rows) {
+            String[] cells = new String[columns];
+            for (int i = 0; i < map.length && i < row.size(); i++) cells[map[i]] = row.get(i);
+            html.append("<tr>");
+            for (String cell : cells) {
+                html.append("<td>").append(cell == null ? "" : escape(cell)).append("</td>");
+            }
+            html.append("</tr>\n");
+        }
+    }
+
+    private static List<String> headerCells(String html) {
+        int start = html.indexOf("<thead>");
+        if (start < 0) return null;
+        int end = html.indexOf("</thead>", start);
+        if (end < 0) return null;
+        String head = html.substring(start, end);
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("<th([^>]*)>(.*?)</th>", java.util.regex.Pattern.DOTALL).matcher(head);
+        List<String> cells = new ArrayList<>();
+        while (matcher.find()) {
+            if (matcher.group(1).contains("colspan") || matcher.group(1).contains("rowspan")) return null;
+            cells.add(unescape(matcher.group(2).trim()));
+        }
+        return cells.isEmpty() ? null : cells;
+    }
+
+    private static List<List<String>> bodyRows(String html) {
+        int start = html.indexOf("<tbody>");
+        if (start < 0) return null;
+        int end = html.indexOf("</tbody>", start);
+        if (end < 0) return null;
+        String body = html.substring(start, end);
+        java.util.regex.Matcher rows = java.util.regex.Pattern
+                .compile("<tr>(.*?)</tr>", java.util.regex.Pattern.DOTALL).matcher(body);
+        List<List<String>> result = new ArrayList<>();
+        while (rows.find()) {
+            java.util.regex.Matcher cells = java.util.regex.Pattern
+                    .compile("<td([^>]*)>(.*?)</td>", java.util.regex.Pattern.DOTALL).matcher(rows.group(1));
+            List<String> row = new ArrayList<>();
+            while (cells.find()) {
+                if (cells.group(1).contains("colspan") || cells.group(1).contains("rowspan")) return null;
+                row.add(unescape(cells.group(2).trim()));
+            }
+            if (!row.isEmpty()) result.add(row);
+        }
+        return result;
+    }
+
+    private static String unescape(String value) {
+        return value.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
+                .replace("&amp;", "&");
     }
 
     private static String headerOf(String html) {
