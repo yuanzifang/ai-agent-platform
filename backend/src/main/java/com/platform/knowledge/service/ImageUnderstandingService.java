@@ -61,10 +61,11 @@ public class ImageUnderstandingService {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("model", model);
-            body.put("prompt", "请先判断图片类型（图表/照片/扫描文档）。"
-                    + "如果是图表：提取标题、坐标轴、图例、系列、数据点或趋势；"
-                    + "如果是照片：描述场景、主要对象、人物/物体和可见文字；"
-                    + "如果是扫描文档：提取标题、表格和关键字段。用中文回答，不超过300字。");
+            body.put("prompt", "请先判断图片类型：只有明显存在坐标轴、图例或数据系列时才归为图表；"
+                    + "风景、人物、物体、纯图形归为照片/插图；以文字/表格为主的页面归为扫描文档。"
+                    + "图表：提取标题、坐标轴、图例、系列、数据点或趋势；"
+                    + "照片/插图：描述场景、主要对象、人物/物体和可见文字；"
+                    + "扫描文档：提取标题、表格和关键字段。用中文回答，不超过300字。");
             body.put("images", List.of(Base64.getEncoder().encodeToString(data)));
             body.put("stream", false);
             body.put("options", Map.of("temperature", 0.1));
