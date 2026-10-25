@@ -279,6 +279,46 @@ class DocumentParserTest {
     }
 
     @Test
+    void infersPdfMiddleColumnRowspan() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                String[][] rows = {
+                        {"Category", "Region", "Sales"},
+                        {"A", "North", "10"},
+                        {"A", "", "20"},
+                        {"B", "South", "5"},
+                        {"B", "", "7"}
+                };
+                float y = 720;
+                for (String[] row : rows) {
+                    float[] xs = {50, 220, 360};
+                    for (int col = 0; col < row.length; col++) {
+                        if (row[col].isEmpty()) continue;
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 30;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("rowspan-middle.pdf", pdf));
+        assertTrue(text.contains("<td rowspan=\"2\">North</td>"),
+                "中间列分组应推断 rowspan，实际=" + text);
+        assertTrue(text.contains("<td rowspan=\"2\">South</td>"),
+                "第二组中间列应推断 rowspan，实际=" + text);
+        assertTrue(text.contains("<td>20</td>") && text.contains("<td>7</td>"),
+                "被合并行的其他列应保留，实际=" + text);
+    }
+
+    @Test
     void parsesPdfMultiLevelHeader() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {

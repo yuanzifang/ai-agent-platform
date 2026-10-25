@@ -181,33 +181,36 @@ final class PdfTableExtractor {
     }
 
     /**
-     * 保守推断纵向合并：仅首列；后续行首列为空且其他列有内容时合并。
-     * 复杂/多列 rowspan 仍需 PDF 网格线分析，避免把普通空单元误判为合并。
+     * 保守推断纵向合并：非数值列、最多合并 3 行；后续行该列为空且其他列有内容时合并。
+     * 复杂合并单元格仍需 PDF 网格线/边框分析，避免把大段空单元误判为 rowspan。
      */
     private static int[][] inferRowSpans(List<LogicalRow> rows, int headers) {
+        int maxSpan = 3;
         int[][] spans = new int[rows.size()][];
         for (int r = 0; r < rows.size(); r++) {
             spans[r] = new int[rows.get(r).values.length];
         }
         for (int r = headers; r < rows.size(); r++) {
-            String first = rows.get(r).values[0];
-            if (first == null || first.isBlank()) continue;
-            int span = 1;
-            while (r + span < rows.size()) {
-                LogicalRow next = rows.get(r + span);
-                String nextFirst = next.values[0];
-                if (nextFirst != null && !nextFirst.isBlank()) break;
-                boolean hasOther = false;
-                for (int c = 1; c < next.values.length; c++) {
-                    if (next.values[c] != null && !next.values[c].isBlank()) {
-                        hasOther = true;
-                        break;
+            for (int c = 0; c < rows.get(r).values.length; c++) {
+                if (coveredByRowSpan(spans, r, c)) continue;
+                String value = rows.get(r).values[c];
+                if (value == null || value.isBlank() || value.matches("[-+]?\\d+([.,]\\d+)?%?")) continue;
+                int span = 1;
+                while (span < maxSpan && r + span < rows.size()) {
+                    LogicalRow next = rows.get(r + span);
+                    if (next.values[c] != null && !next.values[c].isBlank()) break;
+                    boolean hasOther = false;
+                    for (int other = 0; other < next.values.length; other++) {
+                        if (other != c && next.values[other] != null && !next.values[other].isBlank()) {
+                            hasOther = true;
+                            break;
+                        }
                     }
+                    if (!hasOther) break;
+                    span++;
                 }
-                if (!hasOther) break;
-                span++;
+                if (span > 1) spans[r][c] = span;
             }
-            if (span > 1) spans[r][0] = span;
         }
         return spans;
     }
