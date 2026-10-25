@@ -48,6 +48,7 @@ import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.graphics.PDXObject;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.jsoup.Jsoup;
+import org.jsoup.parser.Parser;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -395,6 +396,17 @@ public class DocumentParser {
                             sb.append("\n[表单]").append(name.trim()).append(": ").append(value.trim()).append('\n');
                         }
                     } catch (Exception ignored) {
+                    }
+                }
+                if (acroForm.hasXFA()) {
+                    try {
+                        String xml = new String(acroForm.getXFA().getBytes(), StandardCharsets.UTF_8);
+                        String text = Jsoup.parse(xml, "", Parser.xmlParser()).text();
+                        if (!text.isBlank()) {
+                            sb.append("\n[XFA]").append(text, 0, Math.min(text.length(), 3000)).append('\n');
+                        }
+                    } catch (Exception e) {
+                        log.debug("PDF XFA 读取失败（忽略）：{}", e.getMessage());
                     }
                 }
             }

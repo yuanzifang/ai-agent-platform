@@ -21,6 +21,7 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.cos.COSDictionary;
+import org.apache.pdfbox.cos.COSStream;
 import org.apache.pdfbox.cos.COSInteger;
 import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.pdmodel.PDResources;
@@ -29,6 +30,7 @@ import org.apache.pdfbox.pdmodel.encryption.AccessPermission;
 import org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationText;
 import org.apache.pdfbox.pdmodel.interactive.form.PDAcroForm;
+import org.apache.pdfbox.pdmodel.interactive.form.PDXFAResource;
 import org.apache.pdfbox.pdmodel.interactive.form.PDTextField;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.graphics.image.PDInlineImage;
@@ -1564,6 +1566,37 @@ class DocumentParserTest {
         assertTrue(text.contains("[表单]customer: Alice"), "应提取 PDF 表单字段，实际=" + text);
         assertTrue(text.contains("[批注]") && text.contains("请核对金额"),
                 "应提取 PDF 批注，实际=" + text);
+    }
+
+    @Test
+    void parsesPdfXfaForm() throws Exception {
+        String xfa = "<xdp:xdp xmlns:xdp=\"http://ns.adobe.com/xdp/\">"
+                + "<template><subform><field name=\"customer\"><value>Alice XFA</value></field>"
+                + "</subform></template></xdp:xdp>";
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.beginText();
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 14);
+                content.newLineAtOffset(50, 760);
+                content.showText("XFA form");
+                content.endText();
+            }
+            PDAcroForm form = new PDAcroForm(doc);
+            COSStream stream = new COSStream();
+            try (java.io.OutputStream os = stream.createOutputStream()) {
+                os.write(xfa.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            form.setXFA(new PDXFAResource(stream));
+            doc.getDocumentCatalog().setAcroForm(form);
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("xfa.pdf", pdf));
+        assertTrue(text.contains("[XFA]") && text.contains("Alice XFA"),
+                "应提取 XFA 内容，实际=" + text);
     }
 
     @Test
