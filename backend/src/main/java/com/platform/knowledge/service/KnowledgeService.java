@@ -907,6 +907,43 @@ public class KnowledgeService {
         return Map.of("documents", updated);
     }
 
+    /** 为加密 PDF 设置/更新密码后重解析；密码加密保存，不接受非 PDF 或解析中文档。 */
+    public Map<String, Object> setPdfPasswordAndReparse(Long kbId, Long documentId, String password,
+                                                         KnowledgePermissionService.Viewer viewer) {
+        permissionService.requireEdit(kbId, viewer);
+        KnowledgeDocument doc = docMapper.selectById(documentId);
+        if (doc == null || !Objects.equals(doc.getKnowledgeBaseId(), kbId)) {
+            throw new BusinessException(404, "文档不存在");
+        }
+        String name = doc.getFileName() == null ? "" : doc.getFileName().toLowerCase(Locale.ROOT);
+        if (!name.endsWith(".pdf")) throw new BusinessException(400, "仅 PDF 文档支持设置 PDF 密码");
+        if (!"DONE".equals(doc.getStatus()) && !"FAILED".equals(doc.getStatus())) {
+            throw new BusinessException(400, "文档解析中，暂不能修改 PDF 密码");
+        }
+        if (password != null && password.length() > 256) {
+            throw new BusinessException(400, "PDF 密码过长（最多 256 字符）");
+        }
+        Map<String, Object> config;
+        try {
+            config = doc.getParseConfig() == null || doc.getParseConfig().isBlank()
+                    ? new LinkedHashMap<>()
+                    : objectMapper.readValue(doc.getParseConfig(), Map.class);
+        } catch (Exception e) {
+            throw new BusinessException(400, "文档解析配置格式不正确");
+        }
+        if (password == null || password.isBlank()) config.remove("pdfPassword");
+        else config.put("pdfPassword", password);
+        String configJson = config.isEmpty() ? null : toJsonQuiet(config);
+        String protectedConfig = protectPdfPassword(configJson);
+        docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
+                .eq(KnowledgeDocument::getId, documentId)
+                .set(KnowledgeDocument::getParseConfig, protectedConfig));
+        auditService.record(viewer.userId(), "kb.document.pdf_password", "knowledge_document",
+                String.valueOf(documentId), "SUCCESS", Map.of("kbId", kbId, "passwordSet",
+                        password != null && !password.isBlank()));
+        return reparse(kbId, documentId, viewer);
+    }
+
     /** 补偿清理：重试前删除可能已写入的部分分段与向量，并清掉该文档贡献的自动图谱。 */
     private void cleanupPartial(KnowledgeDocument doc) {
         try {

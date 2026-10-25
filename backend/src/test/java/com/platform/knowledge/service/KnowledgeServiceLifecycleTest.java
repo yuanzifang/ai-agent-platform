@@ -79,6 +79,7 @@ class KnowledgeServiceLifecycleTest {
     private AgentKnowledgeBaseMapper agentKbMapper;
     private AgentRegistryMapper agentRegistryMapper;
     private AuditService auditService;
+    private CryptoService cryptoService;
     private KnowledgeService service;
     private KnowledgeBase kb;
     private HttpServer httpServer;
@@ -108,6 +109,7 @@ class KnowledgeServiceLifecycleTest {
         agentKbMapper = mock(AgentKnowledgeBaseMapper.class);
         agentRegistryMapper = mock(AgentRegistryMapper.class);
         auditService = mock(AuditService.class);
+        cryptoService = mock(CryptoService.class);
         KnowledgeParseConfigResolver resolver = mock(KnowledgeParseConfigResolver.class);
         when(resolver.resolve(any(), any())).thenReturn(ParseOptions.defaults(
                 false, "tesseract", "chi_sim+eng", 150, 20, false, "", "", 3));
@@ -118,7 +120,7 @@ class KnowledgeServiceLifecycleTest {
                 parser, resolver, mock(ImageUnderstandingService.class),
                 graphService, new ObjectMapper(), permissionService, userMapper,
                 agentKbMapper, agentRegistryMapper, auditService, mock(NetworkPolicyService.class),
-                mock(CryptoService.class));
+                cryptoService);
 
         TenantContext.setTenantId(9L);
         kb = new KnowledgeBase();
@@ -274,6 +276,32 @@ class KnowledgeServiceLifecycleTest {
         verify(vectorRepository).updateValidityForDocument(9L, 1L, 55L,
                 java.sql.Timestamp.valueOf(doc.getCreatedAt()),
                 java.sql.Timestamp.valueOf(doc.getEffectiveTo()));
+    }
+
+    @Test
+    void setPdfPasswordStoresCiphertextBeforeReparse() {
+        KnowledgeDocument doc = new KnowledgeDocument();
+        doc.setId(55L);
+        doc.setKnowledgeBaseId(1L);
+        doc.setTenantId(9L);
+        doc.setFileName("scan.pdf");
+        doc.setStatus("FAILED");
+        doc.setParseConfig("{}");
+        when(docMapper.selectById(55L)).thenReturn(doc);
+        when(imageMapper.selectList(any())).thenReturn(List.of());
+        when(cryptoService.encrypt("secret")).thenReturn("v1:encrypted");
+
+        service.setPdfPasswordAndReparse(1L, 55L, "secret", viewer);
+
+        ArgumentCaptor<Wrapper<KnowledgeDocument>> captor =
+                ArgumentCaptor.forClass((Class) Wrapper.class);
+        verify(docMapper).update(isNull(), captor.capture());
+        LambdaUpdateWrapper<KnowledgeDocument> wrapper =
+                (LambdaUpdateWrapper<KnowledgeDocument>) captor.getValue();
+        assertTrue(wrapper.getSqlSet().contains("parse_config"));
+        String stored = String.valueOf(wrapper.getParamNameValuePairs().values());
+        assertTrue(stored.contains("v1:encrypted"));
+        assertFalse(stored.contains("secret"));
     }
 
     @Test

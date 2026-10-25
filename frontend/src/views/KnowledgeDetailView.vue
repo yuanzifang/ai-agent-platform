@@ -109,7 +109,7 @@
               <span v-if="row.retryTimes > 0" class="retry-tip">{{ t('kbDetail.retriedPrefix') }}{{ row.retryTimes }}{{ t('kbDetail.retriedSuffix') }}</span>
             </template>
           </el-table-column>
-          <el-table-column v-if="detail.canEdit" :label="t('kbDetail.actions')" width="340">
+          <el-table-column v-if="detail.canEdit" :label="t('kbDetail.actions')" width="400">
             <template #default="{ row }">
               <el-upload v-if="row.status === 'DONE' || row.status === 'FAILED'" :show-file-list="false"
                          :http-request="(options: any) => reuploadRequest(row, options)"
@@ -122,6 +122,10 @@
                          :loading="row.reparseLoading" @click.stop="reparseDoc(row)">{{ t('kbDetail.reparse') }}</el-button>
               <el-button size="small" text type="primary"
                          @click.stop="openValidity(row)">{{ t('kbDetail.validity') }}</el-button>
+              <el-button v-if="isPdf(row) && (row.status === 'DONE' || row.status === 'FAILED')"
+                         size="small" text type="primary" @click.stop="openPdfPassword(row)">
+                {{ t('kbDetail.pdfPassword') }}
+              </el-button>
               <el-button size="small" text type="danger" @click.stop="removeDoc(row)">{{ t('kbDetail.deleteKb') }}</el-button>
             </template>
           </el-table-column>
@@ -321,6 +325,18 @@
       </div>
     </el-dialog>
 
+    <el-dialog v-model="pdfPasswordVisible" :title="t('kbDetail.pdfPasswordTitle')" width="480px">
+      <el-input v-model="pdfPasswordValue" type="password" show-password
+                :placeholder="t('kbDetail.pdfPasswordPlaceholder')" />
+      <div class="hint" style="margin-top:8px">{{ t('kbDetail.pdfPasswordHint') }}</div>
+      <template #footer>
+        <el-button @click="pdfPasswordVisible = false">{{ t('kbDetail.cancel') }}</el-button>
+        <el-button type="primary" :loading="pdfPasswordSaving" @click="savePdfPassword">
+          {{ t('kbDetail.saveAndReparse') }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="validityVisible" :title="t('kbDetail.validityTitle')" width="520px">
       <el-form label-width="120px">
         <el-form-item :label="t('kbDetail.validityFrom')">
@@ -423,6 +439,10 @@ const reviewEditBody = ref('')
 const CHART_CORRECTED_PREFIX = '【图表数据·人工修正】'
 const validityVisible = ref(false)
 const validitySaving = ref(false)
+const pdfPasswordVisible = ref(false)
+const pdfPasswordSaving = ref(false)
+const pdfPasswordDoc = ref<any>(null)
+const pdfPasswordValue = ref('')
 const validityDoc = ref<any>(null)
 const validityFrom = ref<Date | null>(null)
 const validityTo = ref<Date | null>(null)
@@ -855,6 +875,32 @@ async function rebuildValidity() {
     ElMessage.success(t('kbDetail.rebuildValidityDone') + (data?.documents || 0))
   } finally {
     validityRebuilding.value = false
+  }
+}
+
+function isPdf(row: any) {
+  return typeof row?.fileName === 'string' && row.fileName.toLowerCase().endsWith('.pdf')
+}
+
+function openPdfPassword(row: any) {
+  pdfPasswordDoc.value = row
+  pdfPasswordValue.value = ''
+  pdfPasswordVisible.value = true
+}
+
+async function savePdfPassword() {
+  if (!pdfPasswordDoc.value) return
+  pdfPasswordSaving.value = true
+  try {
+    await http.post(`/knowledge-base/${kbId}/documents/${pdfPasswordDoc.value.id}/pdf-password`, {
+      password: pdfPasswordValue.value
+    })
+    pdfPasswordVisible.value = false
+    ElMessage.success(t('kbDetail.pdfPasswordSaved'))
+    await loadDocs()
+    pollDocs()
+  } finally {
+    pdfPasswordSaving.value = false
   }
 }
 

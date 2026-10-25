@@ -152,6 +152,17 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.reparse(id, docId, viewer(principal)));
     }
 
+    public record PdfPasswordRequest(String password) {
+    }
+
+    @PostMapping("/{id}/documents/{docId}/pdf-password")
+    public ApiResponse<Map<String, Object>> setPdfPassword(@PathVariable Long id, @PathVariable Long docId,
+                                                            @RequestBody PdfPasswordRequest req,
+                                                            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(knowledgeService.setPdfPasswordAndReparse(id, docId, req.password(),
+                viewer(principal)));
+    }
+
     public record DocumentValidityRequest(Instant effectiveFrom, Instant effectiveTo) {
     }
 
