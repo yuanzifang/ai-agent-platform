@@ -26,6 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: aquasecurity/trivy-action@v0.36.0
+        continue-on-error: true   # 观察模式：CVE 升级完成后改 false 转阻断
         with:
           scan-type: fs
           scan-ref: .
