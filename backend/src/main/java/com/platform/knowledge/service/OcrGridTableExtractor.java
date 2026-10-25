@@ -199,7 +199,7 @@ final class OcrGridTableExtractor {
         int width = image.getWidth();
         int height = image.getHeight();
         int maxGap = dashed ? 8 : MAX_GAP;
-        double minDensity = dashed ? 0.45 : MIN_DENSITY;
+        double minDensity = dashed ? 0.20 : MIN_DENSITY;
         int minHorizontal = dashed ? Math.max(MIN_LINE, (int) (width * 0.30)) : MIN_LINE;
         int minVertical = dashed ? Math.max(MIN_LINE, (int) (height * 0.30)) : MIN_LINE;
         List<Segment> result = new ArrayList<>();

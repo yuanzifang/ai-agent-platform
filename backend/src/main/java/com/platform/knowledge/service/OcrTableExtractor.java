@@ -364,21 +364,17 @@ final class OcrTableExtractor {
     }
 
     private static List<List<String>> bodyRows(String html) {
-        int start = html.indexOf("<tbody>");
-        if (start < 0) return null;
-        int end = html.indexOf("</tbody>", start);
-        if (end < 0) return null;
-        String body = html.substring(start, end);
-        java.util.regex.Matcher rows = java.util.regex.Pattern
-                .compile("<tr>(.*?)</tr>", java.util.regex.Pattern.DOTALL).matcher(body);
+        Element tbody = Jsoup.parse(html).selectFirst("tbody");
+        if (tbody == null) return null;
         List<List<String>> result = new ArrayList<>();
-        while (rows.find()) {
-            java.util.regex.Matcher cells = java.util.regex.Pattern
-                    .compile("<td([^>]*)>(.*?)</td>", java.util.regex.Pattern.DOTALL).matcher(rows.group(1));
+        for (Element tr : tbody.select("tr")) {
             List<String> row = new ArrayList<>();
-            while (cells.find()) {
-                if (cells.group(1).contains("colspan") || cells.group(1).contains("rowspan")) return null;
-                row.add(unescape(cells.group(2).trim()));
+            for (Element cell : tr.children()) {
+                if (!"td".equals(cell.tagName())) continue;
+                if (intAttr(cell, "rowspan") > 1) return null;
+                int colspan = Math.max(1, intAttr(cell, "colspan"));
+                row.add(unescape(cell.text().trim()));
+                for (int i = 1; i < colspan; i++) row.add("");
             }
             if (!row.isEmpty()) result.add(row);
         }

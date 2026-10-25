@@ -2101,6 +2101,25 @@ class DocumentParserTest {
     }
 
     @Test
+    void mergesColumnChangeWithColspanBody() {
+        String one = "<table border=\"1\"><thead>"
+                + "<tr><th rowspan=\"2\">Product</th><th colspan=\"2\">Sales</th></tr>"
+                + "<tr><th>2024</th><th>2025</th></tr></thead><tbody>"
+                + "<tr><td>Water</td><td>10</td><td>20</td></tr></tbody></table>";
+        String two = "<table border=\"1\"><thead>"
+                + "<tr><th rowspan=\"2\">Product</th><th colspan=\"2\">Sales</th>"
+                + "<th rowspan=\"2\">Discount</th></tr>"
+                + "<tr><th>2024</th><th>2025</th></tr></thead><tbody>"
+                + "<tr><td colspan=\"2\">Service</td><td>5</td><td>10%</td></tr></tbody></table>";
+
+        String merged = OcrTableExtractor.mergeTables(one, two);
+
+        assertTrue(merged.split("<table", -1).length == 2, "应合并为一个表，实际=" + merged);
+        assertTrue(merged.contains("Water") && merged.contains("Service"), "展开 colspan 后数据应保留");
+        assertTrue(merged.contains("Discount"), "新增列应保留，实际=" + merged);
+    }
+
+    @Test
     void parsesPdfMetadata() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
