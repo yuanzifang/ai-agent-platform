@@ -379,22 +379,44 @@ public class KnowledgeService {
         return Map.of("documentId", docId, "status", "PENDING", "retryTimes", used + 1);
     }
 
-    /** 申请直传：返回预签名 PUT URL 与登记的 objectName（架构 3.8 路径规范）；需编辑权限。 */
+    /** 申请直传：返回预签名 PUT URL 与登记的 objectName（架构 3.8 路径规范）；需编辑权限。
+     * documentId 非空表示重新上传覆盖：仅允许已完成/失败文档，解析中拒绝。 */
     public Map<String, Object> requestUpload(Long kbId, String fileName, Long sizeBytes,
-                                             KnowledgePermissionService.Viewer viewer) {
+                                             Long documentId, KnowledgePermissionService.Viewer viewer) {
         permissionService.requireEdit(kbId, viewer);
         if (sizeBytes != null && sizeBytes > 0) quotaService.checkStorage(sizeBytes);
+        if (documentId != null) {
+            KnowledgeDocument old = docMapper.selectById(documentId);
+            if (old == null || !Objects.equals(old.getKnowledgeBaseId(), kbId)) {
+                throw new BusinessException(404, "文档不存在");
+            }
+            if (!"DONE".equals(old.getStatus()) && !"FAILED".equals(old.getStatus())) {
+                throw new BusinessException(409, "文档解析中，暂不能覆盖上传");
+            }
+        }
         Long tenantId = TenantContext.getTenantId();
+        String safeName = safeFileName(fileName);
         String objectName = tenantId + "/knowledge/" + kbId + "/"
-                + UUID.randomUUID().toString().replace("-", "").substring(0, 12) + "/" + fileName;
+                + UUID.randomUUID().toString().replace("-", "").substring(0, 12) + "/" + safeName;
         String uploadUrl = storage.presignPut(objectName);
-        return Map.of("uploadUrl", uploadUrl, "objectName", objectName);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("uploadUrl", uploadUrl);
+        result.put("objectName", objectName);
+        if (documentId != null) result.put("documentId", documentId);
+        return result;
+    }
+
+    private String safeFileName(String fileName) {
+        String name = fileName == null ? "file" : fileName.trim();
+        name = name.replaceAll("[\\\\/\r\n]", "_");
+        if (name.isBlank()) name = "file";
+        return name.length() > 128 ? name.substring(name.length() - 128) : name;
     }
 
     /** 回调：校验对象存在 + 路径前缀一致（防伪造，需求文档 7.2）→ 登记 → 异步解析；需编辑权限。
      *  parseConfigJson：文档级解析配置覆盖（上传时选择，可空=跟随知识库）。 */
-    public Map<String, Object> callback(Long kbId, String objectName, String parseConfigJson,
-                                        KnowledgePermissionService.Viewer viewer) {
+    public Map<String, Object> callback(Long kbId, String objectName, Long documentId,
+                                        String parseConfigJson, KnowledgePermissionService.Viewer viewer) {
         permissionService.requireEdit(kbId, viewer);
         Long tenantId = TenantContext.getTenantId();
         String expectedPrefix = tenantId + "/knowledge/" + kbId + "/";
@@ -404,9 +426,40 @@ public class KnowledgeService {
         if (!storage.exists(objectName)) {
             throw new BusinessException(400, "文件尚未上传成功（MinIO 中不存在）");
         }
+        String fileName = objectName.substring(objectName.lastIndexOf('/') + 1);
+        if (documentId != null) {
+            KnowledgeDocument doc = docMapper.selectById(documentId);
+            if (doc == null || !Objects.equals(doc.getKnowledgeBaseId(), kbId)) {
+                throw new BusinessException(404, "文档不存在");
+            }
+            if (!"DONE".equals(doc.getStatus()) && !"FAILED".equals(doc.getStatus())) {
+                throw new BusinessException(409, "文档解析中，暂不能覆盖上传");
+            }
+            cleanupPartial(doc);
+            deleteDocumentImages(doc);
+            String oldObject = doc.getObjectName();
+            doc.setFileName(fileName);
+            doc.setObjectName(objectName);
+            doc.setStatus("PENDING");
+            doc.setChunkCount(0);
+            doc.setParseConfig(parseConfigJson);
+            doc.setSizeBytes(storage.statSize(objectName));
+            doc.setRetryTimes(0);
+            doc.setErrorMessage(null);
+            docMapper.updateById(doc);
+            if (oldObject != null && !oldObject.equals(objectName)) {
+                storage.remove(oldObject);
+            }
+            triggerParse(tenantId, doc.getId());
+            auditService.record(viewer.userId(), "kb.document.reupload", "knowledge_document",
+                    String.valueOf(doc.getId()), "SUCCESS",
+                    Map.of("kbId", kbId, "fileName", fileName));
+            log.info("文档覆盖上传：kb={} doc={} file={}", kbId, doc.getId(), fileName);
+            return Map.of("documentId", doc.getId(), "status", doc.getStatus(), "overwritten", true);
+        }
         KnowledgeDocument doc = new KnowledgeDocument();
         doc.setKnowledgeBaseId(kbId);
-        doc.setFileName(objectName.substring(objectName.lastIndexOf('/') + 1));
+        doc.setFileName(fileName);
         doc.setObjectName(objectName);
         doc.setStatus("PENDING");
         doc.setChunkCount(0);
@@ -444,7 +497,7 @@ public class KnowledgeService {
         String objectName = tenantId + "/knowledge/" + kbId + "/"
                 + UUID.randomUUID().toString().replace("-", "").substring(0, 12) + "/" + fileName;
         storage.put(objectName, fetched.bytes, fetched.contentType);
-        Map<String, Object> result = new LinkedHashMap<>(callback(kbId, objectName, null, viewer));
+        Map<String, Object> result = new LinkedHashMap<>(callback(kbId, objectName, null, null, viewer));
         result.put("sourceUrl", fetched.finalUrl);
         result.put("fileName", fileName);
         auditService.record(viewer.userId(), "kb.document.url_import", "knowledge_document",

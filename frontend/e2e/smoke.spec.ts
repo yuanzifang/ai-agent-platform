@@ -245,3 +245,32 @@ test('顶栏全局搜索 Agent/知识库/用例/工具', async ({ page }) => {
   await first.click()
   await page.waitForURL(/\/agent\/edit\/\d+/, { timeout: 10_000 })
 })
+
+test('知识库批量上传与进度展示', async ({ page, request }) => {
+  await login(page)
+  const token = await tokenOf(page)
+  const kb = await (await request.post('/api/v1/knowledge-base', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name: `UI 批量上传-${Date.now()}`, visibility: 'PRIVATE', embeddingModel: 'nomic-embed-text',
+      graphEnabled: false }
+  })).json()
+  expect(kb.code, JSON.stringify(kb)).toBe(0)
+  const kbId = kb.data.id
+  try {
+    await page.goto(`/knowledge/${kbId}`)
+    await expect(page.locator('.kb-title')).toBeVisible()
+    const files = [
+      { name: 'batch-a.txt', mimeType: 'text/plain', buffer: Buffer.from('批量上传文件 A') },
+      { name: 'batch-b.txt', mimeType: 'text/plain', buffer: Buffer.from('批量上传文件 B') }
+    ]
+    await page.locator('.toolbar input[type=file]').first().setInputFiles(files)
+    await expect(page.locator('.upload-task')).toHaveCount(2, { timeout: 20_000 })
+    await expect(page.locator('.upload-task-status.done')).toHaveCount(2, { timeout: 30_000 })
+    await expect(page.locator('.docs').getByText('batch-a.txt')).toBeVisible()
+    await expect(page.locator('.docs').getByText('batch-b.txt')).toBeVisible()
+  } finally {
+    await request.delete(`/api/v1/knowledge-base/${kbId}?force=true`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+  }
+})

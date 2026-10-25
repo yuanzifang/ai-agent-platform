@@ -11,10 +11,10 @@
       <el-button v-if="detail.canEdit" @click="openEdit">{{ t('kbDetail.edit') }}</el-button>
       <el-button v-if="detail.graphEnabled !== false" @click="$router.push(`/knowledge/${kbId}/graph`)">{{ t('graphPage.title') }}</el-button>
       <el-button v-if="detail.canEdit" @click="openPermission">{{ t('kbDetail.permission') }}</el-button>
-      <el-upload v-if="detail.canEdit" :show-file-list="false" :before-upload="upload" :disabled="uploading"
+      <el-upload v-if="detail.canEdit" :show-file-list="false" :http-request="uploadFileRequest" multiple
                  accept=".md,.txt,.docx,.pdf,.xlsx,.xls,.pptx,.html,.htm,.csv,.json,.png,.jpg,.jpeg,.bmp,.tif,.tiff">
         <el-button type="primary" :loading="uploading">
-          {{ uploading ? t('kbDetail.uploading') : t('kbDetail.upload') }}
+          {{ uploading ? t('kbDetail.uploading') : t('kbDetail.batchUpload') }}
         </el-button>
       </el-upload>
       <el-button v-if="detail.canEdit" @click="parseVisible = true">{{ t('kbDetail.parseSettings') }}</el-button>
@@ -53,6 +53,19 @@
       </el-collapse>
     </div>
 
+    <div v-if="uploadTasks.length" class="upload-tasks">
+      <div class="upload-task" v-for="task in uploadTasks" :key="task.id">
+        <div class="upload-task-head">
+          <span class="upload-task-name">{{ task.fileName }}</span>
+          <span :class="['upload-task-status', task.status]">{{ uploadTaskText(task) }}</span>
+        </div>
+        <el-progress :percentage="task.percent" :stroke-width="6"
+                     :status="task.status === 'error' ? 'exception' : task.status === 'done' ? 'success' : undefined" />
+        <div v-if="task.message" class="err">{{ task.message }}</div>
+      </div>
+      <el-button text size="small" @click="clearFinishedUploads">{{ t('kbDetail.clearFinished') }}</el-button>
+    </div>
+
     <div class="body">
       <!-- 文档列表 + 分段 -->
       <div class="docs">
@@ -71,8 +84,13 @@
               <span v-if="row.retryTimes > 0" class="retry-tip">{{ t('kbDetail.retriedPrefix') }}{{ row.retryTimes }}{{ t('kbDetail.retriedSuffix') }}</span>
             </template>
           </el-table-column>
-          <el-table-column v-if="detail.canEdit" :label="t('kbDetail.actions')" width="190">
+          <el-table-column v-if="detail.canEdit" :label="t('kbDetail.actions')" width="280">
             <template #default="{ row }">
+              <el-upload v-if="row.status === 'DONE' || row.status === 'FAILED'" :show-file-list="false"
+                         :http-request="(options: any) => reuploadRequest(row, options)"
+                         accept=".md,.txt,.docx,.pdf,.xlsx,.xls,.pptx,.html,.htm,.csv,.json,.png,.jpg,.jpeg,.bmp,.tif,.tiff">
+                <el-button size="small" text type="primary">{{ t('kbDetail.reupload') }}</el-button>
+              </el-upload>
               <el-button v-if="row.status === 'FAILED'" size="small" text type="warning"
                          @click.stop="retryDoc(row)">{{ t('kbDetail.retry') }}</el-button>
               <el-button v-if="reparseAvailable(row)" size="small" text type="primary"
@@ -292,7 +310,10 @@ const detail = reactive<Record<string, any>>({
   canEdit: false, graphEnabled: false
 })
 const documents = ref<any[]>([])
-const uploading = ref(false)
+const uploadTasks = ref<any[]>([])
+let uploadSeq = 0
+const uploading = computed(() => uploadTasks.value.some(
+  task => task.status === 'uploading' || task.status === 'parsing'))
 const urlVisible = ref(false)
 const urlImporting = ref(false)
 const urlForm = reactive({ url: '' })
@@ -505,33 +526,87 @@ async function retryDoc(row: any) {
 }
 
 /** 预签名直传：POST 拿 URL → PUT 文件 → callback 登记（需求 3.6）。 */
-async function upload(file: File) {
-  uploading.value = true
+async function uploadFileRequest(options: any) {
+  await startUpload(options.file, null, options)
+}
+
+async function reuploadRequest(row: any, options: any) {
+  await startUpload(options.file, row, options)
+}
+
+/** 单文件上传：预签名 → XHR 进度 → callback；replaceRow 非空时覆盖该文档。 */
+async function startUpload(file: File, replaceRow: any, options?: any) {
+  const task: any = {
+    id: ++uploadSeq,
+    fileName: file.name,
+    percent: 0,
+    status: 'uploading',
+    message: '',
+    documentId: replaceRow?.id || null
+  }
+  uploadTasks.value.push(task)
   try {
     const presign = await http.post(`/knowledge-base/${kbId}/documents`, {
-      fileName: file.name, sizeBytes: file.size, contentType: file.type || 'application/octet-stream'
+      fileName: file.name,
+      sizeBytes: file.size,
+      contentType: file.type || 'application/octet-stream',
+      documentId: replaceRow?.id || null
     }) as any
-    const putResp = await fetch(presign.uploadUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': file.type || 'application/octet-stream' },
-      body: file
-    })
-    if (!putResp.ok) throw new Error(t('kbDetail.uploadFailed') + putResp.status)
+    task.percent = 1
+    await putWithProgress(presign.uploadUrl, file, task)
+    task.status = 'parsing'
+    task.percent = 100
     const cbBody: any = { objectName: presign.objectName }
+    if (replaceRow?.id) cbBody.documentId = replaceRow.id
     if (uploadCustomEnabled.value) cbBody.parseConfig = {
       ocrEnabled: uploadCfg.ocrEnabled, ocrLanguages: uploadCfg.ocrLanguages,
       visionEnabled: uploadCfg.visionEnabled, visionModel: uploadCfg.visionModel
     }
-    await http.post(`/knowledge-base/${kbId}/documents/callback`, cbBody)
+    const cb = await http.post(`/knowledge-base/${kbId}/documents/callback`, cbBody) as any
+    task.status = 'done'
+    task.documentId = cb?.documentId || task.documentId
+    task.message = ''
+    options?.onSuccess?.(cb)
     ElMessage.success(t('kbDetail.uploaded'))
     await loadDocs()
     pollDocs()
   } catch (e: any) {
-    ElMessage.error(t('kbDetail.uploadError') + (e.message || e))
-  } finally {
-    uploading.value = false
+    task.status = 'error'
+    task.message = e?.message || String(e)
+    options?.onError?.(e)
+    ElMessage.error(t('kbDetail.uploadError') + (task.message || e))
   }
-  return false // 阻止 el-upload 默认行为
+}
+
+function putWithProgress(url: string, file: File, task: any): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', url)
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        task.percent = Math.min(99, Math.round(event.loaded / event.total * 100))
+      }
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve()
+      else reject(new Error(t('kbDetail.uploadFailed') + xhr.status))
+    }
+    xhr.onerror = () => reject(new Error(t('kbDetail.uploadFailed') + 'network'))
+    xhr.send(file)
+  })
+}
+
+function uploadTaskText(task: any) {
+  if (task.status === 'uploading') return `${t('kbDetail.uploadProgress')} ${task.percent}%`
+  if (task.status === 'parsing') return t('kbDetail.uploadParsing')
+  if (task.status === 'done') return t('kbDetail.uploadDone')
+  return t('kbDetail.uploadTaskFailed')
+}
+
+function clearFinishedUploads() {
+  uploadTasks.value = uploadTasks.value.filter(
+    task => task.status === 'uploading' || task.status === 'parsing')
 }
 
 async function importUrl() {
@@ -673,6 +748,13 @@ function statusText(s: string) {
 </script>
 
 <style scoped>
+.upload-tasks { margin: 0 4px 12px; display: flex; flex-direction: column; gap: 8px; }
+.upload-task { background: #fafafa; border: 1px solid #ebeef5; border-radius: 6px; padding: 8px 10px; }
+.upload-task-head { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; margin-bottom: 5px; }
+.upload-task-name { color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-task-status { color: #909399; white-space: nowrap; }
+.upload-task-status.done { color: #67c23a; }
+.upload-task-status.error { color: #f56c6c; }
 .upload-cfg { margin-top: 6px; }
 .upload-cfg :deep(.el-form-item) { margin-bottom: 6px; }
 .upload-hint { font-size: 12px; color: #909399; margin: 0 0 10px 4px; }

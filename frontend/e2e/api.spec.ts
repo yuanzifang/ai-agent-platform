@@ -1862,6 +1862,67 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
 })
 
 
+test('文档重新上传覆盖原文件', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const suffix = Date.now()
+  const kb = await (await request.post(`${P}/knowledge-base`, {
+    headers: auth(token!), data: { name: `E2E 覆盖上传-${suffix}`, visibility: 'PRIVATE',
+      embeddingModel: 'nomic-embed-text' }
+  })).json()
+  expect(kb.code, JSON.stringify(kb)).toBe(0)
+  const kbId = kb.data.id
+  const upload = async (text: string, documentId?: number) => {
+    const content = Buffer.from(text, 'utf8')
+    const presign = await (await request.post(`${P}/knowledge-base/${kbId}/documents`, {
+      headers: auth(token!), data: { fileName: `overwrite-${suffix}.txt`, sizeBytes: content.length,
+        contentType: 'text/plain', documentId }
+    })).json()
+    expect(presign.code, JSON.stringify(presign)).toBe(0)
+    const put = await request.put(presign.data.uploadUrl, {
+      data: content, headers: { 'Content-Type': 'text/plain' }
+    })
+    expect(put.status()).toBeLessThan(300)
+    const cb = await (await request.post(`${P}/knowledge-base/${kbId}/documents/callback`, {
+      headers: auth(token!), data: { objectName: presign.data.objectName, documentId }
+    })).json()
+    expect(cb.code, JSON.stringify(cb)).toBe(0)
+    return cb.data.documentId as number
+  }
+  const waitDone = async (docId: number) => {
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 1000))
+      const docs = await (await request.get(`${P}/knowledge-base/${kbId}/documents`, {
+        headers: auth(token!)
+      })).json()
+      const row = (docs.data || []).find((d: any) => d.id === docId)
+      if (row?.status === 'DONE') return row
+      if (row?.status === 'FAILED') throw new Error(row.errorMessage || 'parse failed')
+    }
+    throw new Error('parse timeout')
+  }
+  try {
+    const docId = await upload('旧内容：量子色动力学。')
+    const first = await waitDone(docId)
+    const newDocId = await upload('新内容：石墨烯晶格结构。', docId)
+    expect(newDocId).toBe(docId)
+    const second = await waitDone(docId)
+    expect(second.objectName).not.toBe(first.objectName)
+    const docs = await (await request.get(`${P}/knowledge-base/${kbId}/documents`, {
+      headers: auth(token!)
+    })).json()
+    expect((docs.data || []).filter((d: any) => d.fileName === first.fileName).length).toBe(1)
+    const chunks = await (await request.get(
+      `${P}/knowledge-base/${kbId}/documents/${docId}/chunks?pageSize=20`,
+      { headers: auth(token!) })).json()
+    const text = (chunks.data.list || []).map((c: any) => c.content).join('\n')
+    expect(text).toContain('石墨烯')
+    expect(text).not.toContain('量子色动力学')
+  } finally {
+    await request.delete(`${P}/knowledge-base/${kbId}?force=true`, { headers: auth(token!) })
+  }
+})
+
 test('知识图谱 AI 抽取并提交', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()

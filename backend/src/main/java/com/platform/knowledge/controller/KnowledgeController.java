@@ -120,24 +120,27 @@ public class KnowledgeController {
         return ApiResponse.ok();
     }
 
-    public record UploadRequest(@NotBlank String fileName, @NotNull Long sizeBytes, @NotBlank String contentType) {
+    public record UploadRequest(@NotBlank String fileName, @NotNull Long sizeBytes,
+                                @NotBlank String contentType, Long documentId) {
     }
 
     @PostMapping("/{id}/documents")
     public ApiResponse<Map<String, Object>> requestUpload(@PathVariable Long id,
                                                           @Valid @RequestBody UploadRequest req,
                                                           @AuthenticationPrincipal JwtPrincipal principal) {
-        return ApiResponse.ok(knowledgeService.requestUpload(id, req.fileName(), req.sizeBytes(), viewer(principal)));
+        return ApiResponse.ok(knowledgeService.requestUpload(id, req.fileName(), req.sizeBytes(),
+                req.documentId(), viewer(principal)));
     }
 
-    public record CallbackRequest(@NotBlank String objectName, String parseConfig) {
+    public record CallbackRequest(@NotBlank String objectName, String parseConfig, Long documentId) {
     }
 
     @PostMapping("/{id}/documents/callback")
     public ApiResponse<Map<String, Object>> callback(@PathVariable Long id,
                                                      @Valid @RequestBody CallbackRequest req,
                                                      @AuthenticationPrincipal JwtPrincipal principal) {
-        return ApiResponse.ok(knowledgeService.callback(id, req.objectName(), req.parseConfig(), viewer(principal)));
+        return ApiResponse.ok(knowledgeService.callback(id, req.objectName(), req.documentId(),
+                req.parseConfig(), viewer(principal)));
     }
 
     /** 重新解析（DONE/FAILED）：清理旧分段/向量/图片后按最新解析配置重跑。 */

@@ -5,7 +5,7 @@
 `frontend/nginx.conf` 增加：
 
 ```nginx
-add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob: data:; form-action 'self'" always;
+add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' http://localhost:9000 http://127.0.0.1:9000 ws: wss:; media-src 'self' blob: data:; form-action 'self'" always;
 add_header X-Content-Type-Options "nosniff" always;
 add_header X-Frame-Options "DENY" always;
 add_header Referrer-Policy "strict-origin-when-cross-origin" always;
@@ -16,6 +16,7 @@ add_header Permissions-Policy "camera=(self), microphone=(self), geolocation=()"
 
 - `script-src 'self'`：不允许外部脚本/内联脚本；Vite 生产构建脚本同源。
 - `style-src 'unsafe-inline'`：Element Plus/DOM 动态样式需要；这是当前兼容性取舍。
+- `connect-src` 显式允许 MinIO 直传地址；生产需替换为实际对象存储公开 origin。
 - `img-src https:`：Markdown 外部图片兼容；如需更严格可改为仅 `self data: blob:`。
 - `frame-ancestors 'none'` / `object-src 'none'`：防点击劫持和插件内容。
 - `/healthz` 单独覆盖了 `add_header`，因此显式补了安全头。
