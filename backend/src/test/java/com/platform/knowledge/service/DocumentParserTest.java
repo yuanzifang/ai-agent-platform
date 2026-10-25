@@ -1106,6 +1106,55 @@ class DocumentParserTest {
     }
 
     @Test
+    void ocrScannedTableRowspan() throws Exception {
+        Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过扫描 rowspan");
+        BufferedImage image = new BufferedImage(1400, 900, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, 1400, 900);
+            g.setColor(Color.BLACK);
+            g.setFont(new Font("SansSerif", Font.PLAIN, 42));
+            String[][] rows = {
+                    {"Category", "Item", "Price"},
+                    {"Fruit", "Apple", "10"},
+                    {"", "Pear", "12"},
+                    {"Veg", "Kale", "5"},
+                    {"", "Spinach", "6"}
+            };
+            int[] xs = {100, 650, 1050};
+            int y = 180;
+            for (String[] row : rows) {
+                for (int col = 0; col < row.length; col++) {
+                    if (!row[col].isEmpty()) g.drawString(row[col], xs[col], y);
+                }
+                y += 110;
+            }
+        } finally {
+            g.dispose();
+        }
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            var pdImage = LosslessFactory.createFromImage(doc, image);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.drawImage(pdImage, 40, 200, 515, 331);
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        ReflectionTestUtils.setField(parser, "ocrEnabled", true);
+        ReflectionTestUtils.setField(parser, "ocrCommand", "tesseract");
+        ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
+        ReflectionTestUtils.setField(parser, "ocrPreprocess", true);
+        String text = String.join("\n", parser.parse("scan-table-rowspan.pdf", pdf));
+        assertTrue(text.contains("<td rowspan=\"2\">Fruit</td>"),
+                "扫描首列分组应输出 rowspan，实际=" + text);
+        assertTrue(text.contains("<td>Pear</td>"), "被合并行其他列应保留，实际=" + text);
+    }
+
+    @Test
     void ocrLowContrastScannedTable() throws Exception {
         Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过低对比度 OCR");
         BufferedImage image = new BufferedImage(1400, 700, BufferedImage.TYPE_INT_RGB);

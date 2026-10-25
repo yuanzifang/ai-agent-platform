@@ -99,11 +99,17 @@ final class OcrTableExtractor {
             table.append("</thead>\n");
         }
         table.append("<tbody>\n");
+        int[][] spans = inferRowSpans(candidates, headers, anchors);
         for (int i = headers; i < candidates.size(); i++) {
             String[] cells = mapCells(candidates.get(i), anchors);
             table.append("<tr>");
-            for (String cell : cells) {
-                table.append("<td>").append(cell == null ? "" : escape(cell)).append("</td>");
+            for (int col = 0; col < cells.length; col++) {
+                if (coveredByRowSpan(spans, i, col)) continue;
+                String cell = cells[col];
+                int span = spans[i][col];
+                table.append("<td");
+                if (span > 1) table.append(" rowspan=\"").append(span).append("\"");
+                table.append(">").append(cell == null ? "" : escape(cell)).append("</td>");
             }
             table.append("</tr>\n");
         }
@@ -112,6 +118,39 @@ final class OcrTableExtractor {
             table.append("\n<p class=\"table-note\">").append(escape(note)).append("</p>");
         }
         return table.toString();
+    }
+
+    private static int[][] inferRowSpans(List<Line> lines, int headers, List<Float> anchors) {
+        int[][] spans = new int[lines.size()][];
+        for (int i = 0; i < lines.size(); i++) spans[i] = new int[anchors.size()];
+        for (int r = headers; r < lines.size(); r++) {
+            String[] values = mapCells(lines.get(r), anchors);
+            for (int c = 0; c < values.length; c++) {
+                if (coveredByRowSpan(spans, r, c)) continue;
+                String value = values[c];
+                if (value == null || value.isBlank() || value.matches("[-+]?\\d+([.,]\\d+)?")) continue;
+                int span = 1;
+                while (span < 50 && r + span < lines.size()) {
+                    String[] next = mapCells(lines.get(r + span), anchors);
+                    if (next[c] != null && !next[c].isBlank()) break;
+                    boolean other = false;
+                    for (int o = 0; o < next.length; o++) {
+                        if (o != c && next[o] != null && !next[o].isBlank()) { other = true; break; }
+                    }
+                    if (!other) break;
+                    span++;
+                }
+                if (span > 1) spans[r][c] = span;
+            }
+        }
+        return spans;
+    }
+
+    private static boolean coveredByRowSpan(int[][] spans, int row, int column) {
+        for (int r = 0; r < row; r++) {
+            if (spans[r][column] > row - r) return true;
+        }
+        return false;
     }
 
     private static String renderHeaderRow(Line line, List<Float> anchors) {
