@@ -1,18 +1,21 @@
 package com.platform.knowledge.service;
 
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.pdfbox.text.TextPosition;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * PDF 表格轻量重建：按文本坐标把同一行的单元格拼成 HTML 表格。
  *
  * <p>只处理带文本层的 PDF；扫描件仍走 OCR/图片链路。为避免把普通正文误判为表格，
- * 仅当一页出现至少 3 行、最多列数至少 3、且列起始位置跨行对齐时才输出。</p>
+ * 仅当一页出现至少 3 行、最多列数至少 3、且列起始位置跨行对齐时才输出。
+ * 跨页续表在上一页表格接近页底、下一页内容接近页顶且列锚点一致时合并。</p>
  */
 final class PdfTableExtractor {
 
@@ -26,10 +29,12 @@ final class PdfTableExtractor {
     }
 
     static String extract(PDDocument doc) {
-        StringBuilder tables = new StringBuilder();
+        StringBuilder html = new StringBuilder();
         try {
+            List<Table> tables = new ArrayList<>();
+            Table previous = null;
             int pages = Math.min(doc.getNumberOfPages(), MAX_PAGES);
-            for (int page = 1; page <= pages; page++) {
+            for (int pageIndex = 0; pageIndex < pages; pageIndex++) {
                 List<TextPosition> glyphs = new ArrayList<>();
                 PDFTextStripper stripper = new PDFTextStripper() {
                     @Override
@@ -39,18 +44,116 @@ final class PdfTableExtractor {
                     }
                 };
                 stripper.setSortByPosition(true);
-                stripper.setStartPage(page);
-                stripper.setEndPage(page);
+                stripper.setStartPage(pageIndex + 1);
+                stripper.setEndPage(pageIndex + 1);
                 stripper.getText(doc);
-                String table = toTable(groupRows(glyphs));
-                if (!table.isEmpty()) {
-                    tables.append('\n').append(table).append('\n');
+
+                PDPage page = doc.getPage(pageIndex);
+                float pageHeight = page.getMediaBox().getHeight();
+                Table current = tableForPage(groupRows(glyphs), previous, pageHeight);
+                if (current == null) {
+                    previous = null;
+                    continue;
                 }
+                if (current.continuation && previous != null) {
+                    mergeContinuation(previous, current);
+                } else {
+                    tables.add(current);
+                    previous = current;
+                }
+            }
+            for (Table table : tables) {
+                html.append('\n').append(render(table)).append('\n');
             }
         } catch (Exception e) {
             return "";
         }
-        return tables.toString();
+        return html.toString();
+    }
+
+    private static Table tableForPage(List<Row> captured, Table previous, float pageHeight) {
+        List<Row> rows = mergeRows(captured);
+        List<Row> candidates = rows.stream().filter(row -> row.cells.size() >= 2).toList();
+        if (candidates.size() >= 3) {
+            int maxColumns = candidates.stream().mapToInt(row -> row.cells.size()).max().orElse(0);
+            List<Float> anchors = columnAnchors(candidates);
+            if (maxColumns >= 3 && anchors.size() >= 3 && anchors.size() <= 30
+                    && columnsAligned(candidates)) {
+                float minY = candidates.stream().map(row -> row.y).min(Float::compare).orElse(0f);
+                float maxY = candidates.stream().map(row -> row.y).max(Float::compare).orElse(0f);
+                float maxHeight = candidates.stream().map(row -> row.height).max(Float::compare).orElse(12f);
+                List<LogicalRow> logical = logicalRows(rows, anchors, minY,
+                        maxY + Math.max(12f, maxHeight * 1.8f));
+                if (logical.size() >= 3) {
+                    Table table = new Table(logical, anchors, pageHeight, false);
+                    if (previous != null && isCrossPage(previous, table, pageHeight)) {
+                        table.continuation = true;
+                    }
+                    return table;
+                }
+            }
+        }
+        // 续页可能只有 1–2 行，达不到普通表格阈值；沿用上一页列锚点识别。
+        if (previous != null && previous.lastY >= previous.pageHeight * 0.65f) {
+            float topLimit = pageHeight * 0.45f;
+            List<Row> topRows = rows.stream().filter(row -> row.y >= 0 && row.y <= topLimit).toList();
+            List<LogicalRow> logical = logicalRows(topRows, previous.anchors, -Float.MAX_VALUE, topLimit);
+            long nonEmpty = logical.stream().flatMap(row -> java.util.Arrays.stream(row.values))
+                    .filter(Objects::nonNull).count();
+            if (!logical.isEmpty() && nonEmpty >= 2) {
+                Table table = new Table(logical, previous.anchors, pageHeight, true);
+                return table;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isCrossPage(Table previous, Table current, float pageHeight) {
+        return previous.lastY >= previous.pageHeight * 0.65f
+                && current.firstY <= pageHeight * 0.45f
+                && anchorsOverlap(previous.anchors, current.anchors);
+    }
+
+    private static boolean anchorsOverlap(List<Float> left, List<Float> right) {
+        int matches = 0;
+        for (Float a : left) {
+            if (right.stream().anyMatch(b -> Math.abs(a - b) <= ALIGN_TOLERANCE)) matches++;
+        }
+        return matches >= 2;
+    }
+
+    private static void mergeContinuation(Table previous, Table current) {
+        if (!previous.rows.isEmpty() && !current.rows.isEmpty()
+                && sameRow(previous.rows.get(0), current.rows.get(0))) {
+            current.rows.remove(0);
+        }
+        if (!current.rows.isEmpty()) {
+            previous.rows.addAll(current.rows);
+            previous.lastY = current.lastY;
+            previous.pageHeight = current.pageHeight;
+        }
+    }
+
+    private static boolean sameRow(LogicalRow left, LogicalRow right) {
+        if (left.values.length != right.values.length) return false;
+        for (int i = 0; i < left.values.length; i++) {
+            String a = left.values[i] == null ? "" : left.values[i].trim();
+            String b = right.values[i] == null ? "" : right.values[i].trim();
+            if (!a.equalsIgnoreCase(b)) return false;
+        }
+        return true;
+    }
+
+    private static String render(Table table) {
+        StringBuilder html = new StringBuilder("<table border=\"1\">\n");
+        for (LogicalRow row : table.rows) {
+            html.append("<tr>");
+            for (String cell : row.values) {
+                html.append("<td>").append(cell == null ? "" : escape(cell)).append("</td>");
+            }
+            html.append("</tr>\n");
+        }
+        return html.append("</table>").toString();
     }
 
     private static List<Cell> cells(List<TextPosition> positions) {
@@ -86,31 +189,6 @@ final class PdfTableExtractor {
         if (!value.isEmpty() && value.length() <= MAX_CELL_LENGTH) {
             cells.add(new Cell(value, start, end));
         }
-    }
-
-    private static String toTable(List<Row> captured) {
-        List<Row> rows = mergeRows(captured);
-        List<Row> candidates = rows.stream().filter(row -> row.cells.size() >= 2).toList();
-        if (candidates.size() < 3) return "";
-        int maxColumns = candidates.stream().mapToInt(row -> row.cells.size()).max().orElse(0);
-        if (maxColumns < 3 || !columnsAligned(candidates)) return "";
-        List<Float> anchors = columnAnchors(candidates);
-        if (anchors.size() < 3 || anchors.size() > 30) return "";
-        float minY = candidates.stream().map(row -> row.y).min(Float::compare).orElse(0f);
-        float maxY = candidates.stream().map(row -> row.y).max(Float::compare).orElse(0f);
-        float maxHeight = candidates.stream().map(row -> row.height).max(Float::compare).orElse(12f);
-        List<LogicalRow> logicalRows = logicalRows(rows, anchors, minY, maxY + Math.max(12f, maxHeight * 1.8f));
-        if (logicalRows.size() < 3) return "";
-
-        StringBuilder table = new StringBuilder("<table border=\"1\">\n");
-        for (LogicalRow row : logicalRows) {
-            table.append("<tr>");
-            for (String cell : row.values) {
-                table.append("<td>").append(cell == null ? "" : escape(cell)).append("</td>");
-            }
-            table.append("</tr>\n");
-        }
-        return table.append("</table>").toString();
     }
 
     /**
@@ -153,7 +231,6 @@ final class PdfTableExtractor {
         return true;
     }
 
-    /** 列锚点：把跨行接近的单元格起始 X 聚类，空单元格也保留列位。 */
     private static List<Float> columnAnchors(List<Row> rows) {
         List<Float> anchors = new ArrayList<>();
         for (Row row : rows) {
@@ -281,6 +358,24 @@ final class PdfTableExtractor {
             this.values = new String[columns];
             this.height = height;
             this.lastY = y;
+        }
+    }
+
+    private static final class Table {
+        private final List<LogicalRow> rows;
+        private final List<Float> anchors;
+        private final float firstY;
+        private float lastY;
+        private float pageHeight;
+        private boolean continuation;
+
+        private Table(List<LogicalRow> rows, List<Float> anchors, float pageHeight, boolean continuation) {
+            this.rows = rows;
+            this.anchors = anchors;
+            this.pageHeight = pageHeight;
+            this.continuation = continuation;
+            this.firstY = rows.isEmpty() ? 0 : rows.get(0).lastY;
+            this.lastY = rows.isEmpty() ? 0 : rows.get(rows.size() - 1).lastY;
         }
     }
 }
