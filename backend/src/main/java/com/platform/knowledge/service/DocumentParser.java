@@ -411,6 +411,27 @@ public class DocumentParser {
         meta.append(label).append(": ").append(value.trim());
     }
 
+    private int resolveDestinationPage(PDDocument doc,
+                                       org.apache.pdfbox.pdmodel.interactive.documentnavigation.destination.PDDestination destination) {
+        try {
+            if (destination instanceof org.apache.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageDestination pageDest
+                    && pageDest.getPage() != null) {
+                return doc.getPages().indexOf(pageDest.getPage()) + 1;
+            }
+            if (destination instanceof org.apache.pdfbox.pdmodel.interactive.documentnavigation.destination.PDNamedDestination named) {
+                var names = doc.getDocumentCatalog().getNames();
+                if (names == null || names.getDests() == null) return -1;
+                var pageDest = names.getDests().getValue(named.getNamedDestination());
+                if (pageDest != null && pageDest.getPage() != null) {
+                    return doc.getPages().indexOf(pageDest.getPage()) + 1;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("PDF 命名目标解析失败（忽略）：{}", e.getMessage());
+        }
+        return -1;
+    }
+
     /** PDF 内嵌附件：至少保留附件名称，正文内容仍由附件本身管理。 */
     private void appendPdfAttachments(PDDocument doc, StringBuilder sb) {
         try {
@@ -471,12 +492,8 @@ public class DocumentParser {
                             && uri.getURI() != null && !uri.getURI().isBlank()) {
                         sb.append("\n[链接]").append(uri.getURI().trim()).append('\n');
                     } else if (action instanceof org.apache.pdfbox.pdmodel.interactive.action.PDActionGoTo goTo) {
-                        var dest = goTo.getDestination();
-                        if (dest instanceof org.apache.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageDestination pageDest
-                                && pageDest.getPage() != null) {
-                            int number = doc.getPages().indexOf(pageDest.getPage()) + 1;
-                            if (number > 0) sb.append("\n[跳转]第").append(number).append("页\n");
-                        }
+                        int number = resolveDestinationPage(doc, goTo.getDestination());
+                        if (number > 0) sb.append("\n[跳转]第").append(number).append("页\n");
                     }
                 }
             }

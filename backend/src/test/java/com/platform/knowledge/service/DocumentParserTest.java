@@ -36,6 +36,8 @@ import org.apache.pdfbox.pdmodel.interactive.action.PDActionGoTo;
 import org.apache.pdfbox.pdmodel.interactive.action.PDActionURI;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationText;
+import org.apache.pdfbox.pdmodel.PDDestinationNameTreeNode;
+import org.apache.pdfbox.pdmodel.interactive.documentnavigation.destination.PDNamedDestination;
 import org.apache.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageFitDestination;
 import org.apache.pdfbox.pdmodel.interactive.documentnavigation.outline.PDDocumentOutline;
 import org.apache.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem;
@@ -1602,6 +1604,35 @@ class DocumentParserTest {
         String text = String.join("\n", parser.parse("outline.pdf", pdf));
         assertTrue(text.contains("[书签]第一章"), "应提取 PDF 书签，实际=" + text);
         assertTrue(text.contains("[链接]https://example.com/docs"), "应提取 PDF 超链接，实际=" + text);
+    }
+
+    @Test
+    void parsesPdfNamedDestinationLink() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage first = new PDPage(PDRectangle.A4);
+            PDPage second = new PDPage(PDRectangle.A4);
+            doc.addPage(first);
+            doc.addPage(second);
+            PDPageFitDestination target = new PDPageFitDestination();
+            target.setPage(second);
+            PDDestinationNameTreeNode dests = new PDDestinationNameTreeNode();
+            dests.setNames(java.util.Map.of("chapter1", target));
+            PDDocumentNameDictionary names = new PDDocumentNameDictionary(doc.getDocumentCatalog());
+            names.setDests(dests);
+            doc.getDocumentCatalog().setNames(names);
+
+            PDAnnotationLink link = new PDAnnotationLink();
+            link.setRectangle(new PDRectangle(50, 700, 200, 20));
+            PDActionGoTo goTo = new PDActionGoTo();
+            goTo.setDestination(new PDNamedDestination("chapter1"));
+            link.setAction(goTo);
+            first.getAnnotations().add(link);
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("named-dest.pdf", pdf));
+        assertTrue(text.contains("[跳转]第2页"), "应解析命名目标跳转，实际=" + text);
     }
 
     @Test
