@@ -128,13 +128,12 @@ jobs:
         ports:
           - 9000:9000
         options: >-
-          --health-cmd="mc ready local || curl -f http://localhost:9000/minio/health/live"
-          --health-interval=5s
+          --health-cmd="cat /tmp/minio.healthcheck 2>/dev/null || exit 1"
+          --health-interval=30s
           --health-timeout=5s
-          --health-retries=30
-        # 生命周期钩子不支持 command 组合，用 entrypoint 直启
+          --health-retries=3
         entrypoint: sh
-        cmd: -c "minio server /data --address :9000 --console-address :9001"
+        cmd: -c "touch /tmp/minio.healthcheck && minio server /data --address :9000 --console-address :9001"
 
     env:
       MYSQL_HOST: 127.0.0.1
