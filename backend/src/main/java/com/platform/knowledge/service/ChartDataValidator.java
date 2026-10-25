@@ -3,6 +3,14 @@ package com.platform.knowledge.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 /**
  * 图表分段 JSON 的轻量结构校验：检查可解析、series/data/points 类型及数值格式。
  * 不校验图表数值是否与原始图片真实一致；该部分仍需人工复核。
@@ -11,8 +19,68 @@ final class ChartDataValidator {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String NUMBER = "[-+]?\\d+(\\.\\d+)?([eE][-+]?\\d+)?";
+    private static final Pattern EVIDENCE_NUMBER = Pattern.compile("[-+]?\\d[\\d,]*(?:\\.\\d+)?%?");
 
     private ChartDataValidator() {
+    }
+
+    record CrossCheck(String status, int checked, int missing) {
+    }
+
+    /** 与文档文本/OCR 中的数字交叉比对；只标记验证状态，不判定图表事实为真。 */
+    static CrossCheck crossCheck(JsonNode chart, String evidence) {
+        List<String> values = new ArrayList<>();
+        collectChartValues(chart, values);
+        if (values.isEmpty()) return new CrossCheck("unverified", 0, 0);
+        Set<String> evidenceNumbers = new LinkedHashSet<>();
+        Matcher matcher = EVIDENCE_NUMBER.matcher(evidence == null ? "" : evidence);
+        while (matcher.find()) {
+            String normalized = normalize(matcher.group());
+            if (normalized != null) evidenceNumbers.add(normalized);
+        }
+        int missing = 0;
+        for (String value : values) {
+            String normalized = normalize(value);
+            if (normalized == null) continue;
+            if (!evidenceNumbers.contains(normalized)) missing++;
+        }
+        if (evidenceNumbers.isEmpty()) return new CrossCheck("unverified", values.size(), values.size());
+        return new CrossCheck(missing == 0 ? "verified" : "conflict", values.size(), missing);
+    }
+
+    private static void collectChartValues(JsonNode node, List<String> values) {
+        if (node == null || node.isNull()) return;
+        if (node.isValueNode()) {
+            values.add(node.asText());
+            return;
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) collectChartValues(item, values);
+            return;
+        }
+        if (!node.isObject()) return;
+        var fields = node.fields();
+        while (fields.hasNext()) {
+            var entry = fields.next();
+            String key = entry.getKey();
+            JsonNode value = entry.getValue();
+            if (("value".equals(key) || "y".equals(key)) && value.isValueNode()) {
+                values.add(value.asText());
+            } else if ("series".equals(key) || "data".equals(key) || "points".equals(key)
+                    || "values".equals(key)) {
+                collectChartValues(value, values);
+            }
+        }
+    }
+
+    private static String normalize(String raw) {
+        if (raw == null) return null;
+        String value = raw.trim().replace(",", "").replace("%", "");
+        try {
+            return new BigDecimal(value).stripTrailingZeros().toPlainString();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** 返回 null 表示通过，否则返回可展示的错误原因。 */

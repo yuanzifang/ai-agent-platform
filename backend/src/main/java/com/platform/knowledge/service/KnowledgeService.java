@@ -28,6 +28,7 @@ import com.platform.system.mapper.SysUserMapper;
 import com.platform.system.service.AuditService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -737,6 +738,10 @@ public class KnowledgeService {
         ParseOptions parseOptions = parseConfigResolver.resolve(kb, doc.getParseConfig());
         List<DocumentParser.ParsedChunk> chunks = new ArrayList<>(
                 parser.parseWithParents(doc.getFileName(), bytes, parseOptions));
+        String chartEvidence = chunks.stream()
+                .map(DocumentParser.ParsedChunk::content)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.joining("\n"));
         if (parseOptions.visionEnabled()) {
             int described = 0;
             int maxImages = Math.max(1, Math.min(parseOptions.visionMaxImages(), 10));
@@ -752,7 +757,16 @@ public class KnowledgeService {
                         com.fasterxml.jackson.databind.JsonNode chart =
                                 imageUnderstanding.extractChartData(image.data(), image.extension(), parseOptions);
                         if (chart != null) {
-                            String chartText = "【图表数据·模型识别，需人工核对】" + objectMapper.writeValueAsString(chart);
+                            ChartDataValidator.CrossCheck cross =
+                                    ChartDataValidator.crossCheck(chart, chartEvidence);
+                            ObjectNode enriched = ((ObjectNode) chart).deepCopy();
+                            enriched.put("validationStatus", cross.status());
+                            enriched.put("validationSource", "document_text");
+                            enriched.put("validationChecked", cross.checked());
+                            enriched.put("validationMissing", cross.missing());
+                            if ("conflict".equals(cross.status())) enriched.put("confidence", "low");
+                            String chartText = "【图表数据·模型识别，需人工核对】"
+                                    + objectMapper.writeValueAsString(enriched);
                             if (chartText.length() > 1200) chartText = chartText.substring(0, 1200);
                             String chartError = ChartDataValidator.validate(chartText);
                             if (chartError == null) {

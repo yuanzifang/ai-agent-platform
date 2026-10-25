@@ -1,7 +1,10 @@
 package com.platform.knowledge.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
@@ -26,6 +29,18 @@ class ChartDataValidatorTest {
         assertNotNull(ChartDataValidator.validate(
                 "【图表数据】{\"series\":[{\"points\":[{\"value\":\"abc\"}]}]}"));
         assertNotNull(ChartDataValidator.validate("【图表数据】{\"series\":{}}"));
+    }
+
+    @Test
+    void crossChecksValuesAgainstDocumentEvidence() throws Exception {
+        JsonNode chart = new ObjectMapper().readTree(
+                "{\"series\":[{\"points\":[{\"value\":\"1999\"},{\"value\":\"99\"}]}]}");
+
+        assertEquals("verified", ChartDataValidator.crossCheck(chart,
+                "Water 1,999\nFilter 99").status());
+        assertEquals("conflict", ChartDataValidator.crossCheck(chart,
+                "Water 300\nFilter 99").status());
+        assertEquals("unverified", ChartDataValidator.crossCheck(chart, "no numbers").status());
     }
 
     @Test
