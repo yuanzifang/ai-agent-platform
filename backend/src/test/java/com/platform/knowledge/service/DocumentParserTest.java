@@ -1949,6 +1949,43 @@ class DocumentParserTest {
     }
 
     @Test
+    void parsesDynamicXfaDatasetPaths() throws Exception {
+        String xfa = "<xdp:xdp xmlns:xdp=\"http://ns.adobe.com/xdp/\" xmlns:xfa=\"http://www.xfa.org/schema/xfa-data/1.0/\">"
+                + "<xfa:datasets><xfa:data><form><customer>Bob</customer>"
+                + "<items><item><name>A</name><qty>2</qty></item>"
+                + "<item><name>B</name><qty>3</qty></item></items></form></xfa:data></xfa:datasets>"
+                + "</xdp:xdp>";
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.beginText();
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 14);
+                content.newLineAtOffset(50, 760);
+                content.showText("Dynamic XFA form");
+                content.endText();
+            }
+            PDAcroForm form = new PDAcroForm(doc);
+            COSStream stream = new COSStream();
+            try (java.io.OutputStream os = stream.createOutputStream()) {
+                os.write(xfa.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            form.setXFA(new PDXFAResource(stream));
+            doc.getDocumentCatalog().setAcroForm(form);
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("dynamic-xfa.pdf", pdf));
+        assertTrue(text.contains("[XFA数据]"), "应输出 XFA 数据区，实际=" + text);
+        assertTrue(text.contains("form.customer: Bob"), "应提取动态字段路径，实际=" + text);
+        assertTrue(text.contains("form.items.item[2].name: B"),
+                "重复子节点应带序号，实际=" + text);
+        assertTrue(text.contains("form.items.item.qty: 2") && text.contains("form.items.item[2].qty: 3"),
+                "重复子节点值应保留，实际=" + text);
+    }
+
+    @Test
     void rejectsEncryptedPdfWithClearMessage() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {

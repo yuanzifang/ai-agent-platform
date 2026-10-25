@@ -51,8 +51,12 @@ import org.jsoup.Jsoup;
 import org.jsoup.parser.Parser;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
 
 import javax.imageio.ImageIO;
+import javax.xml.parsers.DocumentBuilderFactory;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -553,11 +557,8 @@ public class DocumentParser {
                 }
                 if (acroForm.hasXFA()) {
                     try {
-                        String xml = new String(acroForm.getXFA().getBytes(), StandardCharsets.UTF_8);
-                        String text = Jsoup.parse(xml, "", Parser.xmlParser()).text();
-                        if (!text.isBlank()) {
-                            sb.append("\n[XFA]").append(text, 0, Math.min(text.length(), 3000)).append('\n');
-                        }
+                        byte[] xfa = acroForm.getXFA().getBytes();
+                        if (xfa != null && xfa.length > 0) sb.append(parseXfa(xfa));
                     } catch (Exception e) {
                         log.debug("PDF XFA 读取失败（忽略）：{}", e.getMessage());
                     }
@@ -581,6 +582,104 @@ public class DocumentParser {
             }
         } catch (Exception e) {
             log.debug("PDF 批注读取失败（忽略）：{}", e.getMessage());
+        }
+    }
+
+    /** XFA 原文 + 动态数据集路径；渲染型版面仍无法在服务端完整还原。 */
+    private String parseXfa(byte[] bytes) {
+        String xml = new String(bytes, StandardCharsets.UTF_8);
+        StringBuilder out = new StringBuilder();
+        try {
+            String text = Jsoup.parse(xml, "", Parser.xmlParser()).text();
+            if (!text.isBlank()) {
+                out.append("\n[XFA]").append(text, 0, Math.min(text.length(), 8000)).append('\n');
+            }
+        } catch (Exception ignored) {
+            // 原文解析失败时仍尝试 DOM 数据集提取
+        }
+        List<String> fields = xfaFields(xml);
+        if (!fields.isEmpty()) {
+            out.append("\n[XFA数据]\n");
+            for (String field : fields) out.append(field).append('\n');
+        }
+        return out.toString();
+    }
+
+    private List<String> xfaFields(String xml) {
+        List<String> fields = new ArrayList<>();
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            setXmlFeature(factory, "http://apache.org/xml/features/disallow-doctype-decl", true);
+            setXmlFeature(factory, "http://xml.org/sax/features/external-general-entities", false);
+            setXmlFeature(factory, "http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setXIncludeAware(false);
+            factory.setExpandEntityReferences(false);
+            org.w3c.dom.Document dom = factory.newDocumentBuilder()
+                    .parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+            NodeList datasets = dom.getElementsByTagNameNS("*", "datasets");
+            if (datasets.getLength() == 0) datasets = dom.getElementsByTagNameNS("*", "data");
+            if (datasets.getLength() == 0) return fields;
+            Element start = (Element) datasets.item(0);
+            Element data = firstChild(start, "data");
+            if (data != null) start = data;
+            NodeList children = start.getChildNodes();
+            for (int i = 0; i < children.getLength() && fields.size() < 200; i++) {
+                if (children.item(i) instanceof Element child) collectXfa(child, "", fields);
+            }
+        } catch (Exception e) {
+            log.debug("XFA 数据集解析失败（忽略）：{}", e.getMessage());
+        }
+        return fields;
+    }
+
+    private void collectXfa(Element element, String prefix, List<String> fields) {
+        if (fields.size() >= 200) return;
+        String name = element.getLocalName() == null ? element.getNodeName() : element.getLocalName();
+        int occurrence = 1;
+        Node sibling = element.getPreviousSibling();
+        while (sibling != null) {
+            if (sibling instanceof Element prev) {
+                String prevName = prev.getLocalName() == null ? prev.getNodeName() : prev.getLocalName();
+                if (name.equals(prevName)) occurrence++;
+            }
+            sibling = sibling.getPreviousSibling();
+        }
+        String segment = name + (occurrence > 1 ? "[" + occurrence + "]" : "");
+        String path = prefix.isEmpty() ? segment : prefix + "." + segment;
+        boolean hasElementChild = false;
+        NodeList children = element.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            if (children.item(i) instanceof Element child) {
+                hasElementChild = true;
+                collectXfa(child, path, fields);
+            }
+        }
+        if (!hasElementChild) {
+            String value = element.getTextContent() == null ? "" : element.getTextContent().trim();
+            if (!value.isBlank()) {
+                if (value.length() > 500) value = value.substring(0, 500);
+                fields.add(path + ": " + value);
+            }
+        }
+    }
+
+    private Element firstChild(Element parent, String localName) {
+        NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            if (children.item(i) instanceof Element child) {
+                String name = child.getLocalName() == null ? child.getNodeName() : child.getLocalName();
+                if (localName.equals(name)) return child;
+            }
+        }
+        return null;
+    }
+
+    private void setXmlFeature(DocumentBuilderFactory factory, String feature, boolean value) {
+        try {
+            factory.setFeature(feature, value);
+        } catch (Exception ignored) {
+            // 不同 JAXP 实现支持的特性不同，安全默认值仍由其余配置保证
         }
     }
 
