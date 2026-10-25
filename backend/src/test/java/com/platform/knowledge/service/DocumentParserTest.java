@@ -301,6 +301,93 @@ class DocumentParserTest {
     }
 
     @Test
+    void extractsPdfEmbeddedChartAndPhoto() throws Exception {
+        BufferedImage chart = new BufferedImage(420, 240, BufferedImage.TYPE_INT_RGB);
+        Graphics2D chartG = chart.createGraphics();
+        try {
+            chartG.setColor(Color.WHITE);
+            chartG.fillRect(0, 0, 420, 240);
+            chartG.setColor(Color.BLACK);
+            chartG.drawLine(40, 200, 400, 200);
+            chartG.drawLine(40, 200, 40, 30);
+            chartG.setColor(new Color(30, 120, 220));
+            chartG.fillRect(80, 120, 50, 80);
+            chartG.fillRect(170, 80, 50, 120);
+            chartG.fillRect(260, 50, 50, 150);
+            chartG.setFont(new Font("SansSerif", Font.BOLD, 20));
+            chartG.drawString("Quarterly Sales", 120, 25);
+        } finally {
+            chartG.dispose();
+        }
+        BufferedImage photo = new BufferedImage(320, 200, BufferedImage.TYPE_INT_RGB);
+        Graphics2D photoG = photo.createGraphics();
+        try {
+            photoG.setColor(new Color(135, 206, 235));
+            photoG.fillRect(0, 0, 320, 200);
+            photoG.setColor(new Color(34, 139, 34));
+            photoG.fillRect(0, 130, 320, 70);
+            photoG.setColor(Color.WHITE);
+            photoG.fillOval(220, 35, 50, 50);
+        } finally {
+            photoG.dispose();
+        }
+
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            var chartImage = LosslessFactory.createFromImage(doc, chart);
+            var photoImage = LosslessFactory.createFromImage(doc, photo);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.drawImage(chartImage, 40, 520, 420, 240);
+                content.drawImage(photoImage, 40, 220, 320, 200);
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        List<DocumentParser.ExtractedImage> images = parser.extractImages("chart-photo.pdf", pdf);
+        assertTrue(images.size() >= 2, "PDF 内嵌图表和照片都应被提取，实际=" + images.size());
+        assertTrue(images.stream().anyMatch(image -> image.data().length > 1000));
+    }
+
+    @Test
+    void rendersPdfVectorChartAsImage() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setLineWidth(1.5f);
+                content.setStrokingColor(Color.DARK_GRAY);
+                for (int i = 0; i < 6; i++) {
+                    content.moveTo(40, 600 - i * 30);
+                    content.lineTo(500, 600 - i * 30);
+                    content.stroke();
+                }
+                content.setNonStrokingColor(new Color(30, 120, 220));
+                for (int i = 0; i < 3; i++) {
+                    content.addRect(100 + i * 100, 420, 60, 80 + i * 20);
+                    content.fill();
+                }
+                content.beginText();
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 16);
+                content.newLineAtOffset(80, 720);
+                content.showText("Vector Sales Chart");
+                content.endText();
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        ReflectionTestUtils.setField(parser, "vectorChartRenderEnabled", true);
+        List<DocumentParser.ExtractedImage> images = parser.extractImages("vector-chart.pdf", pdf);
+        assertTrue(images.size() >= 1, "矢量图表页应渲染为图片供多模态/OCR 使用");
+        assertTrue(images.get(0).data().length > 1000);
+        assertTrue((images.get(0).data()[0] & 0xFF) == 0x89, "渲染结果应为 PNG");
+        String text = String.join("\n", parser.parse("vector-chart.pdf", pdf));
+        assertTrue(text.contains("Vector Sales Chart"), "图表标签文本应保留，实际=" + text);
+    }
+
+    @Test
     void extractsDocxImages() throws Exception {
         BufferedImage image = new BufferedImage(200, 100, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = image.createGraphics();

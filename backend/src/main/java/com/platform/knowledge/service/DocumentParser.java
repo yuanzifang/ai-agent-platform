@@ -2,7 +2,10 @@ package com.platform.knowledge.service;
 
 import com.platform.common.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.pdfbox.contentstream.operator.Operator;
+import org.apache.pdfbox.pdfparser.PDFStreamParser;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ss.usermodel.Cell;
@@ -89,6 +92,8 @@ public class DocumentParser {
     private int ocrMaxPages;
     @Value("${knowledge.ocr.dpi:150}")
     private int ocrDpi;
+    @Value("${knowledge.pdf.vector-chart-render-enabled:true}")
+    private boolean vectorChartRenderEnabled;
 
     public record ParsedChunk(String content, int parentIndex, String parentContent) {
     }
@@ -121,16 +126,30 @@ public class DocumentParser {
                 }
             } else if (lower.endsWith(".pdf")) {
                 try (PDDocument doc = org.apache.pdfbox.Loader.loadPDF(bytes)) {
+                    PDFRenderer renderer = new PDFRenderer(doc);
                     int count = 0;
                     for (int p = 0; p < doc.getNumberOfPages() && count < 20; p++) {
-                        PDResources resources = doc.getPage(p).getResources();
-                        if (resources == null) continue;
-                        for (var name : resources.getXObjectNames()) {
-                            if (count >= 20) break;
-                            PDXObject x = resources.getXObject(name);
-                            if (!(x instanceof PDImageXObject image)) continue;
+                        PDPage page = doc.getPage(p);
+                        boolean hasEmbedded = false;
+                        PDResources resources = page.getResources();
+                        if (resources != null) {
+                            for (var name : resources.getXObjectNames()) {
+                                if (count >= 20) break;
+                                PDXObject x = resources.getXObject(name);
+                                if (!(x instanceof PDImageXObject image)) continue;
+                                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                                ImageIO.write(image.getImage(), "png", out);
+                                addImage(images, out.toByteArray(), "png");
+                                count++;
+                                hasEmbedded = true;
+                            }
+                        }
+                        // 矢量图表没有内嵌图片；渲染整页作为图片，交给 OCR/多模态理解。
+                        if (!hasEmbedded && count < 20 && vectorChartRenderEnabled
+                                && hasVectorDrawing(page, 6)) {
+                            BufferedImage rendered = renderer.renderImageWithDPI(p, 150);
                             ByteArrayOutputStream out = new ByteArrayOutputStream();
-                            ImageIO.write(image.getImage(), "png", out);
+                            ImageIO.write(rendered, "png", out);
                             addImage(images, out.toByteArray(), "png");
                             count++;
                         }
@@ -141,6 +160,33 @@ public class DocumentParser {
             log.debug("提取文档图片失败（忽略）：{}", e.getMessage());
         }
         return images;
+    }
+
+    private boolean hasVectorDrawing(PDPage page, int minPaintOps) {
+        PDFStreamParser parser = null;
+        try {
+            parser = new PDFStreamParser(page);
+            int paints = 0;
+            for (Object token : parser.parse()) {
+                if (!(token instanceof Operator op)) continue;
+                String name = op.getName();
+                if ("S".equals(name) || "s".equals(name) || "f".equals(name) || "F".equals(name)
+                        || "f*".equals(name) || "B".equals(name) || "B*".equals(name)
+                        || "b".equals(name) || "b*".equals(name)) {
+                    paints++;
+                }
+            }
+            return paints >= minPaintOps;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            if (parser != null) {
+                try {
+                    parser.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
     }
 
     private void addImage(List<ExtractedImage> images, byte[] data, String extension) {
