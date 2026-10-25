@@ -27,7 +27,15 @@ final class OcrGridTableExtractor {
 
     static String extract(BufferedImage image, List<Box> words) {
         if (image == null || words == null || words.isEmpty()) return "";
-        List<Segment> segments = detectLines(image);
+        List<Segment> strict = detectLines(image, false);
+        String table = buildTable(words, strict);
+        if (!table.isBlank()) return table;
+        // 严格线检测没有找到网格时，才尝试虚线/断裂线，避免影响普通实线表格和正文。
+        if (strict.size() < 4) return buildTable(words, detectLines(image, true));
+        return "";
+    }
+
+    private static String buildTable(List<Box> words, List<Segment> segments) {
         if (segments.size() < 4) return "";
 
         float gx0 = Float.MAX_VALUE, gx1 = -Float.MAX_VALUE;
@@ -187,9 +195,13 @@ final class OcrGridTableExtractor {
     private record Row(boolean hasText, boolean hasNumber, boolean allYears) {
     }
 
-    private static List<Segment> detectLines(BufferedImage image) {
+    private static List<Segment> detectLines(BufferedImage image, boolean dashed) {
         int width = image.getWidth();
         int height = image.getHeight();
+        int maxGap = dashed ? 8 : MAX_GAP;
+        double minDensity = dashed ? 0.45 : MIN_DENSITY;
+        int minHorizontal = dashed ? Math.max(MIN_LINE, (int) (width * 0.30)) : MIN_LINE;
+        int minVertical = dashed ? Math.max(MIN_LINE, (int) (height * 0.30)) : MIN_LINE;
         List<Segment> result = new ArrayList<>();
         for (int y = 0; y < height; y++) {
             int start = -1, last = -1, darkCount = 0;
@@ -198,14 +210,14 @@ final class OcrGridTableExtractor {
                     if (start < 0) start = x;
                     last = x;
                     darkCount++;
-                } else if (start >= 0 && x - last > MAX_GAP) {
-                    addRun(result, true, y, start, last, darkCount);
+                } else if (start >= 0 && x - last > maxGap) {
+                    addRun(result, true, y, start, last, darkCount, minHorizontal, minDensity);
                     start = -1;
                     last = -1;
                     darkCount = 0;
                 }
             }
-            if (start >= 0) addRun(result, true, y, start, last, darkCount);
+            if (start >= 0) addRun(result, true, y, start, last, darkCount, minHorizontal, minDensity);
         }
         for (int x = 0; x < width; x++) {
             int start = -1, last = -1, darkCount = 0;
@@ -214,22 +226,22 @@ final class OcrGridTableExtractor {
                     if (start < 0) start = y;
                     last = y;
                     darkCount++;
-                } else if (start >= 0 && y - last > MAX_GAP) {
-                    addRun(result, false, x, start, last, darkCount);
+                } else if (start >= 0 && y - last > maxGap) {
+                    addRun(result, false, x, start, last, darkCount, minVertical, minDensity);
                     start = -1;
                     last = -1;
                     darkCount = 0;
                 }
             }
-            if (start >= 0) addRun(result, false, x, start, last, darkCount);
+            if (start >= 0) addRun(result, false, x, start, last, darkCount, minVertical, minDensity);
         }
         return result;
     }
 
     private static void addRun(List<Segment> result, boolean horizontal, int fixed,
-                              int start, int end, int darkCount) {
+                              int start, int end, int darkCount, int minLength, double minDensity) {
         int length = end - start + 1;
-        if (length >= MIN_LINE && darkCount >= length * MIN_DENSITY) {
+        if (length >= minLength && darkCount >= length * minDensity) {
             result.add(new Segment(horizontal, fixed, start, end));
         }
     }
