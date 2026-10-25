@@ -9,7 +9,6 @@ import org.apache.pdfbox.text.TextPosition;
 
 import java.awt.geom.Point2D;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -141,11 +140,13 @@ final class PdfGridLineTableExtractor {
         long withText = components.values().stream().filter(c -> !c.text.toString().trim().isEmpty()).count();
         if (withText < 2) return "";
 
+        int headerRows = headerRows(components, dsu, rows, cols);
         boolean[][] covered = new boolean[rows][cols];
-        List<Component> ordered = new ArrayList<>(components.values());
-        ordered.sort(Comparator.comparingInt((Component c) -> c.minY).thenComparingInt(c -> c.minX));
         StringBuilder html = new StringBuilder("<table border=\"1\">\n");
+        if (headerRows > 0) html.append("<thead>\n");
+        else html.append("<tbody>\n");
         for (int y = 0; y < rows; y++) {
+            if (headerRows > 0 && y == headerRows) html.append("</thead>\n<tbody>\n");
             html.append("<tr>");
             for (int x = 0; x < cols; x++) {
                 if (covered[y][x]) continue;
@@ -153,17 +154,61 @@ final class PdfGridLineTableExtractor {
                 if (c == null) continue;
                 int spanX = c.maxX - c.minX + 1;
                 int spanY = c.maxY - c.minY + 1;
-                html.append("<td");
+                boolean header = y < headerRows && c.maxY < headerRows;
+                String tag = header ? "th" : "td";
+                html.append("<").append(tag);
                 if (spanX > 1) html.append(" colspan=\"").append(spanX).append("\"");
                 if (spanY > 1) html.append(" rowspan=\"").append(spanY).append("\"");
-                html.append(">").append(escape(c.text.toString().trim())).append("</td>");
+                html.append(">").append(escape(c.text.toString().trim()))
+                        .append("</").append(tag).append(">");
                 for (int yy = c.minY; yy <= c.maxY; yy++) {
                     for (int xx = c.minX; xx <= c.maxX; xx++) covered[yy][xx] = true;
                 }
             }
             html.append("</tr>\n");
         }
-        return html.append("</table>").toString();
+        return html.append("</tbody>\n</table>").toString();
+    }
+
+    /** 识别 1–3 行表头：首行标签、后续年份行或首行存在跨列时的子表头。 */
+    private static int headerRows(Map<Integer, Component> components, Dsu dsu, int rows, int cols) {
+        if (rows < 2) return 0;
+        Row first = rowInfo(components, dsu, 0, cols);
+        if (!first.hasText || first.hasNumber) return 0;
+        boolean firstSpan = components.values().stream()
+                .anyMatch(c -> c.minY == 0 && (c.maxX > c.minX || c.maxY > c.minY));
+        int headers = 1;
+        if (rows > 2) {
+            Row second = rowInfo(components, dsu, 1, cols);
+            if (second.hasText && !second.hasNumber && (second.allYears || firstSpan)) headers = 2;
+            if (headers == 2 && rows > 3) {
+                Row third = rowInfo(components, dsu, 2, cols);
+                if (third.hasText && !third.hasNumber && third.allYears) headers = 3;
+            }
+        }
+        return Math.min(headers, rows - 1);
+    }
+
+    private static Row rowInfo(Map<Integer, Component> components, Dsu dsu, int row, int cols) {
+        boolean hasText = false, hasNumber = false, allYears = true;
+        for (int x = 0; x < cols; x++) {
+            Component c = components.get(dsu.find(row * cols + x));
+            if (c == null || c.minY != row) continue;
+            String text = c.text.toString().trim();
+            if (text.isEmpty()) continue;
+            hasText = true;
+            boolean year = isYear(text);
+            if (!year) allYears = false;
+            if (!year && text.matches("[-+]?\\d+([.,]\\d+)?%?")) hasNumber = true;
+        }
+        return new Row(hasText, hasNumber, allYears);
+    }
+
+    private static boolean isYear(String text) {
+        return text.matches("(19|20)\\d{2}(年)?");
+    }
+
+    private record Row(boolean hasText, boolean hasNumber, boolean allYears) {
     }
 
     private static boolean hasVertical(List<Segment> segments, float x, float y0, float y1) {

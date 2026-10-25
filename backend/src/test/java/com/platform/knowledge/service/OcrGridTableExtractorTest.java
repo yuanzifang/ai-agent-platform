@@ -48,9 +48,41 @@ class OcrGridTableExtractorTest {
                 new OcrGridTableExtractor.Box("6", 290, 290, 20, 20));
 
         String table = OcrGridTableExtractor.extract(image, boxes);
-        assertTrue(table.contains("colspan=\"2\">Sales"), "表头应跨两列，实际=" + table);
-        assertTrue(table.contains("rowspan=\"2\">Product"), "表头首列应跨两行，实际=" + table);
+        assertTrue(table.contains("<thead>") && table.contains("<tbody>"), "应输出表头/表体，实际=" + table);
+        assertTrue(table.contains("<th colspan=\"2\">Sales"), "表头应跨两列，实际=" + table);
+        assertTrue(table.contains("<th rowspan=\"2\">Product"), "表头首列应跨两行，实际=" + table);
+        assertTrue(table.contains("<th>2024</th>"), "两级年份表头应保留，实际=" + table);
         assertTrue(table.contains("rowspan=\"2\">Fruit"), "数据首列应跨两行，实际=" + table);
         assertTrue(table.contains(">Water<") && table.contains(">Apple<"), "文字应落入网格，实际=" + table);
+    }
+
+    @Test
+    void numericFirstRowDoesNotOpenThead() {
+        BufferedImage image = new BufferedImage(300, 160, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, 300, 160);
+            g.setColor(Color.BLACK);
+            g.setStroke(new BasicStroke(2f));
+            g.drawLine(20, 20, 20, 140);
+            g.drawLine(280, 20, 280, 140);
+            g.drawLine(150, 80, 150, 140);
+            g.drawLine(20, 20, 280, 20);
+            g.drawLine(20, 80, 280, 80);
+            g.drawLine(20, 140, 280, 140);
+        } finally {
+            g.dispose();
+        }
+        List<OcrGridTableExtractor.Box> boxes = List.of(
+                new OcrGridTableExtractor.Box("1", 30, 40, 20, 20),
+                new OcrGridTableExtractor.Box("3", 30, 100, 20, 20),
+                new OcrGridTableExtractor.Box("4", 160, 100, 20, 20));
+
+        String table = OcrGridTableExtractor.extract(image, boxes);
+        assertTrue(table.contains("<tbody>") && !table.contains("<thead>"),
+                "数字首行不应输出 thead，实际=" + table);
+        assertTrue(table.contains("colspan=\"2\"") && table.contains(">1<"),
+                "数字首行合并单元格仍应保留，实际=" + table);
     }
 }

@@ -117,9 +117,13 @@ final class OcrGridTableExtractor {
                 .anyMatch(c -> c.maxX > c.minX || c.maxY > c.minY);
         if (!hasSpan) return "";
 
+        int headerRows = headerRows(components, dsu, rows, cols);
         boolean[][] covered = new boolean[rows][cols];
         StringBuilder html = new StringBuilder("<table border=\"1\">\n");
+        if (headerRows > 0) html.append("<thead>\n");
+        else html.append("<tbody>\n");
         for (int y = 0; y < rows; y++) {
+            if (headerRows > 0 && y == headerRows) html.append("</thead>\n<tbody>\n");
             html.append("<tr>");
             for (int x = 0; x < cols; x++) {
                 if (covered[y][x]) continue;
@@ -127,17 +131,60 @@ final class OcrGridTableExtractor {
                 if (component == null) continue;
                 int spanX = component.maxX - component.minX + 1;
                 int spanY = component.maxY - component.minY + 1;
-                html.append("<td");
+                boolean header = y < headerRows && component.maxY < headerRows;
+                String tag = header ? "th" : "td";
+                html.append("<").append(tag);
                 if (spanX > 1) html.append(" colspan=\"").append(spanX).append("\"");
                 if (spanY > 1) html.append(" rowspan=\"").append(spanY).append("\"");
-                html.append(">").append(escape(component.text.toString().trim())).append("</td>");
+                html.append(">").append(escape(component.text.toString().trim()))
+                        .append("</").append(tag).append(">");
                 for (int yy = component.minY; yy <= component.maxY; yy++) {
                     for (int xx = component.minX; xx <= component.maxX; xx++) covered[yy][xx] = true;
                 }
             }
             html.append("</tr>\n");
         }
-        return html.append("</table>").toString();
+        return html.append("</tbody>\n</table>").toString();
+    }
+
+    private static int headerRows(Map<Integer, Component> components, Dsu dsu, int rows, int cols) {
+        if (rows < 2) return 0;
+        Row first = rowInfo(components, dsu, 0, cols);
+        if (!first.hasText || first.hasNumber) return 0;
+        boolean firstSpan = components.values().stream()
+                .anyMatch(c -> c.minY == 0 && (c.maxX > c.minX || c.maxY > c.minY));
+        int headers = 1;
+        if (rows > 2) {
+            Row second = rowInfo(components, dsu, 1, cols);
+            if (second.hasText && !second.hasNumber && (second.allYears || firstSpan)) headers = 2;
+            if (headers == 2 && rows > 3) {
+                Row third = rowInfo(components, dsu, 2, cols);
+                if (third.hasText && !third.hasNumber && third.allYears) headers = 3;
+            }
+        }
+        return Math.min(headers, rows - 1);
+    }
+
+    private static Row rowInfo(Map<Integer, Component> components, Dsu dsu, int row, int cols) {
+        boolean hasText = false, hasNumber = false, allYears = true;
+        for (int x = 0; x < cols; x++) {
+            Component c = components.get(dsu.find(row * cols + x));
+            if (c == null || c.minY != row) continue;
+            String text = c.text.toString().trim();
+            if (text.isEmpty()) continue;
+            hasText = true;
+            boolean year = isYear(text);
+            if (!year) allYears = false;
+            if (!year && text.matches("[-+]?\\d+([.,]\\d+)?%?")) hasNumber = true;
+        }
+        return new Row(hasText, hasNumber, allYears);
+    }
+
+    private static boolean isYear(String text) {
+        return text.matches("(19|20)\\d{2}(年)?");
+    }
+
+    private record Row(boolean hasText, boolean hasNumber, boolean allYears) {
     }
 
     private static List<Segment> detectLines(BufferedImage image) {

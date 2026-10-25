@@ -1238,6 +1238,8 @@ class DocumentParserTest {
         ReflectionTestUtils.setField(parser, "ocrCommand", "tesseract");
         ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
         String text = String.join("\n", parser.parse("scan-table-grid-spans.pdf", pdf));
+        assertTrue(text.contains("<thead>") && text.contains("<th>2024</th>"),
+                "扫描网格两级表头应输出 thead/th，实际=" + text);
         assertTrue(text.contains("colspan=\"2\"") && text.contains("Sales"),
                 "扫描网格表头应输出 colspan，实际=" + text);
         assertTrue(text.contains("rowspan=\"2\"") && text.contains("Fruit"),
@@ -1786,6 +1788,8 @@ class DocumentParserTest {
             pdf = out.toByteArray();
         }
         String text = String.join("\n", parser.parse("bordered-spans.pdf", pdf));
+        assertTrue(text.contains("<thead>") && text.contains("<th>Product</th>"),
+                "带边框表头应输出 thead/th，实际=" + text);
         assertTrue(text.contains("colspan=\"2\"") && text.contains("Sales"),
                 "带边框表头应输出 colspan，实际=" + text);
         assertTrue(text.contains("rowspan=\"2\"") && text.contains("Fruit"),
@@ -1835,8 +1839,9 @@ class DocumentParserTest {
             pdf = out.toByteArray();
         }
         String text = String.join("\n", parser.parse("line-grid.pdf", pdf));
-        assertTrue(text.contains("<td>Product</td>") && text.contains("colspan=\"2\"") && text.contains("Sales"),
-                "线条表头应输出 Product 与跨两列 Sales，实际=" + text);
+        assertTrue(text.contains("<thead>") && text.contains("<th>Product</th>")
+                        && text.contains("colspan=\"2\"") && text.contains("Sales"),
+                "线条表头应输出 thead、Product 与跨两列 Sales，实际=" + text);
         assertTrue(text.contains("rowspan=\"2\"") && text.contains("Fruit"),
                 "线条数据应输出 rowspan，实际=" + text);
     }
@@ -1889,7 +1894,7 @@ class DocumentParserTest {
         String text = String.join("\n", parser.parse("grid-pages.pdf", pdf));
         assertTrue(text.split("<table", -1).length == 2, "跨页同表头应合并为一个表格，实际=" + text);
         assertTrue(text.contains("Water") && text.contains("Service"), "应保留两页数据");
-        assertTrue(text.split("<td>Product</td>", -1).length == 2, "表头应只保留一次，实际=" + text);
+        assertTrue(text.split("<th>Product</th>", -1).length == 2, "表头应只保留一次，实际=" + text);
     }
 
     @Test

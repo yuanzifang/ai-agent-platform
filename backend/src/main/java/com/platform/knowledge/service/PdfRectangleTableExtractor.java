@@ -100,10 +100,14 @@ final class PdfRectangleTableExtractor {
 
         int rows = ys.size() - 1;
         int cols = xs.size() - 1;
+        int headerRows = headerRows(cells, rows, cols);
         boolean[][] covered = new boolean[rows][cols];
         int withText = 0;
         StringBuilder table = new StringBuilder("<table border=\"1\">\n");
+        if (headerRows > 0) table.append("<thead>\n");
+        else table.append("<tbody>\n");
         for (int y = 0; y < rows; y++) {
+            if (headerRows > 0 && y == headerRows) table.append("</thead>\n<tbody>\n");
             table.append("<tr>");
             for (int x = 0; x < cols; x++) {
                 if (covered[y][x]) continue;
@@ -119,15 +123,57 @@ final class PdfRectangleTableExtractor {
                         for (int xx = x; xx < Math.min(cols, x + xspan); xx++) covered[yy][xx] = true;
                     }
                 }
-                table.append("<td");
+                boolean header = y < headerRows && y + yspan <= headerRows;
+                String tag = header ? "th" : "td";
+                table.append("<").append(tag);
                 if (xspan > 1) table.append(" colspan=\"").append(xspan).append("\"");
                 if (yspan > 1) table.append(" rowspan=\"").append(yspan).append("\"");
-                table.append(">").append(escape(text)).append("</td>");
+                table.append(">").append(escape(text)).append("</").append(tag).append(">");
             }
             table.append("</tr>\n");
         }
         if (withText < 2) return "";
-        return table.append("</table>").toString();
+        return table.append("</tbody>\n</table>").toString();
+    }
+
+    private static int headerRows(Map<String, Cell> cells, int rows, int cols) {
+        if (rows < 2) return 0;
+        Row first = rowInfo(cells, 0, cols);
+        if (!first.hasText || first.hasNumber) return 0;
+        boolean firstSpan = cells.values().stream()
+                .anyMatch(c -> c.y0 == 0 && (c.x1 > c.x0 || c.y1 > c.y0));
+        int headers = 1;
+        if (rows > 2) {
+            Row second = rowInfo(cells, 1, cols);
+            if (second.hasText && !second.hasNumber && (second.allYears || firstSpan)) headers = 2;
+            if (headers == 2 && rows > 3) {
+                Row third = rowInfo(cells, 2, cols);
+                if (third.hasText && !third.hasNumber && third.allYears) headers = 3;
+            }
+        }
+        return Math.min(headers, rows - 1);
+    }
+
+    private static Row rowInfo(Map<String, Cell> cells, int row, int cols) {
+        boolean hasText = false, hasNumber = false, allYears = true;
+        for (int x = 0; x < cols; x++) {
+            Cell cell = cells.get(x + ":" + row);
+            if (cell == null) continue;
+            String text = cell.text.toString().trim();
+            if (text.isEmpty()) continue;
+            hasText = true;
+            boolean year = isYear(text);
+            if (!year) allYears = false;
+            if (!year && text.matches("[-+]?\\d+([.,]\\d+)?%?")) hasNumber = true;
+        }
+        return new Row(hasText, hasNumber, allYears);
+    }
+
+    private static boolean isYear(String text) {
+        return text.matches("(19|20)\\d{2}(年)?");
+    }
+
+    private record Row(boolean hasText, boolean hasNumber, boolean allYears) {
     }
 
     private static List<Float> edges(List<Rect> rects, boolean horizontal) {
