@@ -101,9 +101,12 @@ final class PdfRectangleTableExtractor {
         int rows = ys.size() - 1;
         int cols = xs.size() - 1;
         int headerRows = headerRows(cells, rows, cols);
+        String caption = PdfTableText.caption(glyphs, ys.get(0));
+        List<String> notes = PdfTableText.notes(glyphs, ys.get(ys.size() - 1));
         boolean[][] covered = new boolean[rows][cols];
         int withText = 0;
         StringBuilder table = new StringBuilder("<table border=\"1\">\n");
+        if (caption != null) table.append("<caption>").append(escape(caption)).append("</caption>\n");
         if (headerRows > 0) table.append("<thead>\n");
         else table.append("<tbody>\n");
         for (int y = 0; y < rows; y++) {
@@ -133,7 +136,11 @@ final class PdfRectangleTableExtractor {
             table.append("</tr>\n");
         }
         if (withText < 2) return "";
-        return table.append("</tbody>\n</table>").toString();
+        table.append("</tbody>\n</table>");
+        for (String note : notes) {
+            table.append("\n<p class=\"table-note\">").append(escape(note)).append("</p>");
+        }
+        return table.toString();
     }
 
     private static int headerRows(Map<String, Cell> cells, int rows, int cols) {

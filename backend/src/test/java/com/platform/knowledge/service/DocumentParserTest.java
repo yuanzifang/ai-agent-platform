@@ -1823,10 +1823,12 @@ class DocumentParserTest {
 
                 content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
                 String[][] texts = {
+                        {"Table 3: Sales", "50", "760"},
                         {"Product", "60", "710"}, {"Sales", "220", "710"},
                         {"Water", "60", "680"}, {"10", "210", "680"}, {"20", "310", "680"},
                         {"Fruit", "60", "650"}, {"Apple", "210", "650"}, {"10x", "310", "650"},
-                        {"Pear", "210", "620"}, {"12x", "310", "620"}
+                        {"Pear", "210", "620"}, {"12x", "310", "620"},
+                        {"Note: sample", "50", "580"}
                 };
                 for (String[] t : texts) {
                     content.beginText();
@@ -1844,6 +1846,10 @@ class DocumentParserTest {
                 "线条表头应输出 thead、Product 与跨两列 Sales，实际=" + text);
         assertTrue(text.contains("rowspan=\"2\"") && text.contains("Fruit"),
                 "线条数据应输出 rowspan，实际=" + text);
+        assertTrue(text.contains("<caption>Table 3: Sales</caption>"),
+                "线条表格应保留标题，实际=" + text);
+        assertTrue(text.contains("table-note") && text.contains("Note: sample"),
+                "线条表格应保留脚注，实际=" + text);
     }
 
     @Test

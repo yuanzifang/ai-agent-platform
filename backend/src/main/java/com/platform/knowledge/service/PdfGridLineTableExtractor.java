@@ -141,8 +141,11 @@ final class PdfGridLineTableExtractor {
         if (withText < 2) return "";
 
         int headerRows = headerRows(components, dsu, rows, cols);
+        String caption = PdfTableText.caption(glyphs, ys.get(0));
+        List<String> notes = PdfTableText.notes(glyphs, ys.get(ys.size() - 1));
         boolean[][] covered = new boolean[rows][cols];
         StringBuilder html = new StringBuilder("<table border=\"1\">\n");
+        if (caption != null) html.append("<caption>").append(escape(caption)).append("</caption>\n");
         if (headerRows > 0) html.append("<thead>\n");
         else html.append("<tbody>\n");
         for (int y = 0; y < rows; y++) {
@@ -167,7 +170,11 @@ final class PdfGridLineTableExtractor {
             }
             html.append("</tr>\n");
         }
-        return html.append("</tbody>\n</table>").toString();
+        html.append("</tbody>\n</table>");
+        for (String note : notes) {
+            html.append("\n<p class=\"table-note\">").append(escape(note)).append("</p>");
+        }
+        return html.toString();
     }
 
     /** 识别 1–3 行表头：首行标签、后续年份行或首行存在跨列时的子表头。 */
