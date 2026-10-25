@@ -62,10 +62,12 @@
               <span v-if="row.retryTimes > 0" class="retry-tip">{{ t('kbDetail.retriedPrefix') }}{{ row.retryTimes }}{{ t('kbDetail.retriedSuffix') }}</span>
             </template>
           </el-table-column>
-          <el-table-column v-if="detail.canEdit" :label="t('kbDetail.actions')" width="150">
+          <el-table-column v-if="detail.canEdit" :label="t('kbDetail.actions')" width="190">
             <template #default="{ row }">
               <el-button v-if="row.status === 'FAILED'" size="small" text type="warning"
                          @click.stop="retryDoc(row)">{{ t('kbDetail.retry') }}</el-button>
+              <el-button v-if="reparseAvailable(row)" size="small" text type="primary"
+                         :loading="row.reparseLoading" @click.stop="reparseDoc(row)">{{ t('kbDetail.reparse') }}</el-button>
               <el-button size="small" text type="danger" @click.stop="removeDoc(row)">{{ t('kbDetail.deleteKb') }}</el-button>
             </template>
           </el-table-column>
@@ -429,6 +431,12 @@ async function saveParse() {
   } finally {
     parseSaving.value = false
   }
+}
+
+// 重新解析：仅当知识库或该文档配置了自定义解析设置时显示（否则重跑结果不变）
+function reparseAvailable(row: any) {
+  const kbCustom = detail.parseConfig && Object.keys(detail.parseConfig).length > 0
+  return !!kbCustom || !!row.parseConfig
 }
 
 async function reparseDoc(row: any) {
