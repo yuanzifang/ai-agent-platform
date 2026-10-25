@@ -152,6 +152,11 @@ test('Markdown 渲染与工具步骤卡片', async ({ page, request }) => {
   const plainBody = await plainRes.json()
   expect(plainBody.code, JSON.stringify(plainBody)).toBe(0)
   const plainId = plainBody.data.id as number
+  // 必须发布：未发布 Agent 建/进会话会被拒，聊天页 conversationId 为空导致发送按钮永久禁用
+  await request.post(`/api/v1/agent/${plainId}/publish`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { force: true }
+  })
   try {
     await page.goto(`/chat/${plainId}`)
     // 不用 waitForLoadState('networkidle')：SSE/轮询型页面网络永不静止，该等待无默认超时会挂死
