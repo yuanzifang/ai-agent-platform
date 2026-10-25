@@ -87,7 +87,7 @@ final class PdfTableExtractor {
                 if (logical.size() >= 3) {
                     Table table = new Table(logical, anchors, pageHeight, false);
                     table.caption = findCaption(rows, minY);
-                    table.note = findNote(rows, maxY);
+                    table.notes = findNotes(rows, maxY);
                     if (previous != null && isCrossPage(previous, table, pageHeight)) {
                         table.continuation = true;
                     }
@@ -138,6 +138,9 @@ final class PdfTableExtractor {
             previous.lastY = current.lastY;
             previous.pageHeight = current.pageHeight;
         }
+        if (previous.notes.size() < 3) {
+            previous.notes.addAll(current.notes.subList(0, Math.min(current.notes.size(), 3 - previous.notes.size())));
+        }
     }
 
     private static boolean sameRow(LogicalRow left, LogicalRow right) {
@@ -178,8 +181,8 @@ final class PdfTableExtractor {
             html.append("</tr>\n");
         }
         html.append("</tbody>\n</table>");
-        if (table.note != null) {
-            html.append("\n<p class=\"table-note\">").append(escape(table.note)).append("</p>");
+        for (String note : table.notes) {
+            html.append("\n<p class=\"table-note\">").append(escape(note)).append("</p>");
         }
         return html.toString();
     }
@@ -237,10 +240,20 @@ final class PdfTableExtractor {
                 value = true;
                 if (cell.matches("[-+]?\\d+([.,]\\d+)?%?")) numeric = true;
             }
-            if (!value || numeric) break;
+            if (!value || (numeric && !yearLabels(row))) break;
             count++;
         }
         return count >= rows.size() ? 0 : count;
+    }
+
+    private static boolean yearLabels(LogicalRow row) {
+        boolean any = false;
+        for (String cell : row.values) {
+            if (cell == null || cell.isBlank()) continue;
+            if (!cell.matches("(19|20)\\d{2}")) return false;
+            any = true;
+        }
+        return any;
     }
 
     private static void renderHeaderRow(StringBuilder html, LogicalRow row) {
@@ -272,17 +285,19 @@ final class PdfTableExtractor {
         return best;
     }
 
-    private static String findNote(List<Row> rows, float tableBottom) {
+    private static List<String> findNotes(List<Row> rows, float tableBottom) {
+        List<String> notes = new ArrayList<>();
         for (Row row : rows) {
             if (row.y <= tableBottom + ROW_TOLERANCE || row.y > tableBottom + 120f) continue;
             String text = rowText(row);
             String lower = text.toLowerCase(java.util.Locale.ROOT);
             if (lower.startsWith("note") || lower.startsWith("注") || lower.startsWith("source")
                     || lower.startsWith("来源") || text.startsWith("*") || text.startsWith("†")) {
-                return text;
+                notes.add(text);
+                if (notes.size() >= 3) break;
             }
         }
-        return null;
+        return notes;
     }
 
     private static boolean isCaption(String text) {
@@ -514,7 +529,7 @@ final class PdfTableExtractor {
         private float pageHeight;
         private boolean continuation;
         private String caption;
-        private String note;
+        private List<String> notes = new ArrayList<>();
 
         private Table(List<LogicalRow> rows, List<Float> anchors, float pageHeight, boolean continuation) {
             this.rows = rows;

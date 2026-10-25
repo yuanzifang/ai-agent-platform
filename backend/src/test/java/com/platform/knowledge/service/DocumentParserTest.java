@@ -411,6 +411,43 @@ class DocumentParserTest {
     }
 
     @Test
+    void parsesPdfYearHeaderRows() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                String[][] rows = {
+                        {"Product", "Sales", "", ""},
+                        {"", "2024", "2025", ""},
+                        {"Water", "10", "20", ""},
+                        {"Filter", "5", "5", ""},
+                        {"Install", "0", "1", ""}
+                };
+                float y = 720;
+                for (String[] row : rows) {
+                    float[] xs = {50, 220, 360, 500};
+                    for (int col = 0; col < row.length; col++) {
+                        if (row[col].isEmpty()) continue;
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 30;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("year-header.pdf", pdf));
+        assertTrue(text.contains("<thead>"), "年份行应作为表头，实际=" + text);
+        assertTrue(text.contains("<th>2024</th>") && text.contains("<th>2025</th>"),
+                "年份表头应保留，实际=" + text);
+    }
+
+    @Test
     void parsesPdfMultiLevelHeader() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
@@ -496,6 +533,10 @@ class DocumentParserTest {
                 content.newLineAtOffset(50, 520);
                 content.showText("Note: prices include tax");
                 content.endText();
+                content.beginText();
+                content.newLineAtOffset(50, 490);
+                content.showText("Source: internal price list");
+                content.endText();
             }
             doc.save(out);
             pdf = out.toByteArray();
@@ -504,6 +545,8 @@ class DocumentParserTest {
         assertTrue(text.contains("<caption>Table 1: Product prices</caption>"), "应提取表格标题，实际=" + text);
         assertTrue(text.contains("table-note") && text.contains("Note: prices include tax"),
                 "应提取表格脚注，实际=" + text);
+        assertTrue(text.contains("Source: internal price list"),
+                "多行脚注应全部保留，实际=" + text);
     }
 
     @Test
