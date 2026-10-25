@@ -131,7 +131,7 @@ test('技能脚本可直跑并保存', async ({ page, request }) => {
 })
 
 test('Markdown 渲染与工具步骤卡片', async ({ page, request }) => {
-  test.setTimeout(120_000) // CI 冷启动 Vite + 两段对话，60s 全局预算不够
+  test.setTimeout(180_000) // CI 冷启动 Vite + 两段对话，60s 全局预算不够
   await login(page)
   const token = await tokenOf(page)
 
@@ -154,7 +154,8 @@ test('Markdown 渲染与工具步骤卡片', async ({ page, request }) => {
   const plainId = plainBody.data.id as number
   try {
     await page.goto(`/chat/${plainId}`)
-    await page.waitForLoadState('networkidle')
+    // 不用 waitForLoadState('networkidle')：SSE/轮询型页面网络永不静止，该等待无默认超时会挂死
+    await page.getByPlaceholder(/输入消息/).waitFor({ state: 'visible', timeout: 30_000 })
     const assistantCount = await page.locator('.messages .msg.assistant').count()
     const input = page.getByPlaceholder(/输入消息/)
     await input.fill('markdown测试')
