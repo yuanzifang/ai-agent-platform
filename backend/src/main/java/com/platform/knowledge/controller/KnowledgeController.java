@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -219,7 +220,8 @@ public class KnowledgeController {
                 Boolean.TRUE.equals(req.reviewed()), req.content(), viewer(principal)));
     }
 
-    public record SearchRequest(@NotBlank String query, Integer topK, Double scoreThreshold, String mode) {
+    public record SearchRequest(@NotBlank String query, Integer topK, Double scoreThreshold, String mode,
+                                Instant createdAfter, Instant createdBefore) {
     }
 
     @GetMapping("/{id}/graph")
@@ -309,6 +311,6 @@ public class KnowledgeController {
                                                          @Valid @RequestBody SearchRequest req,
                                                          @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(knowledgeService.search(id, req.query(), req.topK(), req.scoreThreshold(),
-                req.mode(), viewer(principal)));
+                req.mode(), req.createdAfter(), req.createdBefore(), viewer(principal)));
     }
 }

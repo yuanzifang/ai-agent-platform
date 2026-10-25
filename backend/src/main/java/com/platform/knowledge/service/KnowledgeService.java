@@ -43,6 +43,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -825,8 +826,31 @@ public class KnowledgeService {
     /** 检索测试（需求文档 3.6(4)）：query 嵌入 → PgVector topK + 阈值过滤；需可见权限。 */
     public List<Map<String, Object>> search(Long kbId, String query, Integer topK, Double threshold,
                                             String mode, KnowledgePermissionService.Viewer viewer) {
+        return search(kbId, query, topK, threshold, mode, null, null, viewer);
+    }
+
+    /** 带入库时间范围的检索：在 PgVector SQL 层过滤，避免先取 topK 后截断有效数据。 */
+    public List<Map<String, Object>> search(Long kbId, String query, Integer topK, Double threshold,
+                                            String mode, Instant createdAfter, Instant createdBefore,
+                                            KnowledgePermissionService.Viewer viewer) {
         permissionService.requireView(kbId, viewer);
         Long tenantId = TenantContext.getTenantId();
+        if (createdAfter != null || createdBefore != null) {
+            if (createdAfter != null && createdBefore != null && createdAfter.isAfter(createdBefore)) {
+                throw new BusinessException(400, "开始时间不能晚于结束时间");
+            }
+            KnowledgeBase kb = kbMapper.selectById(kbId);
+            if (kb == null) throw new BusinessException(404, "知识库不存在");
+            String model = kb.getEmbeddingModel() == null || kb.getEmbeddingModel().isBlank()
+                    ? embeddingService.model() : kb.getEmbeddingModel().trim();
+            if (!embeddingService.supports(model)) model = embeddingService.model();
+            float[] vector = embeddingService.embedOne(query, model);
+            int dimensions = embeddingService.dimension(model);
+            int limit = Math.max(1, Math.min(topK == null ? 5 : topK, 20));
+            double scoreThreshold = Math.max(0, Math.min(threshold == null ? 0.5 : threshold, 1));
+            return vectorRepository.search(tenantId, vector, kbId, limit, scoreThreshold, dimensions,
+                    viewer.userId(), permissionService.tenantWide(viewer), createdAfter, createdBefore);
+        }
         Map<String, Object> retrievalConfig = mode == null || mode.isBlank()
                 ? Map.of() : Map.of("mode", mode);
         List<Map<String, Object>> hits = new ArrayList<>(hybridRetrieval.search(tenantId, query, kbId,

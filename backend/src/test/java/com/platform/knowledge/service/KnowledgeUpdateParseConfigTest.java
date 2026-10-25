@@ -11,6 +11,7 @@ import com.platform.agent.mapper.AgentRegistryMapper;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.billing.service.PricingService;
 import com.platform.billing.service.QuotaService;
+import com.platform.common.context.TenantContext;
 import com.platform.common.ratelimit.RedisRateLimiter;
 import com.platform.common.security.CryptoService;
 import com.platform.common.security.NetworkPolicyService;
@@ -31,6 +32,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -357,6 +359,41 @@ class KnowledgeUpdateParseConfigTest {
         assertTrue(protectedJson.contains("v1:encrypted"));
         assertFalse(protectedJson.contains("\"secret\""));
         assertTrue(protectedJson.contains("ocrEnabled"));
+    }
+
+    @Test
+    void timeRangeSearchFiltersVectorBeforeLimit() {
+        Instant after = Instant.parse("2026-01-01T00:00:00Z");
+        Instant before = Instant.parse("2026-02-01T00:00:00Z");
+        float[] vector = new float[]{0.1f, 0.2f};
+        TenantContext.setTenantId(1L);
+        when(embeddingService.supports("nomic-embed-text")).thenReturn(true);
+        when(embeddingService.dimension("nomic-embed-text")).thenReturn(2);
+        when(embeddingService.embedOne("query", "nomic-embed-text")).thenReturn(vector);
+        when(vectorRepository.search(1L, vector, 161L, 5, 0.5, 2,
+                2L, false, after, before)).thenReturn(List.of(Map.of("content", "hit")));
+
+        List<Map<String, Object>> result;
+        try {
+            result = service.search(161L, "query", 5, 0.5,
+                    "hybrid", after, before, viewer());
+        } finally {
+            TenantContext.clear();
+        }
+
+        assertEquals(1, result.size());
+        verify(vectorRepository).search(1L, vector, 161L, 5, 0.5, 2,
+                2L, false, after, before);
+    }
+
+    @Test
+    void invertedTimeRangeIsRejected() {
+        com.platform.common.exception.BusinessException error = assertThrows(
+                com.platform.common.exception.BusinessException.class,
+                () -> service.search(161L, "query", 5, 0.5, "vector",
+                        Instant.parse("2026-02-01T00:00:00Z"),
+                        Instant.parse("2026-01-01T00:00:00Z"), viewer()));
+        assertEquals(400, error.getCode());
     }
 
     @Test

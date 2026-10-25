@@ -6,6 +6,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -31,11 +33,39 @@ public class VectorRepository {
                         content TEXT NOT NULL,
                         embedding vector(%d) NOT NULL,
                         metadata JSONB NOT NULL,
-                        created_at TIMESTAMPTZ DEFAULT now()
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
                     )
                     """.formatted(schema, table, dim));
+            // 兼容已存在的租户向量表：补 updated_at，并把 created_at 设为非空。
+            pgJdbcTemplate.execute("ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ"
+                    .formatted(schema, table));
+            pgJdbcTemplate.execute("ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"
+                    .formatted(schema, table));
+            pgJdbcTemplate.execute("ALTER TABLE %s.%s ALTER COLUMN created_at SET DEFAULT now()"
+                    .formatted(schema, table));
+            pgJdbcTemplate.execute("ALTER TABLE %s.%s ALTER COLUMN updated_at SET DEFAULT now()"
+                    .formatted(schema, table));
+            // 旧数据补时间：created_at 缺失用当前时间，updated_at 用 created_at；
+            // 同时把时间写进 metadata，混合检索结果可直接读取。
+            pgJdbcTemplate.execute("UPDATE %s.%s SET created_at = now() WHERE created_at IS NULL"
+                    .formatted(schema, table));
+            pgJdbcTemplate.execute("UPDATE %s.%s SET updated_at = created_at WHERE updated_at IS NULL"
+                    .formatted(schema, table));
+            pgJdbcTemplate.execute(("UPDATE %s.%s SET metadata = " +
+                    "jsonb_set(jsonb_set(metadata, '{created_at}', to_jsonb(created_at)), " +
+                    "'{updated_at}', to_jsonb(updated_at)) " +
+                    "WHERE metadata->>'created_at' IS NULL OR metadata->>'updated_at' IS NULL")
+                    .formatted(schema, table));
+            pgJdbcTemplate.execute("ALTER TABLE %s.%s ALTER COLUMN created_at SET NOT NULL"
+                    .formatted(schema, table));
+            pgJdbcTemplate.execute("ALTER TABLE %s.%s ALTER COLUMN updated_at SET NOT NULL"
+                    .formatted(schema, table));
             pgJdbcTemplate.execute("""
                     CREATE INDEX IF NOT EXISTS idx_%s_kbid ON %s.%s ((metadata->>'knowledge_base_id'))
+                    """.formatted(table, schema, table));
+            pgJdbcTemplate.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_%s_created_at ON %s.%s (created_at)
                     """.formatted(table, schema, table));
         }
     }
@@ -48,7 +78,10 @@ public class VectorRepository {
     public void saveBatch(Long tenantId, List<Map<String, Object>> rows, int dimensions) {
         String table = "%s.%s".formatted(schema(tenantId), table(dimensions));
         rows.forEach(r -> pgJdbcTemplate.update(
-                "INSERT INTO %s (content, embedding, metadata) VALUES (?, ?::vector, ?::jsonb)"
+                ("INSERT INTO %s (content, embedding, metadata, created_at, updated_at) " +
+                        "VALUES (?, ?::vector, " +
+                        "jsonb_set(jsonb_set(?::jsonb, '{created_at}', to_jsonb(now())), " +
+                        "'{updated_at}', to_jsonb(now())), now(), now())")
                         .formatted(table),
                 r.get("content"), vectorLiteral((float[]) r.get("embedding")), r.get("metadata")));
     }
@@ -99,16 +132,33 @@ public class VectorRepository {
     public List<Map<String, Object>> search(Long tenantId, float[] queryVector, Long knowledgeBaseId,
                                             int topK, double threshold, int dimensions,
                                             Long userId, boolean tenantWide) {
+        return search(tenantId, queryVector, knowledgeBaseId, topK, threshold, dimensions,
+                userId, tenantWide, null, null);
+    }
+
+    /** 在向量检索层按入库时间过滤，避免先取 topK 再过滤导致有效数据被截断。 */
+    public List<Map<String, Object>> search(Long tenantId, float[] queryVector, Long knowledgeBaseId,
+                                            int topK, double threshold, int dimensions,
+                                            Long userId, boolean tenantWide,
+                                            Instant createdAfter, Instant createdBefore) {
         String q = vectorLiteral(queryVector);
+        Timestamp after = createdAfter == null ? null : Timestamp.from(createdAfter);
+        Timestamp before = createdBefore == null ? null : Timestamp.from(createdBefore);
         String base = """
-                SELECT id, content, metadata, 1 - (embedding <=> ?::vector) AS score
+                SELECT id, content, metadata,
+                       to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+                       to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at,
+                       1 - (embedding <=> ?::vector) AS score
                 FROM %s.%s
                 WHERE metadata->>'knowledge_base_id' = ?
                   AND 1 - (embedding <=> ?::vector) >= ?
+                  AND (CAST(? AS timestamptz) IS NULL OR created_at >= CAST(? AS timestamptz))
+                  AND (CAST(? AS timestamptz) IS NULL OR created_at <= CAST(? AS timestamptz))
                 """.formatted(schema(tenantId), table(dimensions));
         if (userId == null) {
             return pgJdbcTemplate.queryForList(base + " ORDER BY embedding <=> ?::vector LIMIT ?",
-                    q, String.valueOf(knowledgeBaseId), q, threshold, q, topK);
+                    q, String.valueOf(knowledgeBaseId), q, threshold, after, after, before, before,
+                    q, topK);
         }
         return pgJdbcTemplate.queryForList(base + """
                   AND (metadata->'allowed_users' IS NULL
@@ -119,7 +169,7 @@ public class VectorRepository {
                          WHERE ua = ?))
                 ORDER BY embedding <=> ?::vector
                 LIMIT ?
-                """, q, String.valueOf(knowledgeBaseId), q, threshold,
+                """, q, String.valueOf(knowledgeBaseId), q, threshold, after, after, before, before,
                 tenantWide, String.valueOf(userId), q, topK);
     }
 
@@ -128,7 +178,8 @@ public class VectorRepository {
                                       String content, float[] embedding, int dimensions) {
         String table = "%s.%s".formatted(schema(tenantId), table(dimensions));
         pgJdbcTemplate.update(
-                "UPDATE %s SET content = ?, embedding = ?::vector " +
+                "UPDATE %s SET content = ?, embedding = ?::vector, updated_at = now(), " +
+                        "metadata = jsonb_set(metadata, '{updated_at}', to_jsonb(now())) " +
                         "WHERE metadata->>'knowledge_base_id' = ? AND metadata->>'chunk_id' = ?"
                         .formatted(table),
                 content, vectorLiteral(embedding), String.valueOf(knowledgeBaseId),

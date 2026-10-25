@@ -138,6 +138,11 @@
             <el-option :label="t('kbDetail.vector')" value="vector" />
             <el-option :label="t('kbDetail.keyword')" value="keyword" />
           </el-select>
+          <el-date-picker v-model="search.range" type="datetimerange" size="small"
+                          :start-placeholder="t('kbDetail.timeFrom')"
+                          :end-placeholder="t('kbDetail.timeTo')"
+                          style="width: 300px" />
+          <span class="hint">{{ t('kbDetail.timeFilterHint') }}</span>
           topK <el-input-number v-model="search.topK" :min="1" :max="20" size="small" />
           {{ t('kbDetail.threshold') }} <el-input-number v-model="search.scoreThreshold" :min="0" :max="1" :step="0.05" size="small" />
           <el-button size="small" type="primary" :loading="searching" @click="doSearch">{{ t('kbDetail.search') }}</el-button>
@@ -150,6 +155,9 @@
             <span class="pct">{{ (r.score * 100).toFixed(1) }}%</span>
           </div>
           <div class="hit-text">{{ r.content }}</div>
+          <div v-if="hitCreatedAt(r)" class="hit-time">
+            {{ t('kbDetail.ingestedAt') }}{{ hitCreatedAt(r) }}
+          </div>
         </div>
       </div>
     </div>
@@ -346,7 +354,7 @@ const urlForm = reactive({ url: '' })
 const searching = ref(false)
 const searched = ref(false)
 const results = ref<any[]>([])
-const search = reactive({ query: '', topK: 5, scoreThreshold: 0.5, mode: 'hybrid' })
+const search = reactive({ query: '', topK: 5, scoreThreshold: 0.5, mode: 'hybrid', range: null as Date[] | null })
 const chunks = reactive<{ docId: number | null; docName: string; list: any[]; total: number }>({
   docId: null, docName: '', list: [], total: 0
 })
@@ -754,13 +762,28 @@ async function toggleChunkReview(c: any) {
   }
 }
 
+function hitCreatedAt(r: any) {
+  if (r?.created_at) return r.created_at
+  try {
+    const meta = typeof r?.metadata === 'string' ? JSON.parse(r.metadata) : r?.metadata
+    return meta?.created_at || meta?.updated_at || ''
+  } catch {
+    return ''
+  }
+}
+
 async function doSearch() {
   if (!search.query.trim()) return
   searching.value = true
   searched.value = true
   try {
+    const range = search.range
+    const createdAfter = range?.[0] ? new Date(range[0]).toISOString() : undefined
+    const createdBefore = range?.[1] ? new Date(range[1]).toISOString() : undefined
     results.value = await http.post(`/knowledge-base/${kbId}/search`, {
-      query: search.query, topK: search.topK, scoreThreshold: search.scoreThreshold, mode: search.mode
+      query: search.query, topK: search.topK, scoreThreshold: search.scoreThreshold,
+      mode: createdAfter || createdBefore ? 'vector' : search.mode,
+      createdAfter, createdBefore
     }) as any
   } finally {
     searching.value = false
@@ -861,6 +884,7 @@ function statusText(s: string) {
 .score { flex: 1; }
 .pct { font-size: 12px; color: #909399; width: 48px; text-align: right; }
 .hit-text { font-size: 13px; color: #303133; margin-top: 6px; white-space: pre-wrap; }
+.hit-time { font-size: 11px; color: #a8abb2; margin-top: 4px; }
 .member-table { width: 100%; }
 .hint { color: #909399; font-size: 12px; margin-left: 8px; }
 .perm-tip { color: #909399; font-size: 12px; line-height: 20px; padding-left: 90px; }
