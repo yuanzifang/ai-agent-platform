@@ -362,7 +362,8 @@ public class DocumentParser {
         try (PDDocument doc = org.apache.pdfbox.Loader.loadPDF(bytes)) {
             StringBuilder sb = new StringBuilder(new PDFTextStripper().getText(doc));
             appendPdfMetadata(doc, sb);
-            String tables = PdfTableExtractor.extract(doc);
+            String rectTables = PdfRectangleTableExtractor.extract(doc);
+            String tables = rectTables.isBlank() ? PdfTableExtractor.extract(doc) : rectTables;
             if (!tables.isBlank()) sb.append("\n").append(tables).append('\n');
             appendPdfFormsAndAnnotations(doc, sb);
             appendPdfOutlineAndLinks(doc, sb);

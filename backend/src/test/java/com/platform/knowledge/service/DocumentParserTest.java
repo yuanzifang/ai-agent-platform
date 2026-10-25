@@ -1685,6 +1685,48 @@ class DocumentParserTest {
     }
 
     @Test
+    void parsesPdfBorderedTableSpans() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                // header + 3 rows, Product/Sales header (Sales spans 2 cols), Fruit spans rows 2-3
+                String[][] cells = {
+                        {"Product", "50", "730", "150", "30"},
+                        {"Sales", "200", "730", "220", "30"},
+                        {"Water", "50", "700", "150", "30"},
+                        {"10", "200", "700", "100", "30"},
+                        {"20", "300", "700", "120", "30"},
+                        {"Fruit", "50", "640", "150", "60"},
+                        {"Apple", "200", "670", "100", "30"},
+                        {"10x", "300", "670", "120", "30"},
+                        {"Pear", "200", "640", "100", "30"},
+                        {"12x", "300", "640", "120", "30"}
+                };
+                for (String[] c : cells) {
+                    float x = Float.parseFloat(c[1]), y = Float.parseFloat(c[2]);
+                    float w = Float.parseFloat(c[3]), h = Float.parseFloat(c[4]);
+                    content.addRect(x, y, w, h);
+                    content.stroke();
+                    content.beginText();
+                    content.newLineAtOffset(x + 5, y + 10);
+                    content.showText(c[0]);
+                    content.endText();
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("bordered-spans.pdf", pdf));
+        assertTrue(text.contains("colspan=\"2\"") && text.contains("Sales"),
+                "带边框表头应输出 colspan，实际=" + text);
+        assertTrue(text.contains("rowspan=\"2\"") && text.contains("Fruit"),
+                "带边框数据应输出 rowspan，实际=" + text);
+    }
+
+    @Test
     void parsesPdfMetadata() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
