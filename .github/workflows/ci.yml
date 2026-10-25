@@ -10,6 +10,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  secrets:
+    name: 秘密扫描（gitleaks）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deps:
+    name: 依赖漏洞扫描（trivy + npm audit）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy 文件系统扫描（依赖/配置 HIGH/CRITICAL）
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: '0'          # 先观察基线，稳定后改 1 转为阻断
+          ignore-unfixed: true
+      - name: 前端依赖审计
+        working-directory: frontend
+        run: |
+          npm ci --ignore-scripts
+          npm audit --omit=dev --audit-level=high || true   # 先观察基线
+
   build:
     name: 后端构建 + 前端类型检查/构建
     runs-on: ubuntu-latest
@@ -48,9 +78,13 @@ jobs:
         run: npm run build
 
   e2e:
-    name: 浏览器冒烟 E2E
+    name: 浏览器 E2E（${{ matrix.browser }}）
     runs-on: ubuntu-latest
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, msedge]   # Edge 兼容（需求 5.1）先观察，稳定后可移除 msedge
     services:
       mysql:
         image: mysql:8.4
@@ -138,9 +172,17 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: 安装 Playwright Chromium
+      - name: 安装 Playwright 浏览器（chromium / msedge）
         working-directory: frontend
-        run: npx playwright install --with-deps chromium
+        run: |
+          npx playwright install --with-deps chromium
+          if [ "${{ matrix.browser }}" = "msedge" ]; then
+            curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft.gpg
+            echo "deb [signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/edge stable main" | sudo tee /etc/apt/sources.list.d/microsoft-edge.list
+            sudo apt-get update -qq
+            sudo apt-get install -y microsoft-edge-stable
+            npx playwright install --with-deps msedge
+          fi
 
       - name: 启动离线模型/嵌入/渠道 Mock
         working-directory: frontend
@@ -201,7 +243,8 @@ jobs:
         working-directory: frontend
         env:
           E2E_BASE_URL: http://127.0.0.1:5173
-        run: npm run test:e2e
+          E2E_BROWSER: ${{ matrix.browser }}
+        run: npm run test:e2e -- --project=${{ matrix.browser }}
 
       - name: 失败时输出后端/前端日志
         if: failure()
@@ -215,7 +258,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.browser }}
           path: |
             frontend/playwright-report
             frontend/test-results
