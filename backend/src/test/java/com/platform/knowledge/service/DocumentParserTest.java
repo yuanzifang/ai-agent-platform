@@ -20,7 +20,12 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.cos.COSDictionary;
+import org.apache.pdfbox.cos.COSInteger;
+import org.apache.pdfbox.cos.COSName;
+import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.graphics.image.PDInlineImage;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
@@ -1479,6 +1484,35 @@ class DocumentParserTest {
         assertTrue(text.contains("Row 10"), "续页少量行不应丢失，实际=" + text);
         assertTrue(text.split("<table", -1).length == 2,
                 "跨页续表应合并为一个 table，实际=" + text);
+    }
+
+    @Test
+    void extractsPdfInlineImage() throws Exception {
+        COSDictionary params = new COSDictionary();
+        params.setItem(COSName.W, COSInteger.get(4));
+        params.setItem(COSName.H, COSInteger.get(4));
+        params.setItem(COSName.CS, COSName.DEVICERGB);
+        params.setItem(COSName.BPC, COSInteger.get(8));
+        byte[] pixels = new byte[4 * 4 * 3];
+        for (int i = 0; i < 16; i++) {
+            pixels[i * 3] = (byte) (i * 15);
+            pixels[i * 3 + 1] = (byte) 80;
+            pixels[i * 3 + 2] = (byte) (255 - i * 10);
+        }
+        PDInlineImage inline = new PDInlineImage(params, pixels, new PDResources());
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.drawImage(inline, 40, 600, 120, 120);
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        List<DocumentParser.ExtractedImage> images = parser.extractImages("inline-image.pdf", pdf);
+        assertTrue(images.size() >= 1, "PDF 内联图片应被提取");
+        assertTrue((images.get(0).data()[0] & 0xFF) == 0x89, "内联图片应输出 PNG");
     }
 
     @Test

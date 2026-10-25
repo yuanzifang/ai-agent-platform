@@ -170,6 +170,20 @@ public class DocumentParser {
                                 count++;
                             }
                         }
+                        // 内联图片（BI...ID...EI）不在 XObject 资源表中，需走内容流。
+                        if (count < 20) {
+                            try {
+                                PdfInlineImageCollector collector = new PdfInlineImageCollector(page);
+                                collector.processPage(page);
+                                for (byte[] data : collector.images()) {
+                                    if (count >= 20) break;
+                                    addImage(images, data, "png");
+                                    count++;
+                                }
+                            } catch (Exception e) {
+                                log.debug("PDF 内联图片提取跳过：{}", e.getMessage());
+                            }
+                        }
                         // 矢量图表可能和照片/位图同页；独立检测并渲染整页，避免组合页漏图表。
                         if (count < 20 && vectorChartRenderEnabled && hasVectorDrawing(page, 6)) {
                             BufferedImage rendered = renderer.renderImageWithDPI(p, 150);
