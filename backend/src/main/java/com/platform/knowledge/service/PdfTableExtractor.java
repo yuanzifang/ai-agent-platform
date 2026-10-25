@@ -128,6 +128,15 @@ final class PdfTableExtractor {
     }
 
     private static void mergeContinuation(Table previous, Table current) {
+        if (mergeByHeaderName(previous, current)) {
+            previous.lastY = current.lastY;
+            previous.pageHeight = current.pageHeight;
+            if (previous.notes.size() < 3) {
+                previous.notes.addAll(current.notes.subList(0,
+                        Math.min(current.notes.size(), 3 - previous.notes.size())));
+            }
+            return;
+        }
         LogicalRow previousHeader = previous.rows.isEmpty() ? null : previous.rows.get(0);
         LogicalRow currentHeader = current.rows.isEmpty() ? null : current.rows.get(0);
         boolean duplicateHeader = !previous.rows.isEmpty() && !current.rows.isEmpty()
@@ -160,6 +169,87 @@ final class PdfTableExtractor {
         if (previous.notes.size() < 3) {
             previous.notes.addAll(current.notes.subList(0, Math.min(current.notes.size(), 3 - previous.notes.size())));
         }
+    }
+
+    /**
+     * 按表头名称对齐跨页列，支持中间插入/删除/换序。
+     * 要求两页表头唯一、至少 2 个共同列；空表头或无共同列时不启用。
+     */
+    private static boolean mergeByHeaderName(Table previous, Table current) {
+        if (previous.rows.isEmpty() || current.rows.isEmpty()) return false;
+        LogicalRow prevHeader = previous.rows.get(0);
+        LogicalRow currHeader = current.rows.get(0);
+        java.util.LinkedHashMap<String, Integer> union = new java.util.LinkedHashMap<>();
+        for (String value : prevHeader.values) {
+            if (value == null || value.isBlank()) return false;
+            String key = value.trim().toLowerCase(java.util.Locale.ROOT);
+            if (union.putIfAbsent(key, union.size()) != null) return false;
+        }
+        int common = 0;
+        for (String value : currHeader.values) {
+            if (value == null || value.isBlank()) return false;
+            String key = value.trim().toLowerCase(java.util.Locale.ROOT);
+            if (union.containsKey(key)) common++;
+            else union.put(key, union.size());
+        }
+        if (common < 2 || union.size() > 30) return false;
+
+        int[] prevMap = headerMap(prevHeader, union);
+        int[] currMap = headerMap(currHeader, union);
+        if (prevMap == null || currMap == null) return false;
+        List<Float> anchors = new ArrayList<>(java.util.Collections.nCopies(union.size(), 0f));
+        for (int i = 0; i < prevMap.length; i++) anchors.set(prevMap[i], previous.anchors.get(i));
+        for (int i = 0; i < currMap.length; i++) {
+            int target = currMap[i];
+            if (anchors.get(target) == 0f) anchors.set(target, current.anchors.get(i));
+        }
+        float next = (float) anchors.stream().mapToDouble(Float::doubleValue).max().orElse(0) + ALIGN_TOLERANCE * 2;
+        for (int i = 0; i < anchors.size(); i++) {
+            if (anchors.get(i) == 0f) anchors.set(i, next);
+        }
+
+        List<LogicalRow> newPrevious = remapByHeader(previous.rows, prevMap, union.size());
+        List<LogicalRow> newCurrent = remapByHeader(current.rows, currMap, union.size());
+        if (!newPrevious.isEmpty() && !newCurrent.isEmpty()) {
+            LogicalRow mappedHeader = newCurrent.get(0);
+            for (int i = 0; i < union.size(); i++) {
+                if (newPrevious.get(0).values[i] == null && mappedHeader.values[i] != null) {
+                    newPrevious.get(0).values[i] = mappedHeader.values[i];
+                }
+            }
+            newCurrent.remove(0);
+        }
+        previous.rows.clear();
+        previous.rows.addAll(newPrevious);
+        previous.rows.addAll(newCurrent);
+        previous.anchors = anchors;
+        previous.lastY = current.lastY;
+        previous.pageHeight = current.pageHeight;
+        return true;
+    }
+
+    private static int[] headerMap(LogicalRow header, java.util.Map<String, Integer> union) {
+        int[] map = new int[header.values.length];
+        for (int i = 0; i < map.length; i++) {
+            String value = header.values[i];
+            if (value == null || value.isBlank()) return null;
+            Integer target = union.get(value.trim().toLowerCase(java.util.Locale.ROOT));
+            if (target == null) return null;
+            map[i] = target;
+        }
+        return map;
+    }
+
+    private static List<LogicalRow> remapByHeader(List<LogicalRow> rows, int[] map, int columns) {
+        List<LogicalRow> remapped = new ArrayList<>();
+        for (LogicalRow row : rows) {
+            LogicalRow copy = new LogicalRow(row.lastY, row.height, columns);
+            for (int i = 0; i < map.length && i < row.values.length; i++) {
+                if (row.values[i] != null) copy.values[map[i]] = row.values[i];
+            }
+            remapped.add(copy);
+        }
+        return remapped;
     }
 
     private static List<Float> unionAnchors(List<Float> left, List<Float> right) {
