@@ -94,6 +94,8 @@ public class DocumentParser {
     private int ocrDpi;
     @Value("${knowledge.ocr.preprocess:true}")
     private boolean ocrPreprocess;
+    @Value("${knowledge.ocr.auto-orient:true}")
+    private boolean ocrAutoOrient;
     @Value("${knowledge.pdf.vector-chart-render-enabled:true}")
     private boolean vectorChartRenderEnabled;
 
@@ -534,6 +536,7 @@ public class DocumentParser {
             for (int i = 0; i < pages; i++) {
                 BufferedImage image = preprocessForOcr(
                         renderer.renderImageWithDPI(i, Math.max(72, ocrDpi)));
+                image = correctOrientation(image, tempDir.resolve("orient-" + (i + 1) + ".png"));
                 Path imagePath = tempDir.resolve("page-" + (i + 1) + ".png");
                 ImageIO.write(image, "png", imagePath.toFile());
                 OcrTableExtractor.Result ocr = OcrTableExtractor.extract(runOcrTsv(imagePath));
@@ -568,13 +571,20 @@ public class DocumentParser {
 
     private void appendOcr(StringBuilder sb, BufferedImage image, String extension) {
         if (image == null) return;
+        Path orientTemp = null;
         try {
             image = preprocessForOcr(image);
+            orientTemp = Files.createTempFile("kb-orient-", ".png");
+            image = correctOrientation(image, orientTemp);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(image, "png", out);
             appendOcr(sb, out.toByteArray(), extension);
         } catch (Exception e) {
             log.debug("内嵌 PDF 图片编码失败：{}", e.getMessage());
+        } finally {
+            if (orientTemp != null) {
+                try { Files.deleteIfExists(orientTemp); } catch (Exception ignored) { }
+            }
         }
     }
 
@@ -640,6 +650,69 @@ public class DocumentParser {
             log.debug("OCR 预处理失败（使用原图）：{}", e.getMessage());
             return source;
         }
+    }
+
+    /** 扫描页方向纠正：tesseract OSD 检测 90/180/270，OCR 前转回正向。 */
+    private BufferedImage correctOrientation(BufferedImage image, Path temp) {
+        if (!ocrAutoOrient || image == null) return image;
+        try {
+            ImageIO.write(image, "png", temp.toFile());
+            int rotate = detectRotation(temp);
+            if (rotate == 0) return image;
+            log.info("扫描页方向纠正：rotate={}°", rotate);
+            return rotateImage(image, rotate);
+        } catch (Exception e) {
+            log.debug("扫描页方向检测失败（使用原图）：{}", e.getMessage());
+            return image;
+        } finally {
+            try { Files.deleteIfExists(temp); } catch (Exception ignored) { }
+        }
+    }
+
+    private int detectRotation(Path imagePath) throws Exception {
+        List<String> command = new ArrayList<>();
+        command.add(ocrCommand);
+        command.add(imagePath.toAbsolutePath().toString());
+        command.add("stdout");
+        command.add("-l");
+        command.add("osd");
+        command.add("--psm");
+        command.add("0");
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.environment().put("PATH", System.getenv().getOrDefault("PATH",
+                "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"));
+        Process process = pb.start();
+        String output;
+        try (var in = process.getInputStream()) {
+            output = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        try (var in = process.getErrorStream()) {
+            in.readAllBytes();
+        }
+        if (!process.waitFor(30, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            return 0;
+        }
+        java.util.regex.Matcher matcher =
+                java.util.regex.Pattern.compile("Rotate:\\s*(\\d+)").matcher(output);
+        return matcher.find() ? Integer.parseInt(matcher.group(1)) % 360 : 0;
+    }
+
+    private BufferedImage rotateImage(BufferedImage source, int degrees) {
+        double theta = Math.toRadians(degrees);
+        double sin = Math.abs(Math.sin(theta));
+        double cos = Math.abs(Math.cos(theta));
+        int width = (int) Math.floor(source.getWidth() * cos + source.getHeight() * sin);
+        int height = (int) Math.floor(source.getWidth() * sin + source.getHeight() * cos);
+        BufferedImage rotated = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D graphics = rotated.createGraphics();
+        graphics.setColor(java.awt.Color.WHITE);
+        graphics.fillRect(0, 0, width, height);
+        graphics.translate(width / 2.0, height / 2.0);
+        graphics.rotate(theta);
+        graphics.drawImage(source, -source.getWidth() / 2, -source.getHeight() / 2, null);
+        graphics.dispose();
+        return rotated;
     }
 
     /** 内嵌图片 OCR：TSV 同时用于文本和表格结构。 */

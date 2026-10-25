@@ -631,6 +631,68 @@ class DocumentParserTest {
     }
 
     @Test
+    void ocrRotatedScannedTable() throws Exception {
+        Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过旋转扫描 OCR");
+        BufferedImage image = new BufferedImage(1400, 700, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, 1400, 700);
+            g.setColor(Color.BLACK);
+            g.setFont(new Font("SansSerif", Font.PLAIN, 46));
+            String[][] rows = {
+                    {"Product", "Price", "Qty"},
+                    {"Water", "1999", "2"},
+                    {"Filter", "99", "10"},
+                    {"Install", "0", "1"},
+                    {"Service", "299", "5"},
+                    {"Support", "199", "3"}
+            };
+            int[] xs = {100, 650, 1050};
+            int y = 120;
+            for (String[] row : rows) {
+                for (int col = 0; col < row.length; col++) {
+                    g.drawString(row[col], xs[col], y);
+                }
+                y += 90;
+            }
+        } finally {
+            g.dispose();
+        }
+        BufferedImage rotated = new BufferedImage(700, 1400, BufferedImage.TYPE_INT_RGB);
+        Graphics2D rg = rotated.createGraphics();
+        try {
+            rg.setColor(Color.WHITE);
+            rg.fillRect(0, 0, 700, 1400);
+            rg.translate(0, 1400);
+            rg.rotate(-Math.PI / 2);
+            rg.drawImage(image, 0, 0, null);
+        } finally {
+            rg.dispose();
+        }
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            var pdImage = LosslessFactory.createFromImage(doc, rotated);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.drawImage(pdImage, 40, 180, 515, 515);
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        ReflectionTestUtils.setField(parser, "ocrEnabled", true);
+        ReflectionTestUtils.setField(parser, "ocrCommand", "tesseract");
+        ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
+        ReflectionTestUtils.setField(parser, "ocrPreprocess", true);
+        ReflectionTestUtils.setField(parser, "ocrAutoOrient", true);
+        String text = String.join("\n", parser.parse("rotated-table.pdf", pdf));
+        assertTrue(text.contains("<table"), "旋转表格应可 OCR，实际=" + text);
+        assertTrue(text.contains("Water") && text.contains("1999"),
+                "旋转表格内容应保留，实际=" + text);
+    }
+
+    @Test
     void ocrLowContrastScannedTable() throws Exception {
         Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过低对比度 OCR");
         BufferedImage image = new BufferedImage(1400, 700, BufferedImage.TYPE_INT_RGB);
