@@ -43,13 +43,69 @@ final class PdfGridLineTableExtractor {
                 stripper.setStartPage(p + 1);
                 stripper.setEndPage(p + 1);
                 stripper.getText(doc);
-                String table = toTable(glyphs, mergeDashes(segments(page)), page.getMediaBox().getHeight());
-                if (!table.isBlank()) merged = OcrTableExtractor.mergeTables(merged, table);
+                List<Segment> pageSegments = mergeDashes(segments(page));
+                for (List<Segment> group : groups(pageSegments)) {
+                    float[] bounds = bounds(group);
+                    List<TextPosition> groupGlyphs = glyphs.stream()
+                            .filter(g -> g.getXDirAdj() >= bounds[0] - 50
+                                    && g.getXDirAdj() <= bounds[1] + 50
+                                    && g.getYDirAdj() >= bounds[2] - 120
+                                    && g.getYDirAdj() <= bounds[3] + 220)
+                            .toList();
+                    String table = toTable(groupGlyphs, group, page.getMediaBox().getHeight());
+                    if (!table.isBlank()) merged = OcrTableExtractor.mergeTables(merged, table);
+                }
             }
         } catch (Exception e) {
             return "";
         }
         return merged;
+    }
+
+    /** 按相交关系拆分同一页的多个表格。 */
+    private static List<List<Segment>> groups(List<Segment> segments) {
+        if (segments.size() < 4) return List.of();
+        Dsu dsu = new Dsu(segments.size());
+        for (int i = 0; i < segments.size(); i++) {
+            for (int j = i + 1; j < segments.size(); j++) {
+                if (intersects(segments.get(i), segments.get(j))) dsu.union(i, j);
+            }
+        }
+        Map<Integer, List<Segment>> grouped = new LinkedHashMap<>();
+        for (int i = 0; i < segments.size(); i++) {
+            grouped.computeIfAbsent(dsu.find(i), k -> new ArrayList<>()).add(segments.get(i));
+        }
+        return grouped.values().stream()
+                .filter(group -> group.stream().filter(s -> s.horizontal).count() >= 2
+                        && group.stream().filter(s -> !s.horizontal).count() >= 2)
+                .toList();
+    }
+
+    private static boolean intersects(Segment a, Segment b) {
+        if (a.horizontal == b.horizontal) return false;
+        Segment h = a.horizontal ? a : b;
+        Segment v = a.horizontal ? b : a;
+        return v.fixed >= h.from - TOL && v.fixed <= h.to + TOL
+                && h.fixed >= v.from - TOL && h.fixed <= v.to + TOL;
+    }
+
+    private static float[] bounds(List<Segment> group) {
+        float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE;
+        float minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+        for (Segment s : group) {
+            if (s.horizontal) {
+                minX = Math.min(minX, s.from);
+                maxX = Math.max(maxX, s.to);
+                minY = Math.min(minY, s.fixed);
+                maxY = Math.max(maxY, s.fixed);
+            } else {
+                minX = Math.min(minX, s.fixed);
+                maxX = Math.max(maxX, s.fixed);
+                minY = Math.min(minY, s.from);
+                maxY = Math.max(maxY, s.to);
+            }
+        }
+        return new float[]{minX, maxX, minY, maxY};
     }
 
     private static List<Segment> segments(PDPage page) {

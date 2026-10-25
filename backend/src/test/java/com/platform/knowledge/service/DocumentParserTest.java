@@ -1865,6 +1865,51 @@ class DocumentParserTest {
     }
 
     @Test
+    void parsesTwoLineGridTablesOnOnePage() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setLineWidth(1f);
+                drawGrid(content, 50, 700, 300, 770);
+                drawGrid(content, 50, 500, 300, 580);
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                String[][] texts = {{"Product", "60", "750"}, {"Price", "160", "750"},
+                        {"Water", "60", "715"}, {"1999", "160", "715"},
+                        {"Code", "60", "560"}, {"Qty", "160", "560"},
+                        {"A-1", "60", "525"}, {"5", "160", "525"}};
+                for (String[] text : texts) {
+                    content.beginText();
+                    content.newLineAtOffset(Float.parseFloat(text[1]), Float.parseFloat(text[2]));
+                    content.showText(text[0]);
+                    content.endText();
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("two-grids.pdf", pdf));
+        assertTrue(text.split("<table", -1).length == 3, "同一页两个表格应分别输出，实际=" + text);
+        assertTrue(text.contains("Product") && text.contains("Code"), "两个表头都应保留，实际=" + text);
+        assertTrue(text.contains("Water") && text.contains("A-1"), "两个表体都应保留，实际=" + text);
+    }
+
+    private static void drawGrid(PDPageContentStream content, float left, float bottom,
+                                 float right, float top) throws Exception {
+        for (float x : new float[]{left, (left + right) / 2, right}) {
+            content.moveTo(x, bottom);
+            content.lineTo(x, top);
+            content.stroke();
+        }
+        for (float y : new float[]{bottom, (bottom + top) / 2, top}) {
+            content.moveTo(left, y);
+            content.lineTo(right, y);
+            content.stroke();
+        }
+    }
+
+    @Test
     void parsesPdfDashedGridTable() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
