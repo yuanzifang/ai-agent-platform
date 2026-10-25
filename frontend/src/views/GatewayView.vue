@@ -27,6 +27,7 @@
       </el-table-column>
       <el-table-column :label="t('gatewayPage.actions')" width="250" fixed="right">
         <template #default="{ row }">
+          <el-button size="small" text @click="openKeys(row)">{{ t('gatewayPage.keys') }}</el-button>
           <el-button size="small" text @click="openLogs(row)">{{ t('gatewayPage.logs') }}</el-button>
           <el-button size="small" text @click="openEdit(row)">{{ t('gatewayPage.edit') }}</el-button>
           <el-button size="small" text type="warning" @click="rotate(row)">{{ t('gatewayPage.rotate') }}</el-button>
@@ -174,6 +175,51 @@ async function remove(row: any) {
   await http.delete(`/gateway/routes/${row.id}`)
   ElMessage.success(t('gatewayPage.deleted'))
   await load()
+}
+
+// ---- 调用方 API Keys ----
+const keysVisible = ref(false)
+const keysRoute = ref<any>({})
+const keysRouteName = computed(() => keysRoute.value.name || '')
+const apiKeys = ref<any[]>([])
+const newKeyName = ref('')
+const newKeyRate = ref<number | undefined>(undefined)
+const keyCreating = ref(false)
+const newKeyPlain = ref('')
+
+async function openKeys(row: any) {
+  keysRoute.value = row
+  keysVisible.value = true
+  apiKeys.value = await http.get(`/gateway/routes/${row.id}/keys`) as any
+}
+
+async function createKey() {
+  keyCreating.value = true
+  try {
+    const res = await http.post(`/gateway/routes/${keysRoute.value.id}/keys`, {
+      name: newKeyName.value || '调用方',
+      rateLimitPerMin: newKeyRate.value ?? null
+    }) as any
+    newKeyPlain.value = res.apiKey || ''
+    ElMessage.success(t('gatewayPage.keyCreated'))
+    apiKeys.value = await http.get(`/gateway/routes/${keysRoute.value.id}/keys`) as any
+    newKeyName.value = ''
+    newKeyRate.value = undefined
+  } finally {
+    keyCreating.value = false
+  }
+}
+
+async function toggleKey(row: any, v: boolean) {
+  await http.put(`/gateway/routes/${keysRoute.value.id}/keys/${row.id}`, { enabled: v })
+  ElMessage.success(v ? t('gatewayPage.keyEnabled') : t('gatewayPage.keyDisabled'))
+  apiKeys.value = await http.get(`/gateway/routes/${keysRoute.value.id}/keys`) as any
+}
+
+async function removeKey(row: any) {
+  await http.delete(`/gateway/routes/${keysRoute.value.id}/keys/${row.id}`)
+  ElMessage.success(t('gatewayPage.keyDeleted'))
+  apiKeys.value = await http.get(`/gateway/routes/${keysRoute.value.id}/keys`) as any
 }
 
 async function openLogs(row: any) {

@@ -25,7 +25,9 @@ import com.platform.system.service.AuditService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.math.BigDecimal;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -158,6 +160,54 @@ class KnowledgeGraphServiceAclTest {
         assertNull(auto.getChunkId());
     }
 
+    @Test
+    void graphRagExpandsOneHopAndSkipsExistingChunks() {
+        kb.setGraphEnabled(true);
+        when(kbMapper.selectById(1L)).thenReturn(kb);
+
+        KnowledgeGraphEntity matched = entity(10L, "退款", "概念", "AUTO");
+        KnowledgeGraphEntity related = entity(11L, "退款期限", "概念", "AUTO");
+        KnowledgeGraphRelation relation = relation(100L, 10L, 11L, "包含", 503L, "AUTO");
+        relation.setConfidence(BigDecimal.ONE);
+        when(entityMapper.selectList(any())).thenReturn(List.of(matched, related));
+        when(relationMapper.selectList(any()))
+                .thenReturn(List.of(relation), List.of(relation), List.of(relation));
+        when(mentionMapper.selectList(any())).thenReturn(List.of(
+                mention(10L, 500L), mention(11L, 501L)));
+        KnowledgeChunk existingChunk = chunk(500L, 1);
+        when(chunkMapper.selectBatchIds(anyCollection())).thenReturn(List.of(
+                existingChunk, chunk(501L, 1), chunk(503L, 1)));
+
+        LinkedHashSet<Long> existing = new LinkedHashSet<>();
+        existing.add(500L);
+        List<Map<String, Object>> extras = service.expandChunks(
+                1L, "退款", List.of("退款期限"), existing, viewer);
+
+        assertEquals(2, extras.size(), "只应返回未在向量/关键词结果中的图证据分段");
+        assertEquals(List.of("内容501", "内容503"),
+                extras.stream().map(h -> h.get("content")).toList());
+        assertTrue(String.valueOf(extras.get(0).get("metadata")).contains("\"graph\":true"));
+        assertTrue(String.valueOf(extras.get(0).get("metadata")).contains("\"entity_id\":11"));
+        // expandChunks 内部复制 existing，避免污染调用方的向量/关键词命中集合
+        assertEquals(1, existing.size());
+    }
+
+    @Test
+    void nonFiniteConfidenceFallsBackToDefault() {
+        BigDecimal value = ReflectionTestUtils.invokeMethod(service, "confidence", Double.NaN);
+        assertEquals(0.8, value.doubleValue(), 0.0001);
+    }
+
+    @Test
+    void graphBuildRejectedWhenGraphIsDisabled() {
+        kb.setGraphEnabled(false);
+        when(permissionService.requireEdit(1L, viewer)).thenReturn(kb);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.buildAll(1L, viewer));
+        assertEquals(400, error.getCode());
+    }
+
     private KnowledgeGraphEntity entity(Long id, String name, String type, String source) {
         KnowledgeGraphEntity entity = new KnowledgeGraphEntity();
         entity.setId(id);
@@ -192,6 +242,7 @@ class KnowledgeGraphServiceAclTest {
         chunk.setDocumentId(1L);
         chunk.setTenantVisible(tenantVisible);
         chunk.setAllowedUsers("[]");
+        chunk.setContent("内容" + id);
         return chunk;
     }
 

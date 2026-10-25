@@ -1,6 +1,7 @@
 package com.platform.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,6 +47,10 @@ public class JwtService {
     public JwtPrincipal parse(String token) {
         Claims claims = Jwts.parser().verifyWith(key).build()
                 .parseSignedClaims(token).getPayload();
+        // 只接受访问令牌：MFA 短期凭证同样由本密钥签发，不能被 Bearer 过滤器当成登录态。
+        if (claims.get("purpose", String.class) != null) {
+            throw new JwtException("not an access token");
+        }
         Long tenantId = claims.get("tenantId", Long.class);
         Boolean platformAdmin = claims.get("platformAdmin", Boolean.class);
         List<String> roles = claims.get("roles", List.class);

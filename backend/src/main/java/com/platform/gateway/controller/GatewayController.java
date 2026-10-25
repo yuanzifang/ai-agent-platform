@@ -65,6 +65,42 @@ public class GatewayController {
         return ApiResponse.ok(gatewayService.logs(id));
     }
 
+    // ---------- 调用方 API Key ----------
+
+    @GetMapping("/routes/{id}/keys")
+    @PreAuthorize("hasAuthority('tenant:manage')")
+    public ApiResponse<List<Map<String, Object>>> keys(@PathVariable Long id) {
+        return ApiResponse.ok(gatewayService.apiKeys(id));
+    }
+
+    @PostMapping("/routes/{id}/keys")
+    @PreAuthorize("hasAuthority('tenant:manage')")
+    public ApiResponse<Map<String, Object>> createKey(@PathVariable Long id,
+                                                      @RequestBody Map<String, Object> req,
+                                                      @AuthenticationPrincipal JwtPrincipal principal) {
+        java.time.LocalDateTime expiresAt = req.get("expiresAt") == null ? null
+                : java.time.LocalDateTime.parse(String.valueOf(req.get("expiresAt")));
+        var created = gatewayService.createKey(id, req, principal, expiresAt);
+        return ApiResponse.ok(created);
+    }
+
+    @PutMapping("/routes/{id}/keys/{keyId}")
+    @PreAuthorize("hasAuthority('tenant:manage')")
+    public ApiResponse<Void> updateKey(@PathVariable Long id, @PathVariable Long keyId,
+                                       @RequestBody Map<String, Object> req,
+                                       @AuthenticationPrincipal JwtPrincipal principal) {
+        gatewayService.updateKey(keyId, req, principal);
+        return ApiResponse.ok();
+    }
+
+    @DeleteMapping("/routes/{id}/keys/{keyId}")
+    @PreAuthorize("hasAuthority('tenant:manage')")
+    public ApiResponse<Void> deleteKey(@PathVariable Long id, @PathVariable Long keyId,
+                                       @AuthenticationPrincipal JwtPrincipal principal) {
+        gatewayService.deleteApiKey(keyId, principal);
+        return ApiResponse.ok();
+    }
+
     /** 公开代理入口：/api/v1/gateway/call/{routeKey}/...，X-Gateway-Key 鉴权。 */
     @RequestMapping("/call/{routeKey}/**")
     public StreamingResponseBody call(@PathVariable String routeKey, HttpServletRequest request,

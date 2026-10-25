@@ -64,13 +64,16 @@ public class HybridRetrievalService {
     /** viewer 不为空时把 chunk ACL 下推到向量/关键字 SQL。 */
     public Result search(Long tenantId, String query, Long kbId, int topK, double threshold,
                          Map<String, Object> retrievalConfig, Long userId, boolean tenantWide) {
+        Map<String, Object> config = retrievalConfig == null ? Map.of() : retrievalConfig;
         int limit = Math.max(1, Math.min(topK, 20));
         int candidates = Math.max(10, Math.min(limit * 3, 30));
-        String mode = str(retrievalConfig.get("mode"));
+        String mode = str(config.get("mode"));
         if (mode == null || mode.isBlank()) mode = hybridEnabled ? "hybrid" : "vector";
         mode = mode.toLowerCase();
-        if (!List.of("vector", "keyword", "hybrid").contains(mode)) mode = "hybrid";
-        double keywordWeight = toDouble(retrievalConfig.get("keywordWeight"), defaultKeywordWeight);
+        if (!List.of("vector", "keyword", "hybrid").contains(mode)) {
+            mode = hybridEnabled ? "hybrid" : "vector";
+        }
+        double keywordWeight = toDouble(config.get("keywordWeight"), defaultKeywordWeight);
         keywordWeight = Math.max(0, Math.min(keywordWeight, 1));
         double vectorWeight = 1 - keywordWeight;
         String q = query == null ? "" : query.trim();
@@ -183,7 +186,7 @@ public class HybridRetrievalService {
                 }).toList());
         enrichNeighbors(kbId, result);
         boolean rerank = rerankService != null && rerankService.enabled()
-                && !"false".equalsIgnoreCase(String.valueOf(retrievalConfig.getOrDefault("rerank", "true")));
+                && !"false".equalsIgnoreCase(String.valueOf(config.getOrDefault("rerank", "true")));
         if (rerank) {
             result = new ArrayList<>(rerankService.rerank(q, result, limit));
         }

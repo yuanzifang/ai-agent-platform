@@ -1705,6 +1705,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
             } catch (NumberFormatException ignored) {
             }
         }
+        if (!Double.isFinite(value)) value = 0.8;
         value = Math.max(0.0, Math.min(1.0, value));
         return BigDecimal.valueOf(value).setScale(3, RoundingMode.HALF_UP);
     }

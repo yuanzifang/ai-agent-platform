@@ -1,6 +1,7 @@
 package com.platform.knowledge.service;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -12,7 +13,10 @@ import com.platform.billing.service.PricingService;
 import com.platform.billing.service.QuotaService;
 import com.platform.common.ratelimit.RedisRateLimiter;
 import com.platform.common.security.NetworkPolicyService;
+import com.platform.billing.entity.BillingUsage;
 import com.platform.knowledge.entity.KnowledgeBase;
+import com.platform.knowledge.entity.KnowledgeChunk;
+import com.platform.knowledge.entity.KnowledgeDocument;
 import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.knowledge.mapper.KnowledgeChunkMapper;
 import com.platform.knowledge.mapper.KnowledgeDocumentImageMapper;
@@ -23,17 +27,25 @@ import com.platform.system.service.AuditService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -44,6 +56,11 @@ import static org.mockito.Mockito.when;
 class KnowledgeUpdateParseConfigTest {
 
     private KnowledgeBaseMapper kbMapper;
+    private KnowledgeChunkMapper chunkMapper;
+    private BillingUsageMapper billingMapper;
+    private PricingService pricingService;
+    private EmbeddingService embeddingService;
+    private KnowledgePermissionService permissionService;
     private com.platform.knowledge.service.KnowledgeService service;
     private KnowledgeBase kb;
     private final com.platform.knowledge.service.KnowledgePermissionService.Viewer viewer =
@@ -55,21 +72,20 @@ class KnowledgeUpdateParseConfigTest {
         MapperBuilderAssistant assistant =
                 new MapperBuilderAssistant(new MybatisConfiguration(), "");
         TableInfoHelper.initTableInfo(assistant, KnowledgeBase.class);
+        TableInfoHelper.initTableInfo(assistant, KnowledgeChunk.class);
 
         kbMapper = mock(KnowledgeBaseMapper.class);
         com.platform.knowledge.mapper.KnowledgeDocumentMapper docMapper =
                 mock(com.platform.knowledge.mapper.KnowledgeDocumentMapper.class);
-        com.platform.knowledge.mapper.KnowledgeChunkMapper chunkMapper =
-                mock(com.platform.knowledge.mapper.KnowledgeChunkMapper.class);
+        chunkMapper = mock(KnowledgeChunkMapper.class);
         com.platform.knowledge.mapper.KnowledgeDocumentImageMapper documentImageMapper =
                 mock(com.platform.knowledge.mapper.KnowledgeDocumentImageMapper.class);
-        BillingUsageMapper billingMapper = mock(BillingUsageMapper.class);
-        PricingService pricingService = mock(PricingService.class);
+        billingMapper = mock(BillingUsageMapper.class);
+        pricingService = mock(PricingService.class);
         QuotaService quotaService = mock(QuotaService.class);
         com.platform.knowledge.service.StorageService storage =
                 mock(com.platform.knowledge.service.StorageService.class);
-        com.platform.knowledge.service.EmbeddingService embeddingService =
-                mock(com.platform.knowledge.service.EmbeddingService.class);
+        embeddingService = mock(EmbeddingService.class);
         com.platform.knowledge.service.VectorRepository vectorRepository =
                 mock(com.platform.knowledge.service.VectorRepository.class);
         com.platform.knowledge.service.HybridRetrievalService hybridRetrieval =
@@ -87,8 +103,7 @@ class KnowledgeUpdateParseConfigTest {
                 mock(com.platform.knowledge.service.KnowledgeGraphService.class);
         com.fasterxml.jackson.databind.ObjectMapper objectMapper =
                 new com.fasterxml.jackson.databind.ObjectMapper();
-        com.platform.knowledge.service.KnowledgePermissionService permissionService =
-                mock(com.platform.knowledge.service.KnowledgePermissionService.class);
+        permissionService = mock(KnowledgePermissionService.class);
         SysUserMapper userMapper = mock(SysUserMapper.class);
         AgentKnowledgeBaseMapper agentKbMapper = mock(AgentKnowledgeBaseMapper.class);
         AgentRegistryMapper agentRegistryMapper = mock(AgentRegistryMapper.class);
@@ -109,6 +124,7 @@ class KnowledgeUpdateParseConfigTest {
         kb.setEmbeddingModel("nomic-embed-text");
         when(kbMapper.selectById(161L)).thenReturn(kb);
         when(permissionService.requireEdit(161L, viewer)).thenReturn(kb);
+        when(permissionService.requireView(161L, viewer)).thenReturn(kb);
     }
 
 
@@ -166,4 +182,93 @@ class KnowledgeUpdateParseConfigTest {
                         () -> service.update(161L, null, null, null, null, bad, viewer()));
         assertEquals(400, e.getCode());
     }
+
+    @Test
+    void nameOnlyUpdatePreservesDescriptionAndParseConfig() {
+        kb.setDescription("原始描述");
+        kb.setParseConfig("{\"ocrEnabled\":true}");
+
+        service.update(161L, "新名称", null, null, null, null, viewer());
+
+        LambdaUpdateWrapper<KnowledgeBase> wrapper = capturedWrapper();
+        assertTrue(wrapper.getSqlSet().contains("name"));
+        assertFalse(wrapper.getSqlSet().contains("description"),
+                "未提交 description 时不应清空原描述");
+        assertFalse(wrapper.getSqlSet().contains("parse_config"),
+                "未提交 parseConfig 时不应清空原解析配置");
+    }
+
+    @Test
+    void graphToggleOnlyPreservesDescriptionAndParseConfig() {
+        kb.setDescription("原始描述");
+        kb.setParseConfig("{\"ocrEnabled\":true}");
+
+        service.update(161L, null, null, null, false, null, viewer());
+
+        LambdaUpdateWrapper<KnowledgeBase> wrapper = capturedWrapper();
+        assertTrue(wrapper.getSqlSet().contains("graph_enabled"));
+        assertFalse(wrapper.getSqlSet().contains("description"));
+        assertFalse(wrapper.getSqlSet().contains("parse_config"));
+    }
+
+    @Test
+    void parseConfigOnlyPreservesDescription() {
+        kb.setDescription("原始描述");
+
+        service.update(161L, null, null, null, null,
+                Map.of("ocrEnabled", true), viewer());
+
+        LambdaUpdateWrapper<KnowledgeBase> wrapper = capturedWrapper();
+        assertTrue(wrapper.getSqlSet().contains("parse_config"));
+        assertFalse(wrapper.getSqlSet().contains("description"),
+                "只保存解析设置时不应把描述清空");
+    }
+
+    @Test
+    void explicitBlankDescriptionClearsValue() {
+        kb.setDescription("原始描述");
+
+        service.update(161L, null, "   ", null, null, null, viewer());
+
+        LambdaUpdateWrapper<KnowledgeBase> wrapper = capturedWrapper();
+        assertTrue(wrapper.getSqlSet().contains("description"));
+        assertTrue(wrapper.getParamNameValuePairs().values().stream().anyMatch(Objects::isNull),
+                "显式提交空描述应写入 NULL");
+    }
+
+    @Test
+    void embeddingUsageUsesKnowledgeBaseModelInsteadOfDefault() {
+        KnowledgeDocument doc = new KnowledgeDocument();
+        doc.setId(1001L);
+        doc.setTenantId(1L);
+        doc.setKnowledgeBaseId(161L);
+        when(pricingService.cost(anyLong(), anyString(), anyLong(), anyLong()))
+                .thenReturn(BigDecimal.ONE);
+
+        ReflectionTestUtils.invokeMethod(service, "recordEmbeddingUsage",
+                doc, 3, "custom-embed");
+
+        ArgumentCaptor<BillingUsage> captor = ArgumentCaptor.forClass(BillingUsage.class);
+        verify(billingMapper).insert(captor.capture());
+        assertEquals("custom-embed", captor.getValue().getModelName());
+        assertEquals(3L, captor.getValue().getInputTokens());
+        verify(embeddingService, never()).model();
+    }
+
+    @Test
+    void chunksPageIsClamped() {
+        Page<KnowledgeChunk> page = new Page<>(1, 10);
+        when(chunkMapper.selectPage(any(), any())).thenReturn(page);
+
+        Map<String, Object> result = service.chunks(161L, 100L, 0L, 1000L, viewer());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Page<KnowledgeChunk>> captor = ArgumentCaptor.forClass(Page.class);
+        verify(chunkMapper).selectPage(captor.capture(), any());
+        assertEquals(1L, captor.getValue().getCurrent());
+        assertEquals(100L, captor.getValue().getSize());
+        assertEquals(1L, result.get("page"));
+        assertEquals(100L, result.get("pageSize"));
+    }
+
 }

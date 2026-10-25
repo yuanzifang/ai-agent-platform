@@ -1,0 +1,243 @@
+package com.platform.knowledge.service;
+
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.platform.agent.entity.AgentKnowledgeBase;
+import com.platform.agent.entity.AgentRegistry;
+import com.platform.agent.mapper.AgentKnowledgeBaseMapper;
+import com.platform.agent.mapper.AgentRegistryMapper;
+import com.platform.billing.mapper.BillingUsageMapper;
+import com.platform.billing.service.PricingService;
+import com.platform.billing.service.QuotaService;
+import com.platform.common.context.TenantContext;
+import com.platform.common.exception.BusinessException;
+import com.platform.common.security.NetworkPolicyService;
+import com.platform.knowledge.entity.KnowledgeBase;
+import com.platform.knowledge.entity.KnowledgeChunk;
+import com.platform.knowledge.entity.KnowledgeDocument;
+import com.platform.knowledge.entity.KnowledgeDocumentImage;
+import com.platform.knowledge.mapper.KnowledgeBaseMapper;
+import com.platform.knowledge.mapper.KnowledgeChunkMapper;
+import com.platform.knowledge.mapper.KnowledgeDocumentImageMapper;
+import com.platform.knowledge.mapper.KnowledgeDocumentMapper;
+import com.platform.system.entity.SysUser;
+import com.platform.system.mapper.SysUserMapper;
+import com.platform.system.service.AuditService;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/** 知识库生命周期：默认图谱关闭、可见性过滤、分页上限、删除引用确认。 */
+class KnowledgeServiceLifecycleTest {
+
+    private KnowledgeBaseMapper kbMapper;
+    private KnowledgeDocumentMapper docMapper;
+    private KnowledgeChunkMapper chunkMapper;
+    private KnowledgeDocumentImageMapper imageMapper;
+    private EmbeddingService embeddingService;
+    private VectorRepository vectorRepository;
+    private StorageService storage;
+    private KnowledgeGraphService graphService;
+    private KnowledgePermissionService permissionService;
+    private SysUserMapper userMapper;
+    private AgentKnowledgeBaseMapper agentKbMapper;
+    private AgentRegistryMapper agentRegistryMapper;
+    private AuditService auditService;
+    private KnowledgeService service;
+    private KnowledgeBase kb;
+    private final KnowledgePermissionService.Viewer viewer =
+            new KnowledgePermissionService.Viewer(7L, List.of("OWNER"));
+
+    @BeforeEach
+    void setUp() {
+        TenantContext.setTenantId(9L);
+        MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
+        TableInfoHelper.initTableInfo(assistant, KnowledgeBase.class);
+        TableInfoHelper.initTableInfo(assistant, KnowledgeDocument.class);
+        TableInfoHelper.initTableInfo(assistant, KnowledgeChunk.class);
+        TableInfoHelper.initTableInfo(assistant, KnowledgeDocumentImage.class);
+
+        kbMapper = mock(KnowledgeBaseMapper.class);
+        docMapper = mock(KnowledgeDocumentMapper.class);
+        chunkMapper = mock(KnowledgeChunkMapper.class);
+        imageMapper = mock(KnowledgeDocumentImageMapper.class);
+        embeddingService = mock(EmbeddingService.class);
+        vectorRepository = mock(VectorRepository.class);
+        storage = mock(StorageService.class);
+        graphService = mock(KnowledgeGraphService.class);
+        permissionService = mock(KnowledgePermissionService.class);
+        userMapper = mock(SysUserMapper.class);
+        agentKbMapper = mock(AgentKnowledgeBaseMapper.class);
+        agentRegistryMapper = mock(AgentRegistryMapper.class);
+        auditService = mock(AuditService.class);
+        KnowledgeParseConfigResolver resolver = mock(KnowledgeParseConfigResolver.class);
+        when(resolver.resolve(any(), any())).thenReturn(ParseOptions.defaults(
+                false, "tesseract", "chi_sim+eng", 150, 20, false, "", "", 3));
+
+        service = new KnowledgeService(kbMapper, docMapper, chunkMapper, imageMapper,
+                mock(BillingUsageMapper.class), mock(PricingService.class), mock(QuotaService.class),
+                storage, embeddingService, vectorRepository, mock(HybridRetrievalService.class),
+                mock(DocumentParser.class), resolver, mock(ImageUnderstandingService.class),
+                graphService, new ObjectMapper(), permissionService, userMapper,
+                agentKbMapper, agentRegistryMapper, auditService, mock(NetworkPolicyService.class));
+
+        TenantContext.setTenantId(9L);
+        kb = new KnowledgeBase();
+        kb.setId(1L);
+        kb.setTenantId(9L);
+        kb.setCreatedBy(7L);
+        kb.setName("产品资料");
+        kb.setEmbeddingModel("default-embed");
+        kb.setGraphEnabled(true);
+        when(kbMapper.selectById(1L)).thenReturn(kb);
+        when(permissionService.requireEdit(1L, viewer)).thenReturn(kb);
+    }
+
+    @AfterEach
+    void tearDown() {
+        TenantContext.clear();
+    }
+
+    @Test
+    void newKnowledgeBaseDefaultsGraphOffAndUsesDefaultEmbeddingModel() {
+        when(embeddingService.model()).thenReturn("default-embed");
+        when(embeddingService.supports("default-embed")).thenReturn(true);
+        doAnswer(invocation -> {
+            KnowledgeBase row = invocation.getArgument(0);
+            row.setId(11L);
+            return 1;
+        }).when(kbMapper).insert(any(KnowledgeBase.class));
+
+        Map<String, Object> result = service.create("新库", "描述", null, null, null, 7L);
+
+        assertEquals(11L, result.get("id"));
+        ArgumentCaptor<KnowledgeBase> captor = ArgumentCaptor.forClass(KnowledgeBase.class);
+        verify(kbMapper).insert(captor.capture());
+        assertFalse(captor.getValue().getGraphEnabled());
+        assertEquals("TENANT", captor.getValue().getVisibility());
+        assertEquals("default-embed", captor.getValue().getEmbeddingModel());
+        assertEquals(7L, captor.getValue().getCreatedBy());
+        verify(vectorRepository).ensureTenantSchema(9L);
+    }
+
+    @Test
+    void createRejectsUnsupportedEmbeddingModelBeforeInsert() {
+        when(embeddingService.supports("unknown")).thenReturn(false);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.create("新库", null, "PRIVATE", "unknown", true, 7L));
+
+        assertEquals(400, error.getCode());
+        verify(kbMapper, never()).insert(any(KnowledgeBase.class));
+    }
+
+    @Test
+    void listFiltersInvisibleKnowledgeBasesAndCapsPageSize() {
+        KnowledgeBase hidden = new KnowledgeBase();
+        hidden.setId(2L);
+        hidden.setTenantId(9L);
+        hidden.setCreatedBy(8L);
+        hidden.setName("私有库");
+        when(kbMapper.selectList(any())).thenReturn(List.of(kb, hidden));
+        when(permissionService.canView(kb, viewer)).thenReturn(true);
+        when(permissionService.canView(hidden, viewer)).thenReturn(false);
+        when(docMapper.statsByKb()).thenReturn(List.of(
+                Map.of("kbId", 1L, "documentCount", 2L, "chunkCount", 8L)));
+        SysUser creator = new SysUser();
+        creator.setId(7L);
+        creator.setUsername("alice");
+        creator.setDisplayName("Alice");
+        when(userMapper.selectBatchIds(any())).thenReturn(List.of(creator));
+
+        Map<String, Object> result = service.list(null, null, 1L, 1000L, viewer);
+
+        assertEquals(1L, result.get("total"));
+        assertEquals(100L, result.get("pageSize"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) result.get("list");
+        assertEquals(1, rows.size());
+        assertEquals(1L, rows.get(0).get("id"));
+        assertEquals("Alice", rows.get(0).get("creatorName"));
+        assertEquals(2L, rows.get(0).get("documentCount"));
+    }
+
+    @Test
+    void hugePageDoesNotOverflowOrThrow() {
+        when(kbMapper.selectList(any())).thenReturn(List.of(kb));
+        when(permissionService.canView(kb, viewer)).thenReturn(true);
+        when(docMapper.statsByKb()).thenReturn(List.of());
+        when(userMapper.selectBatchIds(any())).thenReturn(List.of());
+
+        Map<String, Object> result = service.list(null, null, Long.MAX_VALUE, 100L, viewer);
+
+        assertEquals(1L, result.get("total"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) result.get("list");
+        assertTrue(rows.isEmpty());
+    }
+
+    @Test
+    void deleteRequiresForceWhenReferencedByLiveAgent() {
+        AgentKnowledgeBase binding = new AgentKnowledgeBase();
+        binding.setKnowledgeBaseId(1L);
+        binding.setAgentId(100L);
+        when(agentKbMapper.selectList(any())).thenReturn(List.of(binding));
+        AgentRegistry agent = new AgentRegistry();
+        agent.setId(100L);
+        agent.setName("客服助手");
+        agent.setStatus("PUBLISHED");
+        when(agentRegistryMapper.selectBatchIds(any())).thenReturn(List.of(agent));
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.delete(1L, false, viewer));
+
+        assertEquals(409, error.getCode());
+        assertTrue(error.getMessage().contains("客服助手"));
+        verify(kbMapper, never()).deleteById(1L);
+    }
+
+    @Test
+    void forcedDeleteCascadesAllRelatedData() {
+        when(agentKbMapper.selectList(any())).thenReturn(List.of());
+        KnowledgeDocument doc = new KnowledgeDocument();
+        doc.setId(10L);
+        doc.setKnowledgeBaseId(1L);
+        doc.setTenantId(9L);
+        doc.setObjectName("9/knowledge/1/doc.pdf");
+        when(docMapper.selectList(any())).thenReturn(List.of(doc));
+        when(imageMapper.selectList(any())).thenReturn(List.of());
+
+        service.delete(1L, true, viewer);
+
+        verify(storage).remove("9/knowledge/1/doc.pdf");
+        verify(vectorRepository).deleteByKnowledgeBase(9L, 1L);
+        verify(graphService).deleteByKnowledgeBase(1L);
+        verify(chunkMapper).delete(any());
+        verify(docMapper).delete(any());
+        verify(permissionService).deleteAll(1L);
+        verify(kbMapper).deleteById(1L);
+        verify(auditService).record(7L, "kb.delete", "knowledge", "1", "SUCCESS",
+                Map.of("name", "产品资料", "documents", 1, "forced", true));
+    }
+}

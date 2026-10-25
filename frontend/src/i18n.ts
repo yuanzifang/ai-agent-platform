@@ -763,7 +763,11 @@ const messages = {
       latency: '耗时(ms)', upstream: '上游状态', error: '错误', noLogs: '暂无日志', close: '关闭',
       nameRequired: '名称与上游地址必填', saved: '已保存', deleted: '已删除', keyRotated: 'Key 已轮换',
       deleteConfirm: '删除后调用地址立即失效，确认？', deleteTitle: '删除路由',
-      requestPath: '请求路径', baseUrl: '基础地址', rateHint: '0 = 不限制'
+      requestPath: '请求路径', baseUrl: '基础地址', rateHint: '0 = 不限制',
+      keys: 'API Keys', keysTitle: '调用方 API Keys', keyName: '调用方', keyNamePh: '调用方名称',
+      keyPrefixCol: 'Key 前缀', keyStatus: '状态', keyRateCol: '限流/分', keyCalls: '调用次数',
+      keyLastUsed: '最近调用', keyCreate: '生成 Key', keyCreated: 'Key 已生成（仅显示一次，请立即保存）',
+      keyEnabled: '已启用', keyDisabled: '已禁用', keyDeleted: '已删除', keyNameReq: '调用方名称必填',
     },
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
@@ -1548,7 +1552,11 @@ const messages = {
       latency: 'Latency(ms)', upstream: 'Upstream', error: 'Error', noLogs: 'No logs', close: 'Close',
       nameRequired: 'Name and upstream URL are required', saved: 'Saved', deleted: 'Deleted', keyRotated: 'Key rotated',
       deleteConfirm: 'The endpoint will stop working immediately. Continue?', deleteTitle: 'Delete route',
-      requestPath: 'Request path', baseUrl: 'Base URL', rateHint: '0 = unlimited'
+      requestPath: 'Request path', baseUrl: 'Base URL', rateHint: '0 = unlimited',
+      keys: 'API Keys', keysTitle: 'Caller API Keys', keyName: 'Caller', keyNamePh: 'Caller name',
+      keyPrefixCol: 'Key prefix', keyStatus: 'Status', keyRateCol: 'Rate/min', keyCalls: 'Calls',
+      keyLastUsed: 'Last used', keyCreate: 'Generate key', keyCreated: 'Key generated (shown once, save it now)',
+      keyEnabled: 'Enabled', keyDisabled: 'Disabled', keyDeleted: 'Deleted', keyNameReq: 'Caller name is required',
     },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',

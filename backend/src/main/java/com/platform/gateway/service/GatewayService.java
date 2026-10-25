@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
 import com.platform.common.security.NetworkPolicyService;
+import com.platform.gateway.entity.GatewayApiKey;
 import com.platform.gateway.entity.GatewayRequestLog;
 import com.platform.gateway.entity.GatewayRoute;
 import com.platform.gateway.mapper.GatewayRequestLogMapper;
@@ -58,6 +59,7 @@ public class GatewayService {
     private final NetworkPolicyService networkPolicy;
     private final StringRedisTemplate redis;
     private final AuditService auditService;
+    private final GatewayApiKeyService apiKeyService;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NEVER)
@@ -159,6 +161,7 @@ public class GatewayService {
                 .eq(GatewayRequestLog::getRouteId, id));
         clearCircuit(id, route.getTargetUrl());
         clearCircuit(id, route.getFallbackUrl());
+        clearGatewayRateLimit(id);
         auditService.record(principal.userId(), "gateway.route.delete", "gateway_route",
                 String.valueOf(id), "SUCCESS", Map.of("name", route.getName()));
     }
@@ -171,6 +174,41 @@ public class GatewayService {
                 .last("LIMIT 50"));
     }
 
+    public List<Map<String, Object>> apiKeys(Long routeId) {
+        return apiKeyService.listView(routeId);
+    }
+
+    public Map<String, Object> apiKeyView(com.platform.gateway.entity.GatewayApiKey key) {
+        return apiKeyService.apiKeyView(key);
+    }
+
+    public Map<String, Object> createKey(Long routeId, Map<String, Object> req,
+                                         com.platform.security.JwtPrincipal principal,
+                                         java.time.LocalDateTime expiresAt) {
+        var created = apiKeyService.create(routeId, principal.tenantId(),
+                String.valueOf(req.getOrDefault("name", "")),
+                req.get("rateLimitPerMin") instanceof Number n ? n.intValue() : null,
+                expiresAt, principal.userId());
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("id", created.key().getId());
+        out.put("name", created.key().getName());
+        out.put("keyPrefix", created.key().getKeyPrefix());
+        out.put("apiKey", created.apiKey());   // 仅创建时返回一次
+        return out;
+    }
+
+    public void updateKey(Long keyId, Map<String, Object> req, com.platform.security.JwtPrincipal principal) {
+        apiKeyService.update(keyId,
+                req.get("name") == null ? null : String.valueOf(req.get("name")),
+                req.get("enabled") instanceof Boolean b ? b : null,
+                req.get("rateLimitPerMin") instanceof Number n ? n.intValue() : null,
+                null, principal.userId());
+    }
+
+    public void deleteApiKey(Long keyId, com.platform.security.JwtPrincipal principal) {
+        apiKeyService.delete(keyId, principal.userId());
+    }
+
     /** 公开代理入口：X-Gateway-Key 鉴权，路径后缀转发到上游。 */
     public StreamingResponseBody proxy(String routeKey, HttpServletRequest request,
                                        HttpServletResponse servletResponse) {
@@ -181,14 +219,33 @@ public class GatewayService {
             return error(servletResponse, HttpStatus.SERVICE_UNAVAILABLE, "网关路由已停用");
         }
         String provided = request.getHeader("X-Gateway-Key");
-        if (provided == null || !MessageDigest.isEqual(
+        if (provided == null || provided.isBlank()) {
+            log(route, request, 401, null, started, "missing api key");
+            return error(servletResponse, HttpStatus.UNAUTHORIZED, "缺少 X-Gateway-Key");
+        }
+        // 1) 调用方 Key（gateway_api_key，独立禁用/过期/按 Key 限流）
+        GatewayApiKey callerKey = apiKeyService.matchEnabledKey(provided);
+        if (callerKey != null && !callerKey.getRouteId().equals(route.getId())) {
+            log(route, request, 403, null, started, "key belongs to another route");
+            return error(servletResponse, HttpStatus.FORBIDDEN, "API Key 与路由不匹配");
+        }
+        if (callerKey != null && !apiKeyService.allowByKey(callerKey)) {
+            log(route, request, 429, null, started, "key rate limit");
+            return error(servletResponse, HttpStatus.TOO_MANY_REQUESTS, "调用方限流（按 Key）");
+        }
+        if (callerKey != null) apiKeyService.markUsed(callerKey);
+        final GatewayApiKey usedCallerKey = callerKey;
+        // 2) 回落路由级固定 Key（历史兼容），未中调用方 Key 时校验
+        if (callerKey == null && !MessageDigest.isEqual(
                 hash(provided).getBytes(StandardCharsets.UTF_8),
                 route.getApiKeyHash().getBytes(StandardCharsets.UTF_8))) {
             log(route, request, 401, null, started, "invalid api key");
             return error(servletResponse, HttpStatus.UNAUTHORIZED, "网关 API Key 无效");
         }
-        if (!allow(route)) {
-            log(route, request, 429, null, started, "rate limit");
+        // 3) 路由级限流（调用方 Key 未配独立限流时兜底）
+        if ((callerKey == null || callerKey.getRateLimitPerMin() == null
+                || callerKey.getRateLimitPerMin() <= 0) && !allow(route)) {
+            log(route, request, 429, null, started, callerKey != null ? "rate limit (key " + callerKey.getId() + ")" : "rate limit");
             return error(servletResponse, HttpStatus.TOO_MANY_REQUESTS, "网关路由限流");
         }
         String suffix = suffix(routeKey, request.getRequestURI());
@@ -442,6 +499,15 @@ public class GatewayService {
 
     private void clearCircuit(Long routeId, String upstream) {
         recordUpstreamSuccess(routeId, upstream);
+    }
+
+    private void clearGatewayRateLimit(Long routeId) {
+        try {
+            var keys = redis.keys("ratelimit:gw:" + routeId + ":*");
+            if (keys != null && !keys.isEmpty()) redis.delete(keys);
+        } catch (Exception e) {
+            log.debug("网关限流键清理失败（忽略）：{}", e.getMessage());
+        }
     }
 
     private String circuitKey(String kind, Long routeId, String upstream) {

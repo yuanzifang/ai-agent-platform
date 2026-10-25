@@ -240,7 +240,10 @@ public class KnowledgePermissionService {
 
     public static String visibilityOf(KnowledgeBase kb) {
         String v = kb.getVisibility();
-        return v == null || v.isBlank() ? "TENANT" : v;
+        if (v == null || v.isBlank()) return "TENANT";
+        v = v.trim().toUpperCase(Locale.ROOT);
+        // 历史/脏数据统一按最宽松的 TENANT 解释，确保 canView 与 aclOf 使用同一判定
+        return VISIBILITIES.contains(v) ? v : "TENANT";
     }
 
     private KnowledgePermission findGrant(Long kbId, Long userId) {

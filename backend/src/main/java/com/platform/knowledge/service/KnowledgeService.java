@@ -145,16 +145,20 @@ public class KnowledgeService {
             model = embeddingModel.trim();
         }
         final String finalModel = model;
+        String descriptionValue = description == null ? null
+                : (description.isBlank() ? null : description.trim());
+        String parseConfigValue = parseConfigJson == null ? null
+                : (parseConfigJson.trim().isEmpty() || "{}".equals(parseConfigJson.trim())
+                        ? null : parseConfigJson.trim());
         kbMapper.update(null, new LambdaUpdateWrapper<KnowledgeBase>()
                 .eq(KnowledgeBase::getId, id)
                 .set(KnowledgeBase::getName, name.trim())
-                .set(KnowledgeBase::getDescription,
-                        description == null || description.isBlank() ? null : description.trim())
+                // null = 未提交该字段，保留原值；空串 = 显式清空描述
+                .set(description != null, KnowledgeBase::getDescription, descriptionValue)
                 .set(KnowledgeBase::getEmbeddingModel, finalModel)
                 .set(graphEnabled != null, KnowledgeBase::getGraphEnabled, graphEnabled)
-                .set(KnowledgeBase::getParseConfig, parseConfigJson == null ? null
-                        : (parseConfigJson.trim().isEmpty() || "{}".equals(parseConfigJson.trim())
-                                ? null : parseConfigJson.trim())));
+                // null = 保留原解析配置；空对象 = 清除覆盖并回退默认
+                .set(parseConfig != null, KnowledgeBase::getParseConfig, parseConfigValue));
         auditService.record(viewer.userId(), "kb.update", "knowledge", String.valueOf(id), "SUCCESS",
                 Map.of("name", name.trim()));
         log.info("知识库已更新：id={} name={}", kb.getId(), name.trim());
@@ -174,8 +178,9 @@ public class KnowledgeService {
                 .orderByDesc(KnowledgeBase::getCreatedAt));
         List<KnowledgeBase> visible = all.stream().filter(kb -> permissionService.canView(kb, viewer)).toList();
         long total = visible.size();
-        int from = (int) Math.min((p - 1) * size, total);
-        int to = (int) Math.min(from + size, total);
+        long offset = p - 1 > Long.MAX_VALUE / size ? total : (p - 1) * size;
+        int from = (int) Math.min(offset, total);
+        int to = (int) Math.min(offset + size, total);
         List<KnowledgeBase> rows = visible.subList(from, to);
 
         Map<Long, Map<String, Object>> stats = new HashMap<>();
@@ -772,7 +777,9 @@ public class KnowledgeService {
     public Map<String, Object> chunks(Long kbId, Long documentId, long page, long pageSize,
                                       KnowledgePermissionService.Viewer viewer) {
         permissionService.requireView(kbId, viewer);
-        Page<KnowledgeChunk> result = chunkMapper.selectPage(new Page<>(page, pageSize),
+        long p = Math.max(page, 1);
+        long size = Math.min(Math.max(pageSize, 1), 100);
+        Page<KnowledgeChunk> result = chunkMapper.selectPage(new Page<>(p, size),
                 new LambdaQueryWrapper<KnowledgeChunk>()
                         .eq(KnowledgeChunk::getKnowledgeBaseId, kbId)
                         .eq(KnowledgeChunk::getDocumentId, documentId)
@@ -786,7 +793,7 @@ public class KnowledgeService {
             m.put("tenantVisible", c.getTenantVisible() == null || c.getTenantVisible() == 1);
             return m;
         }).toList();
-        return Map.of("list", list, "total", result.getTotal(), "page", page, "pageSize", pageSize);
+        return Map.of("list", list, "total", result.getTotal(), "page", p, "pageSize", size);
     }
 
     /** 单 chunk 独立授权：更新 MySQL 分段与 PgVector metadata；需知识库编辑权限。 */
@@ -931,10 +938,12 @@ public class KnowledgeService {
             u.setTenantId(doc.getTenantId());
             u.setKnowledgeBaseId(doc.getKnowledgeBaseId());
             u.setSource("embedding");
-            u.setModelName(embeddingService.model());
+            String billedModel = embeddingModel == null || embeddingModel.isBlank()
+                    ? embeddingService.model() : embeddingModel;
+            u.setModelName(billedModel);
             u.setInputTokens((long) chunkCount);
             u.setOutputTokens(0L);
-            u.setCost(pricingService.cost(doc.getTenantId(), embeddingService.model(), chunkCount, 0));
+            u.setCost(pricingService.cost(doc.getTenantId(), billedModel, chunkCount, 0));
             u.setStatDate(LocalDate.now());
             u.setCreatedAt(LocalDateTime.now());
             billingMapper.insert(u);
