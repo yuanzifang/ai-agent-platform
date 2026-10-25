@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
 import com.platform.agent.entity.AgentKnowledgeBase;
 import com.platform.agent.entity.AgentRegistry;
 import com.platform.agent.mapper.AgentKnowledgeBaseMapper;
@@ -30,22 +31,28 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /** 知识库生命周期：默认图谱关闭、可见性过滤、分页上限、删除引用确认。 */
@@ -66,6 +73,7 @@ class KnowledgeServiceLifecycleTest {
     private AuditService auditService;
     private KnowledgeService service;
     private KnowledgeBase kb;
+    private HttpServer httpServer;
     private final KnowledgePermissionService.Viewer viewer =
             new KnowledgePermissionService.Viewer(7L, List.of("OWNER"));
 
@@ -116,6 +124,7 @@ class KnowledgeServiceLifecycleTest {
 
     @AfterEach
     void tearDown() {
+        if (httpServer != null) httpServer.stop(0);
         TenantContext.clear();
     }
 
@@ -215,6 +224,73 @@ class KnowledgeServiceLifecycleTest {
         assertEquals(409, error.getCode());
         assertTrue(error.getMessage().contains("客服助手"));
         verify(kbMapper, never()).deleteById(1L);
+    }
+
+    @Test
+    void importUrlRejectsChunkedOversizeBeforeBufferingWholeBody() throws Exception {
+        ReflectionTestUtils.setField(service, "importMaxBytes", 64);
+        byte[] oversized = "x".repeat(4096).getBytes(StandardCharsets.UTF_8);
+        String url = serve(oversized, 0, "text/plain");
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.importUrl(1L, url, viewer));
+
+        assertEquals(413, error.getCode());
+        verifyNoInteractions(storage);
+    }
+
+    @Test
+    void importUrlRejectsOversizedContentLength() throws Exception {
+        ReflectionTestUtils.setField(service, "importMaxBytes", 64);
+        String url = serve(new byte[4096], 4096, "text/plain");
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.importUrl(1L, url, viewer));
+
+        assertEquals(413, error.getCode());
+        verifyNoInteractions(storage);
+    }
+
+    @Test
+    void importUrlStreamsAndStoresPayloadWithinLimit() throws Exception {
+        ReflectionTestUtils.setField(service, "importMaxBytes", 64);
+        byte[] payload = "hello url import".getBytes(StandardCharsets.UTF_8);
+        String url = serve(payload, payload.length, "text/plain");
+        when(storage.exists(anyString())).thenReturn(true);
+        when(storage.statSize(anyString())).thenReturn((long) payload.length);
+        doAnswer(invocation -> {
+            KnowledgeDocument row = invocation.getArgument(0);
+            row.setId(123L);
+            return 1;
+        }).when(docMapper).insert(any(KnowledgeDocument.class));
+
+        Map<String, Object> result = service.importUrl(1L, url, viewer);
+
+        assertEquals(123L, result.get("documentId"));
+        assertEquals(url, result.get("sourceUrl"));
+        assertEquals("payload.txt", result.get("fileName"));
+        ArgumentCaptor<byte[]> body = ArgumentCaptor.forClass(byte[].class);
+        verify(storage).put(anyString(), body.capture(), eq("text/plain"));
+        assertArrayEquals(payload, body.getValue());
+    }
+
+    private String serve(byte[] payload, long declaredLength, String contentType) throws Exception {
+        httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        httpServer.createContext("/payload", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", contentType);
+            try {
+                exchange.sendResponseHeaders(200, declaredLength);
+                if (payload.length > 0) {
+                    exchange.getResponseBody().write(payload);
+                }
+            } catch (Exception ignored) {
+                // 客户端在读取上限后主动断开时服务端写失败属于预期行为
+            } finally {
+                exchange.close();
+            }
+        });
+        httpServer.start();
+        return "http://127.0.0.1:" + httpServer.getAddress().getPort() + "/payload";
     }
 
     @Test

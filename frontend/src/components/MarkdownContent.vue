@@ -6,7 +6,8 @@
 import { computed } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import hljs from 'highlight.js'
+// 仅打包常用语言，避免全量 highlight.js 语言包把 Markdown chunk 推到 ~1MB。
+import hljs from 'highlight.js/lib/common'
 import 'highlight.js/styles/github.css'
 import { ElMessage } from 'element-plus'
 

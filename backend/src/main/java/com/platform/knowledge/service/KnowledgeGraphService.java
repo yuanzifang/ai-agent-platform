@@ -754,29 +754,10 @@ public class KnowledgeGraphService implements ApplicationRunner {
         input.append("\n</document>");
         String raw;
         try {
-            ChatResponse response = ChatClient.create(modelRouter.resolve(modelName)).prompt()
-                    .options(modelRouter.options(modelName, 0.1, List.of()))
-                    .system("""
-你是企业知识图谱抽取器。只输出 JSON，不要 Markdown，不要解释。
-输出结构：
-{"entities":[{"name":"规范实体名","type":"类型","description":"一句话说明","chunk":1,"quote":"原文证据","confidence":0.9}],
- "relations":[{"from":"实体名","to":"实体名","relation":"关系名","chunk":1,"quote":"原文证据","confidence":0.9}]}
-规则：
-1. 实体名使用原文中的规范名称，不要用“它/该产品”等代词；同一实体只输出一次。
-2. type 从 人物/组织/产品/政策/流程/概念/指标/技术/其他 中选择。
-3. 关系必须能由片段直接支持；from/to 必须是本次输出或文中明确出现的实体；禁止编造。
-4. chunk 必须是输入中的片段编号（从 1 开始）；quote 尽量摘录原文，不超过 120 字。
-5. 最多 30 个实体、50 条关系；没有结果就返回空数组。
-""")
-                    .user(input.toString())
-                    .call().chatResponse();
-            raw = response == null || response.getResult() == null
-                    || response.getResult().getOutput() == null ? ""
-                    : response.getResult().getOutput().getText();
-            recordUsage(kb, modelName, response);
+            raw = callExtractionModel(modelName, input.toString(), kb);
         } catch (Exception e) {
-            log.warn("图谱抽取模型调用失败：kb={} err={}", kb.getId(), e.getMessage());
-            return new ExtractionBatch(List.of(), List.of());
+            log.warn("图谱抽取模型调用失败：kb={} err={}", kb.getId(), rootMessage(e));
+            throw new BusinessException(502, "图谱抽取模型调用失败：" + rootMessage(e));
         }
 
         List<Map<String, Object>> entityDrafts = new ArrayList<>();
@@ -785,8 +766,23 @@ public class KnowledgeGraphService implements ApplicationRunner {
         Set<String> relationKeys = new HashSet<>();
         try {
             JsonNode root = objectMapper.readTree(stripFence(raw == null ? "" : raw));
-            JsonNode entities = root.path("entities");
-            if (entities.isArray()) {
+            if (root == null || !root.isObject()) {
+                throw new IllegalArgumentException("返回内容不是 JSON 对象");
+            }
+            JsonNode entities = root.get("entities");
+            JsonNode relations = root.get("relations");
+            boolean hasEntities = entities != null && !entities.isNull();
+            boolean hasRelations = relations != null && !relations.isNull();
+            if (!hasEntities && !hasRelations) {
+                throw new IllegalArgumentException("缺少 entities/relations 字段");
+            }
+            if (hasEntities && !entities.isArray()) {
+                throw new IllegalArgumentException("entities 不是数组");
+            }
+            if (hasRelations && !relations.isArray()) {
+                throw new IllegalArgumentException("relations 不是数组");
+            }
+            if (hasEntities) {
                 for (JsonNode node : entities) {
                     String name = text(node.path("name").asText(null), 128);
                     if (name == null) continue;
@@ -807,8 +803,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
                     if (entityDrafts.size() >= MAX_ENTITIES_PER_BATCH) break;
                 }
             }
-            JsonNode relations = root.path("relations");
-            if (relations.isArray()) {
+            if (hasRelations) {
                 for (JsonNode node : relations) {
                     String from = text(node.path("from").asText(null), 128);
                     String to = text(node.path("to").asText(null), 128);
@@ -832,8 +827,41 @@ public class KnowledgeGraphService implements ApplicationRunner {
             }
         } catch (Exception e) {
             log.warn("图谱抽取 JSON 解析失败：kb={} err={} raw={}", kb.getId(), e.getMessage(), raw);
+            throw new BusinessException(502, "图谱抽取结果解析失败：" + rootMessage(e));
         }
         return new ExtractionBatch(entityDrafts, relationDrafts);
+    }
+
+    /** 抽离模型调用便于单测替换；失败由上层转为 502/构建任务 FAILED，不能静默返回空结果。 */
+    String callExtractionModel(String modelName, String input, KnowledgeBase kb) {
+        ChatResponse response = ChatClient.create(modelRouter.resolve(modelName)).prompt()
+                .options(modelRouter.options(modelName, 0.1, List.of()))
+                .system("""
+你是企业知识图谱抽取器。只输出 JSON，不要 Markdown，不要解释。
+输出结构：
+{"entities":[{"name":"规范实体名","type":"类型","description":"一句话说明","chunk":1,"quote":"原文证据","confidence":0.9}],
+ "relations":[{"from":"实体名","to":"实体名","relation":"关系名","chunk":1,"quote":"原文证据","confidence":0.9}]}
+规则：
+1. 实体名使用原文中的规范名称，不要用“它/该产品”等代词；同一实体只输出一次。
+2. type 从 人物/组织/产品/政策/流程/概念/指标/技术/其他 中选择。
+3. 关系必须能由片段直接支持；from/to 必须是本次输出或文中明确出现的实体；禁止编造。
+4. chunk 必须是输入中的片段编号（从 1 开始）；quote 尽量摘录原文，不超过 120 字。
+5. 最多 30 个实体、50 条关系；没有结果就返回空数组。
+""")
+                .user(input)
+                .call().chatResponse();
+        String raw = response == null || response.getResult() == null
+                || response.getResult().getOutput() == null ? ""
+                : response.getResult().getOutput().getText();
+        recordUsage(kb, modelName, response);
+        return raw;
+    }
+
+    private String rootMessage(Throwable e) {
+        Throwable root = e;
+        while (root.getCause() != null) root = root.getCause();
+        String message = root.getMessage();
+        return message == null || message.isBlank() ? root.getClass().getSimpleName() : message;
     }
 
     private KnowledgeChunk chunkAt(List<KnowledgeChunk> chunks, int number) {

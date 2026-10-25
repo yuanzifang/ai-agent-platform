@@ -57,6 +57,11 @@ class PdfVisionCaseTest {
             System.out.println("[VISION-CASE " + (i + 1) + "] " + description);
             assertFalse(description.isBlank(), "真实视觉模型应返回描述，case=" + (i + 1));
         }
+        var chartData = vision.extractChartData(chartPhoto.get(0).data(),
+                chartPhoto.get(0).extension(), null);
+        System.out.println("[VISION-CHART-JSON] " + chartData);
+        assertTrue(chartData != null && chartData.path("isChart").asBoolean(),
+                "真实视觉模型应返回 isChart JSON");
     }
 
     private byte[] chartPhotoPdf() throws Exception {

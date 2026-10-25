@@ -14,6 +14,7 @@ public class SysTenantQuota {
     private Integer maxAgents;
     private Integer maxKnowledgeBases;
     private Long maxTokensPerDay;
+    private java.math.BigDecimal monthlyCostLimit; // 月度金额上限（元），NULL=不限
     private Long maxStorageBytes;
     private Integer maxApiCallsPerMin;
 }

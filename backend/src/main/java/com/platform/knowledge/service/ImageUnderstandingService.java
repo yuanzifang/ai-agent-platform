@@ -55,6 +55,51 @@ public class ImageUnderstandingService {
         return Math.max(1, Math.min(maxImages, 10));
     }
 
+    /**
+     * 图表结构化（best-effort）：调用视觉模型输出 JSON；返回值仅作为检索线索，
+     * 不是精确数据源，入库时必须标记需人工核对。
+     */
+    public JsonNode extractChartData(byte[] data, String extension, ParseOptions overrides) {
+        boolean effEnabled = overrides != null ? overrides.visionEnabled() : enabled;
+        String effModel = overrides != null && overrides.visionModel() != null && !overrides.visionModel().isBlank()
+                ? overrides.visionModel() : model;
+        if (!effEnabled || data == null || data.length == 0) return null;
+        try {
+            String prompt = "只输出一个 JSON 对象，不要 Markdown、不要解释。格式："
+                    + "{\"isChart\":true,\"title\":\"\",\"xAxis\":\"\",\"yAxis\":\"\","
+                    + "\"series\":[{\"name\":\"\",\"points\":[{\"label\":\"\",\"value\":\"\"}]}]}。"
+                    + "没有坐标轴/图例/数据系列时输出 {\"isChart\":false}。数值看不清就留空，不要猜。";
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("model", effModel);
+            body.put("prompt", prompt);
+            body.put("images", List.of(Base64.getEncoder().encodeToString(data)));
+            body.put("format", "json");
+            body.put("stream", false);
+            body.put("options", Map.of("temperature", 0.1));
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(endpoint.replaceAll("/+$", "") + "/api/generate"))
+                    .timeout(Duration.ofSeconds(Math.max(10, timeoutSeconds)))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) return null;
+            JsonNode outer = objectMapper.readTree(response.body());
+            String text = outer.path("response").asText("").trim();
+            if (text.startsWith("```")) {
+                int first = text.indexOf('{');
+                int last = text.lastIndexOf('}');
+                if (first >= 0 && last > first) text = text.substring(first, last + 1);
+            }
+            System.out.println("[CHART-RAW] " + text);
+            JsonNode dataNode = objectMapper.readTree(text);
+            return dataNode.path("isChart").asBoolean(false) ? dataNode : null;
+        } catch (Exception e) {
+            log.debug("图表结构化失败（忽略）：{}", e.getMessage());
+            return null;
+        }
+    }
+
     /** 返回空串表示未启用或失败；调用方按空描述跳过。 */
     public String describe(byte[] data, String extension) {
         return describe(data, extension, null);

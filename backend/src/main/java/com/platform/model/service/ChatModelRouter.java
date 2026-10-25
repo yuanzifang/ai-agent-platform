@@ -93,7 +93,10 @@ public class ChatModelRouter {
             baseUrl = baseUrl.substring(0, baseUrl.length() - 3);
         }
         String key = providerService.resolveApiKey(provider);
-        String cacheKey = provider.getId() + ":" + model.getModelName() + ":" + baseUrl + ":" + path
+        // Provider 更新（地址/密钥等）后应重建连接，避免继续复用指向旧地址的长连接。
+        String providerVersion = provider.getUpdatedAt() == null ? "0" : provider.getUpdatedAt().toString();
+        String cacheKey = provider.getId() + ":" + providerVersion + ":" + model.getModelName()
+                + ":" + baseUrl + ":" + path
                 + ":" + Integer.toHexString((key == null ? "" : key).hashCode());
         String finalBase = baseUrl;
         String finalPath = path;

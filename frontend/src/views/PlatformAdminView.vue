@@ -113,8 +113,10 @@ async function setStatus(row: any, status: string) {
 const quotaVisible = ref(false)
 const quotaSaving = ref(false)
 const quotaTarget = reactive<any>({})
-const quotaForm = reactive({ maxAgents: 10, maxKnowledgeBases: 5, maxTokensPerDay: 1000000,
-  maxStorageBytes: 10737418240, maxApiCallsPerMin: 60 }, monthlyCostLimit: 0 }
+const quotaForm = reactive({
+  maxAgents: 10, maxKnowledgeBases: 5, maxTokensPerDay: 1000000,
+  maxStorageBytes: 10737418240, maxApiCallsPerMin: 60, monthlyCostLimit: 0
+})
 
 async function editQuota(row: any) {
   Object.assign(quotaTarget, row)
@@ -122,7 +124,7 @@ async function editQuota(row: any) {
   Object.assign(quotaForm, {
     maxAgents: q.maxAgents ?? 10, maxKnowledgeBases: q.maxKnowledgeBases ?? 5,
     maxTokensPerDay: q.maxTokensPerDay ?? 1000000, maxStorageBytes: q.maxStorageBytes ?? 10737418240,
-    maxApiCallsPerMin: q.maxApiCallsPerMin ?? 60
+    maxApiCallsPerMin: q.maxApiCallsPerMin ?? 60, monthlyCostLimit: q.monthlyCostLimit ?? 0
   })
   quotaVisible.value = true
 }

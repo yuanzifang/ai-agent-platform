@@ -91,7 +91,7 @@ class ChatServiceKnowledgeTest {
         when(permissionService.findVisible(1L, viewer)).thenReturn(kb);
         when(permissionService.tenantWide(viewer)).thenReturn(true);
         when(knowledgeBaseMapper.selectById(1L)).thenReturn(kb);
-        when(documentMapper.selectById(100L)).thenReturn(doc);
+        when(documentMapper.selectBatchIds(any())).thenReturn(List.of(doc));
         when(graphService.expandChunks(anyLong(), anyString(), anyList(), anySet(), any()))
                 .thenReturn(List.of());
     }
@@ -129,6 +129,30 @@ class ChatServiceKnowledgeTest {
         assertEquals(Set.of(10L), existing.getValue(), "图扩展必须排除已召回的 chunk");
         verify(hybridRetrieval).search(eq(9L), eq("退款"), eq(1L), eq(5), eq(0.5),
                 anyMap(), eq(7L), eq(true));
+        // 两个引用指向同一文档：批量查询一次，不再逐条 selectById。
+        verify(documentMapper).selectBatchIds(any());
+        verify(documentMapper, never()).selectById(anyLong());
+    }
+
+    @Test
+    void vectorOnlyRetrievalFailureDegradesToAnswerWithoutKnowledge() {
+        when(hybridRetrieval.search(eq(9L), anyString(), eq(1L), anyInt(), anyDouble(),
+                anyMap(), eq(7L), eq(true)))
+                .thenThrow(new com.platform.common.exception.BusinessException(
+                        502, "向量检索失败：vector store down"));
+        List<Map<String, Object>> citations = new ArrayList<>();
+        TraceStepCollector steps = new TraceStepCollector();
+
+        String prompt = service.augmentWithKnowledge("系统指令", "问题",
+                List.of(binding(Map.of("mode", "vector"))), citations, viewer, steps);
+
+        assertEquals("系统指令", prompt);
+        assertTrue(citations.isEmpty());
+        assertFalse(prompt.contains("vector store down"));
+        assertEquals(1, steps.steps().size());
+        assertEquals("ERROR", steps.steps().get(0).status());
+        assertEquals("retrieval_failed", steps.steps().get(0).attributes().get("reason"));
+        verify(graphService, never()).expandChunks(anyLong(), anyString(), anyList(), anySet(), any());
     }
 
     @Test

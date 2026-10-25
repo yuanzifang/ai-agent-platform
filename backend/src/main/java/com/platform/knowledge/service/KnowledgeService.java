@@ -35,6 +35,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -526,9 +528,11 @@ public class KnowledgeService {
                 .header("User-Agent", "AI-Agent-Platform/1.0")
                 .header("Accept", "text/html,text/plain,application/pdf,application/json,text/csv;q=0.9,*/*;q=0.1")
                 .GET().build();
-        HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        // 使用流式响应，避免在检查大小前把超大文件完整读入内存（诚实的 Content-Length 仅作快速失败）。
+        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
         int status = response.statusCode();
         if (status >= 300 && status < 400) {
+            closeQuietly(response.body());
             String location = response.headers().firstValue("location").orElse(null);
             if (location == null || location.isBlank()) {
                 throw new BusinessException(502, "URL 返回重定向但缺少 Location");
@@ -537,20 +541,53 @@ public class KnowledgeService {
             return fetch(next, depth + 1);
         }
         if (status < 200 || status >= 300) {
+            closeQuietly(response.body());
             throw new BusinessException(502, "URL 抓取失败：HTTP " + status);
         }
         long contentLength = response.headers().firstValueAsLong("content-length").orElse(-1);
         if (contentLength > importMaxBytes) {
-            throw new BusinessException(413, "URL 内容超过 " + (importMaxBytes / 1024 / 1024) + "MB 限制");
+            closeQuietly(response.body());
+            throw tooLarge();
         }
         String contentType = response.headers().firstValue("content-type")
                 .orElse("text/html").toLowerCase().split(";")[0].trim();
         if (!(contentType.startsWith("text/") || contentType.equals("application/pdf")
                 || contentType.equals("application/json")
                 || contentType.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document"))) {
+            closeQuietly(response.body());
             throw new BusinessException(400, "URL 内容类型不支持：" + contentType);
         }
-        return new Fetched(response.body(), contentType, url);
+        try (InputStream body = response.body()) {
+            return new Fetched(readBounded(body), contentType, url);
+        }
+    }
+
+    /** 最多读取 importMaxBytes + 1 字节：超过上限立即中止，不把剩余响应体载入内存。 */
+    private byte[] readBounded(InputStream body) throws Exception {
+        int limit = Math.max(1, importMaxBytes);
+        ByteArrayOutputStream out = new ByteArrayOutputStream(Math.min(limit, 8192));
+        byte[] buffer = new byte[8192];
+        int total = 0;
+        int read;
+        while ((read = body.read(buffer)) != -1) {
+            total += read;
+            if (total > limit) throw tooLarge();
+            out.write(buffer, 0, read);
+        }
+        return out.toByteArray();
+    }
+
+    private BusinessException tooLarge() {
+        return new BusinessException(413,
+                "URL 内容超过 " + (importMaxBytes / 1024 / 1024) + "MB 限制");
+    }
+
+    private void closeQuietly(InputStream body) {
+        if (body == null) return;
+        try {
+            body.close();
+        } catch (Exception ignored) {
+        }
     }
 
     private String fileNameFor(String url, String contentType) {
@@ -656,6 +693,19 @@ public class KnowledgeService {
                 String content = "【图片说明】" + description.trim();
                 if (content.length() > 500) content = content.substring(0, 500);
                 chunks.add(new DocumentParser.ParsedChunk(content, chunks.size(), content));
+                if (description.contains("图") || description.toLowerCase().contains("chart")) {
+                    try {
+                        com.fasterxml.jackson.databind.JsonNode chart =
+                                imageUnderstanding.extractChartData(image.data(), image.extension(), parseOptions);
+                        if (chart != null) {
+                            String chartText = "【图表数据·模型识别，需人工核对】" + objectMapper.writeValueAsString(chart);
+                            if (chartText.length() > 1200) chartText = chartText.substring(0, 1200);
+                            chunks.add(new DocumentParser.ParsedChunk(chartText, chunks.size(), chartText));
+                        }
+                    } catch (Exception e) {
+                        log.debug("图表结构化分段跳过 doc={}：{}", doc.getId(), e.getMessage());
+                    }
+                }
                 described++;
             }
             if (described > 0) log.info("文档图片多模态分段：doc={} images={}", doc.getId(), described);

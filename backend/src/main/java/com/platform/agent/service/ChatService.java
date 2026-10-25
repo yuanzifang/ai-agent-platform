@@ -7,6 +7,7 @@ import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.capability.runtime.ToolCallCollector;
 import com.platform.capability.runtime.ToolRuntimeService;
 import com.platform.common.context.TenantContext;
+import com.platform.knowledge.service.HybridRetrievalService;
 import com.platform.knowledge.service.KnowledgeGraphService;
 import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.security.JwtPrincipal;
@@ -20,9 +21,12 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 对话执行（架构 5.1）：ChatClient 不做全局单例，按请求构建；调试链路不写会话与正式 Trace，
@@ -183,8 +187,24 @@ public class ChatService {
             int topK = toInt(rc.get("topK"), 5);
             double threshold = toDoubleOrDefault(rc.get("scoreThreshold"), 0.5);
 
-            var retrieved = hybridRetrieval.search(tenantId, message, kbId, topK, threshold, rc,
-                    viewer.userId(), permissionService.tenantWide(viewer));
+            HybridRetrievalService.Result retrieved;
+            try {
+                retrieved = hybridRetrieval.search(tenantId, message, kbId, topK, threshold, rc,
+                        viewer.userId(), permissionService.tenantWide(viewer));
+            } catch (Exception e) {
+                // 单库检索失败（如 vector-only 模式向量服务不可用）不应中断对话；跳过该库引用继续回答。
+                log.warn("知识库检索失败（跳过该库引用）kb={} mode={} err={}",
+                        kbId, rc.get("mode"), e.getMessage());
+                if (steps != null) {
+                    String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                    steps.add("retrieval", "kb-" + kbId, "ERROR", stepStart,
+                            System.currentTimeMillis(), Map.of(
+                                    "reason", "retrieval_failed",
+                                    "mode", String.valueOf(rc.getOrDefault("mode", "auto")),
+                                    "error", reason.length() > 200 ? reason.substring(0, 200) : reason));
+                }
+                continue;
+            }
             List<Map<String, Object>> hits = new ArrayList<>(retrieved.hits());
             // GraphRAG：向量/关键词命中之外，沿实体关系扩展证据分段（可用 retrievalConfig.graphEnabled=false 关闭）
             int graphHits = 0;
@@ -217,7 +237,28 @@ public class ChatService {
                                 "graphHits", graphHits,
                                 "embedMs", retrieved.embedMs(), "searchMs", retrieved.searchMs()));
             }
+            // 同一批命中只做一次文档批量查询，避免逐条引用 selectById 的 N+1。
+            List<Map<String, Object>> hitMetas = new ArrayList<>(hits.size());
+            Set<Long> docIds = new HashSet<>();
             for (Map<String, Object> hit : hits) {
+                Map<String, Object> meta = metadataMap(hit.get("metadata"));
+                hitMetas.add(meta);
+                Long docId = toLong(meta.get("document_id"));
+                if (docId != null) docIds.add(docId);
+            }
+            Map<Long, com.platform.knowledge.entity.KnowledgeDocument> docs = new HashMap<>();
+            if (!docIds.isEmpty()) {
+                try {
+                    for (var doc : documentMapper.selectBatchIds(docIds)) {
+                        if (doc != null && doc.getId() != null) docs.put(doc.getId(), doc);
+                    }
+                } catch (Exception e) {
+                    log.warn("引用文档批量查询失败（引用仍保留，文档名缺失）kb={} err={}",
+                            kbId, e.getMessage());
+                }
+            }
+            for (int hitIndex = 0; hitIndex < hits.size(); hitIndex++) {
+                Map<String, Object> hit = hits.get(hitIndex);
                 Object contextText = hit.get("parentContent") != null
                         ? hit.get("parentContent") : hit.get("content");
                 context.append("\n---\n").append(contextText);
@@ -226,9 +267,9 @@ public class ChatService {
                 citation.put("score", hit.get("score"));
                 citation.put("metadata", hit.get("metadata"));
                 // 引用下钻：文档名 + 知识库 + 分段位置
-                Map<String, Object> meta = metadataMap(hit.get("metadata"));
+                Map<String, Object> meta = hitMetas.get(hitIndex);
                 Long docId = toLong(meta.get("document_id"));
-                var doc = docId == null ? null : documentMapper.selectById(docId);
+                var doc = docId == null ? null : docs.get(docId);
                 citation.put("knowledgeBaseId", kbId);
                 citation.put("knowledgeBaseName", kb == null ? null : kb.getName());
                 citation.put("documentId", docId);

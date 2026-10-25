@@ -33,11 +33,16 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -188,6 +193,48 @@ class KnowledgeGraphServiceCrudTest {
         verify(entityMapper).deleteById(10L);
         verify(auditService).record(7L, "knowledge.graph.entity.delete",
                 "knowledge_graph_entity", "10", "SUCCESS", Map.of("kbId", 1L));
+    }
+
+    @Test
+    void manualExtractionFailsWhenModelCallFails() {
+        KnowledgeGraphService spied = spy(service);
+        doThrow(new RuntimeException("model down"))
+                .when(spied).callExtractionModel(anyString(), anyString(), any());
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> spied.extract(1L, Map.of("text", "智云科技生产净水器", "modelName", "mock-model"),
+                        viewer));
+
+        assertEquals(502, error.getCode());
+        assertEquals("图谱抽取模型调用失败：model down", error.getMessage());
+    }
+
+    @Test
+    void manualExtractionFailsWhenModelReturnsMalformedJson() {
+        KnowledgeGraphService spied = spy(service);
+        doReturn("这不是 JSON").when(spied)
+                .callExtractionModel(anyString(), anyString(), any());
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> spied.extract(1L, Map.of("text", "智云科技生产净水器", "modelName", "mock-model"),
+                        viewer));
+
+        assertEquals(502, error.getCode());
+        assertTrue(error.getMessage().startsWith("图谱抽取结果解析失败"));
+    }
+
+    @Test
+    void manualExtractionAcceptsLegitimateEmptyResult() {
+        KnowledgeGraphService spied = spy(service);
+        doReturn("{\"entities\":[],\"relations\":[]}").when(spied)
+                .callExtractionModel(anyString(), anyString(), any());
+
+        Map<String, Object> result = spied.extract(1L,
+                Map.of("text", "没有明确实体的文本", "modelName", "mock-model"), viewer);
+
+        assertEquals(0, result.get("entityCount"));
+        assertEquals(0, result.get("relationCount"));
+        assertEquals(1, result.get("chunkCount"));
     }
 
     @Test
