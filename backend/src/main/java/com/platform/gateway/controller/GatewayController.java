@@ -18,7 +18,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/gateway")
 @RequiredArgsConstructor
-@io.swagger.v3.oas.annotations.tags.Tag(name = "统一 API 网关")
+@io.swagger.v3.oas.annotations.tags.Tag(name = "开放平台网关")
 public class GatewayController {
 
     private final GatewayService gatewayService;

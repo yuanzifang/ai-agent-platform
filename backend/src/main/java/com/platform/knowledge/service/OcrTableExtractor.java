@@ -76,27 +76,107 @@ final class OcrTableExtractor {
     }
 
     private static String toTable(List<Line> lines) {
-        List<Line> candidates = lines.stream().filter(line -> line.cells.size() >= 2).toList();
+        List<Line> candidates = lines.stream()
+                .filter(line -> line.cells.size() >= 2)
+                .filter(line -> !isCaption(line.text) && !isNote(line.text))
+                .toList();
         if (candidates.size() < 3) return "";
+        String caption = findCaption(lines, candidates.get(0).top);
+        List<String> notes = findNotes(lines, candidates.get(candidates.size() - 1).top);
         int maxColumns = candidates.stream().mapToInt(line -> line.cells.size()).max().orElse(0);
         if (maxColumns < 3 || !aligned(candidates)) return "";
         List<Float> anchors = anchors(candidates);
         if (anchors.size() < 3 || anchors.size() > 30) return "";
 
         StringBuilder table = new StringBuilder("<table border=\"1\">\n");
-        for (Line line : candidates) {
-            String[] cells = new String[anchors.size()];
-            for (Cell cell : line.cells) {
-                int column = nearest(anchors, cell.left);
-                cells[column] = cells[column] == null ? cell.text : cells[column] + " " + cell.text;
+        if (caption != null) table.append("<caption>").append(escape(caption)).append("</caption>\n");
+        int headers = headerRows(candidates);
+        if (headers > 0) {
+            table.append("<thead>\n");
+            for (int i = 0; i < headers; i++) {
+                String[] cells = mapCells(candidates.get(i), anchors);
+                table.append("<tr>");
+                for (String cell : cells) {
+                    table.append("<th>").append(cell == null ? "" : escape(cell)).append("</th>");
+                }
+                table.append("</tr>\n");
             }
+            table.append("</thead>\n");
+        }
+        table.append("<tbody>\n");
+        for (int i = headers; i < candidates.size(); i++) {
+            String[] cells = mapCells(candidates.get(i), anchors);
             table.append("<tr>");
             for (String cell : cells) {
                 table.append("<td>").append(cell == null ? "" : escape(cell)).append("</td>");
             }
             table.append("</tr>\n");
         }
-        return table.append("</table>").toString();
+        table.append("</tbody>\n</table>");
+        for (String note : notes) {
+            table.append("\n<p class=\"table-note\">").append(escape(note)).append("</p>");
+        }
+        return table.toString();
+    }
+
+    private static String[] mapCells(Line line, List<Float> anchors) {
+        String[] cells = new String[anchors.size()];
+        for (Cell cell : line.cells) {
+            int column = nearest(anchors, cell.left);
+            cells[column] = cells[column] == null ? cell.text : cells[column] + " " + cell.text;
+        }
+        return cells;
+    }
+
+    private static int headerRows(List<Line> lines) {
+        int count = 0;
+        for (Line line : lines) {
+            boolean value = false;
+            boolean numeric = false;
+            for (Cell cell : line.cells) {
+                if (cell.text.isBlank()) continue;
+                value = true;
+                if (cell.text.matches("[-+]?\\d+([.,]\\d+)?")) numeric = true;
+            }
+            if (!value || numeric) break;
+            count++;
+        }
+        return count >= lines.size() ? 0 : count;
+    }
+
+    private static String findCaption(List<Line> lines, float tableTop) {
+        String best = null;
+        for (Line line : lines) {
+            if (line.top >= tableTop - LINE_TOLERANCE || line.top < tableTop - 120f) continue;
+            if (isCaption(line.text)) best = line.text;
+        }
+        return best;
+    }
+
+    private static List<String> findNotes(List<Line> lines, float tableBottom) {
+        List<String> notes = new ArrayList<>();
+        for (Line line : lines) {
+            if (line.top <= tableBottom + LINE_TOLERANCE || line.top > tableBottom + 400f) continue;
+            if (isNote(line.text)) {
+                notes.add(line.text);
+                if (notes.size() >= 3) break;
+            }
+        }
+        return notes;
+    }
+
+    private static boolean isCaption(String text) {
+        if (text == null || text.isBlank() || text.length() > 200) return false;
+        String lower = text.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("table") || text.contains("表")
+                || lower.contains("figure") || text.contains("图");
+    }
+
+    private static boolean isNote(String text) {
+        if (text == null) return false;
+        String lower = text.toLowerCase(java.util.Locale.ROOT);
+        return lower.startsWith("note") || lower.startsWith("注") || lower.startsWith("source")
+                || lower.startsWith("来源") || text.startsWith("*") || text.startsWith("†");
     }
 
     private static List<Float> anchors(List<Line> lines) {

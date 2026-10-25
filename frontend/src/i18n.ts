@@ -8,7 +8,7 @@ const messages = {
       templates: '模板库', knowledge: '知识库', skills: '技能管理', tools: '工具管理',
       mcp: 'MCP Server', approvals: '审批箱', prompts: 'Prompt 模板', provider: '模型接入',
       usage: '用量看板', billing: '计费管理', users: '成员管理', tenant: '租户设置',
-      metrics: '监控统计', observability: '可观测', audit: '审计日志', eval: '评测中心', platform: '平台管理', settings: '系统设置', gateway: 'API 网关'
+      metrics: '监控统计', observability: '可观测', audit: '审计日志', eval: '评测中心', platform: '平台管理', settings: '系统设置', gateway: '开放平台网关'
     },
     agentList: {
       search: '搜索 Agent 名称', fromTemplate: '从模板创建', create: '新建 Agent',
@@ -751,7 +751,7 @@ const messages = {
       chunk: '分段', evidencePh: '可选：原文证据或说明'
     },
     gatewayPage: {
-      sub: '统一入口：路由、API Key、限流、超时重试与请求日志', create: '新建路由', name: '名称',
+      sub: '开放平台统一入口：路由、调用方 API Key、限流、超时重试、主备切换与请求日志', create: '新建路由', name: '名称',
       target: '上游地址', fallback: '备用上游', fallbackPh: '可选：主上游 5xx/连接失败时切换', routeKey: '路由 Key', enabled: '启用', disabled: '停用', rate: '限流/分',
       timeout: '超时(ms)', retries: '重试', actions: '操作', logs: '日志', rotate: '轮换 Key',
       edit: '编辑', delete: '删除', empty: '暂无网关路由', createTitle: '新建网关路由',
@@ -775,7 +775,7 @@ const messages = {
       cases: '对话用例库', eval: 'Agent 结果评测', knowledge: '知识库', mcp: 'MCP Server',
       memories: '长期记忆', metrics: '监控统计', observability: '可观测', platform: '平台管理 · 租户',
       prompts: 'Prompt 模板', provider: '模型接入', skills: '技能管理', settings: '系统设置（平台级）',
-      tenant: '租户设置', tools: '工具管理', usage: '用量看板', users: '成员管理', gateway: 'API 网关'
+      tenant: '租户设置', tools: '工具管理', usage: '用量看板', users: '成员管理', gateway: '开放平台网关'
     },
     common: {
       user: '用户', notifications: '通知', markAllRead: '全部已读', noNotifications: '暂无通知',
@@ -1564,7 +1564,7 @@ const messages = {
       cases: 'Case Library', eval: 'Agent Evaluation', knowledge: 'Knowledge Base', mcp: 'MCP Server',
       memories: 'Long-term Memory', metrics: 'Metrics', observability: 'Observability', platform: 'Platform · Tenants',
       prompts: 'Prompt Templates', provider: 'Model Providers', skills: 'Skills', settings: 'System Settings (Platform)',
-      tenant: 'Tenant Settings', tools: 'Tools', usage: 'Usage', users: 'Members', gateway: 'API Gateway'
+      tenant: 'Tenant Settings', tools: 'Tools', usage: 'Usage', users: 'Members', gateway: 'Open Platform Gateway'
     },
     common: {
       user: 'User', notifications: 'Notifications', markAllRead: 'Mark all read', noNotifications: 'No notifications',
