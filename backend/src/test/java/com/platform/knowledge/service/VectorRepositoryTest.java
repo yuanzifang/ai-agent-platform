@@ -50,6 +50,22 @@ class VectorRepositoryTest {
     }
 
     @Test
+    void updateValiditySyncsAllVectorTables() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        VectorRepository repo = new VectorRepository(jdbc, properties());
+        java.sql.Timestamp from = java.sql.Timestamp.from(Instant.parse("2026-01-01T00:00:00Z"));
+        java.sql.Timestamp to = java.sql.Timestamp.from(Instant.parse("2026-02-01T00:00:00Z"));
+
+        repo.updateValidityForDocument(1L, 2L, 3L, from, to);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc, atLeastOnce()).update(sql.capture(), any(), any(), any(), any(), any(), any());
+        assertTrue(sql.getAllValues().stream().allMatch(value ->
+                value.contains("effective_from = ?") && value.contains("effective_to = ?")
+                        && value.contains("updated_at = now()")));
+    }
+
+    @Test
     void saveBatchWritesCreatedAndUpdatedTimestamps() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         VectorRepository repo = new VectorRepository(jdbc, properties());

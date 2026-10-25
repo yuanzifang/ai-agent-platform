@@ -210,6 +210,21 @@ public class VectorRepository {
                 String.valueOf(chunkId));
     }
 
+    /** 修改文档有效期时同步所有维度表的向量有效期与 metadata，无需重新解析。 */
+    public void updateValidityForDocument(Long tenantId, Long knowledgeBaseId, Long documentId,
+                                          Timestamp effectiveFrom, Timestamp effectiveTo) {
+        for (String table : tables()) {
+            String sql = ("UPDATE %s.%s SET effective_from = ?, effective_to = ?, updated_at = now(), " +
+                    "metadata = jsonb_set(jsonb_set(metadata, '{effective_from}', " +
+                    "to_jsonb(?::timestamptz)), '{effective_to}', " +
+                    "COALESCE(to_jsonb(?::timestamptz), 'null'::jsonb)) " +
+                    "WHERE metadata->>'knowledge_base_id' = ? AND metadata->>'document_id' = ?")
+                    .formatted(schema(tenantId), table);
+            pgJdbcTemplate.update(sql, effectiveFrom, effectiveTo, effectiveFrom, effectiveTo,
+                    String.valueOf(knowledgeBaseId), String.valueOf(documentId));
+        }
+    }
+
     public void deleteByDocument(Long tenantId, Long documentId) {
         for (String table : tables()) {
             pgJdbcTemplate.update(

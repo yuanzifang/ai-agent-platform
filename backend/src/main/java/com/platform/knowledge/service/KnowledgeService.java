@@ -836,6 +836,50 @@ public class KnowledgeService {
         return Map.of("documentId", documentId, "status", "PENDING");
     }
 
+    /** 编辑文档内容有效期；同步更新向量表有效期，避免要求重新解析。 */
+    public Map<String, Object> updateDocumentValidity(Long kbId, Long documentId,
+                                                       Instant effectiveFrom, Instant effectiveTo,
+                                                       KnowledgePermissionService.Viewer viewer) {
+        permissionService.requireEdit(kbId, viewer);
+        KnowledgeDocument doc = docMapper.selectById(documentId);
+        if (doc == null || !Objects.equals(doc.getKnowledgeBaseId(), kbId)) {
+            throw new BusinessException(404, "文档不存在");
+        }
+        if (effectiveFrom != null && effectiveTo != null && effectiveFrom.isAfter(effectiveTo)) {
+            throw new BusinessException(400, "生效开始时间不能晚于生效结束时间");
+        }
+        LocalDateTime requestedFrom = effectiveFrom == null ? null : toLocalDateTime(effectiveFrom);
+        LocalDateTime requestedTo = effectiveTo == null ? null : toLocalDateTime(effectiveTo);
+        LocalDateTime actualFrom = requestedFrom != null ? requestedFrom : doc.getCreatedAt();
+        if (actualFrom == null) actualFrom = LocalDateTime.now();
+        if (requestedTo != null && actualFrom.isAfter(requestedTo)) {
+            throw new BusinessException(400, "生效开始时间不能晚于生效结束时间");
+        }
+        LocalDateTime finalFrom = actualFrom;
+        LocalDateTime finalTo = requestedTo;
+        docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
+                .eq(KnowledgeDocument::getId, documentId)
+                .set(KnowledgeDocument::getEffectiveFrom, requestedFrom)
+                .set(KnowledgeDocument::getEffectiveTo, requestedTo));
+        try {
+            vectorRepository.updateValidityForDocument(doc.getTenantId(), kbId, documentId,
+                    java.sql.Timestamp.valueOf(finalFrom),
+                    finalTo == null ? null : java.sql.Timestamp.valueOf(finalTo));
+        } catch (Exception e) {
+            log.warn("文档有效期向量同步失败（MySQL 已更新）doc={} err={}", documentId, e.getMessage());
+            throw new BusinessException(500, "文档有效期已保存，但向量有效期同步失败，请重新解析文档");
+        }
+        auditService.record(viewer.userId(), "kb.document.validity", "knowledge_document",
+                String.valueOf(documentId), "SUCCESS",
+                Map.of("kbId", kbId, "effectiveFrom", finalFrom.toString(),
+                        "effectiveTo", finalTo == null ? "" : finalTo.toString()));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("documentId", documentId);
+        result.put("effectiveFrom", finalFrom);
+        result.put("effectiveTo", finalTo);
+        return result;
+    }
+
     /** 补偿清理：重试前删除可能已写入的部分分段与向量，并清掉该文档贡献的自动图谱。 */
     private void cleanupPartial(KnowledgeDocument doc) {
         try {

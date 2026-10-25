@@ -1,5 +1,6 @@
 package com.platform.knowledge.service;
 
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -227,6 +228,34 @@ class KnowledgeServiceLifecycleTest {
         assertEquals(null, row.get("effective_to"));
         assertTrue(String.valueOf(row.get("metadata")).contains(
                 "\"effective_from\":\"2026-01-01T10:00\""));
+    }
+
+    @Test
+    void updateDocumentValiditySyncsDocumentAndVectorRows() {
+        KnowledgeDocument doc = new KnowledgeDocument();
+        doc.setId(55L);
+        doc.setKnowledgeBaseId(1L);
+        doc.setTenantId(9L);
+        doc.setCreatedAt(LocalDateTime.of(2026, 1, 1, 10, 0));
+        when(docMapper.selectById(55L)).thenReturn(doc);
+        Instant from = Instant.parse("2026-02-01T00:00:00Z");
+        Instant to = Instant.parse("2026-06-30T23:59:59Z");
+
+        Map<String, Object> result = service.updateDocumentValidity(1L, 55L, from, to, viewer);
+
+        LocalDateTime expectedFrom = LocalDateTime.ofInstant(from, ZoneId.systemDefault());
+        LocalDateTime expectedTo = LocalDateTime.ofInstant(to, ZoneId.systemDefault());
+        assertEquals(expectedFrom, result.get("effectiveFrom"));
+        assertEquals(expectedTo, result.get("effectiveTo"));
+        ArgumentCaptor<Wrapper<KnowledgeDocument>> captor =
+                ArgumentCaptor.forClass((Class) Wrapper.class);
+        verify(docMapper).update(isNull(), captor.capture());
+        LambdaUpdateWrapper<KnowledgeDocument> wrapper =
+                (LambdaUpdateWrapper<KnowledgeDocument>) captor.getValue();
+        assertTrue(wrapper.getSqlSet().contains("effective_from"));
+        assertTrue(wrapper.getSqlSet().contains("effective_to"));
+        verify(vectorRepository).updateValidityForDocument(9L, 1L, 55L,
+                java.sql.Timestamp.valueOf(expectedFrom), java.sql.Timestamp.valueOf(expectedTo));
     }
 
     @Test

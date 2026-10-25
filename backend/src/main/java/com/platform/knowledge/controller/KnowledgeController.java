@@ -152,6 +152,18 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.reparse(id, docId, viewer(principal)));
     }
 
+    public record DocumentValidityRequest(Instant effectiveFrom, Instant effectiveTo) {
+    }
+
+    @PutMapping("/{id}/documents/{docId}/validity")
+    public ApiResponse<Map<String, Object>> updateDocumentValidity(
+            @PathVariable Long id, @PathVariable Long docId,
+            @RequestBody DocumentValidityRequest req,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(knowledgeService.updateDocumentValidity(id, docId,
+                req.effectiveFrom(), req.effectiveTo(), viewer(principal)));
+    }
+
     public record UrlImportRequest(@NotBlank String url) {
     }
 

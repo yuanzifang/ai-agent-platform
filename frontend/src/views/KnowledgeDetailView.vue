@@ -24,6 +24,14 @@
 
     <div v-if="detail.canEdit" class="upload-hint">
       {{ t('kbDetail.uploadHint') }}
+      <div class="upload-validity">
+        <span>{{ t('kbDetail.uploadValidity') }}</span>
+        <el-date-picker v-model="uploadEffectiveRange" type="datetimerange" size="small"
+                        :start-placeholder="t('kbDetail.validFrom')"
+                        :end-placeholder="t('kbDetail.validTo')"
+                        style="width: 340px" />
+        <span class="hint">{{ t('kbDetail.uploadValidityHint') }}</span>
+      </div>
       <el-collapse class="upload-cfg">
         <el-collapse-item :title="t('kbDetail.uploadCfgTitle')" name="cfg">
           <el-form inline label-width="130px" size="small">
@@ -50,12 +58,6 @@
             <el-form-item :label="t('kbDetail.poPdfPassword')">
               <el-input v-model="uploadCfg.pdfPassword" type="password" show-password clearable
                         style="width: 220px" :placeholder="t('kbDetail.poPdfPasswordHint')" />
-            </el-form-item>
-            <el-form-item :label="t('kbDetail.contentValidity')">
-              <el-date-picker v-model="uploadEffectiveRange" type="datetimerange" size="small"
-                              :start-placeholder="t('kbDetail.validFrom')"
-                              :end-placeholder="t('kbDetail.validTo')"
-                              style="width: 340px" />
             </el-form-item>
           </el-form>
           <div class="hint">{{ t('kbDetail.uploadCfgHint') }}</div>
@@ -94,7 +96,7 @@
               <span v-if="row.retryTimes > 0" class="retry-tip">{{ t('kbDetail.retriedPrefix') }}{{ row.retryTimes }}{{ t('kbDetail.retriedSuffix') }}</span>
             </template>
           </el-table-column>
-          <el-table-column v-if="detail.canEdit" :label="t('kbDetail.actions')" width="280">
+          <el-table-column v-if="detail.canEdit" :label="t('kbDetail.actions')" width="340">
             <template #default="{ row }">
               <el-upload v-if="row.status === 'DONE' || row.status === 'FAILED'" :show-file-list="false"
                          :http-request="(options: any) => reuploadRequest(row, options)"
@@ -105,6 +107,8 @@
                          @click.stop="retryDoc(row)">{{ t('kbDetail.retry') }}</el-button>
               <el-button v-if="reparseAvailable(row)" size="small" text type="primary"
                          :loading="row.reparseLoading" @click.stop="reparseDoc(row)">{{ t('kbDetail.reparse') }}</el-button>
+              <el-button size="small" text type="primary"
+                         @click.stop="openValidity(row)">{{ t('kbDetail.validity') }}</el-button>
               <el-button size="small" text type="danger" @click.stop="removeDoc(row)">{{ t('kbDetail.deleteKb') }}</el-button>
             </template>
           </el-table-column>
@@ -298,6 +302,24 @@
       </div>
     </el-dialog>
 
+    <el-dialog v-model="validityVisible" :title="t('kbDetail.validityTitle')" width="520px">
+      <el-form label-width="120px">
+        <el-form-item :label="t('kbDetail.validityFrom')">
+          <el-date-picker v-model="validityFrom" type="datetime" clearable style="width: 100%" />
+        </el-form-item>
+        <el-form-item :label="t('kbDetail.validityTo')">
+          <el-date-picker v-model="validityTo" type="datetime" clearable style="width: 100%" />
+        </el-form-item>
+      </el-form>
+      <div class="hint">{{ t('kbDetail.validityHint') }}</div>
+      <template #footer>
+        <el-button @click="validityVisible = false">{{ t('kbDetail.cancel') }}</el-button>
+        <el-button type="primary" :loading="validitySaving" @click="saveValidity">
+          {{ t('kbDetail.save') }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="reviewEditVisible" :title="t('kbDetail.editChartTitle')" width="680px">
       <div class="hint" style="margin-bottom:8px">{{ t('kbDetail.editChartHint') }}</div>
       <el-input v-model="reviewEditBody" type="textarea" :rows="10"
@@ -375,6 +397,11 @@ const reviewEditSaving = ref(false)
 const reviewEditChunk = ref<any>(null)
 const reviewEditBody = ref('')
 const CHART_CORRECTED_PREFIX = '【图表数据·人工修正】'
+const validityVisible = ref(false)
+const validitySaving = ref(false)
+const validityDoc = ref<any>(null)
+const validityFrom = ref<Date | null>(null)
+const validityTo = ref<Date | null>(null)
 const aclChunk = ref<any>(null)
 const aclMembers = ref<any[]>([])
 const aclForm = reactive<{ tenantVisible: boolean; users: number[] }>({ tenantVisible: true, users: [] })
@@ -759,6 +786,32 @@ async function saveReviewEdit() {
   }
 }
 
+function openValidity(row: any) {
+  validityDoc.value = row
+  validityFrom.value = row?.effectiveFrom ? new Date(row.effectiveFrom) : null
+  validityTo.value = row?.effectiveTo ? new Date(row.effectiveTo) : null
+  validityVisible.value = true
+}
+
+async function saveValidity() {
+  if (!validityDoc.value) return
+  validitySaving.value = true
+  try {
+    const body = {
+      effectiveFrom: validityFrom.value ? new Date(validityFrom.value).toISOString() : null,
+      effectiveTo: validityTo.value ? new Date(validityTo.value).toISOString() : null
+    }
+    const data = await http.put(
+      `/knowledge-base/${kbId}/documents/${validityDoc.value.id}/validity`, body) as any
+    validityDoc.value.effectiveFrom = data.effectiveFrom
+    validityDoc.value.effectiveTo = data.effectiveTo
+    validityVisible.value = false
+    ElMessage.success(t('kbDetail.validitySaved'))
+  } finally {
+    validitySaving.value = false
+  }
+}
+
 async function toggleChunkReview(c: any) {
   if (!c) return
   const reviewed = c.reviewStatus !== 'REVIEWED'
@@ -875,6 +928,7 @@ function statusText(s: string) {
 .upload-cfg { margin-top: 6px; }
 .upload-cfg :deep(.el-form-item) { margin-bottom: 6px; }
 .upload-hint { font-size: 12px; color: #909399; margin: 0 0 10px 4px; }
+.upload-validity { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .page { height: 100%; display: flex; flex-direction: column; }
 .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .kb-title { font-weight: 600; font-size: 16px; }
