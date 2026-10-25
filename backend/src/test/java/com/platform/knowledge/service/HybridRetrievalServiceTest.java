@@ -9,6 +9,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 
@@ -24,6 +27,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -128,6 +132,33 @@ class HybridRetrievalServiceTest {
         verify(vectorRepository).search(eq(9L), any(float[].class), eq(1L), anyInt(),
                 eq(0.5), anyInt(), eq(7L), eq(false));
         verify(chunkMapper).searchFulltextAcl(eq(1L), anyString(), anyInt(), eq(7L), eq(false));
+    }
+
+    @Test
+    void validityFilterPushesToVectorAndKeywordSql() {
+        Instant after = Instant.parse("2026-01-01T00:00:00Z");
+        Instant before = Instant.parse("2026-02-01T00:00:00Z");
+        LocalDateTime localAfter = LocalDateTime.ofInstant(after, ZoneId.systemDefault());
+        LocalDateTime localBefore = LocalDateTime.ofInstant(before, ZoneId.systemDefault());
+        when(embedding.embedOne(eq("q"), anyString())).thenReturn(new float[]{0.1f});
+        when(vectorRepository.search(eq(1L), any(float[].class), eq(1L), anyInt(), anyDouble(), anyInt(),
+                isNull(), eq(true), eq(after), eq(before)))
+                .thenReturn(List.of(Map.of("content", "向量命中", "score", 0.9,
+                        "metadata", "{\"chunk_id\":1,\"document_id\":1}")));
+        when(chunkMapper.searchFulltextByValidity(eq(1L), eq("q"), anyInt(),
+                eq(localAfter), eq(localBefore), isNull(), eq(true)))
+                .thenReturn(List.of(Map.of("id", 2, "content", "关键字命中", "score", 4,
+                        "document_id", 1, "chunk_index", 0, "effective_from", "2026-01-01T00:00:00")));
+
+        var result = service.search(1L, "q", 1L, 5, 0.5, Map.of(), null, true, after, before);
+
+        assertEquals(2, result.hits().size());
+        assertEquals(1, result.vectorHits());
+        assertEquals(1, result.keywordHits());
+        verify(vectorRepository).search(eq(1L), any(float[].class), eq(1L), anyInt(), anyDouble(), anyInt(),
+                isNull(), eq(true), eq(after), eq(before));
+        verify(chunkMapper).searchFulltextByValidity(eq(1L), eq("q"), anyInt(),
+                eq(localAfter), eq(localBefore), isNull(), eq(true));
     }
 
     @Test

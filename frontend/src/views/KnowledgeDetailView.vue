@@ -918,8 +918,7 @@ async function doSearch() {
     const effectiveBefore = range?.[1] ? new Date(range[1]).toISOString() : undefined
     results.value = await http.post(`/knowledge-base/${kbId}/search`, {
       query: search.query, topK: search.topK, scoreThreshold: search.scoreThreshold,
-      mode: effectiveAfter || effectiveBefore ? 'vector' : search.mode,
-      effectiveAfter, effectiveBefore
+      mode: search.mode, effectiveAfter, effectiveBefore
     }) as any
   } finally {
     searching.value = false

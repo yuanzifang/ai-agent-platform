@@ -929,49 +929,39 @@ public class KnowledgeService {
         return search(kbId, query, topK, threshold, mode, null, null, viewer);
     }
 
-    /** 带内容有效期范围的检索：在 PgVector SQL 层做区间重叠过滤，避免先取 topK 后截断有效数据。 */
+    /** 带内容有效期范围的检索：向量与关键字都在 SQL 层过滤；时间筛选下跳过图谱扩展。 */
     public List<Map<String, Object>> search(Long kbId, String query, Integer topK, Double threshold,
                                             String mode, Instant effectiveAfter, Instant effectiveBefore,
                                             KnowledgePermissionService.Viewer viewer) {
         permissionService.requireView(kbId, viewer);
-        Long tenantId = TenantContext.getTenantId();
-        if (effectiveAfter != null || effectiveBefore != null) {
-            if (effectiveAfter != null && effectiveBefore != null && effectiveAfter.isAfter(effectiveBefore)) {
-                throw new BusinessException(400, "生效开始时间不能晚于生效结束时间");
-            }
-            KnowledgeBase kb = kbMapper.selectById(kbId);
-            if (kb == null) throw new BusinessException(404, "知识库不存在");
-            String model = kb.getEmbeddingModel() == null || kb.getEmbeddingModel().isBlank()
-                    ? embeddingService.model() : kb.getEmbeddingModel().trim();
-            if (!embeddingService.supports(model)) model = embeddingService.model();
-            float[] vector = embeddingService.embedOne(query, model);
-            int dimensions = embeddingService.dimension(model);
-            int limit = Math.max(1, Math.min(topK == null ? 5 : topK, 20));
-            double scoreThreshold = Math.max(0, Math.min(threshold == null ? 0.5 : threshold, 1));
-            return vectorRepository.search(tenantId, vector, kbId, limit, scoreThreshold, dimensions,
-                    viewer.userId(), permissionService.tenantWide(viewer), effectiveAfter, effectiveBefore);
+        if (effectiveAfter != null && effectiveBefore != null && effectiveAfter.isAfter(effectiveBefore)) {
+            throw new BusinessException(400, "生效开始时间不能晚于生效结束时间");
         }
+        Long tenantId = TenantContext.getTenantId();
         Map<String, Object> retrievalConfig = mode == null || mode.isBlank()
                 ? Map.of() : Map.of("mode", mode);
         List<Map<String, Object>> hits = new ArrayList<>(hybridRetrieval.search(tenantId, query, kbId,
                 topK == null ? 5 : topK,
                 threshold == null ? 0.5 : threshold, retrievalConfig,
-                viewer.userId(), permissionService.tenantWide(viewer)).hits());
-        Set<Long> existing = new java.util.HashSet<>();
-        List<String> contents = new ArrayList<>();
-        for (Map<String, Object> hit : hits) {
-            contents.add(String.valueOf(hit.getOrDefault("content", "")));
+                viewer.userId(), permissionService.tenantWide(viewer), effectiveAfter, effectiveBefore).hits());
+        // 图谱扩展分段没有有效期约束，时间筛选下不追加，避免返回已过期内容。
+        if (effectiveAfter == null && effectiveBefore == null) {
+            Set<Long> existing = new java.util.HashSet<>();
+            List<String> contents = new ArrayList<>();
+            for (Map<String, Object> hit : hits) {
+                contents.add(String.valueOf(hit.getOrDefault("content", "")));
+                try {
+                    if (hit.get("metadata") instanceof String meta && !meta.isBlank()) {
+                        JsonNode node = objectMapper.readTree(meta);
+                        if (node.has("chunk_id")) existing.add(node.get("chunk_id").asLong());
+                    }
+                } catch (Exception ignored) { }
+            }
             try {
-                if (hit.get("metadata") instanceof String meta && !meta.isBlank()) {
-                    JsonNode node = objectMapper.readTree(meta);
-                    if (node.has("chunk_id")) existing.add(node.get("chunk_id").asLong());
-                }
-            } catch (Exception ignored) { }
-        }
-        try {
-            hits.addAll(graphService.expandChunks(kbId, query, contents, existing, viewer));
-        } catch (Exception e) {
-            log.warn("知识图谱检索扩展失败（跳过）kb={} err={}", kbId, e.getMessage());
+                hits.addAll(graphService.expandChunks(kbId, query, contents, existing, viewer));
+            } catch (Exception e) {
+                log.warn("知识图谱检索扩展失败（跳过）kb={} err={}", kbId, e.getMessage());
+            }
         }
         return hits;
     }

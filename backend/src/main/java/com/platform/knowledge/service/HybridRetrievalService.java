@@ -11,6 +11,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -68,6 +71,14 @@ public class HybridRetrievalService {
     /** viewer 不为空时把 chunk ACL 下推到向量/关键字 SQL。 */
     public Result search(Long tenantId, String query, Long kbId, int topK, double threshold,
                          Map<String, Object> retrievalConfig, Long userId, boolean tenantWide) {
+        return search(tenantId, query, kbId, topK, threshold, retrievalConfig,
+                userId, tenantWide, null, null);
+    }
+
+    /** 向量与关键字都按内容有效期区间重叠过滤；有效期在 SQL 的 LIMIT 前生效。 */
+    public Result search(Long tenantId, String query, Long kbId, int topK, double threshold,
+                         Map<String, Object> retrievalConfig, Long userId, boolean tenantWide,
+                         Instant effectiveAfter, Instant effectiveBefore) {
         Map<String, Object> config = retrievalConfig == null ? Map.of() : retrievalConfig;
         int limit = Math.max(1, Math.min(topK, 20));
         int candidates = Math.max(10, Math.min(limit * 3, 30));
@@ -80,6 +91,11 @@ public class HybridRetrievalService {
         double keywordWeight = toDouble(config.get("keywordWeight"), defaultKeywordWeight);
         keywordWeight = Math.max(0, Math.min(keywordWeight, 1));
         double vectorWeight = 1 - keywordWeight;
+        boolean hasValidity = effectiveAfter != null || effectiveBefore != null;
+        LocalDateTime validityAfter = effectiveAfter == null ? null
+                : LocalDateTime.ofInstant(effectiveAfter, ZoneId.systemDefault());
+        LocalDateTime validityBefore = effectiveBefore == null ? null
+                : LocalDateTime.ofInstant(effectiveBefore, ZoneId.systemDefault());
         String q = query == null ? "" : query.trim();
         if (q.isBlank()) return new Result(List.of(), 0, 0, 0, 0, mode);
         String keywordQuery = q.length() > 120 ? q.substring(0, 120) : q;
@@ -98,10 +114,18 @@ public class HybridRetrievalService {
                 float[] vector = embeddingService.embedOne(q, embeddingModel);
                 embedMs = System.currentTimeMillis() - start;
                 long searchStart = System.currentTimeMillis();
-                vectorHits = userId == null
-                        ? vectorRepository.search(tenantId, vector, kbId, candidates, threshold, dimensions)
-                        : vectorRepository.search(tenantId, vector, kbId, candidates, threshold,
-                                dimensions, userId, tenantWide);
+                if (userId == null) {
+                    vectorHits = hasValidity
+                            ? vectorRepository.search(tenantId, vector, kbId, candidates, threshold,
+                                    dimensions, null, true, effectiveAfter, effectiveBefore)
+                            : vectorRepository.search(tenantId, vector, kbId, candidates, threshold, dimensions);
+                } else {
+                    vectorHits = hasValidity
+                            ? vectorRepository.search(tenantId, vector, kbId, candidates, threshold,
+                                    dimensions, userId, tenantWide, effectiveAfter, effectiveBefore)
+                            : vectorRepository.search(tenantId, vector, kbId, candidates, threshold,
+                                    dimensions, userId, tenantWide);
+                }
                 searchMs = System.currentTimeMillis() - searchStart;
             } catch (Exception e) {
                 log.warn("向量检索失败，尝试关键字兜底 kb={}：{}", kbId, e.getMessage());
@@ -116,13 +140,19 @@ public class HybridRetrievalService {
         if (!"vector".equals(mode)) {
             long start = System.currentTimeMillis();
             try {
-                keywordHits = userId == null
+                keywordHits = hasValidity
+                        ? chunkMapper.searchFulltextByValidity(kbId, keywordQuery, candidates,
+                                validityAfter, validityBefore, userId, tenantWide)
+                        : userId == null
                         ? chunkMapper.searchFulltext(kbId, keywordQuery, candidates)
                         : chunkMapper.searchFulltextAcl(kbId, keywordQuery, candidates, userId, tenantWide);
             } catch (Exception e) {
                 log.debug("全文检索不可用，尝试 LIKE 兜底 kb={}：{}", kbId, e.getMessage());
                 try {
-                    keywordHits = userId == null
+                    keywordHits = hasValidity
+                            ? chunkMapper.searchLikeByValidity(kbId, keywordQuery, candidates,
+                                    validityAfter, validityBefore, userId, tenantWide)
+                            : userId == null
                             ? chunkMapper.searchLike(kbId, keywordQuery, candidates)
                             : chunkMapper.searchLikeAcl(kbId, keywordQuery, candidates, userId, tenantWide);
                 } catch (Exception ex) {
@@ -350,6 +380,8 @@ public class HybridRetrievalService {
         meta.put("document_id", hit.get("document_id"));
         meta.put("chunk_id", hit.get("id"));
         meta.put("chunk_index", hit.get("chunk_index"));
+        if (hit.get("effective_from") != null) meta.put("effective_from", hit.get("effective_from"));
+        if (hit.get("effective_to") != null) meta.put("effective_to", hit.get("effective_to"));
         try {
             return objectMapper.writeValueAsString(meta);
         } catch (Exception e) {

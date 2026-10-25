@@ -65,6 +65,7 @@ class KnowledgeUpdateParseConfigTest {
     private EmbeddingService embeddingService;
     private KnowledgePermissionService permissionService;
     private com.platform.knowledge.service.VectorRepository vectorRepository;
+    private com.platform.knowledge.service.HybridRetrievalService hybridRetrieval;
     private CryptoService cryptoService;
     private com.platform.knowledge.service.KnowledgeService service;
     private KnowledgeBase kb;
@@ -92,8 +93,7 @@ class KnowledgeUpdateParseConfigTest {
                 mock(com.platform.knowledge.service.StorageService.class);
         embeddingService = mock(EmbeddingService.class);
         vectorRepository = mock(com.platform.knowledge.service.VectorRepository.class);
-        com.platform.knowledge.service.HybridRetrievalService hybridRetrieval =
-                mock(com.platform.knowledge.service.HybridRetrievalService.class);
+        hybridRetrieval = mock(com.platform.knowledge.service.HybridRetrievalService.class);
         com.platform.knowledge.service.DocumentParser parser =
                 mock(com.platform.knowledge.service.DocumentParser.class);
         com.platform.knowledge.service.KnowledgeParseConfigResolver parseConfigResolver =
@@ -367,11 +367,10 @@ class KnowledgeUpdateParseConfigTest {
         Instant before = Instant.parse("2026-02-01T00:00:00Z");
         float[] vector = new float[]{0.1f, 0.2f};
         TenantContext.setTenantId(1L);
-        when(embeddingService.supports("nomic-embed-text")).thenReturn(true);
-        when(embeddingService.dimension("nomic-embed-text")).thenReturn(2);
-        when(embeddingService.embedOne("query", "nomic-embed-text")).thenReturn(vector);
-        when(vectorRepository.search(1L, vector, 161L, 5, 0.5, 2,
-                2L, false, after, before)).thenReturn(List.of(Map.of("content", "hit")));
+        when(hybridRetrieval.search(eq(1L), eq("query"), eq(161L), eq(5), eq(0.5), any(),
+                eq(2L), eq(false), eq(after), eq(before)))
+                .thenReturn(new HybridRetrievalService.Result(
+                        List.of(Map.of("content", "hit")), 0, 0, 0, 0, "hybrid"));
 
         List<Map<String, Object>> result;
         try {
@@ -382,8 +381,8 @@ class KnowledgeUpdateParseConfigTest {
         }
 
         assertEquals(1, result.size());
-        verify(vectorRepository).search(1L, vector, 161L, 5, 0.5, 2,
-                2L, false, after, before);
+        verify(hybridRetrieval).search(eq(1L), eq("query"), eq(161L), eq(5), eq(0.5), any(),
+                eq(2L), eq(false), eq(after), eq(before));
     }
 
     @Test
