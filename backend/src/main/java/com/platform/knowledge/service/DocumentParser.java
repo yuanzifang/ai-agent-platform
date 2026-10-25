@@ -96,6 +96,8 @@ public class DocumentParser {
     private boolean ocrPreprocess;
     @Value("${knowledge.ocr.auto-orient:true}")
     private boolean ocrAutoOrient;
+    @Value("${knowledge.ocr.deskew:true}")
+    private boolean ocrDeskew;
     @Value("${knowledge.pdf.vector-chart-render-enabled:true}")
     private boolean vectorChartRenderEnabled;
 
@@ -537,6 +539,7 @@ public class DocumentParser {
                 BufferedImage image = preprocessForOcr(
                         renderer.renderImageWithDPI(i, Math.max(72, ocrDpi)));
                 image = correctOrientation(image, tempDir.resolve("orient-" + (i + 1) + ".png"));
+                image = deskewForOcr(image);
                 Path imagePath = tempDir.resolve("page-" + (i + 1) + ".png");
                 ImageIO.write(image, "png", imagePath.toFile());
                 OcrTableExtractor.Result ocr = OcrTableExtractor.extract(runOcrTsv(imagePath));
@@ -576,6 +579,7 @@ public class DocumentParser {
             image = preprocessForOcr(image);
             orientTemp = Files.createTempFile("kb-orient-", ".png");
             image = correctOrientation(image, orientTemp);
+            image = deskewForOcr(image);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(image, "png", out);
             appendOcr(sb, out.toByteArray(), extension);
@@ -650,6 +654,67 @@ public class DocumentParser {
             log.debug("OCR 预处理失败（使用原图）：{}", e.getMessage());
             return source;
         }
+    }
+
+    /**
+     * 小角度倾斜校正：灰度投影方差，在 -8°～8° 内寻找文字行最水平的旋转角。
+     * 只校正明显倾斜（>=1°），避免对正常扫描反复旋转。
+     */
+    private BufferedImage deskewForOcr(BufferedImage source) {
+        if (!ocrDeskew || source == null) return source;
+        try {
+            BufferedImage small = source;
+            if (small.getWidth() > 900) {
+                int width = 900;
+                int height = Math.max(1, (int) (small.getHeight() * (900.0 / small.getWidth())));
+                BufferedImage scaled = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+                java.awt.Graphics2D g = scaled.createGraphics();
+                g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                        java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g.drawImage(small, 0, 0, width, height, null);
+                g.dispose();
+                small = scaled;
+            }
+            double base = projectionScore(small);
+            double bestScore = base;
+            int bestAngle = 0;
+            for (int angle = -8; angle <= 8; angle++) {
+                if (angle == 0) continue;
+                BufferedImage rotated = rotateImage(small, angle);
+                double score = projectionScore(rotated);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestAngle = angle;
+                }
+            }
+            if (bestAngle == 0 || bestScore < base * 1.05) return source;
+            log.info("扫描页倾斜校正：angle={}°", bestAngle);
+            return rotateImage(source, bestAngle);
+        } catch (Exception e) {
+            log.debug("扫描页倾斜校正失败（使用原图）：{}", e.getMessage());
+            return source;
+        }
+    }
+
+    private double projectionScore(BufferedImage image) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        int[] rows = new int[height];
+        for (int y = 0; y < height; y++) {
+            int count = 0;
+            for (int x = 0; x < width; x++) {
+                int rgb = image.getRGB(x, y);
+                int gray = ((rgb >> 16) & 0xff) * 30 + ((rgb >> 8) & 0xff) * 59 + (rgb & 0xff) * 11;
+                if (gray / 100 < 180) count++;
+            }
+            rows[y] = count;
+        }
+        double mean = 0;
+        for (int value : rows) mean += value;
+        mean /= Math.max(1, rows.length);
+        double variance = 0;
+        for (int value : rows) variance += (value - mean) * (value - mean);
+        return variance;
     }
 
     /** 扫描页方向纠正：tesseract OSD 检测 90/180/270，OCR 前转回正向。 */
