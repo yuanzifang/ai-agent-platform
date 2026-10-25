@@ -123,6 +123,7 @@ public class DocumentParser {
     private boolean ocrDenoise;
     @Value("${knowledge.pdf.vector-chart-render-enabled:true}")
     private boolean vectorChartRenderEnabled;
+    private final ThreadLocal<Integer> attachmentDepth = ThreadLocal.withInitial(() -> 0);
 
     public record ParsedChunk(String content, int parentIndex, String parentContent) {
     }
@@ -417,8 +418,33 @@ public class DocumentParser {
             if (names == null || names.getEmbeddedFiles() == null) return;
             var files = names.getEmbeddedFiles().getNames();
             if (files == null) return;
+            int depth = attachmentDepth.get();
+            int count = 0;
             for (var entry : files.entrySet()) {
-                sb.append("\n[附件]").append(entry.getKey()).append('\n');
+                if (count >= 5) break;
+                String name = entry.getKey();
+                sb.append("\n[附件]").append(name).append('\n');
+                if (depth >= 1) continue;
+                try {
+                    var embedded = entry.getValue() == null ? null : entry.getValue().getEmbeddedFile();
+                    if (embedded == null || embedded.getSize() > 5 * 1024 * 1024) continue;
+                    byte[] data = embedded.toByteArray();
+                    attachmentDepth.set(depth + 1);
+                    try {
+                        String content = parseWithParents(name, data).stream()
+                                .map(ParsedChunk::content)
+                                .collect(java.util.stream.Collectors.joining("\n"));
+                        if (!content.isBlank()) {
+                            sb.append("[附件正文]").append(name).append('\n');
+                            sb.append(content, 0, Math.min(content.length(), 5000)).append('\n');
+                        }
+                    } finally {
+                        attachmentDepth.set(depth);
+                    }
+                } catch (Exception e) {
+                    log.debug("PDF 附件正文解析跳过 {}：{}", name, e.getMessage());
+                }
+                count++;
             }
         } catch (Exception e) {
             log.debug("PDF 附件读取失败（忽略）：{}", e.getMessage());

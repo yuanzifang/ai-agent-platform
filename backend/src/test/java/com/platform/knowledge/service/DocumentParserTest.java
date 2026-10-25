@@ -1613,7 +1613,7 @@ class DocumentParserTest {
             PDComplexFileSpecification spec = new PDComplexFileSpecification();
             spec.setFile("note.txt");
             spec.setEmbeddedFile(new PDEmbeddedFile(doc,
-                    new ByteArrayInputStream("attachment".getBytes(StandardCharsets.UTF_8))));
+                    new ByteArrayInputStream("attachment text 123".getBytes(StandardCharsets.UTF_8))));
             PDEmbeddedFilesNameTreeNode tree = new PDEmbeddedFilesNameTreeNode();
             tree.setNames(java.util.Map.of("note.txt", spec));
             PDDocumentNameDictionary names = new PDDocumentNameDictionary(doc.getDocumentCatalog());
@@ -1624,6 +1624,8 @@ class DocumentParserTest {
         }
         String text = String.join("\n", parser.parse("attachment.pdf", pdf));
         assertTrue(text.contains("[附件]note.txt"), "应提取 PDF 内嵌附件名称，实际=" + text);
+        assertTrue(text.contains("[附件正文]note.txt") && text.contains("attachment text 123"),
+                "应解析 PDF 内嵌附件正文，实际=" + text);
     }
 
     @Test
