@@ -55,6 +55,8 @@ import java.util.*;
 @RequiredArgsConstructor
 public class KnowledgeService {
 
+    private static final String CHART_CHUNK_MARKER = "【图表数据";
+
     private final KnowledgeBaseMapper kbMapper;
     private final KnowledgeDocumentMapper docMapper;
     private final KnowledgeChunkMapper chunkMapper;
@@ -841,6 +843,11 @@ public class KnowledgeService {
             m.put("content", c.getContent());
             m.put("allowedUsers", parseJson(c.getAllowedUsers()));
             m.put("tenantVisible", c.getTenantVisible() == null || c.getTenantVisible() == 1);
+            m.put("reviewStatus", c.getReviewStatus());
+            m.put("reviewRequired", isChartChunk(c.getContent())
+                    && !"REVIEWED".equals(c.getReviewStatus()));
+            m.put("reviewedAt", c.getReviewedAt());
+            m.put("reviewedBy", c.getReviewedBy());
             return m;
         }).toList();
         return Map.of("list", list, "total", result.getTotal(), "page", p, "pageSize", size);
@@ -870,6 +877,40 @@ public class KnowledgeService {
                 Map.of("knowledgeBaseId", kbId, "tenantVisible", tenantVisible,
                         "allowedUsers", users));
         return Map.of("id", chunkId, "allowedUsers", users, "tenantVisible", tenantVisible);
+    }
+
+    /** 图表分段人工复核：标记已核对/撤销核对；仅图表分段可操作。 */
+    public Map<String, Object> updateChunkReview(Long kbId, Long chunkId, boolean reviewed,
+                                                  KnowledgePermissionService.Viewer viewer) {
+        permissionService.requireEdit(kbId, viewer);
+        KnowledgeChunk chunk = chunkMapper.selectById(chunkId);
+        if (chunk == null || !Objects.equals(chunk.getKnowledgeBaseId(), kbId)) {
+            throw new BusinessException(404, "分段不存在");
+        }
+        if (!isChartChunk(chunk.getContent())) {
+            throw new BusinessException(400, "仅图表数据分段支持人工复核");
+        }
+        String status = reviewed ? "REVIEWED" : "PENDING";
+        LocalDateTime reviewedAt = reviewed ? LocalDateTime.now() : null;
+        Long reviewedBy = reviewed ? viewer.userId() : null;
+        chunkMapper.update(null, new LambdaUpdateWrapper<KnowledgeChunk>()
+                .eq(KnowledgeChunk::getId, chunkId)
+                .set(KnowledgeChunk::getReviewStatus, status)
+                .set(KnowledgeChunk::getReviewedAt, reviewedAt)
+                .set(KnowledgeChunk::getReviewedBy, reviewedBy));
+        auditService.record(viewer.userId(), "knowledge.chunk_review", "knowledge_chunk",
+                String.valueOf(chunkId), "SUCCESS",
+                Map.of("knowledgeBaseId", kbId, "reviewed", reviewed));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", chunkId);
+        result.put("reviewStatus", status);
+        result.put("reviewedAt", reviewedAt);
+        result.put("reviewedBy", reviewedBy);
+        return result;
+    }
+
+    private static boolean isChartChunk(String content) {
+        return content != null && content.startsWith(CHART_CHUNK_MARKER);
     }
 
     public List<KnowledgeDocument> documents(Long kbId, KnowledgePermissionService.Viewer viewer) {

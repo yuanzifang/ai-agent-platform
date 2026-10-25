@@ -108,6 +108,14 @@
           <div v-for="c in chunks.list" :key="c.id" class="chunk">
             <span class="idx">#{{ c.chunkIndex }}</span>
             <span class="text">{{ c.content }}</span>
+            <el-tag v-if="isChartChunk(c)" size="small"
+                    :type="c.reviewStatus === 'REVIEWED' ? 'success' : 'warning'">
+              {{ c.reviewStatus === 'REVIEWED' ? t('kbDetail.chartReviewed') : t('kbDetail.chartNeedsReview') }}
+            </el-tag>
+            <el-button v-if="detail.canEdit && isChartChunk(c)" size="small" text type="primary"
+                       :loading="reviewSavingId === c.id" @click.stop="toggleChunkReview(c)">
+              {{ c.reviewStatus === 'REVIEWED' ? t('kbDetail.undoReview') : t('kbDetail.markReviewed') }}
+            </el-button>
             <el-button v-if="detail.canEdit" size="small" text type="primary"
                        @click="openChunkAcl(c)">{{ t('kbDetail.authorize') }}</el-button>
           </div>
@@ -329,6 +337,7 @@ const documentImages = ref<any[]>([])
 const imagesDocName = ref('')
 const aclVisible = ref(false)
 const aclSaving = ref(false)
+const reviewSavingId = ref<number | null>(null)
 const aclChunk = ref<any>(null)
 const aclMembers = ref<any[]>([])
 const aclForm = reactive<{ tenantVisible: boolean; users: number[] }>({ tenantVisible: true, users: [] })
@@ -671,6 +680,24 @@ async function saveChunkAcl() {
   }
 }
 
+function isChartChunk(c: any) {
+  return typeof c?.content === 'string' && c.content.startsWith('【图表数据')
+}
+
+async function toggleChunkReview(c: any) {
+  if (!c) return
+  const reviewed = c.reviewStatus !== 'REVIEWED'
+  reviewSavingId.value = c.id
+  try {
+    const data = await http.put(`/knowledge-base/${kbId}/chunks/${c.id}/review`, { reviewed }) as any
+    c.reviewStatus = data.reviewStatus
+    c.reviewRequired = !reviewed
+    ElMessage.success(t('kbDetail.reviewSaved'))
+  } finally {
+    reviewSavingId.value = null
+  }
+}
+
 async function doSearch() {
   if (!search.query.trim()) return
   searching.value = true
@@ -771,7 +798,7 @@ function statusText(s: string) {
 .chunks { margin-top: 14px; border-top: 1px dashed #dcdfe6; padding-top: 10px; }
 .chunk { display: flex; gap: 8px; font-size: 13px; padding: 6px 0; border-bottom: 1px dashed #ebeef5; }
 .idx { color: #409eff; flex-shrink: 0; }
-.text { color: #606266; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.text { color: #606266; flex: 1; min-width: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .params { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 13px; color: #606266; }
 .hit { border: 1px solid #ebeef5; border-radius: 6px; padding: 10px; margin-bottom: 10px; }
 .hit-head { display: flex; align-items: center; gap: 8px; }

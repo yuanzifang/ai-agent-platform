@@ -208,6 +208,17 @@ public class KnowledgeController {
                 req.tenantVisible() == null || req.tenantVisible(), viewer(principal)));
     }
 
+    public record ChunkReviewRequest(Boolean reviewed) {
+    }
+
+    @PutMapping("/{id}/chunks/{chunkId}/review")
+    public ApiResponse<Map<String, Object>> reviewChunk(@PathVariable Long id, @PathVariable Long chunkId,
+                                                         @RequestBody ChunkReviewRequest req,
+                                                         @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(knowledgeService.updateChunkReview(id, chunkId,
+                Boolean.TRUE.equals(req.reviewed()), viewer(principal)));
+    }
+
     public record SearchRequest(@NotBlank String query, Integer topK, Double scoreThreshold, String mode) {
     }
 

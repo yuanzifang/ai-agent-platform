@@ -20,6 +20,9 @@ public class KnowledgeChunk {
     private String content;
     private String allowedUsers;
     private Integer tenantVisible;
+    private String reviewStatus;
+    private LocalDateTime reviewedAt;
+    private Long reviewedBy;
     private String imageUrls;  // JSON
     private Long tenantId;
     private LocalDateTime createdAt;

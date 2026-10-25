@@ -256,6 +256,68 @@ class KnowledgeUpdateParseConfigTest {
     }
 
     @Test
+    void chunksExposeChartReviewRequirement() {
+        KnowledgeChunk chart = new KnowledgeChunk();
+        chart.setId(77L);
+        chart.setKnowledgeBaseId(161L);
+        chart.setDocumentId(100L);
+        chart.setChunkIndex(0);
+        chart.setContent("【图表数据·模型识别，需人工核对】{\"series\":[1,2]}");
+        Page<KnowledgeChunk> page = new Page<>(1, 10);
+        page.setRecords(List.of(chart));
+        page.setTotal(1);
+        when(chunkMapper.selectPage(any(), any())).thenReturn(page);
+
+        Map<String, Object> result = service.chunks(161L, 100L, 1L, 10L, viewer());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> row = (Map<String, Object>) ((List<?>) result.get("list")).get(0);
+        assertEquals(Boolean.TRUE, row.get("reviewRequired"));
+        assertEquals(null, row.get("reviewStatus"));
+    }
+
+    @Test
+    void reviewChartChunkPersistsReviewedStatus() {
+        KnowledgeChunk chart = new KnowledgeChunk();
+        chart.setId(77L);
+        chart.setKnowledgeBaseId(161L);
+        chart.setContent("【图表数据·模型识别，需人工核对】{\"series\":[1,2]}");
+        when(chunkMapper.selectById(77L)).thenReturn(chart);
+
+        Map<String, Object> result = service.updateChunkReview(161L, 77L, true, viewer());
+
+        assertEquals("REVIEWED", result.get("reviewStatus"));
+        ArgumentCaptor<Wrapper<KnowledgeChunk>> captor =
+                ArgumentCaptor.forClass((Class) Wrapper.class);
+        verify(chunkMapper).update(isNull(), captor.capture());
+        LambdaUpdateWrapper<KnowledgeChunk> wrapper = (LambdaUpdateWrapper<KnowledgeChunk>) captor.getValue();
+        assertTrue(wrapper.getSqlSet().contains("review_status"));
+        assertTrue(wrapper.getParamNameValuePairs().values().stream()
+                .anyMatch(value -> "REVIEWED".equals(value)));
+    }
+
+    @Test
+    void reviewChartChunkCanBeUndoneAndRejectsNormalChunks() {
+        KnowledgeChunk chart = new KnowledgeChunk();
+        chart.setId(77L);
+        chart.setKnowledgeBaseId(161L);
+        chart.setContent("【图表数据·模型识别，需人工核对】{}");
+        when(chunkMapper.selectById(77L)).thenReturn(chart);
+
+        Map<String, Object> result = service.updateChunkReview(161L, 77L, false, viewer());
+        assertEquals("PENDING", result.get("reviewStatus"));
+
+        KnowledgeChunk normal = new KnowledgeChunk();
+        normal.setId(78L);
+        normal.setKnowledgeBaseId(161L);
+        normal.setContent("普通正文分段");
+        when(chunkMapper.selectById(78L)).thenReturn(normal);
+        com.platform.common.exception.BusinessException error = assertThrows(
+                com.platform.common.exception.BusinessException.class,
+                () -> service.updateChunkReview(161L, 78L, true, viewer()));
+        assertEquals(400, error.getCode());
+    }
+
+    @Test
     void chunksPageIsClamped() {
         Page<KnowledgeChunk> page = new Page<>(1, 10);
         when(chunkMapper.selectPage(any(), any())).thenReturn(page);
