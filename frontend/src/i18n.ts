@@ -8,7 +8,7 @@ const messages = {
       templates: '模板库', knowledge: '知识库', skills: '技能管理', tools: '工具管理',
       mcp: 'MCP Server', approvals: '审批箱', prompts: 'Prompt 模板', provider: '模型接入',
       usage: '用量看板', billing: '计费管理', users: '成员管理', tenant: '租户设置',
-      metrics: '监控统计', observability: '可观测', audit: '审计日志', eval: '评测中心', platform: '平台管理', settings: '系统设置'
+      metrics: '监控统计', observability: '可观测', audit: '审计日志', eval: '评测中心', platform: '平台管理', settings: '系统设置', gateway: 'API 网关'
     },
     agentList: {
       search: '搜索 Agent 名称', fromTemplate: '从模板创建', create: '新建 Agent',
@@ -349,7 +349,7 @@ const messages = {
     },
     kbDetail: {
       back: '返回', metaDocs: '文档 ', metaChunks: ' · 分段 ', creator: ' · 创建人 ', edit: '编辑',
-      permission: '权限设置', uploading: '上传中…', upload: '上传文档', urlImport: 'URL 导入',
+      permission: '权限设置', uploading: '上传中…', upload: '上传文档', batchUpload: '批量上传', reupload: '重新上传', uploadProgress: '上传进度', uploadParsing: '上传完成，解析中…', uploadDone: '已上传', uploadTaskFailed: '上传失败', clearFinished: '清除已完成', urlImport: 'URL 导入',
       deleteKb: '删除', uploadHint: '支持 PDF/DOCX/XLSX/XLS/PPTX/HTML/MD/TXT/CSV/JSON；扫描版 PDF/图片需后端启用 OCR（tesseract）。',
       docs: '文档（', fileName: '文件名', status: '状态', chunks: '分段', error: '错误',
       retriedPrefix: '（已重试 ', retriedSuffix: ' 次）', actions: '操作', retry: '重试', delete: '删除',
@@ -791,6 +791,7 @@ const messages = {
       templates: 'Templates', knowledge: 'Knowledge Base', skills: 'Skills', tools: 'Tools',
       mcp: 'MCP Server', approvals: 'Approvals', prompts: 'Prompt Templates', provider: 'Model Providers',
       usage: 'Usage', billing: 'Billing', users: 'Members', tenant: 'Tenant Settings',
+      gateway: 'API Gateway',
       metrics: 'Metrics', observability: 'Observability', audit: 'Audit Log', eval: 'Evaluation', platform: 'Platform Admin', settings: 'System Settings'
     },
     agentList: {
@@ -1133,7 +1134,7 @@ const messages = {
     },
     kbDetail: {
       back: 'Back', metaDocs: 'Documents ', metaChunks: ' · Chunks ', creator: ' · Creator ', edit: 'Edit',
-      permission: 'Permissions', uploading: 'Uploading…', upload: 'Upload document', urlImport: 'Import URL',
+      permission: 'Permissions', uploading: 'Uploading…', upload: 'Upload document', batchUpload: 'Batch upload', reupload: 'Re-upload', uploadProgress: 'Upload progress', uploadParsing: 'Uploaded, parsing…', uploadDone: 'Uploaded', uploadTaskFailed: 'Upload failed', clearFinished: 'Clear finished', urlImport: 'Import URL',
       deleteKb: 'Delete', uploadHint: 'Supports PDF/DOCX/XLSX/XLS/PPTX/HTML/MD/TXT/CSV/JSON; scanned PDFs/images need OCR (tesseract).',
       docs: 'Documents (', fileName: 'File', status: 'Status', chunks: 'Chunks', error: 'Error',
       retriedPrefix: '(retried ', retriedSuffix: ' times)', actions: 'Actions', retry: 'Retry', delete: 'Delete',
