@@ -281,5 +281,6 @@ onMounted(async () => {
 .foot { display: flex; justify-content: space-between; color: #909399; font-size: 12px; margin-top: 10px;
         border-top: 1px dashed #ebeef5; padding-top: 8px; }
 .actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 6px; }
+.hint { color: #909399; font-size: 12px; margin-left: 8px; }
 .pager { display: flex; justify-content: center; margin-top: 18px; }
 </style>
