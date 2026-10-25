@@ -212,12 +212,13 @@ final class OcrTableExtractor {
         return previous.substring(0, close) + currBody + previous.substring(close);
     }
 
-    /** 简单扫描表（无 colspan/rowspan）按表头名称对齐列，支持插入/删除/换序。 */
+    /** 按表头名称对齐列，支持插入/删除/换序；表头和数据区 colspan 展开。 */
     private static String mergeByHeaderNames(String previous, String current) {
         List<String> prevHead = headerCells(previous);
         List<String> currHead = headerCells(current);
-        List<List<String>> prevRows = bodyRows(previous);
-        List<List<String>> currRows = bodyRows(current);
+        if (prevHead == null || currHead == null) return null;
+        List<List<String>> prevRows = bodyRows(previous, prevHead.size());
+        List<List<String>> currRows = bodyRows(current, currHead.size());
         if (prevHead == null || currHead == null || prevRows == null || currRows == null) return null;
         java.util.LinkedHashMap<String, Integer> union = new java.util.LinkedHashMap<>();
         java.util.LinkedHashMap<String, String> labels = new java.util.LinkedHashMap<>();
@@ -363,20 +364,43 @@ final class OcrTableExtractor {
         }
     }
 
-    private static List<List<String>> bodyRows(String html) {
+    private static List<List<String>> bodyRows(String html, int columns) {
         Element tbody = Jsoup.parse(html).selectFirst("tbody");
-        if (tbody == null) return null;
+        if (tbody == null || columns < 1) return null;
         List<List<String>> result = new ArrayList<>();
+        int[] activeRowspans = new int[columns];
         for (Element tr : tbody.select("tr")) {
-            List<String> row = new ArrayList<>();
+            List<Element> cells = new ArrayList<>();
             for (Element cell : tr.children()) {
-                if (!"td".equals(cell.tagName())) continue;
-                if (intAttr(cell, "rowspan") > 1) return null;
-                int colspan = Math.max(1, intAttr(cell, "colspan"));
-                row.add(unescape(cell.text().trim()));
-                for (int i = 1; i < colspan; i++) row.add("");
+                if ("td".equals(cell.tagName())) cells.add(cell);
             }
-            if (!row.isEmpty()) result.add(row);
+            List<String> row = new ArrayList<>();
+            int cellIndex = 0;
+            int col = 0;
+            while (col < columns) {
+                if (activeRowspans[col] > 0) {
+                    activeRowspans[col]--;
+                    row.add("");
+                    col++;
+                    continue;
+                }
+                if (cellIndex >= cells.size()) {
+                    row.add("");
+                    col++;
+                    continue;
+                }
+                Element cell = cells.get(cellIndex++);
+                int colspan = Math.max(1, intAttr(cell, "colspan"));
+                int rowspan = Math.max(1, intAttr(cell, "rowspan"));
+                row.add(unescape(cell.text().trim()));
+                for (int i = 1; i < colspan && col + i < columns; i++) row.add("");
+                for (int i = 0; i < colspan && col + i < columns; i++) {
+                    if (rowspan > 1) activeRowspans[col + i] = rowspan - 1;
+                }
+                col += colspan;
+            }
+            if (cellIndex < cells.size()) return null;
+            result.add(row);
         }
         return result;
     }
