@@ -90,6 +90,26 @@ public class DocumentParser {
     private String ocrLanguages;
     @Value("${knowledge.ocr.max-pages:20}")
     private int ocrMaxPages;
+
+    /** 解析级覆盖（上传/知识库/租户/平台配置解析产物）；为空时回落上方 @Value 默认。 */
+    private final ThreadLocal<ParseOptions> optsHolder = new ThreadLocal<>();
+
+    /** 带生效配置的解析入口（KnowledgeService 解析链使用）。 */
+    public List<ParsedChunk> parseWithParents(String fileName, byte[] bytes, ParseOptions opts) {
+        try {
+            optsHolder.set(opts == null ? ParseOptions.defaults(
+                    ocrEnabled, ocrCommand, ocrLanguages, ocrDpi, ocrMaxPages, false, "", "", 3) : opts);
+            return parseWithParents(fileName, bytes);
+        } finally {
+            optsHolder.remove();
+        }
+    }
+
+    private ParseOptions opts() {
+        ParseOptions o = optsHolder.get();
+        return o != null ? o : ParseOptions.defaults(
+                ocrEnabled, ocrCommand, ocrLanguages, ocrDpi, ocrMaxPages, false, "", "", 3);
+    }
     @Value("${knowledge.ocr.dpi:150}")
     private int ocrDpi;
     @Value("${knowledge.ocr.preprocess:true}")
@@ -232,7 +252,7 @@ public class DocumentParser {
             throw new BusinessException(422, "文档解析失败：" + e.getMessage());
         }
         if (text == null || text.isBlank()) {
-            throw new BusinessException(422, ocrEnabled ? "文档内容为空（OCR 未识别到文本）"
+            throw new BusinessException(422, opts().ocrEnabled() ? "文档内容为空（OCR 未识别到文本）"
                     : "文档内容为空；扫描版 PDF/图片请启用 knowledge.ocr.enabled");
         }
         return splitWithParents(text);
@@ -248,7 +268,7 @@ public class DocumentParser {
             for (XWPFTable table : doc.getTables()) {
                 sb.append(parseDocxTable(table));
             }
-            if (ocrEnabled) {
+            if (opts().ocrEnabled()) {
                 for (XWPFPictureData picture : doc.getAllPictures()) {
                     appendOcr(sb, picture.getData(), picture.suggestFileExtension());
                 }
@@ -325,7 +345,7 @@ public class DocumentParser {
             StringBuilder sb = new StringBuilder(new PDFTextStripper().getText(doc));
             String tables = PdfTableExtractor.extract(doc);
             if (!tables.isBlank()) sb.append("\n").append(tables).append('\n');
-            if (ocrEnabled) {
+            if (opts().ocrEnabled()) {
                 int count = 0;
                 for (int p = 0; p < doc.getNumberOfPages() && count < 20; p++) {
                     PDResources resources = doc.getPage(p).getResources();
@@ -509,7 +529,7 @@ public class DocumentParser {
                             sb.append("</tr>\n");
                         }
                         sb.append("</table>\n");
-                    } else if (ocrEnabled && shape instanceof XSLFPictureShape picture) {
+                    } else if (opts().ocrEnabled() && shape instanceof XSLFPictureShape picture) {
                         appendOcr(sb, picture.getPictureData().getData(),
                                 picture.getPictureData().suggestFileExtension());
                     }
@@ -526,22 +546,19 @@ public class DocumentParser {
     }
 
     private boolean needsOcr(String text) {
-        return ocrEnabled && (text == null || text.replaceAll("\\s", "").length() < 20);
+        return opts().ocrEnabled() && (text == null || text.replaceAll("\\s", "").length() < 20);
     }
 
     /** 扫描版 PDF OCR：PDFBox 渲染页面为 PNG，再调用外部 tesseract。 */
     private String parsePdfOcr(byte[] bytes, String fileName) throws Exception {
-        if (!ocrEnabled) return "";
+        if (!opts().ocrEnabled()) return "";
         StringBuilder sb = new StringBuilder();
         Path tempDir = Files.createTempDirectory("kb-ocr-");
         try (PDDocument doc = org.apache.pdfbox.Loader.loadPDF(bytes)) {
             PDFRenderer renderer = new PDFRenderer(doc);
-            int pages = Math.min(doc.getNumberOfPages(), Math.max(1, ocrMaxPages));
+            int pages = Math.min(doc.getNumberOfPages(), Math.max(1, opts().ocrMaxPages()));
             for (int i = 0; i < pages; i++) {
-                BufferedImage image = preprocessForOcr(
-                        renderer.renderImageWithDPI(i, Math.max(72, ocrDpi)));
-                image = correctOrientation(image, tempDir.resolve("orient-" + (i + 1) + ".png"));
-                image = deskewForOcr(image);
+                BufferedImage image = renderer.renderImageWithDPI(i, Math.max(72, opts().ocrDpi()));
                 Path imagePath = tempDir.resolve("page-" + (i + 1) + ".png");
                 ImageIO.write(image, "png", imagePath.toFile());
                 OcrTableExtractor.Result ocr = OcrTableExtractor.extract(runOcrTsv(imagePath));
@@ -552,7 +569,7 @@ public class DocumentParser {
         } finally {
             deleteRecursively(tempDir.toFile());
         }
-        log.info("扫描版 PDF OCR 完成：file={} pages={}", fileName, Math.min(ocrMaxPages, 999));
+        log.info("扫描版 PDF OCR 完成：file={} pages={}", fileName, Math.min(opts().ocrMaxPages(), 999));
         return sb.toString();
     }
 
@@ -576,21 +593,17 @@ public class DocumentParser {
 
     private void appendOcr(StringBuilder sb, BufferedImage image, String extension) {
         if (image == null) return;
-        Path orientTemp = null;
         try {
             image = preprocessForOcr(image);
-            orientTemp = Files.createTempFile("kb-orient-", ".png");
+            Path orientTemp = Files.createTempFile("kb-orient-", ".png");
             image = correctOrientation(image, orientTemp);
             image = deskewForOcr(image);
+            Files.deleteIfExists(orientTemp);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(image, "png", out);
             appendOcr(sb, out.toByteArray(), extension);
         } catch (Exception e) {
             log.debug("内嵌 PDF 图片编码失败：{}", e.getMessage());
-        } finally {
-            if (orientTemp != null) {
-                try { Files.deleteIfExists(orientTemp); } catch (Exception ignored) { }
-            }
         }
     }
 
@@ -856,12 +869,12 @@ public class DocumentParser {
 
     private String runOcr(Path image, String config) throws Exception {
         List<String> command = new ArrayList<>();
-        command.add(ocrCommand);
+        command.add(opts().ocrCommand());
         command.add(image.toAbsolutePath().toString());
         command.add("stdout");
-        if (ocrLanguages != null && !ocrLanguages.isBlank()) {
+        if (opts().ocrLanguages() != null && !opts().ocrLanguages().isBlank()) {
             command.add("-l");
-            command.add(ocrLanguages);
+            command.add(opts().ocrLanguages());
         }
         if (config != null && !config.isBlank()) command.add(config);
         ProcessBuilder pb = new ProcessBuilder(command);

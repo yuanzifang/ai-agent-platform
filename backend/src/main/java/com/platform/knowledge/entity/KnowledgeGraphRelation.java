@@ -20,5 +20,10 @@ public class KnowledgeGraphRelation {
     private String relation;
     private BigDecimal weight;
     private Long documentId;
+    private Long chunkId;
+    private String evidence;
+    /** AUTO：解析时自动抽取；MANUAL：人工创建/编辑。 */
+    private String source;
+    private BigDecimal confidence;
     private LocalDateTime createdAt;
 }

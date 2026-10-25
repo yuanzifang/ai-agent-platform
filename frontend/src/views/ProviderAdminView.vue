@@ -19,7 +19,7 @@
             <el-avatar :size="38" class="m-avatar">{{ (m.displayName || m.modelName).slice(0, 1) }}</el-avatar>
             <div>
               <div class="m-name">{{ m.displayName || m.modelName }}</div>
-              <div class="m-provider">{{ m.providerName }} · {{ m.purpose }}</div>
+              <div class="m-provider">{{ m.providerName }} · {{ purposeText(m.purpose) }}</div>
             </div>
           </div>
           <div class="m-row">{{ t('providerPage.modelId') }}{{ m.modelName }}</div>
@@ -271,6 +271,10 @@ async function sync(row: any) {
   const res = await http.post(`/provider/${row.id}/models/sync`) as any
   ElMessage.success(`${t('providerPage.syncDone')}${res.total ?? 0}${t('providerPage.syncModels')}${res.enabled ?? 0}${t('providerPage.syncEnabled')}`)
   await load()
+}
+
+function purposeText(p?: string) {
+  return ({ CHAT: '对话', EMBEDDING: '向量', RERANK: '重排', VISION: '视觉' } as any)[p || ''] || p || '-'
 }
 
 function modelStatus(row: any) {

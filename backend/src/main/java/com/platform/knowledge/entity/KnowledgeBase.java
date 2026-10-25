@@ -22,4 +22,6 @@ public class KnowledgeBase {
     private String indexVersion;
     private LocalDateTime createdAt;
     private String parseConfig; // JSON：解析配置覆盖（KB 默认 / 文档上传时选择）
+    /** 是否启用知识图谱：关闭后不自动抽取、不参与 GraphRAG，也不允许进入图谱维护。 */
+    private Boolean graphEnabled;
 }

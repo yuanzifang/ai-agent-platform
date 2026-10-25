@@ -382,6 +382,8 @@ const messages = {
       parseSettingsCard: '知识库解析默认值',
       uploadCfgTitle: '本次上传解析设置（可选，覆盖知识库默认）',
       uploadCfgHint: '仅对本次上传的文件生效；不设置则跟随知识库/系统默认',
+      noVisionModels: '（模型广场暂无视觉模型，请先在「模型接入」中添加）',
+      noVisionHint: '暂无视觉模型：请到「模型接入」添加或同步带视觉能力的模型（如 qwen3-vl）',
     },
     mcpPage: {
       sub: '添加 MCP 服务 → 点击「验证」检测连通性 → 同步工具；同步后的工具可在 Agent 中绑定',
@@ -721,7 +723,7 @@ const messages = {
       nameRequired: '实体名称不能为空', relationRequired: '关系起点/终点/名称不能为空',
       added: '已添加', deleted: '已删除', loadFail: '加载图谱失败', saveFail: '保存失败',
       aiExtract: 'AI 抽取', extractTitle: 'AI 抽取实体与关系', extractText: '待抽取文本',
-      extractTextPh: '可选：粘贴文本；留空则读取所选文档的全部分段（未选文档时读取知识库分段）', commit: '确认写入图谱',
+      extractTextPh: '可选：粘贴文本；留空则读取所选文档前 30 个分段（未选文档时读取知识库前 30 个分段）', commit: '确认写入图谱',
       extract: '开始抽取', extracting: '抽取中…', extractEmpty: '没有可抽取的文本',
       extracted: '抽取完成：实体 ', extractedMid: ' 个，关系 ', extractedSuffix: ' 条',
       noExtract: '未返回实体/关系', close: '关闭',
@@ -739,7 +741,7 @@ const messages = {
       manageHint: '自动抽取的实体/关系可编辑或删除；人工编辑后会标记为手工维护', actions: '操作',
       edit: '编辑', searchRelation: '搜索起点/终点/关系/证据',
       extractDocument: '来源文档', extractDocumentPh: '选择已完成解析的文档（可选）',
-      extractHint: '先预览抽取结果，确认后写入图谱；每个实体/关系都会记录来源分段与原文证据。',
+      extractHint: '先预览抽取结果，确认后写入图谱；每个实体/关系都会记录来源分段与原文证据。单次最多抽取 30 个分段。',
       preview: '预览抽取', commitPreview: '提交到图谱', editEntity: '编辑实体', editRelation: '编辑关系',
       cancel: '取消', save: '保存', saved: '已保存', extractFail: '抽取失败', extractDone: '已写入图谱',
       chunk: '分段', evidencePh: '可选：原文证据或说明'
@@ -1160,6 +1162,8 @@ const messages = {
       parseSettingsCard: 'KB parse defaults',
       uploadCfgTitle: 'Parse settings for this upload (optional)',
       uploadCfgHint: 'Applies to this upload only; unset follows KB/system defaults',
+      noVisionModels: '(No vision models yet — add one under Model Access)',
+      noVisionHint: 'No vision models: add or sync a vision-capable model (e.g. qwen3-vl) under Model Access',
     },
     mcpPage: {
       sub: 'Add an MCP server → Verify connectivity → Sync tools; synced tools can be bound to Agents',
@@ -1499,7 +1503,7 @@ const messages = {
       nameRequired: 'Entity name is required', relationRequired: 'From, to and relation are required',
       added: 'Added', deleted: 'Deleted', loadFail: 'Failed to load graph', saveFail: 'Save failed',
       aiExtract: 'AI extract', extractTitle: 'Extract entities & relations', extractText: 'Text to extract',
-      extractTextPh: 'Optional: paste text; leave blank to use all chunks of the selected document (or knowledge base chunks if none selected)', commit: 'Commit to graph',
+      extractTextPh: 'Optional: paste text; leave blank to use the first 30 chunks of the selected document (or knowledge base if none selected)', commit: 'Commit to graph',
       extract: 'Extract', extracting: 'Extracting…', extractEmpty: 'No text to extract',
       extracted: 'Extracted entities: ', extractedMid: ', relations: ', extractedSuffix: '',
       noExtract: 'No entities/relations returned', close: 'Close',
@@ -1517,7 +1521,7 @@ const messages = {
       manageHint: 'Auto-extracted items can be edited or deleted; manual edits are marked as maintained', actions: 'Actions',
       edit: 'Edit', searchRelation: 'Search from/to/relation/evidence',
       extractDocument: 'Source document', extractDocumentPh: 'Select a parsed document (optional)',
-      extractHint: 'Preview first, then commit. Every entity/relation records its source chunk and quote.',
+      extractHint: 'Preview first, then commit. Every entity/relation records its source chunk and quote. Up to 30 chunks per extraction.',
       preview: 'Preview', commitPreview: 'Commit to graph', editEntity: 'Edit entity', editRelation: 'Edit relation',
       cancel: 'Cancel', save: 'Save', saved: 'Saved', extractFail: 'Extraction failed', extractDone: 'Committed to graph',
       chunk: 'Chunk', evidencePh: 'Optional evidence or note'

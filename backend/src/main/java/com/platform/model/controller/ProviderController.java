@@ -162,8 +162,8 @@ public class ProviderController {
         m.setDisplayName(req.displayName() == null || req.displayName().isBlank()
                 ? req.modelName().trim() : req.displayName().trim());
         String purpose = req.purpose() == null ? "CHAT" : req.purpose().toUpperCase();
-        if (!List.of("CHAT", "EMBEDDING", "RERANK").contains(purpose)) {
-            throw new BusinessException(400, "用途仅支持 CHAT/EMBEDDING/RERANK");
+        if (!List.of("CHAT", "EMBEDDING", "RERANK", "VISION").contains(purpose)) {
+            throw new BusinessException(400, "用途仅支持 CHAT/EMBEDDING/RERANK/VISION");
         }
         m.setPurpose(purpose);
         m.setContextWindow(req.contextWindow() == null ? 0 : Math.max(req.contextWindow(), 0));

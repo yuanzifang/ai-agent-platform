@@ -30,13 +30,21 @@
               <el-switch v-model="uploadCfg.ocrEnabled" />
             </el-form-item>
             <el-form-item :label="t('kbDetail.poOcrLanguages')">
-              <el-input v-model="uploadCfg.ocrLanguages" placeholder="chi_sim+eng" style="width: 160px" />
+              <el-select v-model="uploadCfg.ocrLanguages" style="width: 160px">
+                <el-option label="简体中文 + 英文" value="chi_sim+eng" />
+                <el-option label="简体中文" value="chi_sim" />
+                <el-option label="English" value="eng" />
+                <el-option label="日本語" value="jpn" />
+              </el-select>
             </el-form-item>
             <el-form-item :label="t('kbDetail.poVisionEnabled')">
               <el-switch v-model="uploadCfg.visionEnabled" />
             </el-form-item>
             <el-form-item :label="t('kbDetail.poVisionModel')">
-              <el-input v-model="uploadCfg.visionModel" style="width: 160px" />
+              <el-select v-model="uploadCfg.visionModel" style="width: 160px">
+                <el-option v-for="m in visionModels" :key="m.modelName" :value="m.modelName"
+                           :label="m.displayName || m.modelName" />
+              </el-select>
             </el-form-item>
           </el-form>
           <div class="hint">{{ t('kbDetail.uploadCfgHint') }}</div>
@@ -121,7 +129,13 @@
           <el-switch v-model="po.ocrEnabled" />
         </el-form-item>
         <el-form-item :label="t('kbDetail.poOcrLanguages')">
-          <el-input v-model="po.ocrLanguages" placeholder="chi_sim+eng" style="width: 220px" />
+          <el-select v-model="po.ocrLanguages" style="width: 220px">
+            <el-option label="简体中文 + 英文" value="chi_sim+eng" />
+            <el-option label="简体中文" value="chi_sim" />
+            <el-option label="English" value="eng" />
+            <el-option label="日本語" value="jpn" />
+            <el-option label="한국어" value="kor" />
+          </el-select>
         </el-form-item>
         <el-form-item :label="t('kbDetail.poOcrDpi')">
           <el-input-number v-model="po.ocrDpi" :min="72" :max="400" :step="10" />
@@ -134,7 +148,12 @@
           <el-switch v-model="po.visionEnabled" />
         </el-form-item>
         <el-form-item :label="t('kbDetail.poVisionModel')">
-          <el-input v-model="po.visionModel" placeholder="qwen3-vl:32b" style="width: 220px" />
+          <el-select v-model="po.visionModel" style="width: 220px"
+                     :placeholder="visionModels.length ? undefined : t('kbDetail.noVisionModels')">
+            <el-option v-for="m in visionModels" :key="m.modelName" :value="m.modelName"
+                       :label="m.displayName || m.modelName" />
+          </el-select>
+          <div v-if="!visionModels.length" class="hint">{{ t('kbDetail.noVisionHint') }}</div>
         </el-form-item>
         <el-form-item :label="t('kbDetail.poVisionMaxImages')">
           <el-input-number v-model="po.visionMaxImages" :min="1" :max="10" />
@@ -310,6 +329,7 @@ async function loadDetail() {
   const data = await http.get(`/knowledge-base/${kbId}`) as any
   Object.assign(detail, data)
   loadParse()
+  loadVisionModels()
 }
 
 async function loadDocs() {
@@ -384,6 +404,15 @@ const uploadCfg = reactive({
   ocrEnabled: false, ocrLanguages: 'chi_sim+eng',
   visionEnabled: false, visionModel: 'qwen3-vl:32b'
 })
+
+// ---- 视觉模型选项（模型广场 purpose=VISION） ----
+const visionModels = ref<any[]>([])
+async function loadVisionModels() {
+  try {
+    const all = await http.get('/provider/models') as any
+    visionModels.value = (all || []).filter((m: any) => String(m.purpose || '').toUpperCase() === 'VISION')
+  } catch { visionModels.value = [] }
+}
 
 // ---- 解析设置 ----
 const parseVisible = ref(false)

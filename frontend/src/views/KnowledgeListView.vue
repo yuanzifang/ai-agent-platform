@@ -34,9 +34,13 @@
           <span>{{ t('knowledgeList.docs') }} {{ kb.documentCount ?? 0 }} · {{ t('knowledgeList.chunks') }} {{ kb.chunkCount ?? 0 }}</span>
           <span>{{ t('knowledgeList.creator') }} {{ kb.creatorName || '-' }}</span>
         </div>
-        <div v-if="kb.canEdit" class="actions" @click.stop>
-          <el-button size="small" text @click="openEdit(kb)">{{ t('knowledgeList.edit') }}</el-button>
-          <el-button size="small" text type="danger" @click="removeKb(kb)">{{ t('knowledgeList.delete') }}</el-button>
+        <div class="actions" @click.stop>
+          <el-button size="small" text type="primary"
+                     @click="$router.push(`/knowledge/${kb.id}/graph`)">{{ t('graphPage.title') }}</el-button>
+          <template v-if="kb.canEdit">
+            <el-button size="small" text @click="openEdit(kb)">{{ t('knowledgeList.edit') }}</el-button>
+            <el-button size="small" text type="danger" @click="removeKb(kb)">{{ t('knowledgeList.delete') }}</el-button>
+          </template>
         </div>
       </el-card>
     </div>

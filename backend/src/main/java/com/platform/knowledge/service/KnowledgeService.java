@@ -93,7 +93,7 @@ public class KnowledgeService {
     private ThreadPoolTaskExecutor documentParseExecutor;
 
     public Map<String, Object> create(String name, String description, String visibility,
-                                      String embeddingModel, Long userId) {
+                                      String embeddingModel, Boolean graphEnabled, Long userId) {
         quotaService.checkKnowledgeBaseCreate();
         KnowledgeBase kb = new KnowledgeBase();
         kb.setName(name);
@@ -101,6 +101,8 @@ public class KnowledgeService {
         kb.setTenantId(TenantContext.getTenantId());
         kb.setCreatedBy(userId);
         kb.setVisibility("PRIVATE".equalsIgnoreCase(visibility) ? "PRIVATE" : "TENANT");
+        // 知识图谱按知识库选择开启；未明确开启时不自动抽取，避免无差别消耗模型额度
+        kb.setGraphEnabled(Boolean.TRUE.equals(graphEnabled));
         String model = embeddingModel == null || embeddingModel.isBlank()
                 ? embeddingService.model() : embeddingModel.trim();
         if (!embeddingService.supports(model)) {
@@ -116,7 +118,8 @@ public class KnowledgeService {
 
     /** 编辑名称/描述（需求 3.6.3(6)）；需编辑权限。 */
     public void update(Long id, String name, String description, String embeddingModel,
-                       Map<String, Object> parseConfig, KnowledgePermissionService.Viewer viewer) {
+                       Boolean graphEnabled, Map<String, Object> parseConfig,
+                       KnowledgePermissionService.Viewer viewer) {
         String parseConfigJson;
         try {
             parseConfigJson = parseConfig == null ? null : objectMapper.writeValueAsString(parseConfig);
@@ -146,6 +149,7 @@ public class KnowledgeService {
                 .set(KnowledgeBase::getDescription,
                         description == null || description.isBlank() ? null : description.trim())
                 .set(KnowledgeBase::getEmbeddingModel, finalModel)
+                .set(graphEnabled != null, KnowledgeBase::getGraphEnabled, graphEnabled)
                 .set(KnowledgeBase::getParseConfig, parseConfigJson == null ? null
                         : (parseConfigJson.trim().isEmpty() || "{}".equals(parseConfigJson.trim())
                                 ? null : parseConfigJson.trim())));
@@ -234,6 +238,7 @@ public class KnowledgeService {
         } catch (Exception ignored) { }
         m.put("embeddingModel", kb.getEmbeddingModel());
         m.put("indexVersion", kb.getIndexVersion());
+        m.put("graphEnabled", !Boolean.FALSE.equals(kb.getGraphEnabled()));
         m.put("createdAt", kb.getCreatedAt());
         m.put("documentCount", stat == null ? 0 : ((Number) stat.get("documentCount")).longValue());
         m.put("chunkCount", stat == null ? 0 : ((Number) stat.get("chunkCount")).longValue());

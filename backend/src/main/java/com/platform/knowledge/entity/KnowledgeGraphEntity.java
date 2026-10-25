@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
@@ -15,8 +16,13 @@ public class KnowledgeGraphEntity {
     private Long tenantId;
     private Long kbId;
     private String name;
+    private String normalizedName;
     private String entityType;
     private String description;
+    /** AUTO：解析时自动抽取；MANUAL：人工创建/编辑。 */
+    private String source;
+    private BigDecimal confidence;
+    private String propertiesJson;
     private Long documentId;
     private Long chunkId;
     private Long createdBy;

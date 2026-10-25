@@ -7,6 +7,7 @@ import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.capability.runtime.ToolCallCollector;
 import com.platform.capability.runtime.ToolRuntimeService;
 import com.platform.common.context.TenantContext;
+import com.platform.knowledge.service.KnowledgeGraphService;
 import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.security.JwtPrincipal;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,7 @@ public class ChatService {
     private final PricingService pricingService;
     private final QuotaService quotaService;
     private final com.platform.knowledge.service.HybridRetrievalService hybridRetrieval;
+    private final KnowledgeGraphService graphService;
     private final KnowledgePermissionService permissionService;
     private final ToolRuntimeService toolRuntime;
     private final ContextWindowService contextWindow;
@@ -183,7 +185,28 @@ public class ChatService {
 
             var retrieved = hybridRetrieval.search(tenantId, message, kbId, topK, threshold, rc,
                     viewer.userId(), permissionService.tenantWide(viewer));
-            List<Map<String, Object>> hits = retrieved.hits();
+            List<Map<String, Object>> hits = new ArrayList<>(retrieved.hits());
+            // GraphRAG：向量/关键词命中之外，沿实体关系扩展证据分段（可用 retrievalConfig.graphEnabled=false 关闭）
+            int graphHits = 0;
+            if (!Boolean.FALSE.equals(rc.get("graphEnabled"))) {
+                try {
+                    java.util.Set<Long> existingChunkIds = new java.util.LinkedHashSet<>();
+                    List<String> hitContents = new ArrayList<>();
+                    for (Map<String, Object> hit : hits) {
+                        Map<String, Object> meta = metadataMap(hit.get("metadata"));
+                        Long chunkId = toLong(meta.get("chunk_id"));
+                        if (chunkId != null) existingChunkIds.add(chunkId);
+                        Object content = hit.get("content");
+                        if (content != null) hitContents.add(String.valueOf(content));
+                    }
+                    List<Map<String, Object>> graph = graphService.expandChunks(kbId, message, hitContents,
+                            existingChunkIds, viewer);
+                    graphHits = graph.size();
+                    hits.addAll(graph);
+                } catch (Exception e) {
+                    log.warn("GraphRAG 扩展失败（跳过图扩展）kb={} err={}", kbId, e.getMessage());
+                }
+            }
             com.platform.knowledge.entity.KnowledgeBase kb = knowledgeBaseMapper.selectById(kbId);
             long stepEnd = System.currentTimeMillis();
             if (steps != null) {
@@ -191,6 +214,7 @@ public class ChatService {
                         Map.of("topK", topK, "scoreThreshold", threshold, "hits", hits.size(),
                                 "mode", retrieved.mode(), "vectorHits", retrieved.vectorHits(),
                                 "keywordHits", retrieved.keywordHits(),
+                                "graphHits", graphHits,
                                 "embedMs", retrieved.embedMs(), "searchMs", retrieved.searchMs()));
             }
             for (Map<String, Object> hit : hits) {

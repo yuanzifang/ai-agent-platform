@@ -38,7 +38,7 @@ public class KnowledgeController {
     }
 
     public record CreateKbRequest(@NotBlank String name, String description, String visibility,
-                                  String embeddingModel) {
+                                  String embeddingModel, Boolean graphEnabled) {
     }
 
     @PostMapping
@@ -46,7 +46,7 @@ public class KnowledgeController {
     public ApiResponse<Map<String, Object>> create(@Valid @RequestBody CreateKbRequest req,
                                                    @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(knowledgeService.create(req.name(), req.description(), req.visibility(),
-                req.embeddingModel(), principal.userId()));
+                req.embeddingModel(), req.graphEnabled(), principal.userId()));
     }
 
     /** 列表：可见性过滤 + 搜索 + 分页（仅返回当前用户可见的知识库）。 */
@@ -66,14 +66,15 @@ public class KnowledgeController {
     }
 
     public record UpdateKbRequest(@NotBlank String name, String description, String embeddingModel,
-                                  Map<String, Object> parseConfig) {
+                                  Boolean graphEnabled, Map<String, Object> parseConfig) {
     }
 
     /** 编辑名称/描述（需编辑权限）。 */
     @PutMapping("/{id}")
     public ApiResponse<Void> update(@PathVariable Long id, @Valid @RequestBody UpdateKbRequest req,
                                     @AuthenticationPrincipal JwtPrincipal principal) {
-        knowledgeService.update(id, req.name(), req.description(), req.embeddingModel(), req.parseConfig(), viewer(principal));
+        knowledgeService.update(id, req.name(), req.description(), req.embeddingModel(),
+                req.graphEnabled(), req.parseConfig(), viewer(principal));
         return ApiResponse.ok();
     }
 

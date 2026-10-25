@@ -88,7 +88,10 @@ public class ProviderService {
 
     private String modelsPath(Provider p) {
         String type = p.getProviderType() == null ? "" : p.getProviderType().toUpperCase(Locale.ROOT);
-        return "ANTHROPIC".equals(type) ? "/v1/models" : "/models";
+        String base = p.getBaseUrl() == null ? "" : p.getBaseUrl();
+        // baseUrl 已含 /v1 的（如 DeepSeek 官方写法）不再追加
+        if (base.endsWith("/v1")) return "/models";
+        return "/v1/models";
     }
 
     public void saveCredential(Long providerId, String apiKey) {
@@ -181,6 +184,11 @@ public class ProviderService {
         for (Map<String, Object> m : data) {
             String modelName = String.valueOf(m.get("id"));
             boolean multimodal = m.get("input_modalities") instanceof List<?> mods && mods.contains("image");
+            // 视觉模型启发式：名称含 vl/vision/llava/minicpm-v 等 → 用途 VISION（供解析图片理解选用）
+            String lower = modelName.toLowerCase(Locale.ROOT);
+            boolean visionLike = lower.contains("-vl") || lower.contains("vision")
+                    || lower.contains("llava") || lower.contains("minicpm-v");
+            String purpose = visionLike ? "VISION" : "CHAT";
             ModelEntity existing = providerMapper.listVisibleModels(null).stream()
                     .filter(x -> x.getProviderId().equals(p.getId()) && x.getModelName().equals(modelName))
                     .findFirst().orElse(null);
@@ -189,7 +197,7 @@ public class ProviderService {
                 e.setProviderId(p.getId());
                 e.setModelName(modelName);
                 e.setDisplayName(m.get("name") == null ? modelName : String.valueOf(m.get("name")));
-                e.setPurpose("CHAT");
+                e.setPurpose(purpose);
                 e.setCapabilities(capabilitiesJson(multimodal));
                 e.setDefaultParams("{\"temperature\":0.7}");
                 e.setStatus("ENABLED");
@@ -198,6 +206,7 @@ public class ProviderService {
                 enabled++;
             } else {
                 existing.setDisplayName(m.get("name") == null ? existing.getDisplayName() : String.valueOf(m.get("name")));
+                existing.setPurpose(purpose);
                 existing.setCapabilities(capabilitiesJson(multimodal));
                 modelMapper.updateIgnoreTenant(existing);
                 enabled++;
