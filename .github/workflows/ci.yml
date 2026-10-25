@@ -29,13 +29,14 @@ jobs:
       - name: 后端打包（跳过测试）
         working-directory: backend
         run: mvn -q package -DskipTests
-      - name: Trivy 扫描后端制品（jar 内嵌依赖，不访问 Maven Central）
+      - name: Trivy 扫描后端制品（fat jar 内嵌依赖，不访问 Maven Central）
         uses: aquasecurity/trivy-action@master
         with:
-          scan-type: archive
-          input: backend/target/*.jar
+          scan-type: fs
+          scan-ref: backend/target
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore
       - name: 前端依赖审计
         working-directory: frontend
         run: |
@@ -122,18 +123,6 @@ jobs:
           --health-interval=5s
           --health-timeout=5s
           --health-retries=20
-      minio:
-        image: quay.io/minio/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports:
-          - 9000:9000
-        options: >-
-          --health-cmd="mc ready local"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
 
     env:
       MYSQL_HOST: 127.0.0.1
@@ -210,6 +199,22 @@ jobs:
             sleep 1
           done
           cat /tmp/mock-servers.log
+          exit 1
+
+      - name: 启动 MinIO（官方二进制直跑，绕开镜像仓库匿名拉取限制）
+        run: |
+          curl -fsSL -o /tmp/minio https://dl.min.io/server/minio/release/linux-amd64/minio
+          chmod +x /tmp/minio
+          MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
+            nohup /tmp/minio server /tmp/minio-data --address :9000 --console-address :9001 > /tmp/minio.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1; then
+              echo "minio ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/minio.log
           exit 1
 
       - name: 启动后端
