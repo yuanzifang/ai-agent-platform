@@ -754,7 +754,12 @@ public class KnowledgeService {
                         if (chart != null) {
                             String chartText = "【图表数据·模型识别，需人工核对】" + objectMapper.writeValueAsString(chart);
                             if (chartText.length() > 1200) chartText = chartText.substring(0, 1200);
-                            chunks.add(new DocumentParser.ParsedChunk(chartText, chunks.size(), chartText));
+                            String chartError = ChartDataValidator.validate(chartText);
+                            if (chartError == null) {
+                                chunks.add(new DocumentParser.ParsedChunk(chartText, chunks.size(), chartText));
+                            } else {
+                                log.debug("图表 JSON 校验失败，跳过 doc={}：{}", doc.getId(), chartError);
+                            }
                         }
                     } catch (Exception e) {
                         log.debug("图表结构化分段跳过 doc={}：{}", doc.getId(), e.getMessage());
@@ -1083,6 +1088,10 @@ public class KnowledgeService {
             }
             if (content.length() > 4000) {
                 throw new BusinessException(400, "图表内容过长（最多 4000 字）");
+            }
+            String chartError = ChartDataValidator.validate(content);
+            if (chartError != null) {
+                throw new BusinessException(400, chartError);
             }
             updatedContent = content;
         }

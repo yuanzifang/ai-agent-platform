@@ -396,6 +396,23 @@ class KnowledgeUpdateParseConfigTest {
     }
 
     @Test
+    void invalidChartCorrectionIsRejectedBeforeUpdate() {
+        KnowledgeChunk chart = new KnowledgeChunk();
+        chart.setId(77L);
+        chart.setKnowledgeBaseId(161L);
+        chart.setContent("【图表数据·人工修正】{\"series\":[1]}");
+        when(chunkMapper.selectById(77L)).thenReturn(chart);
+
+        com.platform.common.exception.BusinessException error = assertThrows(
+                com.platform.common.exception.BusinessException.class,
+                () -> service.updateChunkReview(161L, 77L, true,
+                        "【图表数据·人工修正】{\"series\":[{\"points\":[{\"value\":\"bad\"}]}]}", viewer()));
+
+        assertEquals(400, error.getCode());
+        verify(chunkMapper, never()).update(isNull(), any());
+    }
+
+    @Test
     void chunksPageIsClamped() {
         Page<KnowledgeChunk> page = new Page<>(1, 10);
         when(chunkMapper.selectPage(any(), any())).thenReturn(page);
