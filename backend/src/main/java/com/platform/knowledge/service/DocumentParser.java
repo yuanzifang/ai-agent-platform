@@ -360,6 +360,7 @@ public class DocumentParser {
     private String parsePdf(byte[] bytes) throws Exception {
         try (PDDocument doc = org.apache.pdfbox.Loader.loadPDF(bytes)) {
             StringBuilder sb = new StringBuilder(new PDFTextStripper().getText(doc));
+            appendPdfMetadata(doc, sb);
             String tables = PdfTableExtractor.extract(doc);
             if (!tables.isBlank()) sb.append("\n").append(tables).append('\n');
             appendPdfFormsAndAnnotations(doc, sb);
@@ -381,6 +382,30 @@ public class DocumentParser {
             }
             return sb.toString();
         }
+    }
+
+    /** PDF 元数据：标题/作者/主题/关键词/页数，便于检索与溯源。 */
+    private void appendPdfMetadata(PDDocument doc, StringBuilder sb) {
+        try {
+            var info = doc.getDocumentInformation();
+            StringBuilder meta = new StringBuilder();
+            appendMeta(meta, "标题", info.getTitle());
+            appendMeta(meta, "作者", info.getAuthor());
+            appendMeta(meta, "主题", info.getSubject());
+            appendMeta(meta, "关键词", info.getKeywords());
+            if (meta.length() > 0) {
+                sb.append("\n[PDF元数据] 页数: ").append(doc.getNumberOfPages()).append("; ")
+                        .append(meta).append('\n');
+            }
+        } catch (Exception e) {
+            log.debug("PDF 元数据读取失败（忽略）：{}", e.getMessage());
+        }
+    }
+
+    private void appendMeta(StringBuilder meta, String label, String value) {
+        if (value == null || value.isBlank()) return;
+        if (meta.length() > 0) meta.append("; ");
+        meta.append(label).append(": ").append(value.trim());
     }
 
     /** PDF 表单字段/批注：表单值不进入正文文本层时，作为补充知识进入解析结果。 */

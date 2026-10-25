@@ -1569,6 +1569,26 @@ class DocumentParserTest {
     }
 
     @Test
+    void parsesPdfMetadata() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            doc.getDocumentInformation().setTitle("产品手册");
+            doc.getDocumentInformation().setAuthor("智云科技");
+            doc.getDocumentInformation().setSubject("净水器");
+            doc.getDocumentInformation().setKeywords("净水器,退款");
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("metadata.pdf", pdf));
+        assertTrue(text.contains("[PDF元数据]") && text.contains("页数: 1"),
+                "应提取 PDF 元数据页数，实际=" + text);
+        assertTrue(text.contains("标题: 产品手册") && text.contains("作者: 智云科技"),
+                "应提取 PDF 标题/作者，实际=" + text);
+    }
+
+    @Test
     void parsesPdfXfaForm() throws Exception {
         String xfa = "<xdp:xdp xmlns:xdp=\"http://ns.adobe.com/xdp/\">"
                 + "<template><subform><field name=\"customer\"><value>Alice XFA</value></field>"
