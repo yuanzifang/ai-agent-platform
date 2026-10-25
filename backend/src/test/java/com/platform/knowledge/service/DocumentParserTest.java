@@ -204,6 +204,43 @@ class DocumentParserTest {
     }
 
     @Test
+    void parsesPdfMultilineTableCell() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            String[][] rows = {
+                    {"Long product name", "1999", "2"},
+                    {"that wraps", "", ""},
+                    {"Filter", "99", "10"},
+                    {"Installation", "0", "1"}
+            };
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                float y = 720;
+                for (String[] row : rows) {
+                    float[] xs = {50, 220, 360};
+                    for (int col = 0; col < row.length; col++) {
+                        if (row[col].isEmpty()) continue;
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 15;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("multiline.pdf", pdf));
+        assertTrue(text.contains("<table"), "多行单元格 PDF 应输出表格，实际=" + text);
+        assertTrue(text.contains("Long product name that wraps"),
+                "换行单元格应合并到同一单元格，实际=" + text);
+        assertTrue(text.split("<tr>", -1).length == 4, "应保留 3 个逻辑数据行 + 表头，实际=" + text);
+    }
+
+    @Test
     void plainPdfDoesNotEmitTable() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {

@@ -96,21 +96,61 @@ final class PdfTableExtractor {
         if (maxColumns < 3 || !columnsAligned(candidates)) return "";
         List<Float> anchors = columnAnchors(candidates);
         if (anchors.size() < 3 || anchors.size() > 30) return "";
+        float minY = candidates.stream().map(row -> row.y).min(Float::compare).orElse(0f);
+        float maxY = candidates.stream().map(row -> row.y).max(Float::compare).orElse(0f);
+        float maxHeight = candidates.stream().map(row -> row.height).max(Float::compare).orElse(12f);
+        List<LogicalRow> logicalRows = logicalRows(rows, anchors, minY, maxY + Math.max(12f, maxHeight * 1.8f));
+        if (logicalRows.size() < 3) return "";
 
         StringBuilder table = new StringBuilder("<table border=\"1\">\n");
-        for (Row row : candidates) {
-            String[] cells = new String[anchors.size()];
-            for (Cell cell : row.cells) {
-                int column = nearestAnchor(anchors, cell.start);
-                cells[column] = cells[column] == null ? cell.text : cells[column] + " " + cell.text;
-            }
+        for (LogicalRow row : logicalRows) {
             table.append("<tr>");
-            for (String cell : cells) {
+            for (String cell : row.values) {
                 table.append("<td>").append(cell == null ? "" : escape(cell)).append("</td>");
             }
             table.append("</tr>\n");
         }
         return table.append("</table>").toString();
+    }
+
+    /**
+     * 把物理文本行合并为逻辑表格行：单元格换行后的续行只含少量单元格，
+     * 且与上一逻辑行垂直间距接近行高，按列锚点并入上一行。
+     */
+    private static List<LogicalRow> logicalRows(List<Row> rows, List<Float> anchors,
+                                                float minY, float maxYAllowed) {
+        List<LogicalRow> result = new ArrayList<>();
+        for (Row row : rows) {
+            if (row.cells.isEmpty() || row.y < minY - ROW_TOLERANCE) continue;
+            if (row.y > maxYAllowed) break;
+            LogicalRow last = result.isEmpty() ? null : result.get(result.size() - 1);
+            if (last != null && isContinuation(last, row, anchors)) {
+                for (Cell cell : row.cells) {
+                    int column = nearestAnchor(anchors, cell.start);
+                    last.values[column] = last.values[column] == null
+                            ? cell.text : last.values[column] + " " + cell.text;
+                }
+                last.lastY = row.y;
+                last.height = Math.max(last.height, row.height);
+            } else {
+                LogicalRow logical = new LogicalRow(row.y, row.height, anchors.size());
+                for (Cell cell : row.cells) {
+                    logical.values[nearestAnchor(anchors, cell.start)] = cell.text;
+                }
+                result.add(logical);
+            }
+        }
+        return result;
+    }
+
+    private static boolean isContinuation(LogicalRow last, Row row, List<Float> anchors) {
+        if (row.cells.size() >= anchors.size()) return false;
+        float gap = Math.abs(row.y - last.lastY);
+        if (gap > Math.max(10f, Math.max(last.height, row.height) * 1.55f)) return false;
+        for (Cell cell : row.cells) {
+            if (last.values[nearestAnchor(anchors, cell.start)] == null) return false;
+        }
+        return true;
     }
 
     /** 列锚点：把跨行接近的单元格起始 X 聚类，空单元格也保留列位。 */
@@ -159,7 +199,12 @@ final class PdfTableExtractor {
         List<Row> rows = new ArrayList<>();
         for (Row row : grouped) {
             List<Cell> cells = cells(row.glyphs);
-            if (cells.size() >= 2) rows.add(new Row(row.y, cells));
+            if (!cells.isEmpty()) {
+                float height = row.glyphs.stream()
+                        .map(glyph -> Math.max(glyph.getHeightDir(), glyph.getFontSizeInPt()))
+                        .max(Float::compare).orElse(12f);
+                rows.add(new Row(row.y, cells, height));
+            }
         }
         return rows;
     }
@@ -173,7 +218,7 @@ final class PdfTableExtractor {
                 last.cells.addAll(row.cells);
                 last.cells.sort(Comparator.comparingDouble(cell -> cell.start));
             } else {
-                rows.add(new Row(row.y, new ArrayList<>(row.cells)));
+                rows.add(new Row(row.y, new ArrayList<>(row.cells), row.height));
             }
         }
         return rows;
@@ -208,10 +253,12 @@ final class PdfTableExtractor {
         private final float y;
         private final List<Cell> cells;
         private final List<TextPosition> glyphs;
+        private final float height;
 
-        private Row(float y, List<Cell> cells) {
+        private Row(float y, List<Cell> cells, float height) {
             this.y = y;
             this.cells = cells;
+            this.height = height;
             this.glyphs = new ArrayList<>();
         }
 
@@ -219,6 +266,21 @@ final class PdfTableExtractor {
             this.y = y;
             this.cells = cells;
             this.glyphs = glyphs;
+            this.height = glyphs.stream()
+                    .map(glyph -> Math.max(glyph.getHeightDir(), glyph.getFontSizeInPt()))
+                    .max(Float::compare).orElse(12f);
+        }
+    }
+
+    private static final class LogicalRow {
+        private final String[] values;
+        private float height;
+        private float lastY;
+
+        private LogicalRow(float y, float height, int columns) {
+            this.values = new String[columns];
+            this.height = height;
+            this.lastY = y;
         }
     }
 }
