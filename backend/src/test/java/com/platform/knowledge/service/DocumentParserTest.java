@@ -28,7 +28,11 @@ import org.apache.pdfbox.pdmodel.PDResources;
 import com.platform.common.exception.BusinessException;
 import org.apache.pdfbox.pdmodel.encryption.AccessPermission;
 import org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy;
+import org.apache.pdfbox.pdmodel.interactive.action.PDActionURI;
+import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationText;
+import org.apache.pdfbox.pdmodel.interactive.documentnavigation.outline.PDDocumentOutline;
+import org.apache.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem;
 import org.apache.pdfbox.pdmodel.interactive.form.PDAcroForm;
 import org.apache.pdfbox.pdmodel.interactive.form.PDXFAResource;
 import org.apache.pdfbox.pdmodel.interactive.form.PDTextField;
@@ -1566,6 +1570,32 @@ class DocumentParserTest {
         assertTrue(text.contains("[表单]customer: Alice"), "应提取 PDF 表单字段，实际=" + text);
         assertTrue(text.contains("[批注]") && text.contains("请核对金额"),
                 "应提取 PDF 批注，实际=" + text);
+    }
+
+    @Test
+    void parsesPdfOutlineAndLinks() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            PDDocumentOutline outline = new PDDocumentOutline();
+            PDOutlineItem item = new PDOutlineItem();
+            item.setTitle("第一章");
+            outline.addLast(item);
+            doc.getDocumentCatalog().setDocumentOutline(outline);
+
+            PDAnnotationLink link = new PDAnnotationLink();
+            link.setRectangle(new PDRectangle(50, 700, 200, 20));
+            PDActionURI uri = new PDActionURI();
+            uri.setURI("https://example.com/docs");
+            link.setAction(uri);
+            page.getAnnotations().add(link);
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("outline.pdf", pdf));
+        assertTrue(text.contains("[书签]第一章"), "应提取 PDF 书签，实际=" + text);
+        assertTrue(text.contains("[链接]https://example.com/docs"), "应提取 PDF 超链接，实际=" + text);
     }
 
     @Test

@@ -364,6 +364,7 @@ public class DocumentParser {
             String tables = PdfTableExtractor.extract(doc);
             if (!tables.isBlank()) sb.append("\n").append(tables).append('\n');
             appendPdfFormsAndAnnotations(doc, sb);
+            appendPdfOutlineAndLinks(doc, sb);
             if (opts().ocrEnabled()) {
                 StringBuilder embeddedTables = new StringBuilder();
                 int count = 0;
@@ -406,6 +407,48 @@ public class DocumentParser {
         if (value == null || value.isBlank()) return;
         if (meta.length() > 0) meta.append("; ");
         meta.append(label).append(": ").append(value.trim());
+    }
+
+    /** PDF 书签目录与超链接：保留文档结构和外部链接，便于检索/跳转。 */
+    private void appendPdfOutlineAndLinks(PDDocument doc, StringBuilder sb) {
+        try {
+            var outline = doc.getDocumentCatalog().getDocumentOutline();
+            if (outline != null) {
+                int[] count = {0};
+                appendOutlineItems(outline.getFirstChild(), sb, count);
+            }
+        } catch (Exception e) {
+            log.debug("PDF 书签读取失败（忽略）：{}", e.getMessage());
+        }
+        try {
+            for (var page : doc.getPages()) {
+                for (var annotation : page.getAnnotations()) {
+                    if (!(annotation instanceof org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink link)) continue;
+                    var action = link.getAction();
+                    if (action instanceof org.apache.pdfbox.pdmodel.interactive.action.PDActionURI uri
+                            && uri.getURI() != null && !uri.getURI().isBlank()) {
+                        sb.append("\n[链接]").append(uri.getURI().trim()).append('\n');
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("PDF 链接读取失败（忽略）：{}", e.getMessage());
+        }
+    }
+
+    private void appendOutlineItems(org.apache.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem item,
+                                    StringBuilder sb, int[] count) {
+        if (item == null || count[0] >= 100) return;
+        try {
+            String title = item.getTitle();
+            if (title != null && !title.isBlank()) {
+                sb.append("\n[书签]").append(title.trim()).append('\n');
+                count[0]++;
+            }
+            appendOutlineItems(item.getFirstChild(), sb, count);
+            appendOutlineItems(item.getNextSibling(), sb, count);
+        } catch (Exception ignored) {
+        }
     }
 
     /** PDF 表单字段/批注：表单值不进入正文文本层时，作为补充知识进入解析结果。 */
