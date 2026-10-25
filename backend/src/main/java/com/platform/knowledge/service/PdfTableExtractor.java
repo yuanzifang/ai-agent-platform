@@ -111,9 +111,13 @@ final class PdfTableExtractor {
     }
 
     private static boolean isCrossPage(Table previous, Table current, float pageHeight) {
-        return previous.lastY >= previous.pageHeight * 0.65f
-                && current.firstY <= pageHeight * 0.45f
-                && anchorsOverlap(previous.anchors, current.anchors);
+        if (previous.lastY < previous.pageHeight * 0.65f
+                || current.firstY > pageHeight * 0.45f) return false;
+        if (anchorsOverlap(previous.anchors, current.anchors)) return true;
+        // 续页列位置整体平移但列结构一致，且重复了表头：按列序号合并。
+        return previous.anchors.size() == current.anchors.size()
+                && !previous.rows.isEmpty() && !current.rows.isEmpty()
+                && sameRow(previous.rows.get(0), current.rows.get(0));
     }
 
     private static boolean anchorsOverlap(List<Float> left, List<Float> right) {
@@ -181,11 +185,11 @@ final class PdfTableExtractor {
     }
 
     /**
-     * 保守推断纵向合并：非数值列、最多合并 3 行；后续行该列为空且其他列有内容时合并。
+     * 保守推断纵向合并：非数值列、最多合并 10 行；后续行该列为空且其他列有内容时合并。
      * 复杂合并单元格仍需 PDF 网格线/边框分析，避免把大段空单元误判为 rowspan。
      */
     private static int[][] inferRowSpans(List<LogicalRow> rows, int headers) {
-        int maxSpan = 3;
+        int maxSpan = 10;
         int[][] spans = new int[rows.size()][];
         for (int r = 0; r < rows.size(); r++) {
             spans[r] = new int[rows.get(r).values.length];

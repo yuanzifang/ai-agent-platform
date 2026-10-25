@@ -319,6 +319,98 @@ class DocumentParserTest {
     }
 
     @Test
+    void infersPdfLongRowspan() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                String[][] rows = {
+                        {"Category", "Item", "Price"},
+                        {"Fruit", "Apple", "10"},
+                        {"", "Pear", "12"},
+                        {"", "Plum", "8"},
+                        {"", "Fig", "9"},
+                        {"Veg", "Kale", "5"}
+                };
+                float y = 720;
+                for (String[] row : rows) {
+                    float[] xs = {50, 220, 360};
+                    for (int col = 0; col < row.length; col++) {
+                        if (row[col].isEmpty()) continue;
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 30;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("rowspan-long.pdf", pdf));
+        assertTrue(text.contains("<td rowspan=\"4\">Fruit</td>"),
+                "4 行纵向分组应保留 rowspan，实际=" + text);
+    }
+
+    @Test
+    void mergesPdfCrossPageShiftedColumns() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDType1Font font = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
+            PDPage first = new PDPage(PDRectangle.A4);
+            doc.addPage(first);
+            try (PDPageContentStream content = new PDPageContentStream(doc, first)) {
+                content.setFont(font, 12);
+                String[][] rows = new String[10][];
+                rows[0] = new String[]{"Product", "Price", "Qty"};
+                for (int i = 1; i <= 9; i++) {
+                    rows[i] = new String[]{"Row " + i, String.valueOf(100 + i), String.valueOf(i)};
+                }
+                float y = 780;
+                for (String[] row : rows) {
+                    float[] xs = {50, 220, 360};
+                    for (int col = 0; col < row.length; col++) {
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 60;
+                }
+            }
+            PDPage second = new PDPage(PDRectangle.A4);
+            doc.addPage(second);
+            try (PDPageContentStream content = new PDPageContentStream(doc, second)) {
+                content.setFont(font, 12);
+                String[][] rows = {
+                        {"Product", "Price", "Qty"},
+                        {"Row 10", "110", "10"}
+                };
+                float y = 800;
+                for (String[] row : rows) {
+                    float[] xs = {80, 250, 390};
+                    for (int col = 0; col < row.length; col++) {
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 40;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("cross-page-shifted.pdf", pdf));
+        assertTrue(text.contains("Row 10"), "平移列续页不应丢失，实际=" + text);
+        assertTrue(text.split("<table", -1).length == 2,
+                "列位置平移但结构一致应合并为一个 table，实际=" + text);
+    }
+
+    @Test
     void parsesPdfMultiLevelHeader() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
