@@ -43,13 +43,70 @@ final class PdfRectangleTableExtractor {
                 stripper.setStartPage(p + 1);
                 stripper.setEndPage(p + 1);
                 stripper.getText(doc);
-                String table = toTable(glyphs, rectangles(page), page.getMediaBox().getHeight());
-                if (!table.isBlank()) merged = OcrTableExtractor.mergeTables(merged, table);
+                List<Rect> pageRects = rectangles(page);
+                for (List<Rect> group : groups(pageRects)) {
+                    float[] bounds = bounds(group);
+                    List<TextPosition> groupGlyphs = glyphs.stream()
+                            .filter(g -> g.getXDirAdj() >= bounds[0] - 50
+                                    && g.getXDirAdj() <= bounds[1] + 50
+                                    && g.getYDirAdj() >= bounds[2] - 120
+                                    && g.getYDirAdj() <= bounds[3] + 220)
+                            .toList();
+                    String table = toTable(groupGlyphs, group, page.getMediaBox().getHeight());
+                    if (!table.isBlank()) merged = OcrTableExtractor.mergeTables(merged, table);
+                }
             }
         } catch (Exception e) {
             return "";
         }
         return merged;
+    }
+
+    /** 按矩形相交/相接关系拆分同页多个带边框表格。 */
+    private static List<List<Rect>> groups(List<Rect> rects) {
+        if (rects.size() < 4) return List.of();
+        int[] parent = new int[rects.size()];
+        for (int i = 0; i < parent.length; i++) parent[i] = i;
+        for (int i = 0; i < rects.size(); i++) {
+            for (int j = i + 1; j < rects.size(); j++) {
+                if (touches(rects.get(i), rects.get(j))) union(parent, i, j);
+            }
+        }
+        Map<Integer, List<Rect>> grouped = new LinkedHashMap<>();
+        for (int i = 0; i < rects.size(); i++) {
+            grouped.computeIfAbsent(find(parent, i), k -> new ArrayList<>()).add(rects.get(i));
+        }
+        return grouped.values().stream().filter(group -> group.size() >= 4).toList();
+    }
+
+    private static boolean touches(Rect a, Rect b) {
+        return a.minX <= b.maxX + TOLERANCE && b.minX <= a.maxX + TOLERANCE
+                && a.minY <= b.maxY + TOLERANCE && b.minY <= a.maxY + TOLERANCE;
+    }
+
+    private static int find(int[] parent, int value) {
+        while (parent[value] != value) {
+            parent[value] = parent[parent[value]];
+            value = parent[value];
+        }
+        return value;
+    }
+
+    private static void union(int[] parent, int a, int b) {
+        int ra = find(parent, a), rb = find(parent, b);
+        if (ra != rb) parent[rb] = ra;
+    }
+
+    private static float[] bounds(List<Rect> group) {
+        float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE;
+        float minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+        for (Rect r : group) {
+            minX = Math.min(minX, r.minX);
+            maxX = Math.max(maxX, r.maxX);
+            minY = Math.min(minY, r.minY);
+            maxY = Math.max(maxY, r.maxY);
+        }
+        return new float[]{minX, maxX, minY, maxY};
     }
 
     private static List<Rect> rectangles(PDPage page) {
