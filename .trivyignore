@@ -1,4 +1,2 @@
-# CVE-2026-22733：Spring Boot Actuator CloudFoundry 端点认证绕过。
-# 仅当部署在 CloudFoundry 且暴露 actuator CF 端点时可利用，本项目不做 CF 部署，风险接受。
-# 修复版本 3.5.12 / 4.0.4 需要跨 Spring Boot 小版本线升级（当前 3.3.12），升级时同步删除本条。
-CVE-2026-22733
+# trivy 豁免清单（HIGH/CRITICAL 门禁例外须在此记录理由，升级依赖后及时清理）
+# 2026-10-25：CVE-2026-22733 豁免已随 Spring Boot 3.5.16 升级移除。
