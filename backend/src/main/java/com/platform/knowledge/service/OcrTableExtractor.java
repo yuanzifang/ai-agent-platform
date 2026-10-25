@@ -81,12 +81,14 @@ final class OcrTableExtractor {
                 .filter(line -> !isCaption(line.text) && !isNote(line.text))
                 .toList();
         if (candidates.size() < 3) return "";
+        int maxColumns = candidates.stream().mapToInt(line -> line.cells.size()).max().orElse(0);
+        // 两列表格要求至少 4 行，降低双栏正文误判。
+        if (maxColumns == 2 && candidates.size() < 4) return "";
         String caption = findCaption(lines, candidates.get(0).top);
         List<String> notes = findNotes(lines, candidates.get(candidates.size() - 1).top);
-        int maxColumns = candidates.stream().mapToInt(line -> line.cells.size()).max().orElse(0);
-        if (maxColumns < 3 || !aligned(candidates)) return "";
+        if (maxColumns < 2 || !aligned(candidates)) return "";
         List<Float> anchors = anchors(candidates);
-        if (anchors.size() < 3 || anchors.size() > 30) return "";
+        if (anchors.size() < 2 || anchors.size() > 30) return "";
 
         StringBuilder table = new StringBuilder("<table border=\"1\">\n");
         if (caption != null) table.append("<caption>").append(escape(caption)).append("</caption>\n");

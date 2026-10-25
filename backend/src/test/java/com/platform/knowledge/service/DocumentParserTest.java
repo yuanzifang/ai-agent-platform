@@ -1155,6 +1155,54 @@ class DocumentParserTest {
     }
 
     @Test
+    void ocrScannedTwoColumnTable() throws Exception {
+        Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过两列扫描表格");
+        BufferedImage image = new BufferedImage(1000, 800, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, 1000, 800);
+            g.setColor(Color.BLACK);
+            g.setFont(new Font("SansSerif", Font.PLAIN, 46));
+            String[][] rows = {
+                    {"Item", "Price"},
+                    {"Water", "1999"},
+                    {"Filter", "99"},
+                    {"Install", "0"},
+                    {"Service", "299"}
+            };
+            int y = 140;
+            for (String[] row : rows) {
+                g.drawString(row[0], 100, y);
+                g.drawString(row[1], 650, y);
+                y += 110;
+            }
+        } finally {
+            g.dispose();
+        }
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            var pdImage = LosslessFactory.createFromImage(doc, image);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.drawImage(pdImage, 40, 260, 515, 412);
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        ReflectionTestUtils.setField(parser, "ocrEnabled", true);
+        ReflectionTestUtils.setField(parser, "ocrCommand", "tesseract");
+        ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
+        ReflectionTestUtils.setField(parser, "ocrPreprocess", true);
+        String text = String.join("\n", parser.parse("scan-table-two-column.pdf", pdf));
+        assertTrue(text.contains("<table") && text.contains("<th>Item</th>"),
+                "两列扫描表格应输出表头，实际=" + text);
+        assertTrue(text.contains("<td>Water</td>") && text.contains("<td>1999</td>"),
+                "两列扫描表格内容应保留，实际=" + text);
+    }
+
+    @Test
     void ocrLowContrastScannedTable() throws Exception {
         Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过低对比度 OCR");
         BufferedImage image = new BufferedImage(1400, 700, BufferedImage.TYPE_INT_RGB);
