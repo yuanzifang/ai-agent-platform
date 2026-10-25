@@ -241,6 +241,48 @@ class DocumentParserTest {
     }
 
     @Test
+    void parsesPdfTableCaptionAndFootnote() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                content.beginText();
+                content.newLineAtOffset(50, 720);
+                content.showText("Table 1: Product prices");
+                content.endText();
+                String[][] rows = {
+                        {"Product", "Price", "Qty"},
+                        {"Water", "1999", "2"},
+                        {"Filter", "99", "10"}
+                };
+                float y = 650;
+                for (String[] row : rows) {
+                    float[] xs = {50, 220, 360};
+                    for (int col = 0; col < row.length; col++) {
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 30;
+                }
+                content.beginText();
+                content.newLineAtOffset(50, 520);
+                content.showText("Note: prices include tax");
+                content.endText();
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("table-caption.pdf", pdf));
+        assertTrue(text.contains("<caption>Table 1: Product prices</caption>"), "应提取表格标题，实际=" + text);
+        assertTrue(text.contains("table-note") && text.contains("Note: prices include tax"),
+                "应提取表格脚注，实际=" + text);
+    }
+
+    @Test
     void plainPdfDoesNotEmitTable() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {

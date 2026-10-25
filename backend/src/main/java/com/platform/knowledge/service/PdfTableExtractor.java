@@ -86,6 +86,8 @@ final class PdfTableExtractor {
                         maxY + Math.max(12f, maxHeight * 1.8f));
                 if (logical.size() >= 3) {
                     Table table = new Table(logical, anchors, pageHeight, false);
+                    table.caption = findCaption(rows, minY);
+                    table.note = findNote(rows, maxY);
                     if (previous != null && isCrossPage(previous, table, pageHeight)) {
                         table.continuation = true;
                     }
@@ -146,6 +148,9 @@ final class PdfTableExtractor {
 
     private static String render(Table table) {
         StringBuilder html = new StringBuilder("<table border=\"1\">\n");
+        if (table.caption != null) {
+            html.append("<caption>").append(escape(table.caption)).append("</caption>\n");
+        }
         for (LogicalRow row : table.rows) {
             html.append("<tr>");
             for (String cell : row.values) {
@@ -153,7 +158,50 @@ final class PdfTableExtractor {
             }
             html.append("</tr>\n");
         }
-        return html.append("</table>").toString();
+        html.append("</table>");
+        if (table.note != null) {
+            html.append("\n<p class=\"table-note\">").append(escape(table.note)).append("</p>");
+        }
+        return html.toString();
+    }
+
+    private static String findCaption(List<Row> rows, float tableTop) {
+        String best = null;
+        for (Row row : rows) {
+            if (row.y >= tableTop - ROW_TOLERANCE || row.y < tableTop - 80f) continue;
+            String text = rowText(row);
+            if (isCaption(text)) best = text;
+        }
+        return best;
+    }
+
+    private static String findNote(List<Row> rows, float tableBottom) {
+        for (Row row : rows) {
+            if (row.y <= tableBottom + ROW_TOLERANCE || row.y > tableBottom + 120f) continue;
+            String text = rowText(row);
+            String lower = text.toLowerCase(java.util.Locale.ROOT);
+            if (lower.startsWith("note") || lower.startsWith("注") || lower.startsWith("source")
+                    || lower.startsWith("来源") || text.startsWith("*") || text.startsWith("†")) {
+                return text;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isCaption(String text) {
+        if (text == null || text.isBlank() || text.length() > 200) return false;
+        String lower = text.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("table") || text.contains("表")
+                || lower.contains("figure") || text.contains("图");
+    }
+
+    private static String rowText(Row row) {
+        StringBuilder text = new StringBuilder();
+        for (Cell cell : row.cells) {
+            if (!text.isEmpty()) text.append(' ');
+            text.append(cell.text);
+        }
+        return text.toString().trim();
     }
 
     private static List<Cell> cells(List<TextPosition> positions) {
@@ -368,6 +416,8 @@ final class PdfTableExtractor {
         private float lastY;
         private float pageHeight;
         private boolean continuation;
+        private String caption;
+        private String note;
 
         private Table(List<LogicalRow> rows, List<Float> anchors, float pageHeight, boolean continuation) {
             this.rows = rows;
