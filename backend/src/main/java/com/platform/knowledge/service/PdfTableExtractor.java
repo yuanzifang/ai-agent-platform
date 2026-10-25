@@ -160,10 +160,16 @@ final class PdfTableExtractor {
             html.append("</thead>\n");
         }
         html.append("<tbody>\n");
+        int[][] spans = inferRowSpans(table.rows, headers);
         for (int i = headers; i < table.rows.size(); i++) {
             html.append("<tr>");
-            for (String cell : table.rows.get(i).values) {
-                html.append("<td>").append(cell == null ? "" : escape(cell)).append("</td>");
+            for (int col = 0; col < table.rows.get(i).values.length; col++) {
+                if (coveredByRowSpan(spans, i, col)) continue;
+                String cell = table.rows.get(i).values[col];
+                int span = spans[i][col];
+                html.append("<td");
+                if (span > 1) html.append(" rowspan=\"").append(span).append("\"");
+                html.append(">").append(cell == null ? "" : escape(cell)).append("</td>");
             }
             html.append("</tr>\n");
         }
@@ -172,6 +178,45 @@ final class PdfTableExtractor {
             html.append("\n<p class=\"table-note\">").append(escape(table.note)).append("</p>");
         }
         return html.toString();
+    }
+
+    /**
+     * 保守推断纵向合并：仅首列；后续行首列为空且其他列有内容时合并。
+     * 复杂/多列 rowspan 仍需 PDF 网格线分析，避免把普通空单元误判为合并。
+     */
+    private static int[][] inferRowSpans(List<LogicalRow> rows, int headers) {
+        int[][] spans = new int[rows.size()][];
+        for (int r = 0; r < rows.size(); r++) {
+            spans[r] = new int[rows.get(r).values.length];
+        }
+        for (int r = headers; r < rows.size(); r++) {
+            String first = rows.get(r).values[0];
+            if (first == null || first.isBlank()) continue;
+            int span = 1;
+            while (r + span < rows.size()) {
+                LogicalRow next = rows.get(r + span);
+                String nextFirst = next.values[0];
+                if (nextFirst != null && !nextFirst.isBlank()) break;
+                boolean hasOther = false;
+                for (int c = 1; c < next.values.length; c++) {
+                    if (next.values[c] != null && !next.values[c].isBlank()) {
+                        hasOther = true;
+                        break;
+                    }
+                }
+                if (!hasOther) break;
+                span++;
+            }
+            if (span > 1) spans[r][0] = span;
+        }
+        return spans;
+    }
+
+    private static boolean coveredByRowSpan(int[][] spans, int row, int column) {
+        for (int r = 0; r < row; r++) {
+            if (spans[r][column] > row - r) return true;
+        }
+        return false;
     }
 
     /** 首个数值数据行之前的连续行视为表头，支持两行以上的多级表头。 */

@@ -241,6 +241,44 @@ class DocumentParserTest {
     }
 
     @Test
+    void infersPdfFirstColumnRowspan() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                String[][] rows = {
+                        {"Category", "Item", "Price"},
+                        {"Fruit", "Apple", "10"},
+                        {"", "Pear", "12"},
+                        {"Veg", "Kale", "5"},
+                        {"", "Spinach", "6"}
+                };
+                float y = 720;
+                for (String[] row : rows) {
+                    float[] xs = {50, 220, 360};
+                    for (int col = 0; col < row.length; col++) {
+                        if (row[col].isEmpty()) continue;
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 30;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("rowspan.pdf", pdf));
+        assertTrue(text.contains("<td rowspan=\"2\">Fruit</td>"),
+                "首列分组应推断 rowspan，实际=" + text);
+        assertTrue(text.contains("<td>Pear</td>") && text.contains("<td>Spinach</td>"),
+                "被合并行的其他列应保留，实际=" + text);
+    }
+
+    @Test
     void parsesPdfMultiLevelHeader() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
