@@ -428,6 +428,13 @@ public class DocumentParser {
                     if (action instanceof org.apache.pdfbox.pdmodel.interactive.action.PDActionURI uri
                             && uri.getURI() != null && !uri.getURI().isBlank()) {
                         sb.append("\n[链接]").append(uri.getURI().trim()).append('\n');
+                    } else if (action instanceof org.apache.pdfbox.pdmodel.interactive.action.PDActionGoTo goTo) {
+                        var dest = goTo.getDestination();
+                        if (dest instanceof org.apache.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageDestination pageDest
+                                && pageDest.getPage() != null) {
+                            int number = doc.getPages().indexOf(pageDest.getPage()) + 1;
+                            if (number > 0) sb.append("\n[跳转]第").append(number).append("页\n");
+                        }
                     }
                 }
             }

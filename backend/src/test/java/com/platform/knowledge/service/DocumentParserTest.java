@@ -28,9 +28,11 @@ import org.apache.pdfbox.pdmodel.PDResources;
 import com.platform.common.exception.BusinessException;
 import org.apache.pdfbox.pdmodel.encryption.AccessPermission;
 import org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy;
+import org.apache.pdfbox.pdmodel.interactive.action.PDActionGoTo;
 import org.apache.pdfbox.pdmodel.interactive.action.PDActionURI;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationText;
+import org.apache.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageFitDestination;
 import org.apache.pdfbox.pdmodel.interactive.documentnavigation.outline.PDDocumentOutline;
 import org.apache.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem;
 import org.apache.pdfbox.pdmodel.interactive.form.PDAcroForm;
@@ -1596,6 +1598,29 @@ class DocumentParserTest {
         String text = String.join("\n", parser.parse("outline.pdf", pdf));
         assertTrue(text.contains("[书签]第一章"), "应提取 PDF 书签，实际=" + text);
         assertTrue(text.contains("[链接]https://example.com/docs"), "应提取 PDF 超链接，实际=" + text);
+    }
+
+    @Test
+    void parsesPdfInternalLink() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage first = new PDPage(PDRectangle.A4);
+            PDPage second = new PDPage(PDRectangle.A4);
+            doc.addPage(first);
+            doc.addPage(second);
+            PDAnnotationLink link = new PDAnnotationLink();
+            link.setRectangle(new PDRectangle(50, 700, 200, 20));
+            PDActionGoTo goTo = new PDActionGoTo();
+            PDPageFitDestination destination = new PDPageFitDestination();
+            destination.setPage(second);
+            goTo.setDestination(destination);
+            link.setAction(goTo);
+            first.getAnnotations().add(link);
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("internal-link.pdf", pdf));
+        assertTrue(text.contains("[跳转]第2页"), "应提取 PDF 内部跳转，实际=" + text);
     }
 
     @Test
