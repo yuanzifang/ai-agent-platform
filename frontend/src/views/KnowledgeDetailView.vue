@@ -81,8 +81,11 @@
     <div class="body">
       <!-- 文档列表 + 分段 -->
       <div class="docs">
-        <div class="sec-title">{{ t('kbDetail.docs') }}{{ documents.length }}）</div>
-        <el-table :data="documents" size="small" @row-click="toggleChunks">
+        <div class="sec-title">{{ t('kbDetail.docs') }}{{ documents.length }}）
+          <el-switch v-model="validOnly" size="small" />
+          <span class="hint">{{ t('kbDetail.validOnly') }}</span>
+        </div>
+        <el-table :data="visibleDocuments" size="small" @row-click="toggleChunks">
           <el-table-column prop="fileName" :label="t('kbDetail.fileName')" min-width="180" />
           <el-table-column :label="t('kbDetail.status')" width="100">
             <template #default="{ row }">
@@ -90,6 +93,12 @@
             </template>
           </el-table-column>
           <el-table-column prop="chunkCount" :label="t('kbDetail.chunks')" width="70" />
+          <el-table-column :label="t('kbDetail.validity')" width="150">
+            <template #default="{ row }">
+              <el-tag size="small" :type="validityTagType(row)">{{ validityText(row) }}</el-tag>
+              <div class="validity-range">{{ validityRangeText(row) }}</div>
+            </template>
+          </el-table-column>
           <el-table-column :label="t('kbDetail.error')" min-width="160">
             <template #default="{ row }">
               <span class="err">{{ row.errorMessage || '' }}</span>
@@ -378,8 +387,12 @@ const detail = reactive<Record<string, any>>({
   canEdit: false, graphEnabled: false
 })
 const documents = ref<any[]>([])
+const validOnly = ref(false)
 const uploadTasks = ref<any[]>([])
 let uploadSeq = 0
+const visibleDocuments = computed(() => validOnly.value
+  ? documents.value.filter(doc => validityState(doc) === 'valid')
+  : documents.value)
 const uploading = computed(() => uploadTasks.value.some(
   task => task.status === 'uploading' || task.status === 'parsing'))
 const urlVisible = ref(false)
@@ -798,6 +811,32 @@ async function saveReviewEdit() {
   }
 }
 
+function validityState(row: any) {
+  const now = Date.now()
+  const from = row?.effectiveFrom || row?.createdAt
+  if (from && new Date(from).getTime() > now) return 'future'
+  if (row?.effectiveTo && new Date(row.effectiveTo).getTime() < now) return 'expired'
+  return 'valid'
+}
+
+function validityText(row: any) {
+  const state = validityState(row)
+  return state === 'future' ? t('kbDetail.notYetValid')
+    : state === 'expired' ? t('kbDetail.expired') : t('kbDetail.validNow')
+}
+
+function validityTagType(row: any) {
+  const state = validityState(row)
+  return state === 'future' ? 'warning' : state === 'expired' ? 'danger' : 'success'
+}
+
+function validityRangeText(row: any) {
+  const from = row?.effectiveFrom || row?.createdAt
+  const to = row?.effectiveTo
+  if (!from && !to) return '-'
+  return `${from ? String(from).slice(0, 10) : '-'} ~ ${to ? String(to).slice(0, 10) : t('kbDetail.longTerm')}`
+}
+
 function openValidity(row: any) {
   validityDoc.value = row
   validityFrom.value = row?.effectiveFrom ? new Date(row.effectiveFrom) : null
@@ -962,6 +1001,7 @@ function statusText(s: string) {
 .pct { font-size: 12px; color: #909399; width: 48px; text-align: right; }
 .hit-text { font-size: 13px; color: #303133; margin-top: 6px; white-space: pre-wrap; }
 .hit-time { font-size: 11px; color: #a8abb2; margin-top: 4px; }
+.validity-range { font-size: 11px; color: #a8abb2; margin-top: 2px; }
 .member-table { width: 100%; }
 .hint { color: #909399; font-size: 12px; margin-left: 8px; }
 .perm-tip { color: #909399; font-size: 12px; line-height: 20px; padding-left: 90px; }
