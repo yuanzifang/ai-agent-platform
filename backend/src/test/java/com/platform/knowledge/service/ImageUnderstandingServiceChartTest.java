@@ -39,6 +39,8 @@ class ImageUnderstandingServiceChartTest {
             assertNotNull(chart);
             assertEquals("Quarterly Sales", chart.path("title").asText());
             assertEquals("Q1", chart.path("series").get(0).path("points").get(0).path("label").asText());
+            assertEquals("medium", chart.path("confidence").asText());
+            assertEquals(true, chart.path("reviewRequired").asBoolean());
         } finally {
             server.stop(0);
         }

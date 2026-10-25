@@ -93,7 +93,24 @@ public class ImageUnderstandingService {
                 if (first >= 0 && last > first) text = text.substring(first, last + 1);
             }
             JsonNode dataNode = objectMapper.readTree(text);
-            return dataNode.path("isChart").asBoolean(false) ? dataNode : null;
+            if (!dataNode.path("isChart").asBoolean(false)) return null;
+            int filledPoints = 0;
+            JsonNode series = dataNode.path("series");
+            if (series.isArray()) {
+                for (JsonNode group : series) {
+                    JsonNode points = group.path("points");
+                    if (!points.isArray()) continue;
+                    for (JsonNode point : points) {
+                        if (!point.path("value").asText("").isBlank()
+                                || !point.path("label").asText("").isBlank()) filledPoints++;
+                    }
+                }
+            }
+            com.fasterxml.jackson.databind.node.ObjectNode result =
+                    ((com.fasterxml.jackson.databind.node.ObjectNode) dataNode.deepCopy());
+            result.put("reviewRequired", true);
+            result.put("confidence", filledPoints > 0 ? "medium" : "low");
+            return result;
         } catch (Exception e) {
             log.debug("图表结构化失败（忽略）：{}", e.getMessage());
             return null;
