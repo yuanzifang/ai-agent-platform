@@ -1,6 +1,7 @@
 package com.platform.knowledge.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -8,7 +9,6 @@ import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -17,6 +17,8 @@ import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -32,15 +34,34 @@ class PdfVisionCaseTest {
 
     @Test
     void realVisionDescribesPdfChartAndPhoto() throws Exception {
-        Assumptions.assumeTrue("true".equalsIgnoreCase(System.getenv("VISION_TEST_ENABLED")),
-                "设置 VISION_TEST_ENABLED=true 才调用真实视觉模型");
+        boolean realVision = "true".equalsIgnoreCase(System.getenv("VISION_TEST_ENABLED"));
         ReflectionTestUtils.setField(parser, "vectorChartRenderEnabled", true);
 
+        HttpServer mock = null;
+        String endpoint = "http://127.0.0.1:11434";
+        String model = "qwen3-vl:32b";
+        if (!realVision) {
+            mock = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            mock.createContext("/api/generate", exchange -> {
+                String chartJson = "{\"isChart\":true,\"title\":\"Mock Chart\",\"series\":[{\"name\":\"Sales\",\"points\":[]}]}";
+                String payload = new ObjectMapper().writeValueAsString(
+                        java.util.Map.of("response", chartJson));
+                byte[] body = payload.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+                exchange.close();
+            });
+            mock.start();
+            endpoint = "http://127.0.0.1:" + mock.getAddress().getPort();
+            model = "mock-vl";
+        }
+        try {
         ImageUnderstandingService vision = new ImageUnderstandingService(new ObjectMapper());
         ReflectionTestUtils.setField(vision, "enabled", true);
-        ReflectionTestUtils.setField(vision, "endpoint", "http://127.0.0.1:11434");
-        ReflectionTestUtils.setField(vision, "model", "qwen3-vl:32b");
-        ReflectionTestUtils.setField(vision, "timeoutSeconds", 600);
+        ReflectionTestUtils.setField(vision, "endpoint", endpoint);
+        ReflectionTestUtils.setField(vision, "model", model);
+        ReflectionTestUtils.setField(vision, "timeoutSeconds", realVision ? 600 : 10);
         ReflectionTestUtils.setField(vision, "maxImages", 5);
 
         List<DocumentParser.ExtractedImage> chartPhoto =
@@ -62,6 +83,9 @@ class PdfVisionCaseTest {
         System.out.println("[VISION-CHART-JSON] " + chartData);
         assertTrue(chartData != null && chartData.path("isChart").asBoolean(),
                 "真实视觉模型应返回 isChart JSON");
+        } finally {
+            if (mock != null) mock.stop(0);
+        }
     }
 
     private byte[] chartPhotoPdf() throws Exception {
