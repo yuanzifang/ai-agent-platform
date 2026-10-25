@@ -2035,6 +2035,38 @@ class DocumentParserTest {
     }
 
     @Test
+    void parsesDynamicXfaTemplateFields() throws Exception {
+        String xfa = "<xdp:xdp xmlns:xdp=\"http://ns.adobe.com/xdp/\">"
+                + "<template xmlns=\"http://www.xfa.org/schema/xfa-template/3.6/\">"
+                + "<subform name=\"form\"><field name=\"customer\"><caption><value><text>Customer</text></value></caption></field>"
+                + "</subform></template></xdp:xdp>";
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.beginText();
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 14);
+                content.newLineAtOffset(50, 760);
+                content.showText("Dynamic XFA template");
+                content.endText();
+            }
+            PDAcroForm form = new PDAcroForm(doc);
+            COSStream stream = new COSStream();
+            try (java.io.OutputStream os = stream.createOutputStream()) {
+                os.write(xfa.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            form.setXFA(new PDXFAResource(stream));
+            doc.getDocumentCatalog().setAcroForm(form);
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("dynamic-xfa-template.pdf", pdf));
+        assertTrue(text.contains("[XFA字段]") && text.contains("form.customer (Customer)"),
+                "应提取 XFA 模板字段和标签，实际=" + text);
+    }
+
+    @Test
     void rejectsEncryptedPdfWithClearMessage() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {

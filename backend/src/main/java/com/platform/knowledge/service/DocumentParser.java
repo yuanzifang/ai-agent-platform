@@ -602,6 +602,11 @@ public class DocumentParser {
             out.append("\n[XFA数据]\n");
             for (String field : fields) out.append(field).append('\n');
         }
+        List<String> templateFields = xfaTemplateFields(xml);
+        if (!templateFields.isEmpty()) {
+            out.append("\n[XFA字段]\n");
+            for (String field : templateFields) out.append(field).append('\n');
+        }
         return out.toString();
     }
 
@@ -662,6 +667,61 @@ public class DocumentParser {
                 fields.add(path + ": " + value);
             }
         }
+    }
+
+    /** 提取 XFA template 中字段路径/标签，适用于 datasets 为空的动态表单。 */
+    private List<String> xfaTemplateFields(String xml) {
+        List<String> fields = new ArrayList<>();
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            setXmlFeature(factory, "http://apache.org/xml/features/disallow-doctype-decl", true);
+            setXmlFeature(factory, "http://xml.org/sax/features/external-general-entities", false);
+            setXmlFeature(factory, "http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setXIncludeAware(false);
+            factory.setExpandEntityReferences(false);
+            org.w3c.dom.Document dom = factory.newDocumentBuilder()
+                    .parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+            NodeList fieldNodes = dom.getElementsByTagNameNS("*", "field");
+            for (int i = 0; i < fieldNodes.getLength() && fields.size() < 200; i++) {
+                if (!(fieldNodes.item(i) instanceof Element field)) continue;
+                String name = field.getAttribute("name");
+                if (name == null || name.isBlank()) {
+                    String ref = textOfFirst(field, "ref");
+                    name = ref == null ? "" : ref;
+                }
+                if (name.isBlank()) continue;
+                String path = xfaFieldPath(field);
+                String caption = textOfFirst(field, "caption");
+                fields.add(path + (caption == null || caption.isBlank() ? "" : " (" + caption + ")"));
+            }
+        } catch (Exception e) {
+            log.debug("XFA template 字段解析失败（忽略）：{}", e.getMessage());
+        }
+        return fields;
+    }
+
+    private String xfaFieldPath(Element field) {
+        java.util.ArrayDeque<String> names = new java.util.ArrayDeque<>();
+        String fieldName = field.getAttribute("name");
+        if (fieldName != null && !fieldName.isBlank()) names.addFirst(fieldName);
+        Node parent = field.getParentNode();
+        while (parent instanceof Element element) {
+            String local = element.getLocalName() == null ? element.getNodeName() : element.getLocalName();
+            if ("subform".equals(local)) {
+                String name = element.getAttribute("name");
+                if (name != null && !name.isBlank()) names.addFirst(name);
+            }
+            parent = parent.getParentNode();
+        }
+        return String.join(".", names);
+    }
+
+    private String textOfFirst(Element root, String localName) {
+        NodeList all = root.getElementsByTagNameNS("*", localName);
+        if (all.getLength() == 0) return "";
+        String text = all.item(0).getTextContent();
+        return text == null ? "" : text.trim();
     }
 
     private Element firstChild(Element parent, String localName) {
