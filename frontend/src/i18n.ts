@@ -32,6 +32,9 @@ const messages = {
       createTitle: '新建知识库', namePh: '如：产品手册库',
       modelHint: '需先在 Ollama 拉取对应模型；不同维度向量分表存储',
       visibility: '可见范围', createBtn: '创建', dimSuffix: ' 维', tenantRadio: '所有团队成员', privateRadio: '只有我',
+      graphEnabled: '知识图谱', graphOff: '图谱关闭',
+      graphHint: '开启后解析完成会自动抽取实体/关系，并参与 GraphRAG；关闭则不生成、不检索图谱',
+      graphRebuildHint: '开启后可到图谱页点击「重建图谱」补全历史文档',
       nameRequired: '名称必填', savedMsg: '已保存', deletedMsg: '已删除', createdMsg: '已创建', deleteTitle: '删除知识库',
       deleteConfirm: '删除', deleteBtn: '删除', deleteRefsPrefix: '该知识库被 ', deleteRefsMid: ' 个 Agent 引用（',
       deleteRefsSuffix: '），删除后这些 Agent 将无法再检索它。确认删除？', deletePrefix: '确认删除知识库「',
@@ -715,6 +718,7 @@ const messages = {
 
     graphPage: {
       title: '知识图谱', back: '返回知识库', entities: '实体', relations: '关系', addEntity: '新增实体',
+      disabled: '该知识库未启用知识图谱，请先在知识库设置中开启',
       entityName: '实体名称', entityNamePh: '如：退款政策', entityType: '实体类型', entityTypePh: '如：政策/产品/组织',
       description: '描述', descriptionPh: '可选，实体说明', add: '添加', remove: '删除',
       relationFrom: '起点', relationTo: '终点', relationName: '关系', relationNamePh: '如：适用于/属于',
@@ -811,6 +815,9 @@ const messages = {
       createTitle: 'New Knowledge Base', namePh: 'e.g. Product Manuals',
       modelHint: 'Pull the model in Ollama first; embeddings of different dimensions use separate tables',
       visibility: 'Visibility', createBtn: 'Create', dimSuffix: ' dimensions', tenantRadio: 'All team members', privateRadio: 'Only me',
+      graphEnabled: 'Knowledge graph', graphOff: 'Graph off',
+      graphHint: 'When enabled, entities/relations are extracted after parsing and used by GraphRAG; when off, no graph is generated or retrieved',
+      graphRebuildHint: 'After enabling, use "Rebuild graph" on the graph page to backfill existing documents',
       nameRequired: 'Name is required', savedMsg: 'Saved', deletedMsg: 'Deleted', createdMsg: 'Created', deleteTitle: 'Delete knowledge base',
       deleteConfirm: 'Delete', deleteBtn: 'Delete', deleteRefsPrefix: 'This knowledge base is referenced by ', deleteRefsMid: ' Agent(s) (',
       deleteRefsSuffix: '); those Agents will lose access. Delete anyway?', deletePrefix: 'Delete knowledge base "',
@@ -1495,6 +1502,7 @@ const messages = {
 
     graphPage: {
       title: 'Knowledge Graph', back: 'Back to knowledge base', entities: 'Entities', relations: 'Relations', addEntity: 'Add entity',
+      disabled: 'Knowledge graph is disabled for this knowledge base. Enable it in the knowledge base settings first.',
       entityName: 'Entity name', entityNamePh: 'e.g. Refund policy', entityType: 'Entity type', entityTypePh: 'e.g. Policy/Product/Org',
       description: 'Description', descriptionPh: 'Optional description', add: 'Add', remove: 'Delete',
       relationFrom: 'From', relationTo: 'To', relationName: 'Relation', relationNamePh: 'e.g. applies-to/belongs-to',

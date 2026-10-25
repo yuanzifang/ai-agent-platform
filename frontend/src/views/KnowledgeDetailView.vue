@@ -6,9 +6,10 @@
       </el-button>
       <span class="kb-title">{{ detail.name }}</span>
       <el-tag size="small" :type="visTag(detail.visibility)">{{ visText(detail.visibility) }}</el-tag>
+      <el-tag v-if="detail.graphEnabled === false" size="small" type="info">{{ t('knowledgeList.graphOff') }}</el-tag>
       <span class="kb-meta">{{ t('kbDetail.metaDocs') }}{{ detail.documentCount }}{{ t('kbDetail.metaChunks') }}{{ detail.chunkCount }}{{ t('kbDetail.creator') }}{{ detail.creatorName || '-' }}</span>
       <el-button v-if="detail.canEdit" @click="openEdit">{{ t('kbDetail.edit') }}</el-button>
-      <el-button @click="$router.push(`/knowledge/${kbId}/graph`)">{{ t('graphPage.title') }}</el-button>
+      <el-button v-if="detail.graphEnabled !== false" @click="$router.push(`/knowledge/${kbId}/graph`)">{{ t('graphPage.title') }}</el-button>
       <el-button v-if="detail.canEdit" @click="openPermission">{{ t('kbDetail.permission') }}</el-button>
       <el-upload v-if="detail.canEdit" :show-file-list="false" :before-upload="upload" :disabled="uploading"
                  accept=".md,.txt,.docx,.pdf,.xlsx,.xls,.pptx,.html,.htm,.csv,.json,.png,.jpg,.jpeg,.bmp,.tif,.tiff">
@@ -174,6 +175,11 @@
         <el-form-item :label="t('kbDetail.desc')">
           <el-input v-model="editForm.description" type="textarea" :rows="2" maxlength="512" />
         </el-form-item>
+        <el-form-item :label="t('knowledgeList.graphEnabled')">
+          <el-switch v-model="editForm.graphEnabled" />
+          <span class="hint">{{ t('knowledgeList.graphHint') }}</span>
+          <div class="hint">{{ t('knowledgeList.graphRebuildHint') }}</div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editVisible = false">{{ t('kbDetail.cancel') }}</el-button>
@@ -282,7 +288,8 @@ const route = useRoute()
 const router = useRouter()
 const kbId = Number(route.params.id)
 const detail = reactive<Record<string, any>>({
-  name: '', visibility: 'TENANT', creatorId: null, creatorName: '', documentCount: 0, chunkCount: 0, canEdit: false
+  name: '', visibility: 'TENANT', creatorId: null, creatorName: '', documentCount: 0, chunkCount: 0,
+  canEdit: false, graphEnabled: false
 })
 const documents = ref<any[]>([])
 const uploading = ref(false)
@@ -308,7 +315,7 @@ const aclForm = reactive<{ tenantVisible: boolean; users: number[] }>({ tenantVi
 // ---- 编辑/删除 ----
 const editVisible = ref(false)
 const editSaving = ref(false)
-const editForm = reactive({ name: '', description: '' })
+const editForm = reactive({ name: '', description: '', graphEnabled: false })
 
 // ---- 权限设置 ----
 const permVisible = ref(false)
@@ -349,6 +356,7 @@ function pollDocs(times = 15) {
 function openEdit() {
   editForm.name = detail.name
   editForm.description = detail.description || ''
+  editForm.graphEnabled = detail.graphEnabled !== false
   editVisible.value = true
 }
 
@@ -357,7 +365,7 @@ async function saveEdit() {
   editSaving.value = true
   try {
     await http.put(`/knowledge-base/${kbId}`, {
-      name: editForm.name.trim(), description: editForm.description
+      name: editForm.name.trim(), description: editForm.description, graphEnabled: editForm.graphEnabled
     })
     ElMessage.success(t('kbDetail.saved'))
     editVisible.value = false

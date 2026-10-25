@@ -25,6 +25,7 @@
             <div class="name-row">
               <span class="name">{{ kb.name }}</span>
               <el-tag size="small" :type="visTag(kb.visibility)">{{ visText(kb.visibility) }}</el-tag>
+              <el-tag v-if="kb.graphEnabled === false" size="small" type="info">{{ t('knowledgeList.graphOff') }}</el-tag>
             </div>
             <div class="meta">{{ t('knowledgeList.embedding') }} {{ kb.embeddingModel }} · {{ formatDate(kb.createdAt) }}</div>
           </div>
@@ -35,7 +36,7 @@
           <span>{{ t('knowledgeList.creator') }} {{ kb.creatorName || '-' }}</span>
         </div>
         <div class="actions" @click.stop>
-          <el-button size="small" text type="primary"
+          <el-button size="small" text type="primary" v-if="kb.graphEnabled !== false"
                      @click="$router.push(`/knowledge/${kb.id}/graph`)">{{ t('graphPage.title') }}</el-button>
           <template v-if="kb.canEdit">
             <el-button size="small" text @click="openEdit(kb)">{{ t('knowledgeList.edit') }}</el-button>
@@ -65,6 +66,11 @@
           </el-select>
           <span v-if="editForm.documentCount > 0" class="hint">{{ t('knowledgeList.modelLocked') }}</span>
         </el-form-item>
+        <el-form-item :label="t('knowledgeList.graphEnabled')">
+          <el-switch v-model="editForm.graphEnabled" />
+          <span class="hint">{{ t('knowledgeList.graphHint') }}</span>
+          <div class="hint">{{ t('knowledgeList.graphRebuildHint') }}</div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editVisible = false">{{ t('knowledgeList.cancel') }}</el-button>
@@ -93,6 +99,10 @@
             <el-radio value="PRIVATE">{{ t('knowledgeList.privateRadio') }}</el-radio>
           </el-radio-group>
         </el-form-item>
+        <el-form-item :label="t('knowledgeList.graphEnabled')">
+          <el-switch v-model="form.graphEnabled" />
+          <span class="hint">{{ t('knowledgeList.graphHint') }}</span>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="createVisible = false">{{ t('knowledgeList.cancel') }}</el-button>
@@ -114,6 +124,7 @@ const { t } = useI18n()
 interface Kb {
   id: number; name: string; description: string; embeddingModel: string; createdAt: string
   visibility: string; documentCount: number; chunkCount: number; creatorName: string; canEdit: boolean
+  graphEnabled?: boolean; parseConfig?: Record<string, any>
 }
 
 const userStore = useUserStore()
@@ -130,10 +141,13 @@ const loading = ref(false)
 const createVisible = ref(false)
 const creating = ref(false)
 const embeddingModels = ref<any[]>([])
-const form = reactive({ name: '', description: '', visibility: 'TENANT', embeddingModel: '' })
+const form = reactive({ name: '', description: '', visibility: 'TENANT', embeddingModel: '', graphEnabled: false })
 const editVisible = ref(false)
 const editSaving = ref(false)
-const editForm = reactive({ id: 0, name: '', description: '', embeddingModel: '', documentCount: 0 })
+const editForm = reactive({
+  id: 0, name: '', description: '', embeddingModel: '', documentCount: 0, graphEnabled: false,
+  parseConfig: {} as Record<string, any>
+})
 
 async function load() {
   loading.value = true
@@ -164,6 +178,8 @@ function openEdit(kb: Kb) {
   editForm.description = kb.description || ''
   editForm.embeddingModel = kb.embeddingModel
   editForm.documentCount = kb.documentCount || 0
+  editForm.graphEnabled = kb.graphEnabled !== false
+  editForm.parseConfig = kb.parseConfig || {}
   editVisible.value = true
 }
 
@@ -173,7 +189,8 @@ async function saveEdit() {
   try {
     await http.put(`/knowledge-base/${editForm.id}`, {
       name: editForm.name.trim(), description: editForm.description,
-      embeddingModel: editForm.embeddingModel
+      embeddingModel: editForm.embeddingModel, graphEnabled: editForm.graphEnabled,
+      parseConfig: editForm.parseConfig
     })
     ElMessage.success(t('knowledgeList.savedMsg'))
     editVisible.value = false
@@ -209,7 +226,7 @@ async function create() {
   try {
     await http.post('/knowledge-base', {
       name: form.name, description: form.description, visibility: form.visibility,
-      embeddingModel: form.embeddingModel
+      embeddingModel: form.embeddingModel, graphEnabled: form.graphEnabled
     })
     ElMessage.success(t('knowledgeList.createdMsg'))
     createVisible.value = false
@@ -217,6 +234,7 @@ async function create() {
     form.description = ''
     form.visibility = 'TENANT'
     form.embeddingModel = embeddingModels.value.find((m: any) => m.default)?.name || ''
+    form.graphEnabled = false
     await load()
   } finally {
     creating.value = false

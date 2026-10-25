@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.billing.service.PricingService;
+import com.platform.common.exception.BusinessException;
 import com.platform.knowledge.entity.KnowledgeBase;
 import com.platform.knowledge.entity.KnowledgeChunk;
 import com.platform.knowledge.entity.KnowledgeGraphEntity;
@@ -25,12 +26,15 @@ import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -45,6 +49,7 @@ class KnowledgeGraphServiceAclTest {
     private KnowledgeGraphRelationMapper relationMapper;
     private KnowledgeGraphMentionMapper mentionMapper;
     private KnowledgeChunkMapper chunkMapper;
+    private KnowledgeBaseMapper kbMapper;
     private KnowledgePermissionService permissionService;
     private KnowledgeGraphService service;
     private KnowledgeBase kb;
@@ -62,10 +67,11 @@ class KnowledgeGraphServiceAclTest {
         relationMapper = mock(KnowledgeGraphRelationMapper.class);
         mentionMapper = mock(KnowledgeGraphMentionMapper.class);
         chunkMapper = mock(KnowledgeChunkMapper.class);
+        kbMapper = mock(KnowledgeBaseMapper.class);
         permissionService = mock(KnowledgePermissionService.class);
         service = new KnowledgeGraphService(
                 entityMapper, relationMapper, mentionMapper, mock(KnowledgeGraphJobMapper.class),
-                mock(KnowledgeBaseMapper.class), mock(KnowledgeDocumentMapper.class), chunkMapper,
+                kbMapper, mock(KnowledgeDocumentMapper.class), chunkMapper,
                 mock(SysConfigMapper.class), mock(BillingUsageMapper.class),
                 mock(PricingService.class), permissionService, mock(AuditService.class),
                 mock(ChatModelRouter.class), new ObjectMapper());
@@ -80,6 +86,19 @@ class KnowledgeGraphServiceAclTest {
         when(permissionService.aclOf(kb))
                 .thenReturn(new KnowledgePermissionService.Acl(List.of(7L), true));
         when(permissionService.canEdit(kb, viewer)).thenReturn(false);
+    }
+
+    @Test
+    void graphDisabledRejectsGraphReadAndSkipsGraphRag() {
+        kb.setGraphEnabled(false);
+        BusinessException error = assertThrows(BusinessException.class, () -> service.graph(1L, viewer));
+        assertEquals(400, error.getCode());
+
+        when(kbMapper.selectById(1L)).thenReturn(kb);
+        List<Map<String, Object>> extra = service.expandChunks(
+                1L, "公开实体", List.of("公开实体"), new LinkedHashSet<>(), viewer);
+        assertTrue(extra.isEmpty());
+        verify(entityMapper, never()).selectList(any());
     }
 
     @Test

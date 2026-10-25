@@ -1749,15 +1749,4 @@ public class KnowledgeGraphService implements ApplicationRunner {
     private record CommitStats(int entityCount, int relationCount, int mentionCount) {
     }
 
-    private boolean graphEnabled(KnowledgeBase kb) {
-        return kb == null || kb.getGraphEnabled() == null || Boolean.TRUE.equals(kb.getGraphEnabled());
-    }
-
-    private void ensureGraphEnabled(KnowledgeBase kb) {
-        if (!graphEnabled(kb)) {
-            throw new BusinessException(400, "知识库未启用知识图谱");
-        }
-    }
-
-
 }

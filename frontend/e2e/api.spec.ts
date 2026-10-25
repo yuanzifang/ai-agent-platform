@@ -237,7 +237,8 @@ test('Prompt 模板 AI 优化', async ({ request }) => {
   expect(token).toBeTruthy()
   const res = await request.post(`${P}/prompt-templates/optimize`, {
     headers: auth(token!),
-    data: { prompt: '你是客服，回答用户问题，不知道就说不知道。', name: 'E2E 优化' },
+    data: { prompt: '你是客服，回答用户问题，不知道就说不知道。', name: 'E2E 优化',
+      modelName: 'deepseek-flash' },
     timeout: 120_000
   })
   const body = await res.json()
@@ -1866,7 +1867,7 @@ test('知识图谱 AI 抽取并提交', async ({ request }) => {
   expect(token).toBeTruthy()
   const kb = await (await request.post(`${P}/knowledge-base`, {
     headers: auth(token!), data: { name: `E2E 图谱抽取-${Date.now()}`, visibility: 'PRIVATE',
-      embeddingModel: 'nomic-embed-text' }
+      embeddingModel: 'nomic-embed-text', graphEnabled: true }
   })).json()
   expect(kb.code, JSON.stringify(kb)).toBe(0)
   const kbId = kb.data.id
@@ -1906,7 +1907,7 @@ test('知识图谱实体/关系 CRUD', async ({ request }) => {
   expect(token).toBeTruthy()
   const kb = await (await request.post(`${P}/knowledge-base`, {
     headers: auth(token!), data: { name: `E2E 图谱-${Date.now()}`, visibility: 'PRIVATE',
-      embeddingModel: 'nomic-embed-text' }
+      embeddingModel: 'nomic-embed-text', graphEnabled: true }
   })).json()
   expect(kb.code, JSON.stringify(kb)).toBe(0)
   const kbId = kb.data.id
@@ -1981,7 +1982,7 @@ test('GraphRAG：高阈值下图谱关联 chunk 召回', async ({ request }) => 
   const suffix = Date.now()
   const kb = await (await request.post(`${P}/knowledge-base`, {
     headers: auth(token!), data: { name: `E2E GraphRAG-${suffix}`, visibility: 'PRIVATE',
-      embeddingModel: 'nomic-embed-text' }
+      embeddingModel: 'nomic-embed-text', graphEnabled: true }
   })).json()
   expect(kb.code, JSON.stringify(kb)).toBe(0)
   const kbId = kb.data.id

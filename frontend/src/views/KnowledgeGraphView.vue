@@ -314,7 +314,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
@@ -322,6 +322,7 @@ import http from '../api/http'
 import KnowledgeGraphChart from '../components/KnowledgeGraphChart.vue'
 
 const route = useRoute()
+const router = useRouter()
 const { t } = useI18n()
 const kbId = Number(route.params.id)
 
@@ -752,6 +753,16 @@ async function removeRelation(row: any) {
 }
 
 async function loadAll() {
+  try {
+    const kb = await http.get(`/knowledge-base/${kbId}`) as any
+    if (kb && kb.graphEnabled === false) {
+      ElMessage.warning(t('graphPage.disabled'))
+      await router.replace(`/knowledge/${kbId}`)
+      return
+    }
+  } catch {
+    // 详情读取失败时继续尝试加载图谱，由图谱接口给出具体错误
+  }
   await Promise.all([load(), loadDocuments(), loadJob()])
   // 文档被删除后避免抽取对话框仍指向不存在的文档
   if (extractDocId.value != null

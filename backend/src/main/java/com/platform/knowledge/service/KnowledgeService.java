@@ -126,8 +126,10 @@ public class KnowledgeService {
         } catch (Exception e) {
             throw new BusinessException(400, "解析配置不是合法 JSON");
         }
+        // 部分更新语义（解析设置对话框只发 parseConfig）：空字段保留现值
         KnowledgeBase kb = permissionService.requireEdit(id, viewer);
-        if (name == null || name.isBlank()) throw new BusinessException(400, "知识库名称不能为空");
+        if (name != null && name.isBlank()) name = null;
+        if (name == null) name = kb.getName();
         String model = kb.getEmbeddingModel();
         if (embeddingModel != null && !embeddingModel.isBlank()
                 && !embeddingModel.trim().equals(model)) {
