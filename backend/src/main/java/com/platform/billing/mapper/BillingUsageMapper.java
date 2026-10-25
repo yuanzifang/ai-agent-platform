@@ -26,6 +26,12 @@ public interface BillingUsageMapper extends BaseMapper<BillingUsage> {
     java.math.BigDecimal sumMonthCostByUser(@Param("userId") Long userId,
                                             @Param("monthStart") java.time.LocalDate monthStart);
 
+    /** 租户本月消费合计（月度金额上限用）。 */
+    @Select("SELECT COALESCE(SUM(cost), 0) FROM billing_usage "
+            + "WHERE tenant_id = #{tenantId} AND stat_date >= #{monthStart}")
+    BigDecimal sumMonthCostByTenant(@Param("tenantId") Long tenantId,
+                                    @Param("monthStart") java.time.LocalDate monthStart);
+
     /** 今日已用 Token（输入+输出，含全部 source）。 */
     @Select("SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM billing_usage "
             + "WHERE tenant_id = #{tenantId} AND stat_date = CURDATE()")

@@ -119,7 +119,25 @@ public class QuotaService {
         }
     }
 
-        /** 预付费余额阻断：仅当租户发生过充值（account 存在）且可用余额 <= 0 时阻断。
+        /**
+     * 租户月度金额上限（评审：金额是跨模型的统一度量，Token 数不是）。
+     * 本月 billing_usage.cost 汇总 vs sys_tenant_quota.monthly_cost_limit；未配置 = 不限。
+     */
+    public void checkMonthlyCost() {
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null) return;
+        SysTenantQuota q = quota();
+        if (q == null || q.getMonthlyCostLimit() == null || q.getMonthlyCostLimit().signum() <= 0) return;
+        java.math.BigDecimal monthCost = usageMapper.sumMonthCostByTenant(
+                tenantId, java.time.LocalDate.now().withDayOfMonth(1));
+        if (monthCost.compareTo(q.getMonthlyCostLimit()) >= 0) {
+            alertQuota("月度金额", monthCost.movePointRight(0).longValue(), q.getMonthlyCostLimit().longValue());
+            throw new BusinessException(429, "本月消费已达上限（" + monthCost + "/" + q.getMonthlyCostLimit()
+                    + " 元），请调整配额或联系管理员");
+        }
+    }
+
+    /** 预付费余额阻断：仅当租户发生过充值（account 存在）且可用余额 <= 0 时阻断。
      * 成本用 SQL 聚合（曾全表拉取到内存求和，量级增长后拖垮每次对话）。 */
     public void checkBalance() {
         Long tenantId = TenantContext.getTenantId();

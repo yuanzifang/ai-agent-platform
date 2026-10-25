@@ -36,6 +36,7 @@
         <el-form-item :label="t('platformPage.quotaAgents')"><el-input-number v-model="quotaForm.maxAgents" :min="0" /></el-form-item>
         <el-form-item :label="t('platformPage.quotaKb')"><el-input-number v-model="quotaForm.maxKnowledgeBases" :min="0" /></el-form-item>
         <el-form-item :label="t('platformPage.quotaTokens')"><el-input-number v-model="quotaForm.maxTokensPerDay" :min="0" :step="10000" /></el-form-item>
+        <el-form-item :label="t('platformPage.quotaMonthlyCost')"><el-input-number v-model="quotaForm.monthlyCostLimit" :min="0" :step="10" :precision="2" /></el-form-item>
         <el-form-item :label="t('platformPage.quotaStorage')"><el-input-number v-model="quotaForm.maxStorageBytes" :min="0" :step="1073741824" /></el-form-item>
         <el-form-item :label="t('platformPage.quotaRpm')"><el-input-number v-model="quotaForm.maxApiCallsPerMin" :min="0" /></el-form-item>
       </el-form>
@@ -113,7 +114,7 @@ const quotaVisible = ref(false)
 const quotaSaving = ref(false)
 const quotaTarget = reactive<any>({})
 const quotaForm = reactive({ maxAgents: 10, maxKnowledgeBases: 5, maxTokensPerDay: 1000000,
-  maxStorageBytes: 10737418240, maxApiCallsPerMin: 60 })
+  maxStorageBytes: 10737418240, maxApiCallsPerMin: 60 }, monthlyCostLimit: 0 }
 
 async function editQuota(row: any) {
   Object.assign(quotaTarget, row)

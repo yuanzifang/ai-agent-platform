@@ -123,6 +123,8 @@ public class ProviderController {
         if (m == null) throw new BusinessException(404, "模型不存在");
         if (req.inputPrice() != null) m.setInputPrice(req.inputPrice());
         if (req.outputPrice() != null) m.setOutputPrice(req.outputPrice());
+        if (req.cacheReadPrice() != null) m.setCacheReadPrice(req.cacheReadPrice());
+        if (req.cacheWritePrice() != null) m.setCacheWritePrice(req.cacheWritePrice());
         if (req.status() != null && List.of("ENABLED", "DISABLED").contains(req.status())) {
             m.setStatus(req.status());
         }
@@ -133,11 +135,14 @@ public class ProviderController {
     }
 
     public record UpdateModelRequest(java.math.BigDecimal inputPrice, java.math.BigDecimal outputPrice,
+                                     java.math.BigDecimal cacheReadPrice, java.math.BigDecimal cacheWritePrice,
                                      String status, String displayName, Integer contextWindow) {
     }
 
     public record CreateModelRequest(@NotBlank String modelName, String displayName, String purpose,
-                                     Integer contextWindow) {
+                                     Integer contextWindow,
+                                     java.math.BigDecimal inputPrice, java.math.BigDecimal outputPrice,
+                                     java.math.BigDecimal cacheReadPrice, java.math.BigDecimal cacheWritePrice) {
     }
 
     /** 手动新增模型（用于未同步到的模型），创建时选择上下文窗口（tokens）。 */
@@ -167,6 +172,11 @@ public class ProviderController {
         }
         m.setPurpose(purpose);
         m.setContextWindow(req.contextWindow() == null ? 0 : Math.max(req.contextWindow(), 0));
+        // 接入时写清单价（元/千 Token）：输入/输出/缓存命中/缓存写入
+        m.setInputPrice(req.inputPrice());
+        m.setOutputPrice(req.outputPrice());
+        m.setCacheReadPrice(req.cacheReadPrice());
+        m.setCacheWritePrice(req.cacheWritePrice());
         m.setStatus("ENABLED");
         m.setTenantId(tenantId);
         m.setCreatedAt(java.time.LocalDateTime.now());

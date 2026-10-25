@@ -131,6 +131,7 @@ public class ChatStreamService {
         if (req.message() == null || req.message().isBlank()) {
             throw new BusinessException(400, "消息不能为空");
         }
+        quotaService.checkMonthlyCost();
         quotaService.checkTokensToday(Math.max(50, req.message().length() / 2 + 200));
         quotaService.checkUserQuota(principal.userId(), Math.max(50, req.message().length() / 2 + 200));
         AgentRegistry agent = agentMapper.selectById(conv.getAgentId());
