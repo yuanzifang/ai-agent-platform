@@ -1935,7 +1935,8 @@ test('知识图谱 AI 抽取并提交', async ({ request }) => {
   try {
     const preview = await (await request.post(`${P}/knowledge-base/${kbId}/graph/extract`, {
       headers: auth(token!),
-      data: { text: '智云科技生产净水器，净水器提供 7 天无理由退款。', commit: false }
+      data: { text: '智云科技生产净水器，净水器提供 7 天无理由退款。', commit: false,
+        modelName: 'deepseek-flash' }
     })).json()
     expect(preview.code, JSON.stringify(preview)).toBe(0)
     expect(preview.data.entityCount).toBe(2)
@@ -1948,7 +1949,8 @@ test('知识图谱 AI 抽取并提交', async ({ request }) => {
 
     const committed = await (await request.post(`${P}/knowledge-base/${kbId}/graph/extract`, {
       headers: auth(token!),
-      data: { text: '智云科技生产净水器，净水器提供 7 天无理由退款。', commit: true }
+      data: { text: '智云科技生产净水器，净水器提供 7 天无理由退款。', commit: true,
+        modelName: 'deepseek-flash' }
     })).json()
     expect(committed.code, JSON.stringify(committed)).toBe(0)
     expect(committed.data.committed).toBe(true)

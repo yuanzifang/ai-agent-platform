@@ -34,14 +34,15 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -145,19 +146,45 @@ class KnowledgeGraphServiceAclTest {
         KnowledgeGraphEntity auto = entity(11L, "被手工引用的实体", "产品", "AUTO");
         auto.setDocumentId(1L);
         auto.setChunkId(500L);
-        when(mentionMapper.selectList(any())).thenReturn(List.of(mention(11L, 500L)));
+        KnowledgeGraphRelation manual = relation(100L, 11L, 12L, "关联", 500L, "MANUAL");
+        when(mentionMapper.selectList(any())).thenReturn(
+                List.of(mention(11L, 500L)), List.of());
         when(entityMapper.selectList(any())).thenReturn(List.of(auto));
-        when(entityMapper.selectById(11L)).thenReturn(auto);
-        when(mentionMapper.selectCount(any())).thenReturn(0L);
-        when(relationMapper.selectCount(any())).thenReturn(1L);
+        when(entityMapper.selectBatchIds(anyCollection())).thenReturn(List.of(auto));
+        when(relationMapper.selectList(any())).thenReturn(List.of(manual));
 
         service.deleteByDocument(1L, 1L);
 
         verify(entityMapper).update(isNull(), any(LambdaUpdateWrapper.class));
-        verify(entityMapper, never()).deleteById(11L);
-        assertEquals("MANUAL", auto.getSource());
-        assertNull(auto.getDocumentId());
-        assertNull(auto.getChunkId());
+        verify(entityMapper, never()).deleteById(anyLong());
+        verify(entityMapper, never()).deleteBatchIds(anyCollection());
+    }
+
+    @Test
+    void deleteByDocumentBatchesEntityLookupsAndProtectsManualRelations() {
+        KnowledgeGraphEntity stillMentioned = entity(21L, "仍有证据", "产品", "AUTO");
+        KnowledgeGraphEntity manuallyReferenced = entity(22L, "手工引用", "产品", "AUTO");
+        KnowledgeGraphEntity orphan = entity(23L, "孤儿实体", "产品", "AUTO");
+        when(mentionMapper.selectList(any())).thenReturn(
+                List.of(mention(21L, 500L), mention(22L, 501L), mention(23L, 502L)),
+                List.of(mention(21L, 500L)));
+        when(entityMapper.selectList(any())).thenReturn(List.of());
+        when(entityMapper.selectBatchIds(anyCollection()))
+                .thenReturn(List.of(stillMentioned, manuallyReferenced, orphan));
+        when(relationMapper.selectList(any())).thenReturn(List.of(
+                relation(100L, 22L, 99L, "手工关系", 501L, "MANUAL")));
+
+        service.deleteByDocument(1L, 1L);
+
+        verify(entityMapper, times(1)).selectBatchIds(anyCollection());
+        verify(entityMapper, never()).selectById(any());
+        verify(mentionMapper, times(2)).selectList(any());
+        verify(mentionMapper, never()).selectCount(any());
+        verify(relationMapper, times(1)).selectList(any());
+        verify(relationMapper, never()).selectCount(any());
+        verify(entityMapper, times(1)).update(isNull(), any(LambdaUpdateWrapper.class));
+        verify(entityMapper, times(1)).deleteBatchIds(anyCollection());
+        verify(entityMapper, never()).deleteById(anyLong());
     }
 
     @Test

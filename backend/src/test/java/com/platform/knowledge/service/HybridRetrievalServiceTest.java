@@ -2,6 +2,7 @@ package com.platform.knowledge.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.common.exception.BusinessException;
+import com.platform.knowledge.entity.KnowledgeChunk;
 import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.knowledge.mapper.KnowledgeChunkMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -24,6 +26,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -179,6 +182,44 @@ class HybridRetrievalServiceTest {
 
         assertEquals("vector", result.mode());
         verify(chunkMapper, never()).searchFulltext(anyLong(), anyString(), anyInt());
+    }
+
+    @Test
+    void parentContentExpansionUsesBatchQueries() {
+        when(embedding.embedOne(eq("q"), anyString())).thenReturn(new float[]{0.1f});
+        when(vectorRepository.search(anyLong(), any(float[].class), anyLong(), anyInt(),
+                anyDouble(), anyInt())).thenReturn(List.of(
+                Map.of("content", "命中1", "score", 0.9,
+                        "metadata", "{\"chunk_id\":11,\"document_id\":100,\"chunk_index\":1}"),
+                Map.of("content", "命中2", "score", 0.8,
+                        "metadata", "{\"chunk_id\":12,\"document_id\":100,\"chunk_index\":2}")));
+        KnowledgeChunk stored = chunk(11L, 100L, 1, "命中1");
+        stored.setParentContent("入库父块");
+        stored.setParentIndex(7);
+        KnowledgeChunk c0 = chunk(20L, 100L, 0, "前一段");
+        KnowledgeChunk c1 = chunk(21L, 100L, 1, "命中1");
+        KnowledgeChunk c2 = chunk(22L, 100L, 2, "命中2");
+        when(chunkMapper.selectBatchIds(anyCollection())).thenReturn(List.of(stored));
+        when(chunkMapper.selectList(any())).thenReturn(List.of(c0, c1, c2));
+
+        var result = service.search(1L, "q", 1L, 5, 0.5, Map.of("mode", "vector"));
+
+        assertEquals(2, result.hits().size());
+        assertEquals("入库父块", result.hits().get(0).get("parentContent"));
+        assertEquals(7, result.hits().get(0).get("parentIndex"));
+        assertEquals("命中1\n命中2", result.hits().get(1).get("parentContent"));
+        verify(chunkMapper, times(1)).selectBatchIds(anyCollection());
+        verify(chunkMapper, times(1)).selectList(any());
+        verify(chunkMapper, never()).selectById(any());
+    }
+
+    private KnowledgeChunk chunk(Long id, Long docId, int index, String content) {
+        KnowledgeChunk chunk = new KnowledgeChunk();
+        chunk.setId(id);
+        chunk.setDocumentId(docId);
+        chunk.setChunkIndex(index);
+        chunk.setContent(content);
+        return chunk;
     }
 
     @Test

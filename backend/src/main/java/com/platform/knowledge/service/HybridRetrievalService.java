@@ -1,7 +1,9 @@
 package com.platform.knowledge.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.common.exception.BusinessException;
+import com.platform.knowledge.entity.KnowledgeChunk;
 import com.platform.knowledge.mapper.KnowledgeChunkMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,8 +15,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 混合检索：向量召回 + MySQL ngram 全文召回，RRF 融合后按 topK 返回。
@@ -197,49 +201,128 @@ public class HybridRetrievalService {
 
     /** 父块注入：优先使用入库时保存的 parent_content；历史数据回退到相邻 chunk 合并。 */
     private void enrichNeighbors(Long kbId, List<Map<String, Object>> hits) {
+        if (hits == null || hits.isEmpty()) return;
+
+        // 先批量读取父块，再一次性读取所有缺失命中需要的相邻分段，避免按 hit 逐条查询。
+        List<HitMeta> metas = new ArrayList<>(hits.size());
+        Set<Long> chunkIds = new LinkedHashSet<>();
         for (Map<String, Object> hit : hits) {
+            HitMeta meta = readHitMeta(hit.get("metadata"));
+            metas.add(meta);
+            if (meta.chunkId() != null) chunkIds.add(meta.chunkId());
+        }
+        Map<Long, KnowledgeChunk> storedById = new HashMap<>();
+        if (!chunkIds.isEmpty()) {
             try {
-                Map<?, ?> meta = hit.get("metadata") instanceof String text && !text.isBlank()
-                        ? objectMapper.readValue(text, Map.class) : Map.of();
-                Object chunkIdObj = meta.get("chunk_id");
-                if (chunkIdObj != null) {
-                    try {
-                        com.platform.knowledge.entity.KnowledgeChunk stored = chunkMapper.selectById(
-                                Long.valueOf(String.valueOf(chunkIdObj)));
-                        if (stored != null && stored.getParentContent() != null
-                                && !stored.getParentContent().isBlank()) {
-                            hit.put("parentContent", stored.getParentContent());
-                            hit.put("parentIndex", stored.getParentIndex());
-                            continue;
-                        }
-                    } catch (Exception e) {
-                        log.debug("父块读取失败：{}", e.getMessage());
+                List<KnowledgeChunk> stored = chunkMapper.selectBatchIds(chunkIds);
+                if (stored != null) {
+                    for (KnowledgeChunk chunk : stored) {
+                        if (chunk != null && chunk.getId() != null) storedById.put(chunk.getId(), chunk);
                     }
-                }
-                Object docIdObj = meta.get("document_id");
-                Object idxObj = meta.get("chunk_index");
-                if (docIdObj == null || idxObj == null) continue;
-                Long docId = Long.valueOf(String.valueOf(docIdObj));
-                int idx = Integer.parseInt(String.valueOf(idxObj));
-                List<com.platform.knowledge.entity.KnowledgeChunk> neighbors =
-                        chunkMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.platform.knowledge.entity.KnowledgeChunk>()
-                                .eq(com.platform.knowledge.entity.KnowledgeChunk::getKnowledgeBaseId, kbId)
-                                .eq(com.platform.knowledge.entity.KnowledgeChunk::getDocumentId, docId)
-                                .between(com.platform.knowledge.entity.KnowledgeChunk::getChunkIndex,
-                                        Math.max(0, idx - 1), idx + 1)
-                                .orderByAsc(com.platform.knowledge.entity.KnowledgeChunk::getChunkIndex));
-                if (neighbors.size() > 1) {
-                    StringBuilder parent = new StringBuilder();
-                    for (com.platform.knowledge.entity.KnowledgeChunk c : neighbors) {
-                        if (parent.length() > 0) parent.append('\n');
-                        parent.append(c.getContent());
-                    }
-                    hit.put("parentContent", parent.toString());
                 }
             } catch (Exception e) {
-                log.debug("父子上下文扩展失败：{}", e.getMessage());
+                log.debug("父块批量读取失败：{}", e.getMessage());
             }
         }
+
+        List<NeighborNeed> needs = new ArrayList<>();
+        for (int i = 0; i < hits.size(); i++) {
+            HitMeta meta = metas.get(i);
+            KnowledgeChunk stored = meta.chunkId() == null ? null : storedById.get(meta.chunkId());
+            if (stored != null && stored.getParentContent() != null
+                    && !stored.getParentContent().isBlank()) {
+                hits.get(i).put("parentContent", stored.getParentContent());
+                hits.get(i).put("parentIndex", stored.getParentIndex());
+                continue;
+            }
+            if (meta.docId() != null && meta.chunkIndex() != null) {
+                needs.add(new NeighborNeed(i, meta.docId(), meta.chunkIndex()));
+            }
+        }
+        if (needs.isEmpty()) return;
+
+        List<KnowledgeChunk> neighbors;
+        try {
+            LambdaQueryWrapper<KnowledgeChunk> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(KnowledgeChunk::getKnowledgeBaseId, kbId);
+            wrapper.and(scope -> {
+                boolean first = true;
+                for (NeighborNeed need : needs) {
+                    if (!first) scope.or();
+                    scope.nested(cond -> cond.eq(KnowledgeChunk::getDocumentId, need.docId())
+                            .between(KnowledgeChunk::getChunkIndex,
+                                    Math.max(0, need.chunkIndex() - 1), need.chunkIndex() + 1));
+                    first = false;
+                }
+            });
+            wrapper.orderByAsc(KnowledgeChunk::getDocumentId)
+                    .orderByAsc(KnowledgeChunk::getChunkIndex);
+            neighbors = chunkMapper.selectList(wrapper);
+        } catch (Exception e) {
+            log.debug("相邻分段批量读取失败：{}", e.getMessage());
+            return;
+        }
+        if (neighbors == null || neighbors.isEmpty()) return;
+
+        Map<Long, Map<Integer, KnowledgeChunk>> byDocument = new HashMap<>();
+        for (KnowledgeChunk chunk : neighbors) {
+            if (chunk == null || chunk.getDocumentId() == null || chunk.getChunkIndex() == null) continue;
+            byDocument.computeIfAbsent(chunk.getDocumentId(), k -> new HashMap<>())
+                    .put(chunk.getChunkIndex(), chunk);
+        }
+        for (NeighborNeed need : needs) {
+            Map<Integer, KnowledgeChunk> docChunks = byDocument.get(need.docId());
+            if (docChunks == null) continue;
+            List<KnowledgeChunk> range = new ArrayList<>(3);
+            for (int idx = Math.max(0, need.chunkIndex() - 1); idx <= need.chunkIndex() + 1; idx++) {
+                KnowledgeChunk chunk = docChunks.get(idx);
+                if (chunk != null) range.add(chunk);
+            }
+            if (range.size() <= 1) continue;
+            StringBuilder parent = new StringBuilder();
+            for (KnowledgeChunk chunk : range) {
+                if (parent.length() > 0) parent.append('\n');
+                parent.append(chunk.getContent());
+            }
+            hits.get(need.hitIndex()).put("parentContent", parent.toString());
+        }
+    }
+
+    private HitMeta readHitMeta(Object metadata) {
+        if (!(metadata instanceof String text) || text.isBlank()) {
+            return new HitMeta(null, null, null);
+        }
+        try {
+            Map<?, ?> meta = objectMapper.readValue(text, Map.class);
+            return new HitMeta(longValue(meta.get("chunk_id")), longValue(meta.get("document_id")),
+                    intValue(meta.get("chunk_index")));
+        } catch (Exception e) {
+            return new HitMeta(null, null, null);
+        }
+    }
+
+    private Long longValue(Object value) {
+        if (value == null) return null;
+        try {
+            return Long.valueOf(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Integer intValue(Object value) {
+        if (value == null) return null;
+        try {
+            return Integer.valueOf(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private record HitMeta(Long chunkId, Long docId, Integer chunkIndex) {
+    }
+
+    private record NeighborNeed(int hitIndex, Long docId, int chunkIndex) {
     }
 
     private void normalizeKeyword(Map<String, Candidate> merged) {

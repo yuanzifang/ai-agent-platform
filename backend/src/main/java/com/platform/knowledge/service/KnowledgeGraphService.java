@@ -1475,37 +1475,79 @@ public class KnowledgeGraphService implements ApplicationRunner {
                 .eq(KnowledgeGraphRelation::getKbId, kbId)
                 .eq(KnowledgeGraphRelation::getDocumentId, documentId)
                 .eq(KnowledgeGraphRelation::getSource, SOURCE_AUTO));
-        for (Long entityId : affectedEntityIds) {
-            KnowledgeGraphEntity entity = entityMapper.selectById(entityId);
-            if (entity == null || !SOURCE_AUTO.equals(entity.getSource())) continue;
-            Long count = mentionMapper.selectCount(new LambdaQueryWrapper<KnowledgeGraphMention>()
-                    .eq(KnowledgeGraphMention::getEntityId, entityId));
-            if (count != null && count > 0) continue;
-            // 手工关系仍引用该实体时，把实体转为 MANUAL，避免文档重解析后手工关系悬空。
-            Long manualRelations = relationMapper.selectCount(new LambdaQueryWrapper<KnowledgeGraphRelation>()
-                    .eq(KnowledgeGraphRelation::getKbId, kbId)
-                    .and(w -> w.isNull(KnowledgeGraphRelation::getSource)
-                            .or().ne(KnowledgeGraphRelation::getSource, SOURCE_AUTO))
-                    .and(w -> w.eq(KnowledgeGraphRelation::getFromId, entityId)
-                            .or().eq(KnowledgeGraphRelation::getToId, entityId)));
-            if (manualRelations != null && manualRelations > 0) {
-                entity.setSource(SOURCE_MANUAL);
-                entity.setDocumentId(null);
-                entity.setChunkId(null);
-                entity.setUpdatedAt(LocalDateTime.now());
-                entityMapper.update(null, new LambdaUpdateWrapper<KnowledgeGraphEntity>()
-                        .eq(KnowledgeGraphEntity::getId, entityId)
-                        .set(KnowledgeGraphEntity::getSource, SOURCE_MANUAL)
-                        .set(KnowledgeGraphEntity::getDocumentId, null)
-                        .set(KnowledgeGraphEntity::getChunkId, null)
-                        .set(KnowledgeGraphEntity::getUpdatedAt, LocalDateTime.now()));
-                continue;
+        if (affectedEntityIds.isEmpty()) return;
+
+        List<KnowledgeGraphEntity> affectedEntities = entityMapper.selectBatchIds(affectedEntityIds);
+        Set<Long> autoEntityIds = new LinkedHashSet<>();
+        if (affectedEntities != null) {
+            for (KnowledgeGraphEntity entity : affectedEntities) {
+                if (entity != null && entity.getId() != null && SOURCE_AUTO.equals(entity.getSource())) {
+                    autoEntityIds.add(entity.getId());
+                }
             }
+        }
+        if (autoEntityIds.isEmpty()) return;
+
+        // 一次读取全部剩余 mention，按实体聚合后在内存判断，避免逐实体 selectCount。
+        Set<Long> stillMentioned = new HashSet<>();
+        List<KnowledgeGraphMention> remainingMentions = mentionMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeGraphMention>()
+                        .in(KnowledgeGraphMention::getEntityId, autoEntityIds)
+                        .select(KnowledgeGraphMention::getEntityId));
+        if (remainingMentions != null) {
+            for (KnowledgeGraphMention mention : remainingMentions) {
+                if (mention != null && mention.getEntityId() != null) {
+                    stillMentioned.add(mention.getEntityId());
+                }
+            }
+        }
+
+        // 手工关系仍引用该实体时转为 MANUAL，避免文档重解析后手工关系悬空。
+        Set<Long> manuallyReferenced = new HashSet<>();
+        List<KnowledgeGraphRelation> manualRelations = relationMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeGraphRelation>()
+                        .eq(KnowledgeGraphRelation::getKbId, kbId)
+                        .and(w -> w.isNull(KnowledgeGraphRelation::getSource)
+                                .or().ne(KnowledgeGraphRelation::getSource, SOURCE_AUTO))
+                        .and(w -> w.in(KnowledgeGraphRelation::getFromId, autoEntityIds)
+                                .or().in(KnowledgeGraphRelation::getToId, autoEntityIds))
+                        .select(KnowledgeGraphRelation::getFromId, KnowledgeGraphRelation::getToId));
+        if (manualRelations != null) {
+            for (KnowledgeGraphRelation relation : manualRelations) {
+                if (relation == null) continue;
+                if (relation.getFromId() != null && autoEntityIds.contains(relation.getFromId())) {
+                    manuallyReferenced.add(relation.getFromId());
+                }
+                if (relation.getToId() != null && autoEntityIds.contains(relation.getToId())) {
+                    manuallyReferenced.add(relation.getToId());
+                }
+            }
+        }
+
+        Set<Long> convertToManual = new LinkedHashSet<>();
+        Set<Long> orphanEntityIds = new LinkedHashSet<>();
+        for (Long entityId : autoEntityIds) {
+            if (stillMentioned.contains(entityId)) continue;
+            if (manuallyReferenced.contains(entityId)) {
+                convertToManual.add(entityId);
+            } else {
+                orphanEntityIds.add(entityId);
+            }
+        }
+        if (!convertToManual.isEmpty()) {
+            entityMapper.update(null, new LambdaUpdateWrapper<KnowledgeGraphEntity>()
+                    .in(KnowledgeGraphEntity::getId, convertToManual)
+                    .set(KnowledgeGraphEntity::getSource, SOURCE_MANUAL)
+                    .set(KnowledgeGraphEntity::getDocumentId, null)
+                    .set(KnowledgeGraphEntity::getChunkId, null)
+                    .set(KnowledgeGraphEntity::getUpdatedAt, LocalDateTime.now()));
+        }
+        if (!orphanEntityIds.isEmpty()) {
             relationMapper.delete(new LambdaQueryWrapper<KnowledgeGraphRelation>()
                     .eq(KnowledgeGraphRelation::getKbId, kbId)
-                    .and(w -> w.eq(KnowledgeGraphRelation::getFromId, entityId)
-                            .or().eq(KnowledgeGraphRelation::getToId, entityId)));
-            entityMapper.deleteById(entityId);
+                    .and(w -> w.in(KnowledgeGraphRelation::getFromId, orphanEntityIds)
+                            .or().in(KnowledgeGraphRelation::getToId, orphanEntityIds)));
+            entityMapper.deleteBatchIds(orphanEntityIds);
         }
     }
 

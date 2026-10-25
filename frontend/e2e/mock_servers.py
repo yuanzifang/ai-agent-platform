@@ -141,6 +141,9 @@ class OpenAiHandler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
+        # 显式关闭连接，避免 JDK HttpClient 复用已被 Python 关闭的 keep-alive 连接后卡住。
+        self.send_header("Connection", "close")
+        self.close_connection = True
         self.end_headers()
         self.wfile.write(data)
 
