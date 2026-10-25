@@ -5,6 +5,7 @@ useDefault = true
 
 [allowlist]
 description = "Local development fixtures and documented demo credentials"
+regexTarget = "match"
 paths = [
   '''frontend/e2e/''',
   '''docs/''',
@@ -13,7 +14,11 @@ paths = [
   '''backend/src/test/'''
 ]
 regexes = [
+  '''key:\s*'(cost|traceCount|totalTokens|spanCount|latencyP50Ms|latencyP99Ms|errorCount)''',
+  '''columns:\{userId\}:\{agentId\}''',
   '''Dev@123456''',
   '''Admin@123456''',
   '''Acl@123456'''
 ]
+
+# frontend-ui-object-keys: ObservabilityView 的列/卡片 key 字面量，非密钥
