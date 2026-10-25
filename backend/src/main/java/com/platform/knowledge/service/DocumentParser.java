@@ -533,8 +533,10 @@ public class DocumentParser {
                 BufferedImage image = renderer.renderImageWithDPI(i, Math.max(72, ocrDpi));
                 Path imagePath = tempDir.resolve("page-" + (i + 1) + ".png");
                 ImageIO.write(image, "png", imagePath.toFile());
+                OcrTableExtractor.Result ocr = OcrTableExtractor.extract(runOcrTsv(imagePath));
                 sb.append("\n## Page ").append(i + 1).append('\n')
-                        .append(runOcr(imagePath)).append('\n');
+                        .append(ocr.text()).append('\n');
+                if (!ocr.table().isBlank()) sb.append(ocr.table()).append('\n');
             }
         } finally {
             deleteRecursively(tempDir.toFile());
@@ -577,17 +579,45 @@ public class DocumentParser {
         try {
             String ext = extension == null || extension.isBlank() ? "png" : extension.toLowerCase(Locale.ROOT);
             if (!ext.startsWith(".")) ext = "." + ext;
-            String text = ocrImage(image, ext);
-            if (text != null && !text.isBlank()) {
-                sb.append("\n[图片OCR]\n").append(text.trim()).append('\n');
+            OcrTableExtractor.Result result = ocrImageTable(image, ext);
+            if (!result.text().isBlank()) {
+                sb.append("\n[图片OCR]\n").append(result.text().trim()).append('\n');
             }
+            if (!result.table().isBlank()) sb.append(result.table()).append('\n');
         } catch (Exception e) {
             log.debug("内嵌图片 OCR 跳过：{}", e.getMessage());
         }
     }
 
-    /** 调用外部 OCR 命令：tesseract <image> stdout -l <langs>。 */
+    /** 内嵌图片 OCR：TSV 同时用于文本和表格结构。 */
+    private OcrTableExtractor.Result ocrImageTable(byte[] bytes, String extension) {
+        Path temp = null;
+        try {
+            String ext = extension == null || extension.isBlank() ? ".png" : extension;
+            if (!ext.startsWith(".")) ext = "." + ext;
+            temp = Files.createTempFile("kb-ocr-", ext);
+            Files.write(temp, bytes);
+            return OcrTableExtractor.extract(runOcrTsv(temp));
+        } catch (Exception e) {
+            log.debug("内嵌图片 OCR 失败：{}", e.getMessage());
+            return new OcrTableExtractor.Result("", "");
+        } finally {
+            if (temp != null) {
+                try { Files.deleteIfExists(temp); } catch (Exception ignored) { }
+            }
+        }
+    }
+
+    /** 调用外部 OCR 命令：tesseract <image> stdout -l <langs> [tsv]。 */
     private String runOcr(Path image) throws Exception {
+        return runOcr(image, null);
+    }
+
+    private String runOcrTsv(Path image) throws Exception {
+        return runOcr(image, "tsv");
+    }
+
+    private String runOcr(Path image, String config) throws Exception {
         List<String> command = new ArrayList<>();
         command.add(ocrCommand);
         command.add(image.toAbsolutePath().toString());
@@ -596,6 +626,7 @@ public class DocumentParser {
             command.add("-l");
             command.add(ocrLanguages);
         }
+        if (config != null && !config.isBlank()) command.add(config);
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.environment().put("PATH", System.getenv().getOrDefault("PATH", "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"));
         Process process = pb.start();

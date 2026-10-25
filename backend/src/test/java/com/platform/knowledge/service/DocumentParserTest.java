@@ -271,6 +271,57 @@ class DocumentParserTest {
     }
 
     @Test
+    void ocrScannedPdfTableAsHtml() throws Exception {
+        Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过扫描表格 OCR");
+        BufferedImage image = new BufferedImage(1400, 700, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, 1400, 700);
+            g.setColor(Color.BLACK);
+            g.setFont(new Font("SansSerif", Font.PLAIN, 46));
+            String[][] rows = {
+                    {"Product", "Price", "Qty"},
+                    {"Water", "1999", "2"},
+                    {"Filter", "99", "10"},
+                    {"Install", "0", "1"}
+            };
+            int[] xs = {100, 650, 1050};
+            int y = 120;
+            for (String[] row : rows) {
+                for (int col = 0; col < row.length; col++) {
+                    g.drawString(row[col], xs[col], y);
+                }
+                y += 120;
+            }
+            g.setColor(Color.DARK_GRAY);
+            g.drawRect(70, 50, 1200, 480);
+            for (int r = 1; r < 4; r++) g.drawLine(70, 50 + r * 120, 1270, 50 + r * 120);
+            for (int x : new int[]{600, 1000}) g.drawLine(x, 50, x, 530);
+        } finally {
+            g.dispose();
+        }
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            var pdImage = LosslessFactory.createFromImage(doc, image);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.drawImage(pdImage, 40, 300, 515, 258);
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        ReflectionTestUtils.setField(parser, "ocrEnabled", true);
+        ReflectionTestUtils.setField(parser, "ocrCommand", "tesseract");
+        ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
+        String text = String.join("\n", parser.parse("scan-table.pdf", pdf));
+        assertTrue(text.contains("<table"), "扫描表格应重建为 HTML，实际=" + text);
+        assertTrue(text.contains("Water") && text.contains("1999"),
+                "扫描表格单元格应保留，实际=" + text);
+    }
+
+    @Test
     void ocrEmbeddedDocxImage() throws Exception {
         Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过内嵌图片 OCR");
         BufferedImage image = new BufferedImage(900, 260, BufferedImage.TYPE_INT_RGB);
