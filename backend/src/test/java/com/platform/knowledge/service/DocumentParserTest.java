@@ -20,6 +20,8 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
@@ -161,6 +163,71 @@ class DocumentParserTest {
         ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
         String text = String.join("\n", parser.parse("scanned.pdf", pdf));
         assertTrue(text.contains("9876"), text);
+    }
+
+    @Test
+    void parsesPdfTableAsHtml() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            String[][] rows = {
+                    {"Product", "Price", "Qty"},
+                    {"Water purifier", "1999", "2"},
+                    {"Filter", "99", "10"},
+                    {"Installation", "0", "1"}
+            };
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                float y = 720;
+                for (String[] row : rows) {
+                    float[] xs = {50, 220, 360};
+                    for (int col = 0; col < row.length; col++) {
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 30;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("table.pdf", pdf));
+        assertTrue(text.contains("<table"), "PDF 表格应输出 table 标记，实际=" + text);
+        assertTrue(text.contains("<td>Water purifier</td>"), "应保留表格单元格文本，实际=" + text);
+        assertTrue(text.contains("<td>1999</td>"), "应保留金额列，实际=" + text);
+    }
+
+    @Test
+    void plainPdfDoesNotEmitTable() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                String[] lines = {
+                        "This is a normal paragraph in a PDF document.",
+                        "It has several lines but no tabular structure.",
+                        "The parser must keep it as plain text."
+                };
+                float y = 720;
+                for (String line : lines) {
+                    content.beginText();
+                    content.newLineAtOffset(50, y);
+                    content.showText(line);
+                    content.endText();
+                    y -= 24;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("prose.pdf", pdf));
+        assertTrue(text.contains("normal paragraph"));
+        assertTrue(!text.contains("<table"), "普通正文不应被误判为表格，实际=" + text);
     }
 
     @Test

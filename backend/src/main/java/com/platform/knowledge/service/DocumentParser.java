@@ -272,6 +272,8 @@ public class DocumentParser {
     private String parsePdf(byte[] bytes) throws Exception {
         try (PDDocument doc = org.apache.pdfbox.Loader.loadPDF(bytes)) {
             StringBuilder sb = new StringBuilder(new PDFTextStripper().getText(doc));
+            String tables = PdfTableExtractor.extract(doc);
+            if (!tables.isBlank()) sb.append("\n").append(tables).append('\n');
             if (ocrEnabled) {
                 int count = 0;
                 for (int p = 0; p < doc.getNumberOfPages() && count < 20; p++) {
