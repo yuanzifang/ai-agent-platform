@@ -1056,6 +1056,56 @@ class DocumentParserTest {
     }
 
     @Test
+    void ocrScannedMultiLevelHeaderColspan() throws Exception {
+        Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过扫描多级表头");
+        BufferedImage image = new BufferedImage(1400, 900, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, 1400, 900);
+            g.setColor(Color.BLACK);
+            g.setFont(new Font("SansSerif", Font.PLAIN, 42));
+            g.drawString("Product", 100, 180);
+            g.drawString("Sales", 650, 180);
+            g.drawString("2024", 650, 280);
+            g.drawString("2025", 1050, 280);
+            String[][] rows = {
+                    {"Water", "10", "20"},
+                    {"Filter", "5", "5"},
+                    {"Install", "0", "1"}
+            };
+            int y = 380;
+            for (String[] row : rows) {
+                int[] xs = {100, 650, 1050};
+                for (int col = 0; col < row.length; col++) g.drawString(row[col], xs[col], y);
+                y += 100;
+            }
+        } finally {
+            g.dispose();
+        }
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            var pdImage = LosslessFactory.createFromImage(doc, image);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.drawImage(pdImage, 40, 240, 515, 331);
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        ReflectionTestUtils.setField(parser, "ocrEnabled", true);
+        ReflectionTestUtils.setField(parser, "ocrCommand", "tesseract");
+        ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
+        ReflectionTestUtils.setField(parser, "ocrPreprocess", true);
+        String text = String.join("\n", parser.parse("scan-table-multi-header.pdf", pdf));
+        assertTrue(text.contains("<th colspan=\"2\">Sales</th>"),
+                "扫描表头跨列应输出 colspan，实际=" + text);
+        assertTrue(text.contains("<th>2024</th>") && text.contains("<th>2025</th>"),
+                "年份表头应保留，实际=" + text);
+    }
+
+    @Test
     void ocrLowContrastScannedTable() throws Exception {
         Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过低对比度 OCR");
         BufferedImage image = new BufferedImage(1400, 700, BufferedImage.TYPE_INT_RGB);

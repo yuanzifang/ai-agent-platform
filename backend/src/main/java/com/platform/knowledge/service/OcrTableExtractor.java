@@ -94,12 +94,7 @@ final class OcrTableExtractor {
         if (headers > 0) {
             table.append("<thead>\n");
             for (int i = 0; i < headers; i++) {
-                String[] cells = mapCells(candidates.get(i), anchors);
-                table.append("<tr>");
-                for (String cell : cells) {
-                    table.append("<th>").append(cell == null ? "" : escape(cell)).append("</th>");
-                }
-                table.append("</tr>\n");
+                table.append(renderHeaderRow(candidates.get(i), anchors));
             }
             table.append("</thead>\n");
         }
@@ -117,6 +112,27 @@ final class OcrTableExtractor {
             table.append("\n<p class=\"table-note\">").append(escape(note)).append("</p>");
         }
         return table.toString();
+    }
+
+    private static String renderHeaderRow(Line line, List<Float> anchors) {
+        String[] cells = mapCells(line, anchors);
+        StringBuilder html = new StringBuilder("<tr>");
+        int covered = -1;
+        for (int i = 0; i < cells.length; i++) {
+            if (i <= covered) continue;
+            if (cells[i] == null || cells[i].isBlank()) {
+                html.append("<th></th>");
+                continue;
+            }
+            int next = i + 1;
+            while (next < cells.length && (cells[next] == null || cells[next].isBlank())) next++;
+            int span = Math.max(1, next - i);
+            html.append("<th");
+            if (span > 1) html.append(" colspan=\"").append(span).append("\"");
+            html.append(">").append(escape(cells[i])).append("</th>");
+            covered = i + span - 1;
+        }
+        return html.append("</tr>\n").toString();
     }
 
     private static String[] mapCells(Line line, List<Float> anchors) {
@@ -138,10 +154,20 @@ final class OcrTableExtractor {
                 value = true;
                 if (cell.text.matches("[-+]?\\d+([.,]\\d+)?")) numeric = true;
             }
-            if (!value || numeric) break;
+            if (!value || (numeric && !yearLabels(line))) break;
             count++;
         }
         return count >= lines.size() ? 0 : count;
+    }
+
+    private static boolean yearLabels(Line line) {
+        boolean any = false;
+        for (Cell cell : line.cells) {
+            if (cell.text.isBlank()) continue;
+            if (!cell.text.matches("(19|20)\\d{2}")) return false;
+            any = true;
+        }
+        return any;
     }
 
     private static String findCaption(List<Line> lines, float tableTop) {
