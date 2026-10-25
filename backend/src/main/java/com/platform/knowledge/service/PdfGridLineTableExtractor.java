@@ -9,6 +9,7 @@ import org.apache.pdfbox.text.TextPosition;
 
 import java.awt.geom.Point2D;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +21,7 @@ import java.util.Map;
 final class PdfGridLineTableExtractor {
 
     private static final float TOL = 2f;
+    private static final float DASH_GAP = 10f;
 
     private PdfGridLineTableExtractor() {
     }
@@ -41,7 +43,7 @@ final class PdfGridLineTableExtractor {
                 stripper.setStartPage(p + 1);
                 stripper.setEndPage(p + 1);
                 stripper.getText(doc);
-                String table = toTable(glyphs, segments(page), page.getMediaBox().getHeight());
+                String table = toTable(glyphs, mergeDashes(segments(page)), page.getMediaBox().getHeight());
                 if (!table.isBlank()) merged = OcrTableExtractor.mergeTables(merged, table);
             }
         } catch (Exception e) {
@@ -58,6 +60,35 @@ final class PdfGridLineTableExtractor {
             return List.of();
         }
         return collector.segments;
+    }
+
+    /** 合并虚线/短折断线段：仅合并同一坐标上间距很小的共线线段。 */
+    private static List<Segment> mergeDashes(List<Segment> segments) {
+        List<Segment> merged = new ArrayList<>();
+        for (boolean horizontal : new boolean[]{true, false}) {
+            List<Segment> group = segments.stream()
+                    .filter(s -> s.horizontal == horizontal)
+                    .sorted(Comparator.comparingDouble((Segment s) -> s.fixed)
+                            .thenComparingDouble(s -> s.from))
+                    .toList();
+            for (Segment current : group) {
+                if (merged.isEmpty()) {
+                    merged.add(current);
+                    continue;
+                }
+                Segment last = merged.get(merged.size() - 1);
+                if (last.horizontal == current.horizontal
+                        && Math.abs(last.fixed - current.fixed) <= TOL
+                        && current.from <= last.to + DASH_GAP) {
+                    merged.set(merged.size() - 1,
+                            new Segment(current.horizontal, last.fixed,
+                                    Math.min(last.from, current.from), Math.max(last.to, current.to)));
+                } else {
+                    merged.add(current);
+                }
+            }
+        }
+        return merged;
     }
 
     private static String toTable(List<TextPosition> glyphs, List<Segment> segments, float pageHeight) {
