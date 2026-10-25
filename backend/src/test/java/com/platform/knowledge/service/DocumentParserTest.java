@@ -24,7 +24,11 @@ import org.apache.pdfbox.cos.COSDictionary;
 import org.apache.pdfbox.cos.COSStream;
 import org.apache.pdfbox.cos.COSInteger;
 import org.apache.pdfbox.cos.COSName;
+import org.apache.pdfbox.pdmodel.PDEmbeddedFilesNameTreeNode;
+import org.apache.pdfbox.pdmodel.PDDocumentNameDictionary;
 import org.apache.pdfbox.pdmodel.PDResources;
+import org.apache.pdfbox.pdmodel.common.filespecification.PDComplexFileSpecification;
+import org.apache.pdfbox.pdmodel.common.filespecification.PDEmbeddedFile;
 import com.platform.common.exception.BusinessException;
 import org.apache.pdfbox.pdmodel.encryption.AccessPermission;
 import org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy;
@@ -1598,6 +1602,28 @@ class DocumentParserTest {
         String text = String.join("\n", parser.parse("outline.pdf", pdf));
         assertTrue(text.contains("[书签]第一章"), "应提取 PDF 书签，实际=" + text);
         assertTrue(text.contains("[链接]https://example.com/docs"), "应提取 PDF 超链接，实际=" + text);
+    }
+
+    @Test
+    void parsesPdfEmbeddedAttachmentName() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            PDComplexFileSpecification spec = new PDComplexFileSpecification();
+            spec.setFile("note.txt");
+            spec.setEmbeddedFile(new PDEmbeddedFile(doc,
+                    new ByteArrayInputStream("attachment".getBytes(StandardCharsets.UTF_8))));
+            PDEmbeddedFilesNameTreeNode tree = new PDEmbeddedFilesNameTreeNode();
+            tree.setNames(java.util.Map.of("note.txt", spec));
+            PDDocumentNameDictionary names = new PDDocumentNameDictionary(doc.getDocumentCatalog());
+            names.setEmbeddedFiles(tree);
+            doc.getDocumentCatalog().setNames(names);
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("attachment.pdf", pdf));
+        assertTrue(text.contains("[附件]note.txt"), "应提取 PDF 内嵌附件名称，实际=" + text);
     }
 
     @Test

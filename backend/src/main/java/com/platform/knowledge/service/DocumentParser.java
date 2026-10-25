@@ -365,6 +365,7 @@ public class DocumentParser {
             if (!tables.isBlank()) sb.append("\n").append(tables).append('\n');
             appendPdfFormsAndAnnotations(doc, sb);
             appendPdfOutlineAndLinks(doc, sb);
+            appendPdfAttachments(doc, sb);
             if (opts().ocrEnabled()) {
                 StringBuilder embeddedTables = new StringBuilder();
                 int count = 0;
@@ -407,6 +408,21 @@ public class DocumentParser {
         if (value == null || value.isBlank()) return;
         if (meta.length() > 0) meta.append("; ");
         meta.append(label).append(": ").append(value.trim());
+    }
+
+    /** PDF 内嵌附件：至少保留附件名称，正文内容仍由附件本身管理。 */
+    private void appendPdfAttachments(PDDocument doc, StringBuilder sb) {
+        try {
+            var names = doc.getDocumentCatalog().getNames();
+            if (names == null || names.getEmbeddedFiles() == null) return;
+            var files = names.getEmbeddedFiles().getNames();
+            if (files == null) return;
+            for (var entry : files.entrySet()) {
+                sb.append("\n[附件]").append(entry.getKey()).append('\n');
+            }
+        } catch (Exception e) {
+            log.debug("PDF 附件读取失败（忽略）：{}", e.getMessage());
+        }
     }
 
     /** PDF 书签目录与超链接：保留文档结构和外部链接，便于检索/跳转。 */
