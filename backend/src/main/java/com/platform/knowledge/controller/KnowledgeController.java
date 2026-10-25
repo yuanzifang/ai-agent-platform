@@ -65,7 +65,7 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.detail(id, viewer(principal)));
     }
 
-    public record UpdateKbRequest(@NotBlank String name, String description, String embeddingModel,
+    public record UpdateKbRequest(String name, String description, String embeddingModel,
                                   Boolean graphEnabled, Map<String, Object> parseConfig) {
     }
 
