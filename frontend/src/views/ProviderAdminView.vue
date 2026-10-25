@@ -20,6 +20,9 @@
             <div>
               <div class="m-name">{{ m.displayName || m.modelName }}</div>
               <div class="m-provider">{{ m.providerName }} · {{ purposeText(m.purpose) }}</div>
+              <div class="m-caps">
+                <el-tag v-for="c in capabilityTags(m)" :key="c" size="small" effect="plain" class="cap-tag">{{ c }}</el-tag>
+              </div>
             </div>
           </div>
           <div class="m-row">{{ t('providerPage.modelId') }}{{ m.modelName }}</div>
@@ -71,7 +74,14 @@
         <el-table-column prop="displayName" :label="t('providerPage.name')" width="180" />
         <el-table-column prop="modelName" :label="t('providerPage.modelName')" width="150" />
         <el-table-column prop="providerName" label="Provider" width="120" />
-        <el-table-column prop="purpose" :label="t('providerPage.purpose')" width="90" />
+        <el-table-column :label="t('providerPage.purpose')" width="90">
+          <template #default="{ row }">{{ purposeText(row.purpose) }}</template>
+        </el-table-column>
+        <el-table-column :label="t('providerPage.capabilitiesCol')" min-width="170">
+          <template #default="{ row }">
+            <el-tag v-for="c in capabilityTags(row)" :key="c" size="small" effect="plain" class="cap-tag">{{ c }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('providerPage.contextCol')" width="110">
           <template #default="{ row }">{{ contextLabel(row.contextWindow) }}</template>
         </el-table-column>
@@ -143,6 +153,10 @@
           <el-select v-model="modelForm.purpose" style="width: 160px">
             <el-option :label="t('providerPage.chat')" value="CHAT" />
             <el-option :label="t('providerPage.embedding')" value="EMBEDDING" />
+            <el-option label="重排" value="RERANK" />
+            <el-option label="视觉（图片理解）" value="VISION" />
+            <el-option label="语音转文字" value="ASR" />
+            <el-option label="文字识别（OCR）" value="OCR" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('providerPage.contextWindow')">
@@ -273,6 +287,23 @@ async function sync(row: any) {
   await load()
 }
 
+const CAP_TEXT = {
+  multimodal: '多模态', reasoning: '推理', functionCall: '函数调用',
+  vision: '图片理解', ocr: '文字识别(OCR)', asr: '语音转文字'
+}
+/** capabilities JSON → 可读能力标签（只展示为 true 的键）。 */
+function capabilityTags(row: any): string[] {
+  const tags: string[] = []
+  try {
+    const caps = typeof row.capabilities === 'string'
+      ? JSON.parse(row.capabilities) : (row.capabilities || {})
+    for (const [k, v] of Object.entries(caps)) {
+      if (v === true && (CAP_TEXT as any)[k]) tags.push((CAP_TEXT as any)[k])
+    }
+  } catch { /* 忽略坏 JSON */ }
+  return tags.length ? tags : ['—']
+}
+
 function purposeText(p?: string) {
   return ({ CHAT: '对话', EMBEDDING: '向量', RERANK: '重排', VISION: '视觉' } as any)[p || ''] || p || '-'
 }
@@ -329,6 +360,8 @@ async function savePrice() {
 </script>
 
 <style scoped>
+.cap-tag { margin-right: 4px; }
+.m-caps { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
 .page { max-width: 1100px; margin: 0 auto; }
 .mr8 { margin-right: 8px; }
 .market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }

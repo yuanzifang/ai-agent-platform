@@ -184,11 +184,18 @@ public class ProviderService {
         for (Map<String, Object> m : data) {
             String modelName = String.valueOf(m.get("id"));
             boolean multimodal = m.get("input_modalities") instanceof List<?> mods && mods.contains("image");
-            // 视觉模型启发式：名称含 vl/vision/llava/minicpm-v 等 → 用途 VISION（供解析图片理解选用）
+            // 用途启发式：名称特征 → VISION（图片理解）/ ASR（语音转文字）/ OCR（文字识别）/ CHAT
             String lower = modelName.toLowerCase(Locale.ROOT);
+            String purpose;
             boolean visionLike = lower.contains("-vl") || lower.contains("vision")
                     || lower.contains("llava") || lower.contains("minicpm-v");
-            String purpose = visionLike ? "VISION" : "CHAT";
+            boolean asrLike = lower.contains("whisper") || lower.contains("asr")
+                    || lower.contains("sense-voice") || lower.contains("paraformer");
+            boolean ocrLike = lower.contains("ocr") || lower.contains("tesseract");
+            if (asrLike) purpose = "ASR";
+            else if (ocrLike) purpose = "OCR";
+            else if (visionLike) purpose = "VISION";
+            else purpose = "CHAT";
             ModelEntity existing = providerMapper.listVisibleModels(null).stream()
                     .filter(x -> x.getProviderId().equals(p.getId()) && x.getModelName().equals(modelName))
                     .findFirst().orElse(null);
