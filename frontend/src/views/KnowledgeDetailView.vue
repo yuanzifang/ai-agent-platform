@@ -113,6 +113,8 @@
               {{ c.reviewStatus === 'REVIEWED' ? t('kbDetail.chartReviewed') : t('kbDetail.chartNeedsReview') }}
             </el-tag>
             <el-button v-if="detail.canEdit && isChartChunk(c)" size="small" text type="primary"
+                       @click.stop="openReviewEdit(c)">{{ t('kbDetail.editChart') }}</el-button>
+            <el-button v-if="detail.canEdit && isChartChunk(c)" size="small" text type="primary"
                        :loading="reviewSavingId === c.id" @click.stop="toggleChunkReview(c)">
               {{ c.reviewStatus === 'REVIEWED' ? t('kbDetail.undoReview') : t('kbDetail.markReviewed') }}
             </el-button>
@@ -278,6 +280,18 @@
       </div>
     </el-dialog>
 
+    <el-dialog v-model="reviewEditVisible" :title="t('kbDetail.editChartTitle')" width="680px">
+      <div class="hint" style="margin-bottom:8px">{{ t('kbDetail.editChartHint') }}</div>
+      <el-input v-model="reviewEditBody" type="textarea" :rows="10"
+                :placeholder="t('kbDetail.editChartPlaceholder')" />
+      <template #footer>
+        <el-button @click="reviewEditVisible = false">{{ t('kbDetail.cancel') }}</el-button>
+        <el-button type="primary" :loading="reviewEditSaving" @click="saveReviewEdit">
+          {{ t('kbDetail.saveCorrection') }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="aclVisible" :title="t('kbDetail.aclTitle')" width="520px">
       <el-form label-width="100px">
         <el-form-item :label="t('kbDetail.tenantVisible')">
@@ -338,6 +352,11 @@ const imagesDocName = ref('')
 const aclVisible = ref(false)
 const aclSaving = ref(false)
 const reviewSavingId = ref<number | null>(null)
+const reviewEditVisible = ref(false)
+const reviewEditSaving = ref(false)
+const reviewEditChunk = ref<any>(null)
+const reviewEditBody = ref('')
+const CHART_CORRECTED_PREFIX = '【图表数据·人工修正】'
 const aclChunk = ref<any>(null)
 const aclMembers = ref<any[]>([])
 const aclForm = reactive<{ tenantVisible: boolean; users: number[] }>({ tenantVisible: true, users: [] })
@@ -682,6 +701,33 @@ async function saveChunkAcl() {
 
 function isChartChunk(c: any) {
   return typeof c?.content === 'string' && c.content.startsWith('【图表数据')
+}
+
+function openReviewEdit(c: any) {
+  const content = typeof c?.content === 'string' ? c.content : ''
+  const end = content.indexOf('】')
+  reviewEditBody.value = content.startsWith('【图表数据') && end >= 0
+    ? content.slice(end + 1).trim() : content
+  reviewEditChunk.value = c
+  reviewEditVisible.value = true
+}
+
+async function saveReviewEdit() {
+  if (!reviewEditChunk.value) return
+  const content = CHART_CORRECTED_PREFIX + reviewEditBody.value.trim()
+  reviewEditSaving.value = true
+  try {
+    const data = await http.put(`/knowledge-base/${kbId}/chunks/${reviewEditChunk.value.id}/review`, {
+      reviewed: true, content
+    }) as any
+    reviewEditChunk.value.content = data.content
+    reviewEditChunk.value.reviewStatus = data.reviewStatus
+    reviewEditChunk.value.reviewRequired = false
+    reviewEditVisible.value = false
+    ElMessage.success(t('kbDetail.editChartSaved'))
+  } finally {
+    reviewEditSaving.value = false
+  }
 }
 
 async function toggleChunkReview(c: any) {

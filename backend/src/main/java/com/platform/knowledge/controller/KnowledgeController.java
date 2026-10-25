@@ -208,7 +208,7 @@ public class KnowledgeController {
                 req.tenantVisible() == null || req.tenantVisible(), viewer(principal)));
     }
 
-    public record ChunkReviewRequest(Boolean reviewed) {
+    public record ChunkReviewRequest(Boolean reviewed, String content) {
     }
 
     @PutMapping("/{id}/chunks/{chunkId}/review")
@@ -216,7 +216,7 @@ public class KnowledgeController {
                                                          @RequestBody ChunkReviewRequest req,
                                                          @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(knowledgeService.updateChunkReview(id, chunkId,
-                Boolean.TRUE.equals(req.reviewed()), viewer(principal)));
+                Boolean.TRUE.equals(req.reviewed()), req.content(), viewer(principal)));
     }
 
     public record SearchRequest(@NotBlank String query, Integer topK, Double scoreThreshold, String mode) {

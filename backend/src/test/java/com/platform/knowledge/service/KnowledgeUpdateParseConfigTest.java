@@ -61,6 +61,7 @@ class KnowledgeUpdateParseConfigTest {
     private PricingService pricingService;
     private EmbeddingService embeddingService;
     private KnowledgePermissionService permissionService;
+    private com.platform.knowledge.service.VectorRepository vectorRepository;
     private com.platform.knowledge.service.KnowledgeService service;
     private KnowledgeBase kb;
     private final com.platform.knowledge.service.KnowledgePermissionService.Viewer viewer =
@@ -86,8 +87,7 @@ class KnowledgeUpdateParseConfigTest {
         com.platform.knowledge.service.StorageService storage =
                 mock(com.platform.knowledge.service.StorageService.class);
         embeddingService = mock(EmbeddingService.class);
-        com.platform.knowledge.service.VectorRepository vectorRepository =
-                mock(com.platform.knowledge.service.VectorRepository.class);
+        vectorRepository = mock(com.platform.knowledge.service.VectorRepository.class);
         com.platform.knowledge.service.HybridRetrievalService hybridRetrieval =
                 mock(com.platform.knowledge.service.HybridRetrievalService.class);
         com.platform.knowledge.service.DocumentParser parser =
@@ -315,6 +315,34 @@ class KnowledgeUpdateParseConfigTest {
                 com.platform.common.exception.BusinessException.class,
                 () -> service.updateChunkReview(161L, 78L, true, viewer()));
         assertEquals(400, error.getCode());
+    }
+
+    @Test
+    void correctChartChunkUpdatesContentAndVector() {
+        KnowledgeChunk chart = new KnowledgeChunk();
+        chart.setId(77L);
+        chart.setKnowledgeBaseId(161L);
+        chart.setContent("【图表数据·模型识别，需人工核对】{\"series\":[1]}");
+        when(chunkMapper.selectById(77L)).thenReturn(chart);
+        String corrected = "【图表数据·人工修正】{\"series\":[2]}";
+        float[] vector = new float[]{0.1f, 0.2f};
+        when(embeddingService.dimension("nomic-embed-text")).thenReturn(2);
+        when(embeddingService.embedOne(corrected, "nomic-embed-text")).thenReturn(vector);
+
+        Map<String, Object> result = service.updateChunkReview(161L, 77L, true, corrected, viewer());
+
+        assertEquals(corrected, result.get("content"));
+        assertEquals(Boolean.TRUE, result.get("contentChanged"));
+        assertEquals("REVIEWED", result.get("reviewStatus"));
+        verify(vectorRepository).updateContentForChunk(1L, 161L, 77L, corrected, vector, 2);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Wrapper<KnowledgeChunk>> captor =
+                ArgumentCaptor.forClass((Class) Wrapper.class);
+        verify(chunkMapper).update(isNull(), captor.capture());
+        LambdaUpdateWrapper<KnowledgeChunk> wrapper = (LambdaUpdateWrapper<KnowledgeChunk>) captor.getValue();
+        assertTrue(wrapper.getSqlSet().contains("content"));
+        assertTrue(wrapper.getParamNameValuePairs().values().stream()
+                .anyMatch(value -> corrected.equals(value)));
     }
 
     @Test

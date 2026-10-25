@@ -123,6 +123,18 @@ public class VectorRepository {
                 tenantWide, String.valueOf(userId), q, topK);
     }
 
+    /** 人工修正图表内容后同步向量表内容与 embedding。 */
+    public void updateContentForChunk(Long tenantId, Long knowledgeBaseId, Long chunkId,
+                                      String content, float[] embedding, int dimensions) {
+        String table = "%s.%s".formatted(schema(tenantId), table(dimensions));
+        pgJdbcTemplate.update(
+                "UPDATE %s SET content = ?, embedding = ?::vector " +
+                        "WHERE metadata->>'knowledge_base_id' = ? AND metadata->>'chunk_id' = ?"
+                        .formatted(table),
+                content, vectorLiteral(embedding), String.valueOf(knowledgeBaseId),
+                String.valueOf(chunkId));
+    }
+
     public void deleteByDocument(Long tenantId, Long documentId) {
         for (String table : tables()) {
             pgJdbcTemplate.update(

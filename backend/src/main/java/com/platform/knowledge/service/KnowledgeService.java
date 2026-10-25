@@ -879,10 +879,16 @@ public class KnowledgeService {
         return Map.of("id", chunkId, "allowedUsers", users, "tenantVisible", tenantVisible);
     }
 
-    /** 图表分段人工复核：标记已核对/撤销核对；仅图表分段可操作。 */
+    /** 图表分段人工复核：标记已核对/撤销核对；可选修正图表内容并同步向量。 */
     public Map<String, Object> updateChunkReview(Long kbId, Long chunkId, boolean reviewed,
                                                   KnowledgePermissionService.Viewer viewer) {
-        permissionService.requireEdit(kbId, viewer);
+        return updateChunkReview(kbId, chunkId, reviewed, null, viewer);
+    }
+
+    public Map<String, Object> updateChunkReview(Long kbId, Long chunkId, boolean reviewed,
+                                                  String content,
+                                                  KnowledgePermissionService.Viewer viewer) {
+        KnowledgeBase kb = permissionService.requireEdit(kbId, viewer);
         KnowledgeChunk chunk = chunkMapper.selectById(chunkId);
         if (chunk == null || !Objects.equals(chunk.getKnowledgeBaseId(), kbId)) {
             throw new BusinessException(404, "分段不存在");
@@ -890,22 +896,53 @@ public class KnowledgeService {
         if (!isChartChunk(chunk.getContent())) {
             throw new BusinessException(400, "仅图表数据分段支持人工复核");
         }
+        String updatedContent = chunk.getContent();
+        boolean contentChanged = content != null && !content.isBlank()
+                && !content.equals(chunk.getContent());
+        if (contentChanged) {
+            if (!isChartChunk(content)) {
+                throw new BusinessException(400, "图表内容必须保留【图表数据】标记");
+            }
+            if (content.length() > 4000) {
+                throw new BusinessException(400, "图表内容过长（最多 4000 字）");
+            }
+            updatedContent = content;
+        }
         String status = reviewed ? "REVIEWED" : "PENDING";
         LocalDateTime reviewedAt = reviewed ? LocalDateTime.now() : null;
         Long reviewedBy = reviewed ? viewer.userId() : null;
-        chunkMapper.update(null, new LambdaUpdateWrapper<KnowledgeChunk>()
+        LambdaUpdateWrapper<KnowledgeChunk> update = new LambdaUpdateWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getId, chunkId)
                 .set(KnowledgeChunk::getReviewStatus, status)
                 .set(KnowledgeChunk::getReviewedAt, reviewedAt)
-                .set(KnowledgeChunk::getReviewedBy, reviewedBy));
+                .set(KnowledgeChunk::getReviewedBy, reviewedBy);
+        if (contentChanged) update.set(KnowledgeChunk::getContent, updatedContent);
+        chunkMapper.update(null, update);
+        if (contentChanged) {
+            String model = kb.getEmbeddingModel() == null || kb.getEmbeddingModel().isBlank()
+                    ? embeddingService.model() : kb.getEmbeddingModel().trim();
+            int dimensions = embeddingService.dimension(model);
+            float[] vector = embeddingService.embedOne(updatedContent, model);
+            try {
+                vectorRepository.updateContentForChunk(kb.getTenantId(), kbId, chunkId,
+                        updatedContent, vector, dimensions);
+            } catch (Exception e) {
+                log.warn("图表内容向量更新失败（MySQL 已更新）kb={} chunk={} err={}",
+                        kbId, chunkId, e.getMessage());
+                throw new BusinessException(500, "图表内容已保存，但向量更新失败，请重新解析文档");
+            }
+        }
         auditService.record(viewer.userId(), "knowledge.chunk_review", "knowledge_chunk",
                 String.valueOf(chunkId), "SUCCESS",
-                Map.of("knowledgeBaseId", kbId, "reviewed", reviewed));
+                Map.of("knowledgeBaseId", kbId, "reviewed", reviewed,
+                        "contentChanged", contentChanged));
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", chunkId);
         result.put("reviewStatus", status);
         result.put("reviewedAt", reviewedAt);
         result.put("reviewedBy", reviewedBy);
+        result.put("content", updatedContent);
+        result.put("contentChanged", contentChanged);
         return result;
     }
 
