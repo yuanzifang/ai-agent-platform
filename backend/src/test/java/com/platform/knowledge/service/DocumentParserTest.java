@@ -174,7 +174,7 @@ class DocumentParserTest {
             String[][] rows = {
                     {"Product", "Price", "Qty"},
                     {"Water purifier", "1999", "2"},
-                    {"Filter", "99", "10"},
+                    {"Filter", "", "10"},
                     {"Installation", "0", "1"}
             };
             try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
@@ -183,6 +183,7 @@ class DocumentParserTest {
                 for (String[] row : rows) {
                     float[] xs = {50, 220, 360};
                     for (int col = 0; col < row.length; col++) {
+                        if (row[col].isEmpty()) continue;
                         content.beginText();
                         content.newLineAtOffset(xs[col], y);
                         content.showText(row[col]);
@@ -198,6 +199,8 @@ class DocumentParserTest {
         assertTrue(text.contains("<table"), "PDF 表格应输出 table 标记，实际=" + text);
         assertTrue(text.contains("<td>Water purifier</td>"), "应保留表格单元格文本，实际=" + text);
         assertTrue(text.contains("<td>1999</td>"), "应保留金额列，实际=" + text);
+        assertTrue(text.contains("<td>Filter</td><td></td><td>10</td>"),
+                "空单元格应保留列位，实际=" + text);
     }
 
     @Test

@@ -94,16 +94,50 @@ final class PdfTableExtractor {
         if (candidates.size() < 3) return "";
         int maxColumns = candidates.stream().mapToInt(row -> row.cells.size()).max().orElse(0);
         if (maxColumns < 3 || !columnsAligned(candidates)) return "";
+        List<Float> anchors = columnAnchors(candidates);
+        if (anchors.size() < 3 || anchors.size() > 30) return "";
 
         StringBuilder table = new StringBuilder("<table border=\"1\">\n");
         for (Row row : candidates) {
-            table.append("<tr>");
+            String[] cells = new String[anchors.size()];
             for (Cell cell : row.cells) {
-                table.append("<td>").append(escape(cell.text)).append("</td>");
+                int column = nearestAnchor(anchors, cell.start);
+                cells[column] = cells[column] == null ? cell.text : cells[column] + " " + cell.text;
+            }
+            table.append("<tr>");
+            for (String cell : cells) {
+                table.append("<td>").append(cell == null ? "" : escape(cell)).append("</td>");
             }
             table.append("</tr>\n");
         }
         return table.append("</table>").toString();
+    }
+
+    /** 列锚点：把跨行接近的单元格起始 X 聚类，空单元格也保留列位。 */
+    private static List<Float> columnAnchors(List<Row> rows) {
+        List<Float> anchors = new ArrayList<>();
+        for (Row row : rows) {
+            for (Cell cell : row.cells) {
+                boolean exists = anchors.stream()
+                        .anyMatch(anchor -> Math.abs(anchor - cell.start) <= ALIGN_TOLERANCE);
+                if (!exists) anchors.add(cell.start);
+            }
+        }
+        anchors.sort(Float::compare);
+        return anchors;
+    }
+
+    private static int nearestAnchor(List<Float> anchors, float x) {
+        int best = 0;
+        float distance = Float.MAX_VALUE;
+        for (int i = 0; i < anchors.size(); i++) {
+            float current = Math.abs(anchors.get(i) - x);
+            if (current < distance) {
+                distance = current;
+                best = i;
+            }
+        }
+        return best;
     }
 
     private static List<Row> groupRows(List<TextPosition> glyphs) {
