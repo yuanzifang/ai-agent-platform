@@ -90,30 +90,16 @@ public class DocumentParser {
     private String ocrLanguages;
     @Value("${knowledge.ocr.max-pages:20}")
     private int ocrMaxPages;
-
-    /** 解析级覆盖（上传/知识库/租户/平台配置解析产物）；为空时回落上方 @Value 默认。 */
-    private final ThreadLocal<ParseOptions> optsHolder = new ThreadLocal<>();
-
-    /** 带生效配置的解析入口（KnowledgeService 解析链使用）。 */
-    public List<ParsedChunk> parseWithParents(String fileName, byte[] bytes, ParseOptions opts) {
-        try {
-            optsHolder.set(opts == null ? ParseOptions.defaults(
-                    ocrEnabled, ocrCommand, ocrLanguages, ocrDpi, ocrMaxPages, false, "", "", 3) : opts);
-            return parseWithParents(fileName, bytes);
-        } finally {
-            optsHolder.remove();
-        }
-    }
-
-    private ParseOptions opts() {
-        ParseOptions o = optsHolder.get();
-        return o != null ? o : ParseOptions.defaults(
-                ocrEnabled, ocrCommand, ocrLanguages, ocrDpi, ocrMaxPages, false, "", "", 3);
-    }
     @Value("${knowledge.ocr.dpi:150}")
     private int ocrDpi;
     @Value("${knowledge.ocr.preprocess:true}")
     private boolean ocrPreprocess;
+    @Value("${knowledge.ocr.auto-orient:true}")
+    private boolean ocrAutoOrient;
+    @Value("${knowledge.ocr.deskew:true}")
+    private boolean ocrDeskew;
+    @Value("${knowledge.ocr.denoise:true}")
+    private boolean ocrDenoise;
     @Value("${knowledge.pdf.vector-chart-render-enabled:true}")
     private boolean vectorChartRenderEnabled;
 
@@ -246,7 +232,7 @@ public class DocumentParser {
             throw new BusinessException(422, "文档解析失败：" + e.getMessage());
         }
         if (text == null || text.isBlank()) {
-            throw new BusinessException(422, opts().ocrEnabled() ? "文档内容为空（OCR 未识别到文本）"
+            throw new BusinessException(422, ocrEnabled ? "文档内容为空（OCR 未识别到文本）"
                     : "文档内容为空；扫描版 PDF/图片请启用 knowledge.ocr.enabled");
         }
         return splitWithParents(text);
@@ -262,7 +248,7 @@ public class DocumentParser {
             for (XWPFTable table : doc.getTables()) {
                 sb.append(parseDocxTable(table));
             }
-            if (opts().ocrEnabled()) {
+            if (ocrEnabled) {
                 for (XWPFPictureData picture : doc.getAllPictures()) {
                     appendOcr(sb, picture.getData(), picture.suggestFileExtension());
                 }
@@ -339,7 +325,7 @@ public class DocumentParser {
             StringBuilder sb = new StringBuilder(new PDFTextStripper().getText(doc));
             String tables = PdfTableExtractor.extract(doc);
             if (!tables.isBlank()) sb.append("\n").append(tables).append('\n');
-            if (opts().ocrEnabled()) {
+            if (ocrEnabled) {
                 int count = 0;
                 for (int p = 0; p < doc.getNumberOfPages() && count < 20; p++) {
                     PDResources resources = doc.getPage(p).getResources();
@@ -523,7 +509,7 @@ public class DocumentParser {
                             sb.append("</tr>\n");
                         }
                         sb.append("</table>\n");
-                    } else if (opts().ocrEnabled() && shape instanceof XSLFPictureShape picture) {
+                    } else if (ocrEnabled && shape instanceof XSLFPictureShape picture) {
                         appendOcr(sb, picture.getPictureData().getData(),
                                 picture.getPictureData().suggestFileExtension());
                     }
@@ -540,19 +526,22 @@ public class DocumentParser {
     }
 
     private boolean needsOcr(String text) {
-        return opts().ocrEnabled() && (text == null || text.replaceAll("\\s", "").length() < 20);
+        return ocrEnabled && (text == null || text.replaceAll("\\s", "").length() < 20);
     }
 
     /** 扫描版 PDF OCR：PDFBox 渲染页面为 PNG，再调用外部 tesseract。 */
     private String parsePdfOcr(byte[] bytes, String fileName) throws Exception {
-        if (!opts().ocrEnabled()) return "";
+        if (!ocrEnabled) return "";
         StringBuilder sb = new StringBuilder();
         Path tempDir = Files.createTempDirectory("kb-ocr-");
         try (PDDocument doc = org.apache.pdfbox.Loader.loadPDF(bytes)) {
             PDFRenderer renderer = new PDFRenderer(doc);
-            int pages = Math.min(doc.getNumberOfPages(), Math.max(1, opts().ocrMaxPages()));
+            int pages = Math.min(doc.getNumberOfPages(), Math.max(1, ocrMaxPages));
             for (int i = 0; i < pages; i++) {
-                BufferedImage image = renderer.renderImageWithDPI(i, Math.max(72, opts().ocrDpi()));
+                BufferedImage image = preprocessForOcr(
+                        renderer.renderImageWithDPI(i, Math.max(72, ocrDpi)));
+                image = correctOrientation(image, tempDir.resolve("orient-" + (i + 1) + ".png"));
+                image = deskewForOcr(image);
                 Path imagePath = tempDir.resolve("page-" + (i + 1) + ".png");
                 ImageIO.write(image, "png", imagePath.toFile());
                 OcrTableExtractor.Result ocr = OcrTableExtractor.extract(runOcrTsv(imagePath));
@@ -563,7 +552,7 @@ public class DocumentParser {
         } finally {
             deleteRecursively(tempDir.toFile());
         }
-        log.info("扫描版 PDF OCR 完成：file={} pages={}", fileName, Math.min(opts().ocrMaxPages(), 999));
+        log.info("扫描版 PDF OCR 完成：file={} pages={}", fileName, Math.min(ocrMaxPages, 999));
         return sb.toString();
     }
 
@@ -587,13 +576,21 @@ public class DocumentParser {
 
     private void appendOcr(StringBuilder sb, BufferedImage image, String extension) {
         if (image == null) return;
+        Path orientTemp = null;
         try {
             image = preprocessForOcr(image);
+            orientTemp = Files.createTempFile("kb-orient-", ".png");
+            image = correctOrientation(image, orientTemp);
+            image = deskewForOcr(image);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(image, "png", out);
             appendOcr(sb, out.toByteArray(), extension);
         } catch (Exception e) {
             log.debug("内嵌 PDF 图片编码失败：{}", e.getMessage());
+        } finally {
+            if (orientTemp != null) {
+                try { Files.deleteIfExists(orientTemp); } catch (Exception ignored) { }
+            }
         }
     }
 
@@ -636,6 +633,7 @@ public class DocumentParser {
             java.awt.Graphics2D graphics = gray.createGraphics();
             graphics.drawImage(image, 0, 0, null);
             graphics.dispose();
+            gray = denoiseIfNeeded(gray);
             int min = 255;
             int max = 0;
             for (int y = 0; y < gray.getHeight(); y++) {
@@ -659,6 +657,173 @@ public class DocumentParser {
             log.debug("OCR 预处理失败（使用原图）：{}", e.getMessage());
             return source;
         }
+    }
+
+    /**
+     * 小角度倾斜校正：灰度投影方差，在 -8°～8° 内寻找文字行最水平的旋转角。
+     * 只校正明显倾斜（>=1°），避免对正常扫描反复旋转。
+     */
+    private BufferedImage deskewForOcr(BufferedImage source) {
+        if (!ocrDeskew || source == null) return source;
+        try {
+            BufferedImage small = source;
+            if (small.getWidth() > 900) {
+                int width = 900;
+                int height = Math.max(1, (int) (small.getHeight() * (900.0 / small.getWidth())));
+                BufferedImage scaled = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+                java.awt.Graphics2D g = scaled.createGraphics();
+                g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                        java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g.drawImage(small, 0, 0, width, height, null);
+                g.dispose();
+                small = scaled;
+            }
+            double base = projectionScore(small);
+            double bestScore = base;
+            int bestAngle = 0;
+            for (int angle = -8; angle <= 8; angle++) {
+                if (angle == 0) continue;
+                BufferedImage rotated = rotateImage(small, angle);
+                double score = projectionScore(rotated);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestAngle = angle;
+                }
+            }
+            if (bestAngle == 0 || bestScore < base * 1.05) return source;
+            log.info("扫描页倾斜校正：angle={}°", bestAngle);
+            return rotateImage(source, bestAngle);
+        } catch (Exception e) {
+            log.debug("扫描页倾斜校正失败（使用原图）：{}", e.getMessage());
+            return source;
+        }
+    }
+
+    private double projectionScore(BufferedImage image) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        int[] rows = new int[height];
+        for (int y = 0; y < height; y++) {
+            int count = 0;
+            for (int x = 0; x < width; x++) {
+                int rgb = image.getRGB(x, y);
+                int gray = ((rgb >> 16) & 0xff) * 30 + ((rgb >> 8) & 0xff) * 59 + (rgb & 0xff) * 11;
+                if (gray / 100 < 180) count++;
+            }
+            rows[y] = count;
+        }
+        double mean = 0;
+        for (int value : rows) mean += value;
+        mean /= Math.max(1, rows.length);
+        double variance = 0;
+        for (int value : rows) variance += (value - mean) * (value - mean);
+        return variance;
+    }
+
+    /** 检测椒盐噪声，占比超过 0.2% 时做 3x3 中值滤波，避免正常文本被过度模糊。 */
+    private BufferedImage denoiseIfNeeded(BufferedImage gray) {
+        if (!ocrDenoise) return gray;
+        int width = gray.getWidth();
+        int height = gray.getHeight();
+        int noisy = 0;
+        for (int y = 1; y < height - 1; y++) {
+            for (int x = 1; x < width - 1; x++) {
+                int value = gray.getRaster().getSample(x, y, 0);
+                int bright = 0;
+                int dark = 0;
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        if (dx == 0 && dy == 0) continue;
+                        int neighbor = gray.getRaster().getSample(x + dx, y + dy, 0);
+                        if (neighbor > 200) bright++;
+                        else if (neighbor < 60) dark++;
+                    }
+                }
+                if ((value < 40 && bright >= 6) || (value > 220 && dark >= 6)) noisy++;
+            }
+        }
+        if (noisy < Math.max(20, width * height / 500)) return gray;
+        BufferedImage cleaned = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_GRAY);
+        int radius = noisy > width * height / 200 ? 2 : 1;
+        int side = radius * 2 + 1;
+        int[] window = new int[side * side];
+        for (int y = radius; y < height - radius; y++) {
+            for (int x = radius; x < width - radius; x++) {
+                int index = 0;
+                for (int dy = -radius; dy <= radius; dy++) {
+                    for (int dx = -radius; dx <= radius; dx++) {
+                        window[index++] = gray.getRaster().getSample(x + dx, y + dy, 0);
+                    }
+                }
+                java.util.Arrays.sort(window);
+                cleaned.getRaster().setSample(x, y, 0, window[window.length / 2]);
+            }
+        }
+        log.info("扫描页去噪：noisePixels={} size={}x{}", noisy, width, height);
+        return cleaned;
+    }
+
+    /** 扫描页方向纠正：tesseract OSD 检测 90/180/270，OCR 前转回正向。 */
+    private BufferedImage correctOrientation(BufferedImage image, Path temp) {
+        if (!ocrAutoOrient || image == null) return image;
+        try {
+            ImageIO.write(image, "png", temp.toFile());
+            int rotate = detectRotation(temp);
+            if (rotate == 0) return image;
+            log.info("扫描页方向纠正：rotate={}°", rotate);
+            return rotateImage(image, rotate);
+        } catch (Exception e) {
+            log.debug("扫描页方向检测失败（使用原图）：{}", e.getMessage());
+            return image;
+        } finally {
+            try { Files.deleteIfExists(temp); } catch (Exception ignored) { }
+        }
+    }
+
+    private int detectRotation(Path imagePath) throws Exception {
+        List<String> command = new ArrayList<>();
+        command.add(ocrCommand);
+        command.add(imagePath.toAbsolutePath().toString());
+        command.add("stdout");
+        command.add("-l");
+        command.add("osd");
+        command.add("--psm");
+        command.add("0");
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.environment().put("PATH", System.getenv().getOrDefault("PATH",
+                "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"));
+        Process process = pb.start();
+        String output;
+        try (var in = process.getInputStream()) {
+            output = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        try (var in = process.getErrorStream()) {
+            in.readAllBytes();
+        }
+        if (!process.waitFor(30, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            return 0;
+        }
+        java.util.regex.Matcher matcher =
+                java.util.regex.Pattern.compile("Rotate:\\s*(\\d+)").matcher(output);
+        return matcher.find() ? Integer.parseInt(matcher.group(1)) % 360 : 0;
+    }
+
+    private BufferedImage rotateImage(BufferedImage source, int degrees) {
+        double theta = Math.toRadians(degrees);
+        double sin = Math.abs(Math.sin(theta));
+        double cos = Math.abs(Math.cos(theta));
+        int width = (int) Math.floor(source.getWidth() * cos + source.getHeight() * sin);
+        int height = (int) Math.floor(source.getWidth() * sin + source.getHeight() * cos);
+        BufferedImage rotated = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D graphics = rotated.createGraphics();
+        graphics.setColor(java.awt.Color.WHITE);
+        graphics.fillRect(0, 0, width, height);
+        graphics.translate(width / 2.0, height / 2.0);
+        graphics.rotate(theta);
+        graphics.drawImage(source, -source.getWidth() / 2, -source.getHeight() / 2, null);
+        graphics.dispose();
+        return rotated;
     }
 
     /** 内嵌图片 OCR：TSV 同时用于文本和表格结构。 */
@@ -691,12 +856,12 @@ public class DocumentParser {
 
     private String runOcr(Path image, String config) throws Exception {
         List<String> command = new ArrayList<>();
-        command.add(opts().ocrCommand());
+        command.add(ocrCommand);
         command.add(image.toAbsolutePath().toString());
         command.add("stdout");
-        if (opts().ocrLanguages() != null && !opts().ocrLanguages().isBlank()) {
+        if (ocrLanguages != null && !ocrLanguages.isBlank()) {
             command.add("-l");
-            command.add(opts().ocrLanguages());
+            command.add(ocrLanguages);
         }
         if (config != null && !config.isBlank()) command.add(config);
         ProcessBuilder pb = new ProcessBuilder(command);
