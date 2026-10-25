@@ -1203,6 +1203,64 @@ class DocumentParserTest {
     }
 
     @Test
+    void ocrScannedTableMergesAcrossPages() throws Exception {
+        Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过跨页扫描表格");
+        String[][] pageOne = {
+                {"Product", "Price", "Qty"},
+                {"Water", "1999", "2"},
+                {"Filter", "99", "10"},
+                {"Install", "0", "1"}
+        };
+        String[][] pageTwo = {
+                {"Product", "Price", "Qty"},
+                {"Service", "299", "5"},
+                {"Support", "199", "3"},
+                {"Return", "0", "1"}
+        };
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            addScannedTablePage(doc, pageOne);
+            addScannedTablePage(doc, pageTwo);
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        ReflectionTestUtils.setField(parser, "ocrEnabled", true);
+        ReflectionTestUtils.setField(parser, "ocrCommand", "tesseract");
+        ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
+        ReflectionTestUtils.setField(parser, "ocrPreprocess", true);
+        String text = String.join("\n", parser.parse("scan-table-cross-page.pdf", pdf));
+        assertTrue(text.contains("Service") && text.contains("Return"),
+                "续页扫描表格行应保留，实际=" + text);
+        assertTrue(text.split("<table", -1).length == 2,
+                "同表头扫描表格应合并为一个 table，实际=" + text);
+    }
+
+    private void addScannedTablePage(PDDocument doc, String[][] rows) throws Exception {
+        BufferedImage image = new BufferedImage(1400, 900, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, 1400, 900);
+            g.setColor(Color.BLACK);
+            g.setFont(new Font("SansSerif", Font.PLAIN, 42));
+            int[] xs = {100, 650, 1050};
+            int y = 160;
+            for (String[] row : rows) {
+                for (int col = 0; col < row.length; col++) g.drawString(row[col], xs[col], y);
+                y += 120;
+            }
+        } finally {
+            g.dispose();
+        }
+        PDPage page = new PDPage(PDRectangle.A4);
+        doc.addPage(page);
+        var pdImage = LosslessFactory.createFromImage(doc, image);
+        try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+            content.drawImage(pdImage, 40, 220, 515, 331);
+        }
+    }
+
+    @Test
     void ocrLowContrastScannedTable() throws Exception {
         Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过低对比度 OCR");
         BufferedImage image = new BufferedImage(1400, 700, BufferedImage.TYPE_INT_RGB);

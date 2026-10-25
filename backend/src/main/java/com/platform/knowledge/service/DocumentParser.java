@@ -346,6 +346,7 @@ public class DocumentParser {
             String tables = PdfTableExtractor.extract(doc);
             if (!tables.isBlank()) sb.append("\n").append(tables).append('\n');
             if (opts().ocrEnabled()) {
+                StringBuilder embeddedTables = new StringBuilder();
                 int count = 0;
                 for (int p = 0; p < doc.getNumberOfPages() && count < 20; p++) {
                     PDResources resources = doc.getPage(p).getResources();
@@ -354,10 +355,11 @@ public class DocumentParser {
                         if (count >= 20) break;
                         PDXObject x = resources.getXObject(name);
                         if (!(x instanceof PDImageXObject image)) continue;
-                        appendOcr(sb, image.getImage(), "png");
+                        appendOcr(sb, image.getImage(), "png", embeddedTables);
                         count++;
                     }
                 }
+                if (!embeddedTables.isEmpty()) sb.append('\n').append(embeddedTables).append('\n');
             }
             return sb.toString();
         }
@@ -553,6 +555,7 @@ public class DocumentParser {
     private String parsePdfOcr(byte[] bytes, String fileName) throws Exception {
         if (!opts().ocrEnabled()) return "";
         StringBuilder sb = new StringBuilder();
+        String mergedTable = "";
         Path tempDir = Files.createTempDirectory("kb-ocr-");
         try (PDDocument doc = org.apache.pdfbox.Loader.loadPDF(bytes)) {
             PDFRenderer renderer = new PDFRenderer(doc);
@@ -564,8 +567,11 @@ public class DocumentParser {
                 OcrTableExtractor.Result ocr = OcrTableExtractor.extract(runOcrTsv(imagePath));
                 sb.append("\n## Page ").append(i + 1).append('\n')
                         .append(ocr.text()).append('\n');
-                if (!ocr.table().isBlank()) sb.append(ocr.table()).append('\n');
+                if (!ocr.table().isBlank()) {
+                    mergedTable = OcrTableExtractor.mergeTables(mergedTable, ocr.table());
+                }
             }
+            if (!mergedTable.isBlank()) sb.append(mergedTable).append('\n');
         } finally {
             deleteRecursively(tempDir.toFile());
         }
@@ -592,6 +598,11 @@ public class DocumentParser {
     }
 
     private void appendOcr(StringBuilder sb, BufferedImage image, String extension) {
+        appendOcr(sb, image, extension, null);
+    }
+
+    private void appendOcr(StringBuilder sb, BufferedImage image, String extension,
+                           StringBuilder tableAccumulator) {
         if (image == null) return;
         try {
             image = preprocessForOcr(image);
@@ -601,13 +612,18 @@ public class DocumentParser {
             Files.deleteIfExists(orientTemp);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(image, "png", out);
-            appendOcr(sb, out.toByteArray(), extension);
+            appendOcr(sb, out.toByteArray(), extension, tableAccumulator);
         } catch (Exception e) {
             log.debug("内嵌 PDF 图片编码失败：{}", e.getMessage());
         }
     }
 
     private void appendOcr(StringBuilder sb, byte[] image, String extension) {
+        appendOcr(sb, image, extension, null);
+    }
+
+    private void appendOcr(StringBuilder sb, byte[] image, String extension,
+                           StringBuilder tableAccumulator) {
         if (!ocrEnabled || image == null || image.length == 0 || sb.length() > 100_000) return;
         try {
             String ext = extension == null || extension.isBlank() ? "png" : extension.toLowerCase(Locale.ROOT);
@@ -616,7 +632,15 @@ public class DocumentParser {
             if (!result.text().isBlank()) {
                 sb.append("\n[图片OCR]\n").append(result.text().trim()).append('\n');
             }
-            if (!result.table().isBlank()) sb.append(result.table()).append('\n');
+            if (!result.table().isBlank()) {
+                if (tableAccumulator == null) {
+                    sb.append(result.table()).append('\n');
+                } else {
+                    String merged = OcrTableExtractor.mergeTables(tableAccumulator.toString(), result.table());
+                    tableAccumulator.setLength(0);
+                    tableAccumulator.append(merged);
+                }
+            }
         } catch (Exception e) {
             log.debug("内嵌图片 OCR 跳过：{}", e.getMessage());
         }

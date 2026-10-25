@@ -155,6 +155,41 @@ final class OcrTableExtractor {
         return false;
     }
 
+    /** 相邻扫描页表头一致时合并 tbody；表头只保留一次。 */
+    static String mergeTables(String previous, String current) {
+        if (previous == null || previous.isBlank()) return current == null ? "" : current;
+        if (current == null || current.isBlank()) return previous;
+        String prevHead = headerOf(previous);
+        String currHead = headerOf(current);
+        String prevBody = bodyOf(previous);
+        String currBody = bodyOf(current);
+        if (prevHead.isBlank() || !prevHead.equals(currHead) || prevBody.isBlank() || currBody.isBlank()) {
+            return previous + "\n" + current;
+        }
+        int close = previous.indexOf("</tbody>", previous.indexOf("<tbody>"));
+        if (close < 0) return previous + "\n" + current;
+        return previous.substring(0, close) + currBody + previous.substring(close);
+    }
+
+    private static String headerOf(String html) {
+        int start = html.indexOf("<thead>");
+        if (start >= 0) {
+            int end = html.indexOf("</thead>", start);
+            if (end > start) return html.substring(start + 7, end).replaceAll("\\s+", "");
+        }
+        int tr = html.indexOf("<tr>");
+        if (tr < 0) return "";
+        int end = html.indexOf("</tr>", tr);
+        return end > tr ? html.substring(tr + 4, end).replaceAll("\\s+", "") : "";
+    }
+
+    private static String bodyOf(String html) {
+        int start = html.indexOf("<tbody>");
+        if (start < 0) return "";
+        int end = html.indexOf("</tbody>", start);
+        return end > start ? html.substring(start + 7, end) : "";
+    }
+
     private static String renderHeaderRow(Line line, List<Float> anchors) {
         String[] cells = mapCells(line, anchors);
         StringBuilder html = new StringBuilder("<tr>");
