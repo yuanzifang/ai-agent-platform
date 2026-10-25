@@ -241,6 +241,60 @@ class DocumentParserTest {
     }
 
     @Test
+    void parsesPdfMultiLevelHeader() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                float[][] headers = {
+                        {50, 220},
+                        {220, 360}
+                };
+                String[][] headerRows = {
+                        {"Product", "Sales"},
+                        {"Q1", "Q2"}
+                };
+                float y = 720;
+                for (int r = 0; r < headerRows.length; r++) {
+                    for (int c = 0; c < headerRows[r].length; c++) {
+                        content.beginText();
+                        content.newLineAtOffset(headers[r][c], y);
+                        content.showText(headerRows[r][c]);
+                        content.endText();
+                    }
+                    y -= 30;
+                }
+                String[][] data = {
+                        {"Water", "10", "20"},
+                        {"Filter", "5", "5"},
+                        {"Install", "0", "1"}
+                };
+                for (String[] row : data) {
+                    float[] xs = {50, 220, 360};
+                    for (int c = 0; c < row.length; c++) {
+                        content.beginText();
+                        content.newLineAtOffset(xs[c], y);
+                        content.showText(row[c]);
+                        content.endText();
+                    }
+                    y -= 30;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("multi-header.pdf", pdf));
+        assertTrue(text.contains("<thead>"), "多级表头应使用 thead，实际=" + text);
+        assertTrue(text.contains("colspan=\"2\"") && text.contains("Sales"),
+                "跨列表头应输出 colspan，实际=" + text);
+        assertTrue(text.contains("<th>Q1</th>") && text.contains("<th>Q2</th>"),
+                "第二级表头应保留，实际=" + text);
+        assertTrue(text.contains("<td>Water</td>"), "数据行应保留，实际=" + text);
+    }
+
+    @Test
     void parsesPdfTableCaptionAndFootnote() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {

@@ -151,18 +151,63 @@ final class PdfTableExtractor {
         if (table.caption != null) {
             html.append("<caption>").append(escape(table.caption)).append("</caption>\n");
         }
-        for (LogicalRow row : table.rows) {
+        int headers = headerRows(table.rows);
+        if (headers > 0) {
+            html.append("<thead>\n");
+            for (int i = 0; i < headers; i++) {
+                renderHeaderRow(html, table.rows.get(i));
+            }
+            html.append("</thead>\n");
+        }
+        html.append("<tbody>\n");
+        for (int i = headers; i < table.rows.size(); i++) {
             html.append("<tr>");
-            for (String cell : row.values) {
+            for (String cell : table.rows.get(i).values) {
                 html.append("<td>").append(cell == null ? "" : escape(cell)).append("</td>");
             }
             html.append("</tr>\n");
         }
-        html.append("</table>");
+        html.append("</tbody>\n</table>");
         if (table.note != null) {
             html.append("\n<p class=\"table-note\">").append(escape(table.note)).append("</p>");
         }
         return html.toString();
+    }
+
+    /** 首个数值数据行之前的连续行视为表头，支持两行以上的多级表头。 */
+    private static int headerRows(List<LogicalRow> rows) {
+        int count = 0;
+        for (LogicalRow row : rows) {
+            boolean value = false;
+            boolean numeric = false;
+            for (String cell : row.values) {
+                if (cell == null || cell.isBlank()) continue;
+                value = true;
+                if (cell.matches("[-+]?\\d+([.,]\\d+)?%?")) numeric = true;
+            }
+            if (!value || numeric) break;
+            count++;
+        }
+        return count >= rows.size() ? 0 : count;
+    }
+
+    private static void renderHeaderRow(StringBuilder html, LogicalRow row) {
+        String[] values = row.values;
+        int covered = -1;
+        for (int i = 0; i < values.length; i++) {
+            if (i <= covered) continue;
+            if (values[i] == null || values[i].isBlank()) {
+                html.append("<th></th>");
+                continue;
+            }
+            int next = i + 1;
+            while (next < values.length && (values[next] == null || values[next].isBlank())) next++;
+            int span = Math.max(1, next - i);
+            html.append("<th");
+            if (span > 1) html.append(" colspan=\"").append(span).append("\"");
+            html.append(">").append(escape(values[i])).append("</th>");
+            covered = i + span - 1;
+        }
     }
 
     private static String findCaption(List<Row> rows, float tableTop) {
