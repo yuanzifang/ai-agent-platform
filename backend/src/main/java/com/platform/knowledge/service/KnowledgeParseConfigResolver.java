@@ -3,6 +3,8 @@ package com.platform.knowledge.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.common.context.TenantContext;
+import com.platform.common.exception.BusinessException;
+import com.platform.common.security.CryptoService;
 import com.platform.system.entity.SysConfig;
 import com.platform.system.entity.SysTenantConfig;
 import com.platform.system.mapper.SysConfigMapper;
@@ -40,6 +42,7 @@ public class KnowledgeParseConfigResolver {
     private final SysConfigMapper sysConfigMapper;
     private final SysTenantConfigMapper tenantConfigMapper;
     private final ObjectMapper objectMapper;
+    private final CryptoService cryptoService;
 
     @Value("${knowledge.ocr.enabled:false}")
     private boolean envOcrEnabled;
@@ -88,6 +91,17 @@ public class KnowledgeParseConfigResolver {
         if (docParseConfigJson != null && !docParseConfigJson.isBlank()) {
             applyLayer(merged, jsonValues(docParseConfigJson));
         }
+        String pdfPassword = null;
+        if (docParseConfigJson != null && !docParseConfigJson.isBlank()) {
+            String encrypted = jsonValues(docParseConfigJson).get("pdfPassword");
+            if (encrypted != null && !encrypted.isBlank()) {
+                try {
+                    pdfPassword = cryptoService.decrypt(encrypted);
+                } catch (Exception e) {
+                    throw new BusinessException(422, "PDF 密码解密失败，请重新上传并填写密码");
+                }
+            }
+        }
         return new ParseOptions(
                 Boolean.parseBoolean(merged.get("ocrEnabled")),
                 merged.get("ocrCommand"),
@@ -97,7 +111,8 @@ public class KnowledgeParseConfigResolver {
                 Boolean.parseBoolean(merged.get("visionEnabled")),
                 merged.get("visionEndpoint"),
                 merged.get("visionModel"),
-                intOf(merged.get("visionMaxImages"), envVisionMaxImages));
+                intOf(merged.get("visionMaxImages"), envVisionMaxImages),
+                pdfPassword);
     }
 
     /** 供前端「跟随系统默认」展示：平台级默认值（不含 KB/文档覆盖）。 */

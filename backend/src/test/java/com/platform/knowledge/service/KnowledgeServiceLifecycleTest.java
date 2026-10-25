@@ -14,6 +14,7 @@ import com.platform.billing.service.PricingService;
 import com.platform.billing.service.QuotaService;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
+import com.platform.common.security.CryptoService;
 import com.platform.common.security.NetworkPolicyService;
 import com.platform.knowledge.entity.KnowledgeBase;
 import com.platform.knowledge.entity.KnowledgeChunk;
@@ -108,7 +109,8 @@ class KnowledgeServiceLifecycleTest {
                 storage, embeddingService, vectorRepository, mock(HybridRetrievalService.class),
                 mock(DocumentParser.class), resolver, mock(ImageUnderstandingService.class),
                 graphService, new ObjectMapper(), permissionService, userMapper,
-                agentKbMapper, agentRegistryMapper, auditService, mock(NetworkPolicyService.class));
+                agentKbMapper, agentRegistryMapper, auditService, mock(NetworkPolicyService.class),
+                mock(CryptoService.class));
 
         TenantContext.setTenantId(9L);
         kb = new KnowledgeBase();

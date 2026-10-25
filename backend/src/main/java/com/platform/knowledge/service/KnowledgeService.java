@@ -12,6 +12,7 @@ import com.platform.billing.service.PricingService;
 import com.platform.billing.service.QuotaService;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.common.context.TenantContext;
+import com.platform.common.security.CryptoService;
 import com.platform.common.exception.BusinessException;
 import com.platform.common.security.NetworkPolicyService;
 import com.platform.knowledge.entity.KnowledgeBase;
@@ -79,6 +80,7 @@ public class KnowledgeService {
     private final AgentRegistryMapper agentRegistryMapper;
     private final AuditService auditService;
     private final NetworkPolicyService networkPolicy;
+    private final CryptoService cryptoService;
 
     /** 解析失败重试上限（需求 3.6.3(2)：默认 3 次，超限后需人工介入）。 */
     @Value("${knowledge.parse.max-retries:3}")
@@ -126,7 +128,14 @@ public class KnowledgeService {
                        KnowledgePermissionService.Viewer viewer) {
         String parseConfigJson;
         try {
-            parseConfigJson = parseConfig == null ? null : objectMapper.writeValueAsString(parseConfig);
+            if (parseConfig == null) {
+                parseConfigJson = null;
+            } else {
+                Map<String, Object> safeConfig = new LinkedHashMap<>(parseConfig);
+                // PDF 密码只允许文档级携带，知识库级配置不保存密码。
+                safeConfig.remove("pdfPassword");
+                parseConfigJson = objectMapper.writeValueAsString(safeConfig);
+            }
         } catch (Exception e) {
             throw new BusinessException(400, "解析配置不是合法 JSON");
         }
@@ -415,6 +424,23 @@ public class KnowledgeService {
         return result;
     }
 
+    /** 文档级 PDF 密码落库前 AES-GCM 加密；密码不进入日志或知识库级配置。 */
+    private String protectPdfPassword(String json) {
+        if (json == null || json.isBlank()) return json;
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> config = objectMapper.readValue(json, Map.class);
+            Object raw = config.get("pdfPassword");
+            if (raw == null || String.valueOf(raw).isBlank()) return json;
+            String password = String.valueOf(raw);
+            config.put("pdfPassword", password.startsWith("v1:")
+                    ? password : cryptoService.encrypt(password));
+            return objectMapper.writeValueAsString(config);
+        } catch (Exception e) {
+            throw new BusinessException(400, "解析配置格式不正确");
+        }
+    }
+
     private String safeFileName(String fileName) {
         String name = fileName == null ? "file" : fileName.trim();
         name = name.replaceAll("[\\\\/\r\n]", "_");
@@ -427,6 +453,7 @@ public class KnowledgeService {
     public Map<String, Object> callback(Long kbId, String objectName, Long documentId,
                                         String parseConfigJson, KnowledgePermissionService.Viewer viewer) {
         permissionService.requireEdit(kbId, viewer);
+        String protectedConfig = protectPdfPassword(parseConfigJson);
         Long tenantId = TenantContext.getTenantId();
         String expectedPrefix = tenantId + "/knowledge/" + kbId + "/";
         if (objectName == null || !objectName.startsWith(expectedPrefix)) {
@@ -451,7 +478,7 @@ public class KnowledgeService {
             doc.setObjectName(objectName);
             doc.setStatus("PENDING");
             doc.setChunkCount(0);
-            doc.setParseConfig(parseConfigJson);
+            doc.setParseConfig(protectedConfig);
             doc.setSizeBytes(storage.statSize(objectName));
             doc.setRetryTimes(0);
             doc.setErrorMessage(null);
@@ -472,7 +499,7 @@ public class KnowledgeService {
         doc.setObjectName(objectName);
         doc.setStatus("PENDING");
         doc.setChunkCount(0);
-        doc.setParseConfig(parseConfigJson);
+        doc.setParseConfig(protectedConfig);
         doc.setSizeBytes(storage.statSize(objectName));
         doc.setRetryTimes(0);
         doc.setTenantId(tenantId);

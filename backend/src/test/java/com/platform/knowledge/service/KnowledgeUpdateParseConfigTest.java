@@ -12,6 +12,7 @@ import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.billing.service.PricingService;
 import com.platform.billing.service.QuotaService;
 import com.platform.common.ratelimit.RedisRateLimiter;
+import com.platform.common.security.CryptoService;
 import com.platform.common.security.NetworkPolicyService;
 import com.platform.billing.entity.BillingUsage;
 import com.platform.knowledge.entity.KnowledgeBase;
@@ -62,6 +63,7 @@ class KnowledgeUpdateParseConfigTest {
     private EmbeddingService embeddingService;
     private KnowledgePermissionService permissionService;
     private com.platform.knowledge.service.VectorRepository vectorRepository;
+    private CryptoService cryptoService;
     private com.platform.knowledge.service.KnowledgeService service;
     private KnowledgeBase kb;
     private final com.platform.knowledge.service.KnowledgePermissionService.Viewer viewer =
@@ -109,13 +111,14 @@ class KnowledgeUpdateParseConfigTest {
         AgentRegistryMapper agentRegistryMapper = mock(AgentRegistryMapper.class);
         AuditService auditService = mock(AuditService.class);
         NetworkPolicyService networkPolicy = mock(NetworkPolicyService.class);
+        cryptoService = mock(CryptoService.class);
 
         service = new com.platform.knowledge.service.KnowledgeService(
                 kbMapper, docMapper, chunkMapper, documentImageMapper,
                 billingMapper, pricingService, quotaService, storage, embeddingService,
                 vectorRepository, hybridRetrieval, parser, parseConfigResolver, imageUnderstanding,
                 graphService, objectMapper, permissionService, userMapper, agentKbMapper,
-                agentRegistryMapper, auditService, networkPolicy);
+                agentRegistryMapper, auditService, networkPolicy, cryptoService);
 
         kb = new KnowledgeBase();
         kb.setId(161L);
@@ -343,6 +346,17 @@ class KnowledgeUpdateParseConfigTest {
         assertTrue(wrapper.getSqlSet().contains("content"));
         assertTrue(wrapper.getParamNameValuePairs().values().stream()
                 .anyMatch(value -> corrected.equals(value)));
+    }
+
+    @Test
+    void documentPdfPasswordIsEncryptedBeforeStorage() {
+        when(cryptoService.encrypt("secret")).thenReturn("v1:encrypted");
+        String protectedJson = ReflectionTestUtils.invokeMethod(service, "protectPdfPassword",
+                "{\"pdfPassword\":\"secret\",\"ocrEnabled\":true}");
+
+        assertTrue(protectedJson.contains("v1:encrypted"));
+        assertFalse(protectedJson.contains("\"secret\""));
+        assertTrue(protectedJson.contains("ocrEnabled"));
     }
 
     @Test

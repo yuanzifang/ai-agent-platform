@@ -15,12 +15,21 @@ public record ParseOptions(
         boolean visionEnabled,
         String visionEndpoint,
         String visionModel,
-        int visionMaxImages) {
+        int visionMaxImages,
+        String pdfPassword) {
+
+    /** 兼容既有调用：未提供 PDF 密码。 */
+    public ParseOptions(boolean ocrEnabled, String ocrCommand, String ocrLanguages,
+                        int ocrDpi, int ocrMaxPages, boolean visionEnabled,
+                        String visionEndpoint, String visionModel, int visionMaxImages) {
+        this(ocrEnabled, ocrCommand, ocrLanguages, ocrDpi, ocrMaxPages, visionEnabled,
+                visionEndpoint, visionModel, visionMaxImages, null);
+    }
 
     public static ParseOptions defaults(boolean ocrEnabled, String ocrCommand, String ocrLanguages,
                                         int ocrDpi, int ocrMaxPages, boolean visionEnabled,
                                         String visionEndpoint, String visionModel, int visionMaxImages) {
         return new ParseOptions(ocrEnabled, ocrCommand, ocrLanguages, ocrDpi, ocrMaxPages,
-                visionEnabled, visionEndpoint, visionModel, visionMaxImages);
+                visionEnabled, visionEndpoint, visionModel, visionMaxImages, null);
     }
 }

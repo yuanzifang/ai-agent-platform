@@ -47,6 +47,10 @@
                            :label="m.displayName || m.modelName" />
               </el-select>
             </el-form-item>
+            <el-form-item :label="t('kbDetail.poPdfPassword')">
+              <el-input v-model="uploadCfg.pdfPassword" type="password" show-password clearable
+                        style="width: 220px" :placeholder="t('kbDetail.poPdfPasswordHint')" />
+            </el-form-item>
           </el-form>
           <div class="hint">{{ t('kbDetail.uploadCfgHint') }}</div>
         </el-collapse-item>
@@ -316,7 +320,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
@@ -463,8 +467,10 @@ async function removeDoc(row: any) {
 const uploadCustomEnabled = ref(false)
 const uploadCfg = reactive({
   ocrEnabled: false, ocrLanguages: 'chi_sim+eng',
-  visionEnabled: false, visionModel: 'qwen3-vl:32b'
+  visionEnabled: false, visionModel: 'qwen3-vl:32b', pdfPassword: ''
 })
+// 用户修改任一上传解析项即启用本次覆盖（含 PDF 密码）。
+watch(uploadCfg, () => { uploadCustomEnabled.value = true }, { deep: true })
 
 // ---- 视觉模型选项（模型广场 purpose=VISION） ----
 const visionModels = ref<any[]>([])
@@ -586,9 +592,13 @@ async function startUpload(file: File, replaceRow: any, options?: any) {
     task.percent = 100
     const cbBody: any = { objectName: presign.objectName }
     if (replaceRow?.id) cbBody.documentId = replaceRow.id
-    if (uploadCustomEnabled.value) cbBody.parseConfig = {
-      ocrEnabled: uploadCfg.ocrEnabled, ocrLanguages: uploadCfg.ocrLanguages,
-      visionEnabled: uploadCfg.visionEnabled, visionModel: uploadCfg.visionModel
+    if (uploadCustomEnabled.value || uploadCfg.pdfPassword) {
+      const parseConfig: any = {
+        ocrEnabled: uploadCfg.ocrEnabled, ocrLanguages: uploadCfg.ocrLanguages,
+        visionEnabled: uploadCfg.visionEnabled, visionModel: uploadCfg.visionModel
+      }
+      if (uploadCfg.pdfPassword) parseConfig.pdfPassword = uploadCfg.pdfPassword
+      cbBody.parseConfig = parseConfig
     }
     const cb = await http.post(`/knowledge-base/${kbId}/documents/callback`, cbBody) as any
     task.status = 'done'

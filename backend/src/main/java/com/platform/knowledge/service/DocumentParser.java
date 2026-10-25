@@ -111,6 +111,13 @@ public class DocumentParser {
         return o != null ? o : ParseOptions.defaults(
                 ocrEnabled, ocrCommand, ocrLanguages, ocrDpi, ocrMaxPages, false, "", "", 3);
     }
+
+    private PDDocument loadPdf(byte[] bytes) throws Exception {
+        String password = opts().pdfPassword();
+        return password == null || password.isBlank()
+                ? org.apache.pdfbox.Loader.loadPDF(bytes)
+                : org.apache.pdfbox.Loader.loadPDF(bytes, password);
+    }
     @Value("${knowledge.ocr.dpi:150}")
     private int ocrDpi;
     @Value("${knowledge.ocr.preprocess:true}")
@@ -155,7 +162,7 @@ public class DocumentParser {
                     }
                 }
             } else if (lower.endsWith(".pdf")) {
-                try (PDDocument doc = org.apache.pdfbox.Loader.loadPDF(bytes)) {
+                try (PDDocument doc = loadPdf(bytes)) {
                     PDFRenderer renderer = new PDFRenderer(doc);
                     int count = 0;
                     for (int p = 0; p < doc.getNumberOfPages() && count < 20; p++) {
@@ -265,7 +272,7 @@ public class DocumentParser {
         } catch (BusinessException e) {
             throw e;
         } catch (org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException e) {
-            throw new BusinessException(422, "PDF 已加密，请先解除密码后再上传");
+            throw new BusinessException(422, "PDF 已加密，请在上传解析设置中填写 PDF 密码（密码错误或未提供）");
         } catch (Exception e) {
             throw new BusinessException(422, "文档解析失败：" + e.getMessage());
         }
@@ -359,7 +366,7 @@ public class DocumentParser {
     }
 
     private String parsePdf(byte[] bytes) throws Exception {
-        try (PDDocument doc = org.apache.pdfbox.Loader.loadPDF(bytes)) {
+        try (PDDocument doc = loadPdf(bytes)) {
             StringBuilder sb = new StringBuilder(new PDFTextStripper().getText(doc));
             appendPdfMetadata(doc, sb);
             String rectTables = PdfRectangleTableExtractor.extract(doc);
@@ -769,7 +776,7 @@ public class DocumentParser {
         StringBuilder sb = new StringBuilder();
         String mergedTable = "";
         Path tempDir = Files.createTempDirectory("kb-ocr-");
-        try (PDDocument doc = org.apache.pdfbox.Loader.loadPDF(bytes)) {
+        try (PDDocument doc = loadPdf(bytes)) {
             PDFRenderer renderer = new PDFRenderer(doc);
             int pages = Math.min(doc.getNumberOfPages(), Math.max(1, opts().ocrMaxPages()));
             for (int i = 0; i < pages; i++) {

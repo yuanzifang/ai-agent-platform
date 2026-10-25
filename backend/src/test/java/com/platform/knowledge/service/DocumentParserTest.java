@@ -1974,6 +1974,33 @@ class DocumentParserTest {
     }
 
     @Test
+    void parsesEncryptedPdfWithPassword() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.beginText();
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 14);
+                content.newLineAtOffset(50, 760);
+                content.showText("encrypted document");
+                content.endText();
+            }
+            StandardProtectionPolicy policy = new StandardProtectionPolicy(
+                    "owner-password", "user-password", new AccessPermission());
+            doc.protect(policy);
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        ParseOptions opts = new ParseOptions(false, "tesseract", "chi_sim+eng", 150, 20,
+                false, "", "", 3, "user-password");
+        String text = parser.parseWithParents("encrypted.pdf", pdf, opts).stream()
+                .map(DocumentParser.ParsedChunk::content)
+                .collect(java.util.stream.Collectors.joining("\n"));
+        assertTrue(text.contains("encrypted document"), "提供正确密码后应能解析，实际=" + text);
+    }
+
+    @Test
     void extractsPdfInlineImage() throws Exception {
         COSDictionary params = new COSDictionary();
         params.setItem(COSName.W, COSInteger.get(4));
