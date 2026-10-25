@@ -21,7 +21,7 @@ import java.util.Map;
 final class PdfGridLineTableExtractor {
 
     private static final float TOL = 2f;
-    private static final float DASH_GAP = 10f;
+    private static final float DASH_GAP = 24f;
 
     private PdfGridLineTableExtractor() {
     }
@@ -397,12 +397,15 @@ final class PdfGridLineTableExtractor {
         private void add(Point2D a, Point2D b) {
             float ax = (float) a.getX(), ay = (float) a.getY();
             float bx = (float) b.getX(), by = (float) b.getY();
-            if (Math.abs(ax - bx) <= TOL) {
+            float dx = Math.abs(ax - bx), dy = Math.abs(ay - by);
+            if (dx < 0.5f && dy < 0.5f) return;
+            // 按主方向判断，避免 2pt 短点线被误判为零长度竖线。
+            if (dx >= dy) {
+                pending.add(new Segment(true, pageHeight - ay, Math.min(ax, bx), Math.max(ax, bx)));
+            } else if (dx <= TOL) {
                 float from = pageHeight - Math.max(ay, by);
                 float to = pageHeight - Math.min(ay, by);
                 pending.add(new Segment(false, ax, from, to));
-            } else if (Math.abs(ay - by) <= TOL) {
-                pending.add(new Segment(true, pageHeight - ay, Math.min(ax, bx), Math.max(ax, bx)));
             }
         }
 

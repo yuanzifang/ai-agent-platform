@@ -1865,6 +1865,53 @@ class DocumentParserTest {
     }
 
     @Test
+    void parsesPdfDottedGridTable() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setLineWidth(1f);
+                for (float x : new float[]{50, 200, 300}) drawDottedLine(content, x, 640, x, 730);
+                for (float y : new float[]{730, 700, 670, 640}) drawDottedLine(content, 50, y, 300, y);
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                String[][] texts = {{"Product", "60", "710"}, {"Price", "210", "710"},
+                        {"Water", "60", "680"}, {"1999", "210", "680"},
+                        {"Filter", "60", "650"}, {"99", "210", "650"}};
+                for (String[] text : texts) {
+                    content.beginText();
+                    content.newLineAtOffset(Float.parseFloat(text[1]), Float.parseFloat(text[2]));
+                    content.showText(text[0]);
+                    content.endText();
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("dotted-grid.pdf", pdf));
+        assertTrue(text.contains("<table") && text.contains("<th>Product</th>"),
+                "点线表格应还原表头和表体，实际=" + text);
+        assertTrue(text.contains("Water") && text.contains("1999"), "点线表格文字应保留，实际=" + text);
+    }
+
+    private static void drawDottedLine(PDPageContentStream content, float x1, float y1,
+                                       float x2, float y2) throws Exception {
+        double length = Math.hypot(x2 - x1, y2 - y1);
+        double dx = (x2 - x1) / length;
+        double dy = (y2 - y1) / length;
+        for (double start = 0; start < length; start += 6) {
+            double end = Math.min(start + 2, length);
+            content.moveTo((float) (x1 + dx * start), (float) (y1 + dy * start));
+            content.lineTo((float) (x1 + dx * end), (float) (y1 + dy * end));
+            content.stroke();
+        }
+        // 补最后一个点，保证点线与相邻边框在端点相交。
+        content.moveTo((float) (x1 + dx * Math.max(0, length - 2)), (float) (y1 + dy * Math.max(0, length - 2)));
+        content.lineTo((float) x2, (float) y2);
+        content.stroke();
+    }
+
+    @Test
     void parsesTwoLineGridTablesOnOnePage() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
