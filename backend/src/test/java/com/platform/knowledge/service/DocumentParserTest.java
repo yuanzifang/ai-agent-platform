@@ -388,6 +388,45 @@ class DocumentParserTest {
     }
 
     @Test
+    void extractsPdfMixedPhotoAndVectorChart() throws Exception {
+        BufferedImage photo = new BufferedImage(220, 120, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = photo.createGraphics();
+        try {
+            g.setColor(new Color(135, 206, 235));
+            g.fillRect(0, 0, 220, 120);
+            g.setColor(new Color(34, 139, 34));
+            g.fillRect(0, 80, 220, 40);
+        } finally {
+            g.dispose();
+        }
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.drawImage(LosslessFactory.createFromImage(doc, photo), 50, 620, 220, 120);
+                content.setLineWidth(1.5f);
+                for (int i = 0; i < 6; i++) {
+                    content.moveTo(50, 500 - i * 30);
+                    content.lineTo(500, 500 - i * 30);
+                    content.stroke();
+                }
+                content.setNonStrokingColor(new Color(30, 120, 220));
+                for (int i = 0; i < 3; i++) {
+                    content.addRect(100 + i * 100, 330, 60, 70 + i * 20);
+                    content.fill();
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        ReflectionTestUtils.setField(parser, "vectorChartRenderEnabled", true);
+        List<DocumentParser.ExtractedImage> images = parser.extractImages("mixed-photo-vector.pdf", pdf);
+        assertTrue(images.size() >= 2,
+                "混合页应同时保留内嵌照片并渲染矢量图表页，实际=" + images.size());
+    }
+
+    @Test
     void extractsDocxImages() throws Exception {
         BufferedImage image = new BufferedImage(200, 100, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = image.createGraphics();

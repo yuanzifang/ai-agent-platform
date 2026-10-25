@@ -130,7 +130,6 @@ public class DocumentParser {
                     int count = 0;
                     for (int p = 0; p < doc.getNumberOfPages() && count < 20; p++) {
                         PDPage page = doc.getPage(p);
-                        boolean hasEmbedded = false;
                         PDResources resources = page.getResources();
                         if (resources != null) {
                             for (var name : resources.getXObjectNames()) {
@@ -141,12 +140,10 @@ public class DocumentParser {
                                 ImageIO.write(image.getImage(), "png", out);
                                 addImage(images, out.toByteArray(), "png");
                                 count++;
-                                hasEmbedded = true;
                             }
                         }
-                        // 矢量图表没有内嵌图片；渲染整页作为图片，交给 OCR/多模态理解。
-                        if (!hasEmbedded && count < 20 && vectorChartRenderEnabled
-                                && hasVectorDrawing(page, 6)) {
+                        // 矢量图表可能和照片/位图同页；独立检测并渲染整页，避免组合页漏图表。
+                        if (count < 20 && vectorChartRenderEnabled && hasVectorDrawing(page, 6)) {
                             BufferedImage rendered = renderer.renderImageWithDPI(p, 150);
                             ByteArrayOutputStream out = new ByteArrayOutputStream();
                             ImageIO.write(rendered, "png", out);
