@@ -221,6 +221,11 @@ jobs:
           cat /tmp/minio.log
           exit 1
 
+      - name: 初始化 pgvector 扩展（pgvector 镜像不自动 CREATE EXTENSION，本地库早已建过故首跑才暴露）
+        run: |
+          docker exec ${{ job.services.pgvector.id }} psql -U postgres -d vector \
+            -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
       - name: 启动后端
         working-directory: backend
         run: |
