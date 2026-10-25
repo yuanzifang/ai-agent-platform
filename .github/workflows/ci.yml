@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy 文件系统扫描（依赖/配置 HIGH/CRITICAL）
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.24.0
         with:
           scan-type: fs
           scan-ref: .
@@ -198,11 +198,6 @@ jobs:
           cat /tmp/mock-servers.log
           exit 1
 
-      - name: 内置 DeepSeek Provider 指向 Mock
-        run: |
-          docker exec ${{ job.services.mysql.id }} mysql -uroot -proot ai_agent_platform \
-            -e "UPDATE provider SET base_url='http://127.0.0.1:18080' WHERE provider_type='DEEPSEEK';"
-
       - name: 启动后端
         working-directory: backend
         run: |
@@ -217,6 +212,11 @@ jobs:
           echo "backend failed to become healthy"
           tail -200 /tmp/backend.log
           exit 1
+
+      - name: 内置 DeepSeek Provider 指向 Mock（后端首启建表后）
+        run: |
+          docker exec ${{ job.services.mysql.id }} mysql -uroot -proot ai_agent_platform \
+            -e "UPDATE provider SET base_url='http://127.0.0.1:18080' WHERE provider_type='DEEPSEEK';"
 
       - name: 放宽 E2E 租户限流
         run: |
