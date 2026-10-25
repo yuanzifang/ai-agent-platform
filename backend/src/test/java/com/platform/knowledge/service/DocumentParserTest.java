@@ -504,6 +504,42 @@ class DocumentParserTest {
     }
 
     @Test
+    void infersPdfVeryLongRowspan() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                String[][] rows = new String[14][];
+                rows[0] = new String[]{"Category", "Item", "Price"};
+                rows[1] = new String[]{"Fruit", "Apple", "10"};
+                for (int i = 2; i <= 12; i++) {
+                    rows[i] = new String[]{"", "Item " + i, String.valueOf(i)};
+                }
+                rows[13] = new String[]{"Veg", "Kale", "5"};
+                float y = 760;
+                for (String[] row : rows) {
+                    float[] xs = {50, 220, 360};
+                    for (int col = 0; col < row.length; col++) {
+                        if (row[col].isEmpty()) continue;
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 45;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("rowspan-very-long.pdf", pdf));
+        assertTrue(text.contains("<td rowspan=\"12\">Fruit</td>"),
+                "12 行纵向分组应保留 rowspan，实际=" + text);
+    }
+
+    @Test
     void parsesPdfMultiLevelHeader() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
