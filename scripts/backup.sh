@@ -11,6 +11,7 @@
 #   ./scripts/backup.sh
 #   ./scripts/backup.sh --skip-minio
 #   BACKUP_ROOT=/data/backups ./scripts/backup.sh --prune --retention-days 14
+#   ./scripts/backup.sh --with-binlog   # 额外归档 binlog，支持 PITR
 #   # 异地加密上传（MinIO/S3 兼容，mc）
 #   BACKUP_OFFSITE_ENDPOINT=https://minio.example.com \
 #   BACKUP_OFFSITE_BUCKET=platform-backups \
@@ -36,6 +37,7 @@ SKIP_PG=0
 SKIP_MINIO=0
 DO_PRUNE=0
 SKIP_OFFSITE=0
+BINLOG_ARCHIVE="${BACKUP_BINLOG_ARCHIVE:-0}"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 OFFSITE_ARCHIVE=""
 
@@ -46,6 +48,7 @@ while [ $# -gt 0 ]; do
     --skip-minio) SKIP_MINIO=1 ;;
     --prune) DO_PRUNE=1 ;;
     --skip-offsite) SKIP_OFFSITE=1 ;;
+    --with-binlog) BINLOG_ARCHIVE=1 ;;
     --retention-days) RETENTION_DAYS="${2:?--retention-days 需要天数}"; shift ;;
     -h|--help)
       sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
@@ -97,6 +100,8 @@ warn() { log "WARN: $*"; printf '%s\n' "$*" >> "$WARNINGS"; }
 
 MYSQL_TABLE_COUNT=0
 MYSQL_AUDIT_ROWS=0
+MYSQL_BINLOG_FILES=0
+MYSQL_BINLOG_BYTES=0
 MYSQL_DUMP_VERSION="skipped"
 PG_TABLE_COUNT=0
 PG_DUMP_VERSION="skipped"
@@ -147,8 +152,12 @@ else
   MYSQL_AUDIT_ROWS="$("${MYSQL[@]}" --batch --skip-column-names -e \
     "SELECT COUNT(*) FROM \`$MYSQL_DATABASE\`.audit_operation" 2>/dev/null || echo 0)"
 
-  # 可选 PITR 坐标；权限不足时不阻断备份
-  if ! "${MYSQL[@]}" -e "SHOW MASTER STATUS\G" > "$PARTIAL/mysql/binlog.txt" 2>/dev/null; then
+  # 可选 PITR 坐标；MySQL 8.4 使用 SHOW BINARY LOG STATUS，旧版本回退 SHOW MASTER STATUS
+  if "${MYSQL[@]}" --batch -e "SHOW BINARY LOG STATUS" > "$PARTIAL/mysql/binlog.txt" 2>/dev/null; then
+    :
+  elif "${MYSQL[@]}" --batch -e "SHOW MASTER STATUS" > "$PARTIAL/mysql/binlog.txt" 2>/dev/null; then
+    :
+  else
     : > "$PARTIAL/mysql/binlog.txt"
     warn "无法读取 MySQL binlog 坐标（权限不足或未开启 binlog）"
   fi
@@ -161,6 +170,27 @@ else
   gzip -t "$PARTIAL/mysql/$MYSQL_DATABASE.sql.gz" || die "MySQL 备份 gzip 校验失败"
   rm -f "$PARTIAL/mysql/dump.err"
   MYSQL_DUMP_VERSION="$(mysqldump --version 2>/dev/null || echo unknown)"
+
+  if [ "$BINLOG_ARCHIVE" = "1" ]; then
+    MYSQL_BINLOG="${MYSQL_BINLOG:-mysqlbinlog}"
+    command -v "$MYSQL_BINLOG" >/dev/null 2>&1 || die "缺少 mysqlbinlog（--with-binlog）"
+    mkdir -p "$PARTIAL/mysql/binlog"
+    "${MYSQL[@]}" --batch --skip-column-names -e "SHOW BINARY LOGS" \
+      > "$PARTIAL/mysql/binlog/files.tsv" 2>"$PARTIAL/mysql/binlog/list.err" \
+      || { cat "$PARTIAL/mysql/binlog/list.err" >&2 || true; die "SHOW BINARY LOGS 失败（需要 REPLICATION CLIENT/SLAVE 权限，或未开启 binlog）"; }
+    while IFS=$'\t' read -r log_name log_size _rest; do
+      [ -n "$log_name" ] || continue
+      "$MYSQL_BINLOG" --read-from-remote-server --raw --host="$MYSQL_HOST" --port="$MYSQL_PORT" \
+        --user="$MYSQL_BACKUP_USER" --result-file="$PARTIAL/mysql/binlog/" "$log_name" \
+        >/dev/null 2>>"$PARTIAL/mysql/binlog/download.err" \
+        || { cat "$PARTIAL/mysql/binlog/download.err" >&2 || true; die "下载 binlog 失败：$log_name"; }
+      [ -s "$PARTIAL/mysql/binlog/$log_name" ] || die "binlog 文件为空：$log_name"
+      MYSQL_BINLOG_FILES=$((MYSQL_BINLOG_FILES + 1))
+      MYSQL_BINLOG_BYTES=$((MYSQL_BINLOG_BYTES + $(wc -c < "$PARTIAL/mysql/binlog/$log_name" | tr -d ' ')))
+    done < "$PARTIAL/mysql/binlog/files.tsv"
+    rm -f "$PARTIAL/mysql/binlog/list.err" "$PARTIAL/mysql/binlog/download.err"
+    log "MySQL binlog：已归档 $MYSQL_BINLOG_FILES 个文件，$MYSQL_BINLOG_BYTES bytes"
+  fi
   log "MySQL：完成，$MYSQL_TABLE_COUNT 张表，dump $(du -h "$PARTIAL/mysql/$MYSQL_DATABASE.sql.gz" | awk '{print $1}')"
 fi
 
@@ -319,6 +349,8 @@ export BACKUP_GIT="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo u
 export BACKUP_MYSQL_DB="${MYSQL_DATABASE:-}"
 export BACKUP_MYSQL_TABLES="$MYSQL_TABLE_COUNT"
 export BACKUP_MYSQL_AUDIT_ROWS="$MYSQL_AUDIT_ROWS"
+export BACKUP_MYSQL_BINLOG_FILES="$MYSQL_BINLOG_FILES"
+export BACKUP_MYSQL_BINLOG_BYTES="$MYSQL_BINLOG_BYTES"
 export BACKUP_MYSQL_VERSION="$MYSQL_DUMP_VERSION"
 export BACKUP_PG_DB="${PG_DATABASE:-}"
 export BACKUP_PG_TABLES="$PG_TABLE_COUNT"
@@ -357,6 +389,8 @@ manifest = {
             'database': os.environ.get('BACKUP_MYSQL_DB') or None,
             'tables': int(os.environ.get('BACKUP_MYSQL_TABLES') or 0),
             'auditRows': int(os.environ.get('BACKUP_MYSQL_AUDIT_ROWS') or 0),
+            'binlogFiles': int(os.environ.get('BACKUP_MYSQL_BINLOG_FILES') or 0),
+            'binlogBytes': int(os.environ.get('BACKUP_MYSQL_BINLOG_BYTES') or 0),
             'dumpVersion': os.environ.get('BACKUP_MYSQL_VERSION') or None,
         },
         'pgvector': {
