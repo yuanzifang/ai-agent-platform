@@ -58,13 +58,13 @@ jobs:
         run: npm test
       - name: 容器冒烟（/healthz 与 401/200 行为）
         run: |
-          docker run -d --name gw-smoke -p 18099:8080 -e RUNTIME_TOKEN=smoke-token agent-gateway:ci
+          docker run -d --name gw-smoke -p 18099:8080 -e RUNTIME_TOKEN=gw-ci agent-gateway:ci
           trap 'docker rm -f gw-smoke >/dev/null 2>&1 || true' EXIT
           for i in $(seq 1 20); do curl -fsS http://127.0.0.1:18099/healthz >/dev/null 2>&1 && break; sleep 1; done
           curl -fsS http://127.0.0.1:18099/healthz | grep -q ok
           code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18099/v1/models)
           [ "$code" = "401" ] || { echo "期望 401 实得 $code"; docker logs gw-smoke; exit 1; }
-          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer smoke-token" http://127.0.0.1:18099/v1/models)
+          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer gw-ci" http://127.0.0.1:18099/v1/models)
           [ "$code" = "200" ] || { echo "期望 200 实得 $code"; docker logs gw-smoke; exit 1; }
           echo "gateway 容器冒烟通过"
 
