@@ -151,6 +151,8 @@ services:
       APP_PUBLIC_BASE: ${APP_PUBLIC_BASE:-http://localhost:8080}
       APP_FRONTEND_BASE: ${APP_FRONTEND_BASE:-http://localhost:5173}
       ALERT_WEBHOOK_ENABLED: ${ALERT_WEBHOOK_ENABLED:-false}
+      # Alertmanager→群机器人路由的接收令牌；须与 deploy/observability/alertmanager.yml 的 X-Alert-Token 一致
+      ALERT_RECEIVER_TOKEN: ${ALERT_RECEIVER_TOKEN:-change-me-in-production}
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       ALERT_WEBHOOK_SECRET: ${ALERT_WEBHOOK_SECRET:-}
       ALERT_WEBHOOK_ENV: ${ALERT_WEBHOOK_ENV:-prod}
@@ -161,6 +163,8 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
       SKILL_SCRIPT_ENABLED: ${SKILL_SCRIPT_ENABLED:-false}
+      # 容器沙箱需后端容器可访问 docker CLI + /var/run/docker.sock；未挂载前保持 process
+      SKILL_SCRIPT_RUNTIME: ${SKILL_SCRIPT_RUNTIME:-process}
       ASR_ENABLED: ${ASR_ENABLED:-false}
       ASR_ENDPOINT: ${ASR_ENDPOINT:-}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -196,6 +200,17 @@ services:
       backend:
         condition: service_healthy
     logging: *default-logging
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./deploy/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
 
   grafana:
     image: grafana/grafana:11.3.0

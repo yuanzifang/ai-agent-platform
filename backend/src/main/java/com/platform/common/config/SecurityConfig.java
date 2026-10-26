@@ -45,7 +45,9 @@ public class SecurityConfig {
                                 // 平台自身作为 MCP Server（API Key 在控制器内校验）
                                 "/mcp",
                                 // 仅容器内网供 Prometheus 抓取；Nginx 不反代该路径
-                                "/actuator/health/**", "/actuator/prometheus").permitAll()
+                                "/actuator/health/**", "/actuator/prometheus",
+                                // Alertmanager 告警接收（X-Alert-Token 在控制器内校验，令牌未配置一律 403）
+                                "/api/v1/ops/alerts/webhook").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint((req, res, ex) -> {
                     res.setStatus(401);
