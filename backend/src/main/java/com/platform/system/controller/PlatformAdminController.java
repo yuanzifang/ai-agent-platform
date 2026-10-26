@@ -4,6 +4,7 @@ import com.platform.common.response.ApiResponse;
 import com.platform.security.JwtPrincipal;
 import com.platform.observability.service.AuditArchiveService;
 import com.platform.observability.service.MessageArchiveService;
+import com.platform.system.service.AlertWebhookService;
 import com.platform.system.service.AuditService;
 import com.platform.system.service.PlatformAdminService;
 import jakarta.validation.constraints.NotBlank;
@@ -35,6 +36,7 @@ public class PlatformAdminController {
     private final MessageArchiveService messageArchiveService;
     private final AuditArchiveService auditArchiveService;
     private final AuditService auditService;
+    private final AlertWebhookService alertWebhookService;
 
     @GetMapping("/tenants")
     public ApiResponse<List<Map<String, Object>>> tenants(@AuthenticationPrincipal JwtPrincipal principal) {
@@ -72,6 +74,20 @@ public class PlatformAdminController {
         platformAdminService.requirePlatformAdmin(principal);
         platformAdminService.updateStatus(id, req.status(), principal.userId());
         return ApiResponse.ok();
+    }
+
+    /** 手动触发一条运维告警，用于验证钉钉/企微/飞书 webhook 配置。 */
+    @PostMapping("/alerts/test")
+    public ApiResponse<Map<String, Object>> testAlert(@AuthenticationPrincipal JwtPrincipal principal) {
+        platformAdminService.requirePlatformAdmin(principal);
+        boolean sent = alertWebhookService.alert("测试告警",
+                "平台管理员手动触发 webhook 连通性测试");
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("configured", alertWebhookService.isConfigured());
+        result.put("sent", sent);
+        auditService.record(principal.userId(), "alert.test", "alert", "webhook",
+                sent ? "SUCCESS" : "FAILED", result);
+        return ApiResponse.ok(result);
     }
 
     /** 手动执行消息过期归档（平台管理员；日常由 MessageArchiveService 定时任务执行）。 */

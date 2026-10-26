@@ -103,6 +103,8 @@ scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 - 已预置 `AI Agent Platform Overview` 仪表盘（请求速率、5xx、P95、JVM 内存、CPU）
 - 后端指标端点 `/actuator/prometheus` 仅容器内网供 Prometheus 抓取，Nginx 不反代
 - 需要远程访问时把 `PROMETHEUS_BIND/GRAFANA_BIND` 改为 `0.0.0.0`，并只对可信网段开放端口
+- 群机器人告警：在 `.env.docker` 设置 `ALERT_WEBHOOK_ENABLED=true` + `ALERT_WEBHOOK_URL`；平台管理员可调用 `POST /api/v1/platform/alerts/test` 验证投递
+- 钉钉机器人有加签时填 `ALERT_WEBHOOK_SECRET`（签名会放 query）；企微/飞书只用 webhook URL
 
 生产建议：
 
