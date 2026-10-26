@@ -133,7 +133,10 @@ public class StepEvaluationService {
     private StepResult rewrite(String query, Map<String, Object> expected, Map<String, Object> config) {
         String model = str(config.get("model"));
         String instructions = str(config.get("instructions"));
-        String rewritten = rewriteService.rewrite(query, model, instructions);
+        boolean localOnly = Boolean.parseBoolean(str(config.get("localOnly")))
+                || "local".equalsIgnoreCase(str(config.get("mode")));
+        String rewritten = localOnly ? rewriteService.rewriteLocal(query)
+                : rewriteService.rewrite(query, model, instructions);
         String expectedText = str(expected.get("rewrite"));
         if (expectedText == null) expectedText = str(expected.get("expectedRewrite"));
         List<String> mustKeep = strings(expected.get("must_keep"));
@@ -153,6 +156,7 @@ public class StepEvaluationService {
         details.put("exact", exact);
         details.put("keptEntities", kept);
         details.put("forbiddenHit", blocked);
+        details.put("localOnly", localOnly);
         return new StepResult(score, score >= passThreshold, rewritten, json(details));
     }
 

@@ -433,6 +433,10 @@
           <el-input v-model="stepRunForm.stepConfig" type="textarea" :rows="3"
                     :placeholder="t('evalPage.stepConfigPh')" />
         </el-form-item>
+        <el-form-item v-if="stepRunForm.stepType === 'REWRITE'" :label="t('evalPage.localRewrite')">
+          <el-switch v-model="stepRunForm.localOnly" />
+          <span class="hint" style="margin-left: 10px">{{ t('evalPage.localRewriteHint') }}</span>
+        </el-form-item>
       </el-form>
       <div class="dialog-hint">{{ t('evalPage.stepRunHint') }}</div>
       <div v-if="stepRunError" class="step-run-error">{{ stepRunError }}</div>
@@ -518,7 +522,7 @@ const stepRunVisible = ref(false)
 const stepRunSaving = ref(false)
 const stepRunError = ref('')
 const stepRunResult = ref<any>(null)
-const stepRunForm = reactive({ stepType: 'REWRITE', query: '', expectedPayload: '', stepConfig: '' })
+const stepRunForm = reactive({ stepType: 'REWRITE', query: '', expectedPayload: '', stepConfig: '', localOnly: false })
 const stepKeys = ['ANSWER', 'REWRITE', 'RETRIEVAL', 'RERANK']
 const trendVisible = ref(false)
 const trendLoading = ref(false)
@@ -773,7 +777,21 @@ async function runStep() {
   stepRunError.value = ''
   stepRunResult.value = null
   try {
-    stepRunResult.value = await http.post('/eval/steps/run', { ...stepRunForm }) as any
+    let stepConfig = stepRunForm.stepConfig
+    if (stepRunForm.stepType === 'REWRITE' && stepRunForm.localOnly) {
+      let config: any
+      try {
+        config = JSON.parse(stepConfig || '{}')
+      } catch {
+        stepRunError.value = t('evalPage.stepRunInvalidConfig')
+        return
+      }
+      stepConfig = JSON.stringify({ ...config, localOnly: true })
+    }
+    stepRunResult.value = await http.post('/eval/steps/run', {
+      stepType: stepRunForm.stepType, query: stepRunForm.query,
+      expectedPayload: stepRunForm.expectedPayload, stepConfig
+    }) as any
   } catch (e: any) {
     stepRunError.value = e?.response?.data?.message || e?.message || t('evalPage.stepRunFailed')
   } finally {
