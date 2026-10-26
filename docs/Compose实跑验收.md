@@ -6,7 +6,7 @@
 
 ## 结论
 
-核心全栈已通过 `docker compose up -d --build` 实际启动并完成业务链路验证：
+核心全栈（11 个服务）已通过 `docker compose up -d --build` 实际启动并完成业务链路验证：
 
 | 服务 | 状态 | 验证 |
 |---|---|---|
@@ -17,7 +17,8 @@
 | Backend | healthy | `/actuator/health`、登录、知识库 API |
 | Frontend | healthy | 静态页、`/api` 反向代理、CORS/安全头 |
 | Prometheus | running | `ai-agent-backend` target `up` |
-| Alertmanager | running | 手动 firing 经 backend `/internal/alertmanager` 转到测试 webhook |
+| Alertmanager | running | `AiAgentBackendDown` 真实 firing；经独立 alert-relay 送达 |
+| Alert-relay | healthy | Alertmanager JSON → 群机器人文本；后端宕机仍可投递 |
 | Grafana | running | `/api/health` database ok |
 | MinIO | 外部 | 宿主机 MinIO（Docker Hub 官方镜像 403） |
 
@@ -47,7 +48,7 @@ docker compose --env-file .env.docker exec ollama ollama pull bge-m3
 3. 创建知识库 → 预签名上传 `smoke.txt` 到 MinIO → callback → 解析 `DONE`、`chunkCount=1`。
 4. PgVector `tenant_1.embeddings_1024` 计数为 1。
 5. Prometheus `ai-agent-backend` target `up`；Grafana `/api/health` 正常。
-6. 向 Alertmanager `POST /api/v2/alerts` 手工 firing 后，backend `/internal/alertmanager` 转换为 text 消息并投递到本地测试 webhook，接收器收到 `[firing] ComposeSmokeAlert`。
+6. 停止 Compose 后端，等待 `AiAgentBackendDown` 规则真实 firing；Alertmanager 经独立 `alert-relay` 投递到本地测试 webhook，接收器在后端已停止时收到完整 `[firing] AiAgentBackendDown` 文本。
 
 ## 本次发现并修复
 

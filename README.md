@@ -99,7 +99,7 @@ scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 可观测性：
 
 - Prometheus：`http://127.0.0.1:9090`（默认只绑定本机，远程用 SSH 隧道或改 `PROMETHEUS_BIND`）
-- Alertmanager：`http://127.0.0.1:9093`（Compose 内置；webhook 转平台群机器人）
+- Alertmanager：`http://127.0.0.1:9093`（Compose 内置；经独立 alert-relay 转群机器人，后端宕机仍可告警）
 - Grafana：`http://127.0.0.1:3000`，账号 `admin / <GRAFANA_ADMIN_PASSWORD>`
 - 已预置 `AI Agent Platform Overview` 仪表盘（请求速率、5xx、P95、JVM 内存、CPU）
 - 后端指标端点 `/actuator/prometheus` 仅容器内网供 Prometheus 抓取，Nginx 不反代
