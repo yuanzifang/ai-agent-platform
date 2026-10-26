@@ -727,6 +727,14 @@ final class PdfTableExtractor {
         if (captioned) {
             return emptyRatio <= 0.72 && cells <= 800 && maxColumns <= 30;
         }
+        int numericCells = 0;
+        for (LogicalRow row : table.rows) {
+            for (String value : row.values) {
+                if (value != null && value.trim().matches("[-+]?\\d+([.,]\\d+)?%?")) numericCells++;
+            }
+        }
+        // 无标题、少列、纯文本的长表更像签名名单/流程图，而不是数据表。
+        if (rows >= 8 && maxColumns <= 3 && numericCells == 0) return false;
         if (maxColumns > 30) return false;
         if (maxColumns > 12) {
             // 无标题宽表容易被页眉/多栏正文误判：至少 3 行，并满足以下之一：
