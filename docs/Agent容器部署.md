@@ -155,6 +155,8 @@ client → container:8080 /v1/chat/completions
 
 ## 验证
 
+- 自动化：`DockerCliRuntimeTest` 3 个单测（create 参数、Docker 失败、inspect JSON）；CI `gateway` job 构建 `agent-gateway:ci` 后执行 `DockerCliRuntimeIT`，真实 Docker 完成 create→start→inspect→logs→stop→remove，并等 `/healthz` 返回 ok
+
 - 后端：`mvn -q -DskipTests compile` / `test-compile`，思考模式单测 7 + 路由单测 2 通过
 - 部署链路（假 Docker CLI + 真实后端/数据库）：部署→运行态、端口 19000、环境变量/挂载/健康检查参数、停止/启动/日志、未发布拦截、删除并回收 Key，全部通过
 - **真实 Docker（colima + agent-gateway:1）**：

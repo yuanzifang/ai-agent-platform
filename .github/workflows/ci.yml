@@ -102,6 +102,19 @@ jobs:
           grep -qi 'access-control-allow-origin: \*' /tmp/gateway-cors.headers
           echo "gateway container smoke passed"
 
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: 部署运行时真实 Docker 冒烟（create/start/inspect/logs/stop/remove）
+        working-directory: backend
+        env:
+          DOCKER_IT: '1'
+          DOCKER_IT_IMAGE: agent-gateway:ci
+        run: mvn -q -Dtest=DockerCliRuntimeIT test
+
   build:
     name: 后端构建 + 前端类型检查/构建
     runs-on: ubuntu-latest
