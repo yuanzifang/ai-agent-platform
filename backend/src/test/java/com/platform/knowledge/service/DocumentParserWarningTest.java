@@ -38,6 +38,22 @@ class DocumentParserWarningTest {
     }
 
     @Test
+    void parallelPageOcrWorks() throws Exception {
+        Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过页面并发 OCR 测试");
+        DocumentParser parser = new DocumentParser();
+        org.springframework.test.util.ReflectionTestUtils.setField(parser, "ocrConcurrency", 2);
+        ParseOptions opts = new ParseOptions(true, "tesseract", "eng", 150, 2,
+                false, "", "", 3);
+        DocumentParser.ParseOutcome outcome = parser.parseWithParentsAndWarnings(
+                "scan-page-parallel.pdf", twoPageTextImagePdf(), opts);
+        String text = outcome.chunks().stream().map(DocumentParser.ParsedChunk::content)
+                .reduce("", (a, b) -> a + "\n" + b);
+        assertTrue(text.toUpperCase().contains("SCAN PAGE ONE")
+                        && text.toUpperCase().contains("SCAN PAGE TWO"),
+                "页面级并发 OCR 应识别两页文本，实际=" + text);
+    }
+
+    @Test
     void parallelEmbeddedImageOcrWorks() throws Exception {
         Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过并发 OCR 测试");
         DocumentParser parser = new DocumentParser();

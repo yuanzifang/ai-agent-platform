@@ -455,7 +455,8 @@ public class DocumentParser {
 
     private String parsePdf(byte[] bytes) throws Exception {
         try (PDDocument doc = loadPdf(bytes)) {
-            PdfMarkdownConverter converter = new PdfMarkdownConverter(opts(), this::ocrPage, this::warn);
+            PdfMarkdownConverter converter = new PdfMarkdownConverter(opts(), this::ocrPage, this::warn,
+                    Math.max(1, ocrConcurrency));
             StringBuilder sb = new StringBuilder(converter.convert(doc));
             appendPdfMetadata(doc, sb);
             appendPdfFormsAndAnnotations(doc, sb);
@@ -466,18 +467,32 @@ public class DocumentParser {
         }
     }
 
-    /** 单页 OCR：优先使用整页原图；增强后无文本时回退原始图像，兼容强噪点扫描件。 */
-    private PdfMarkdownConverter.OcrResult ocrPage(PDDocument doc, int pageIndex) throws Exception {
-        PDFRenderer renderer = new PDFRenderer(doc);
-        BufferedImage direct = singleLargePageImage(doc, pageIndex);
-        BufferedImage base = direct != null ? direct
-                : renderer.renderImageWithDPI(pageIndex, Math.max(72, opts().ocrDpi()));
-        boolean enhanced = direct == null || ocrPreprocess || ocrAutoOrient || ocrDeskew;
-        PdfMarkdownConverter.OcrResult result = ocrPageVariant(base, direct == null, true);
-        if (enhanced && result.text().isBlank() && result.tableHtml().isBlank()) {
-            result = ocrPageVariant(base, direct == null, false);
+    /** 单页 OCR：PDF 渲染串行加锁，tesseract/预处理可在页面级并发。 */
+    private PdfMarkdownConverter.OcrResult ocrPage(PDDocument doc, int pageIndex,
+                                                   ParseOptions options) throws Exception {
+        ParseOptions previous = optsHolder.get();
+        optsHolder.set(options);
+        try {
+            PDFRenderer renderer = new PDFRenderer(doc);
+            BufferedImage direct;
+            BufferedImage base;
+            // PDFBox 的 PDDocument/PDFRenderer 不是线程安全的；只把渲染段放进锁，
+            // 预处理、方向纠正和 tesseract 可以并发执行。
+            synchronized (doc) {
+                direct = singleLargePageImage(doc, pageIndex);
+                base = direct != null ? direct
+                        : renderer.renderImageWithDPI(pageIndex, Math.max(72, opts().ocrDpi()));
+            }
+            boolean enhanced = direct == null || ocrPreprocess || ocrAutoOrient || ocrDeskew;
+            PdfMarkdownConverter.OcrResult result = ocrPageVariant(base, direct == null, true);
+            if (enhanced && result.text().isBlank() && result.tableHtml().isBlank()) {
+                result = ocrPageVariant(base, direct == null, false);
+            }
+            return result;
+        } finally {
+            if (previous == null) optsHolder.remove();
+            else optsHolder.set(previous);
         }
-        return result;
     }
 
     private PdfMarkdownConverter.OcrResult ocrPageVariant(BufferedImage base, boolean crop,

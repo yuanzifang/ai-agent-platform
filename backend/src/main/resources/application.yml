@@ -135,7 +135,7 @@ knowledge:
     languages: ${KNOWLEDGE_OCR_LANGUAGES:chi_sim+eng}
     max-pages: ${KNOWLEDGE_OCR_MAX_PAGES:20}
     dpi: ${KNOWLEDGE_OCR_DPI:150}
-    # 内嵌图片 OCR 并发数；本地 CPU 建议 1-2，远程/多核可 2-4
+    # 页面/内嵌图片 OCR 并发数；本地 CPU 建议 1-2，远程/多核可 2-4
     concurrency: ${KNOWLEDGE_OCR_CONCURRENCY:1}
   vision:
     # 可选图片多模态理解（本地 Ollama 视觉模型）；默认关闭

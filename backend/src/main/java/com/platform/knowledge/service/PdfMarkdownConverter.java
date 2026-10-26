@@ -14,6 +14,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -49,7 +53,7 @@ final class PdfMarkdownConverter {
             Pattern.CASE_INSENSITIVE);
 
     interface PageOcr {
-        OcrResult ocr(PDDocument doc, int pageIndex) throws Exception;
+        OcrResult ocr(PDDocument doc, int pageIndex, ParseOptions options) throws Exception;
     }
 
     record OcrResult(String text, String tableHtml) {
@@ -58,12 +62,15 @@ final class PdfMarkdownConverter {
     private final ParseOptions opts;
     private final PageOcr ocr;
     private final java.util.function.Consumer<String> warnings;
+    private final int ocrConcurrency;
     private final Set<Integer> ocrPages = new HashSet<>();
 
-    PdfMarkdownConverter(ParseOptions opts, PageOcr ocr, java.util.function.Consumer<String> warnings) {
+    PdfMarkdownConverter(ParseOptions opts, PageOcr ocr,
+                         java.util.function.Consumer<String> warnings, int ocrConcurrency) {
         this.opts = opts;
         this.ocr = ocr;
         this.warnings = warnings == null ? message -> { } : warnings;
+        this.ocrConcurrency = Math.max(1, Math.min(4, ocrConcurrency));
     }
 
     Set<Integer> ocrPages() {
@@ -83,8 +90,8 @@ final class PdfMarkdownConverter {
             }
         }
 
-        List<Page> pages = new ArrayList<>();
-        int ocrAttempts = 0;
+        List<PageState> states = new ArrayList<>();
+        List<PageState> ocrCandidates = new ArrayList<>();
         int ocrSkipped = 0;
         int noTextPages = 0;
         int maxOcr = Math.max(1, opts.ocrMaxPages());
@@ -93,35 +100,37 @@ final class PdfMarkdownConverter {
             float height = page.getMediaBox().getHeight();
             float width = page.getMediaBox().getWidth();
             List<Line> lines = extractLines(doc, p, width);
+            PageState state = new PageState(p, height, width, lines);
+            states.add(state);
             boolean emptyPage = textLength(lines) < OCR_MIN_CHARS;
-            if (emptyPage) {
-                if (!opts.ocrEnabled()) {
-                    noTextPages++;
-                } else if (ocr != null && ocrAttempts < maxOcr) {
-                    ocrAttempts++;
-                    try {
-                        OcrResult result = ocr.ocr(doc, p);
-                        if (result != null && result.text() != null && !result.text().isBlank()) {
-                            lines = linesFromOcr(result.text());
-                            ocrPages.add(p);
-                        } else {
-                            warnings.accept("第 " + (p + 1) + " 页 OCR 未识别到文本");
-                        }
-                        if (result != null && result.tableHtml() != null && !result.tableHtml().isBlank()) {
-                            tablesByPage.computeIfAbsent(p, key -> new ArrayList<>())
-                                    .add(PdfTableBlock.singlePage(p, height + 1, height + 2,
-                                            0, width, result.tableHtml(), false));
-                        }
-                    } catch (Exception e) {
-                        warnings.accept("第 " + (p + 1) + " 页 OCR 失败：" + e.getMessage());
-                    }
+            if (!emptyPage) continue;
+            if (!opts.ocrEnabled()) {
+                noTextPages++;
+            } else if (ocr != null && ocrCandidates.size() < maxOcr) {
+                ocrCandidates.add(state);
+            } else {
+                ocrSkipped++;
+            }
+        }
+        int ocrAttempts = ocrCandidates.size();
+        if (!ocrCandidates.isEmpty()) {
+            List<OcrResult> results = runPageOcr(doc, ocrCandidates);
+            for (int i = 0; i < ocrCandidates.size(); i++) {
+                PageState state = ocrCandidates.get(i);
+                OcrResult result = i < results.size() ? results.get(i) : null;
+                if (result == null) continue;
+                if (result.text() != null && !result.text().isBlank()) {
+                    state.lines = linesFromOcr(result.text());
+                    ocrPages.add(state.index);
                 } else {
-                    ocrSkipped++;
+                    warnings.accept("第 " + (state.index + 1) + " 页 OCR 未识别到文本");
+                }
+                if (result.tableHtml() != null && !result.tableHtml().isBlank()) {
+                    tablesByPage.computeIfAbsent(state.index, key -> new ArrayList<>())
+                            .add(PdfTableBlock.singlePage(state.index, state.height + 1, state.height + 2,
+                                    0, state.width, result.tableHtml(), false));
                 }
             }
-            List<PdfTableBlock> pageTables = new ArrayList<>(tablesByPage.getOrDefault(p, List.of()));
-            pageTables.sort(Comparator.comparingDouble(PdfTableBlock::top));
-            pages.add(new Page(p, height, lines, pageTables));
         }
         if (ocrSkipped > 0) {
             warnings.accept("扫描页 OCR 仅覆盖前 " + ocrAttempts + " 页，另有 " + ocrSkipped
@@ -132,6 +141,12 @@ final class PdfMarkdownConverter {
                     + "请启用 knowledge.ocr.enabled 或补充文本层");
         }
 
+        List<Page> pages = new ArrayList<>(states.size());
+        for (PageState state : states) {
+            List<PdfTableBlock> pageTables = new ArrayList<>(tablesByPage.getOrDefault(state.index, List.of()));
+            pageTables.sort(Comparator.comparingDouble(PdfTableBlock::top));
+            pages.add(new Page(state.index, state.height, state.lines, pageTables));
+        }
         removeBoilerplate(pages, pageCount);
         float fallbackBodySize = bodyFontSize(pages);
 
@@ -144,6 +159,51 @@ final class PdfMarkdownConverter {
             out.append("<!-- page: ").append(page.index() + 1).append(" -->\n\n").append(markdown);
         }
         return out.toString().trim();
+    }
+
+    /** 页面 OCR：渲染仍由 DocumentParser 串行加锁，tesseract 按配置并发。 */
+    private List<OcrResult> runPageOcr(PDDocument doc, List<PageState> candidates) {
+        List<OcrResult> results = new ArrayList<>(candidates.size());
+        for (int i = 0; i < candidates.size(); i++) results.add(null);
+        if (ocrConcurrency <= 1 || candidates.size() <= 1) {
+            for (int i = 0; i < candidates.size(); i++) {
+                PageState state = candidates.get(i);
+                try {
+                    results.set(i, ocr.ocr(doc, state.index, opts));
+                } catch (Exception e) {
+                    warnings.accept("第 " + (state.index + 1) + " 页 OCR 失败：" + e.getMessage());
+                }
+            }
+            return results;
+        }
+        ExecutorService executor = Executors.newFixedThreadPool(
+                Math.min(4, Math.max(1, ocrConcurrency)), runnable -> {
+                    Thread thread = new Thread(runnable, "pdf-page-ocr");
+                    thread.setDaemon(true);
+                    return thread;
+                });
+        List<Future<OcrResult>> futures = new ArrayList<>(candidates.size());
+        try {
+            for (PageState state : candidates) {
+                futures.add(executor.submit(() -> ocr.ocr(doc, state.index, opts)));
+            }
+            for (int i = 0; i < candidates.size(); i++) {
+                PageState state = candidates.get(i);
+                try {
+                    results.set(i, futures.get(i).get());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    warnings.accept("页面 OCR 被中断");
+                    break;
+                } catch (ExecutionException e) {
+                    Throwable cause = e.getCause() == null ? e : e.getCause();
+                    warnings.accept("第 " + (state.index + 1) + " 页 OCR 失败：" + cause.getMessage());
+                }
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+        return results;
     }
 
     private List<Line> extractLines(PDDocument doc, int pageIndex, float pageWidth) {
@@ -604,6 +664,20 @@ final class PdfMarkdownConverter {
             y += 18f;
         }
         return lines;
+    }
+
+    private static final class PageState {
+        private final int index;
+        private final float height;
+        private final float width;
+        private List<Line> lines;
+
+        private PageState(int index, float height, float width, List<Line> lines) {
+            this.index = index;
+            this.height = height;
+            this.width = width;
+            this.lines = lines;
+        }
     }
 
     private record Page(int index, float height, List<Line> lines,
