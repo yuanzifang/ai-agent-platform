@@ -165,6 +165,20 @@ public class ChatModelRouter {
 
     /** 按模型/Provider 生成对应协议的 ChatOptions（工具回调统一注入）。 */
     public ChatOptions options(String modelName, Double temperature, List<ToolCallback> callbacks) {
+        return options(modelName, temperature, callbacks, null, null);
+    }
+
+    /**
+     * 同上，额外支持思考模式：
+     * - Anthropic 原生协议：thinking + budget_tokens（low/medium/high 对应 2k/4k/8k，且 max_tokens 必须大于 budget）
+     * - OpenAI 兼容协议：reasoning_effort（minimal/low/medium/high）
+     *
+     * 是否真正生效由「模型能力」决定：model.capabilities.reasoning=true 才注入，
+     * 参数风格取 capabilities.reasoningParam（effort/budget，缺省按 Provider 类型推断），
+     * 思考模式下不再传 temperature（推理模型普遍不支持自定义温度，避免 400）。
+     */
+    public ChatOptions options(String modelName, Double temperature, List<ToolCallback> callbacks,
+                               Boolean thinking, String reasoningEffort) {
         ModelEntity model = modelName == null || modelName.isBlank()
                 ? modelMapper.findDefaultChat(TenantContext.getTenantId())
                 : modelMapper.findForPricing(modelName, TenantContext.getTenantId());
@@ -177,17 +191,83 @@ public class ChatModelRouter {
                 : provider.getProviderType().toUpperCase(Locale.ROOT);
         String effectiveModel = modelName == null || modelName.isBlank()
                 ? model.getModelName() : modelName;
+
+        Map<String, Object> caps = json(model.getCapabilities());
+        Map<String, Object> defaults = json(model.getDefaultParams());
+        boolean reasoningOn = Boolean.TRUE.equals(thinking) && Boolean.TRUE.equals(caps.get("reasoning"));
+        String level = normalizeReasoningLevel(reasoningEffort != null
+                ? reasoningEffort
+                : str(defaults.get("reasoningEffort")));
+        // 模型声明了可选级别时，不支持的级别回落到默认/medium
+        if (reasoningOn && caps.get("reasoningLevels") instanceof List<?> levels && !levels.isEmpty()) {
+            List<String> allowed = levels.stream().map(String::valueOf).map(this::normalizeReasoningLevel).toList();
+            if (!allowed.contains(level)) {
+                String fallbackLevel = normalizeReasoningLevel(str(defaults.get("reasoningEffort")));
+                level = allowed.contains(fallbackLevel) ? fallbackLevel : allowed.get(0);
+            }
+        }
+        String style = str(caps.get("reasoningParam"));
+        boolean budgetStyle = "budget".equalsIgnoreCase(style) || ("ANTHROPIC".equals(type) && !"effort".equalsIgnoreCase(style));
+
         if ("ANTHROPIC".equals(type)) {
-            AnthropicChatOptions.Builder builder = AnthropicChatOptions.builder()
-                    .model(effectiveModel).maxTokens(4096);
-            if (temperature != null) builder.temperature(temperature);
+            AnthropicChatOptions.Builder builder = AnthropicChatOptions.builder().model(effectiveModel);
+            if (reasoningOn && budgetStyle) {
+                int budget = reasoningBudget(level);
+                builder.maxTokens(budget + 4096)
+                        .thinking(org.springframework.ai.anthropic.api.AnthropicApi.ThinkingType.ENABLED, budget);
+            } else {
+                builder.maxTokens(4096);
+                if (temperature != null) builder.temperature(temperature);
+            }
             if (callbacks != null && !callbacks.isEmpty()) builder.toolCallbacks(callbacks);
             return builder.build();
         }
         OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder().model(effectiveModel);
-        if (temperature != null) builder.temperature(temperature);
+        if (reasoningOn) {
+            builder.reasoningEffort(level);
+        } else if (temperature != null) {
+            builder.temperature(temperature);
+        }
         if (callbacks != null && !callbacks.isEmpty()) builder.toolCallbacks(callbacks);
         return builder.build();
+    }
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> json(String raw) {
+        if (raw == null || raw.isBlank()) return Map.of();
+        try {
+            return JSON.readValue(raw, Map.class);
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    private String str(Object v) {
+        return v == null ? "" : String.valueOf(v);
+    }
+
+    /** 统一思考级别：minimal / low / medium / high，非法值按 medium。 */
+    public String normalizeReasoningLevel(String level) {
+        String v = level == null ? "" : level.trim().toLowerCase(Locale.ROOT);
+        return switch (v) {
+            case "minimal", "low", "medium", "high" -> v;
+            case "max", "xhigh" -> "high";
+            case "mid", "normal" -> "medium";
+            default -> "medium";
+        };
+    }
+
+    /** Anthropic budget_tokens（必须小于 max_tokens）。 */
+    private int reasoningBudget(String level) {
+        return switch (normalizeReasoningLevel(level)) {
+            case "minimal" -> 1024;
+            case "low" -> 2048;
+            case "high" -> 8192;
+            default -> 4096;
+        };
     }
 
     /** 402/429/5xx/连接超时视为可降级；4xx 参数错误不降级。 */

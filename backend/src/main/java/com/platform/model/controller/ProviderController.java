@@ -130,13 +130,72 @@ public class ProviderController {
         }
         if (req.displayName() != null && !req.displayName().isBlank()) m.setDisplayName(req.displayName());
         if (req.contextWindow() != null && req.contextWindow() >= 0) m.setContextWindow(req.contextWindow());
+        // 思考能力（模型级）：是否支持 / 参数风格 / 可选级别 / 默认级别
+        if (req.reasoning() != null || req.reasoningParam() != null
+                || req.reasoningLevels() != null || req.defaultReasoningEffort() != null) {
+            Map<String, Object> caps = readJson(m.getCapabilities());
+            if (req.reasoning() != null) caps.put("reasoning", req.reasoning());
+            if (req.reasoningParam() != null) {
+                String style = req.reasoningParam().trim().toLowerCase(java.util.Locale.ROOT);
+                if (!List.of("effort", "budget").contains(style)) {
+                    throw new BusinessException(400, "思考参数仅支持 effort / budget");
+                }
+                caps.put("reasoningParam", style);
+            }
+            if (req.reasoningLevels() != null) {
+                List<String> levels = req.reasoningLevels().stream()
+                        .map(ProviderController::normalizeLevel).distinct().toList();
+                caps.put("reasoningLevels", levels);
+            }
+            m.setCapabilities(writeJson(caps));
+
+            if (req.defaultReasoningEffort() != null) {
+                Map<String, Object> defaults = readJson(m.getDefaultParams());
+                defaults.put("reasoningEffort", normalizeLevel(req.defaultReasoningEffort()));
+                m.setDefaultParams(writeJson(defaults));
+            }
+        }
         modelMapper.updateIgnoreTenant(m);
         return ApiResponse.ok(Map.of("id", id));
     }
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> readJson(String raw) {
+        if (raw == null || raw.isBlank()) return new java.util.LinkedHashMap<>();
+        try {
+            return new java.util.LinkedHashMap<>(JSON.readValue(raw, Map.class));
+        } catch (Exception e) {
+            return new java.util.LinkedHashMap<>();
+        }
+    }
+
+    private static String writeJson(Map<String, Object> value) {
+        try {
+            return JSON.writeValueAsString(value);
+        } catch (Exception e) {
+            throw new BusinessException(500, "模型能力配置序列化失败");
+        }
+    }
+
+    /** 思考级别统一为 minimal/low/medium/high；非法值按 medium 处理。 */
+    private static String normalizeLevel(String level) {
+        String v = level == null ? "" : level.trim().toLowerCase(java.util.Locale.ROOT);
+        return switch (v) {
+            case "minimal", "low", "medium", "high" -> v;
+            case "max", "xhigh" -> "high";
+            case "mid", "normal" -> "medium";
+            default -> "medium";
+        };
+    }
+
     public record UpdateModelRequest(java.math.BigDecimal inputPrice, java.math.BigDecimal outputPrice,
                                      java.math.BigDecimal cacheReadPrice, java.math.BigDecimal cacheWritePrice,
-                                     String status, String displayName, Integer contextWindow) {
+                                     String status, String displayName, Integer contextWindow,
+                                     Boolean reasoning, String reasoningParam,
+                                     List<String> reasoningLevels, String defaultReasoningEffort) {
     }
 
     public record CreateModelRequest(@NotBlank String modelName, String displayName, String purpose,

@@ -214,7 +214,7 @@ public class ProviderService {
             } else {
                 existing.setDisplayName(m.get("name") == null ? existing.getDisplayName() : String.valueOf(m.get("name")));
                 existing.setPurpose(purpose);
-                existing.setCapabilities(capabilitiesJson(multimodal));
+                existing.setCapabilities(mergeCapabilities(existing.getCapabilities(), multimodal));
                 modelMapper.updateIgnoreTenant(existing);
                 enabled++;
             }
@@ -222,9 +222,32 @@ public class ProviderService {
         return Map.of("total", data.size(), "enabled", enabled);
     }
 
+    /** 新建/同步模型：默认不声明支持思考，由管理员在「模型接入」里显式开启（不同模型能力不同）。 */
     private String capabilitiesJson(boolean multimodal) {
-        return "{\"multimodal\":" + multimodal + ",\"reasoning\":true,\"functionCall\":true}";
+        return "{\"multimodal\":" + multimodal + ",\"reasoning\":false,\"functionCall\":true}";
     }
+
+    /** 同步时只刷新 multimodal，保留管理员配置的思考能力/级别。 */
+    @SuppressWarnings("unchecked")
+    private String mergeCapabilities(String raw, boolean multimodal) {
+        Map<String, Object> caps = new java.util.LinkedHashMap<>();
+        if (raw != null && !raw.isBlank()) {
+            try {
+                caps.putAll(JSON.readValue(raw, Map.class));
+            } catch (Exception ignored) { /* 历史脏数据：按空处理 */ }
+        }
+        caps.put("multimodal", multimodal);
+        caps.putIfAbsent("reasoning", false);
+        caps.putIfAbsent("functionCall", true);
+        try {
+            return JSON.writeValueAsString(caps);
+        } catch (Exception e) {
+            return capabilitiesJson(multimodal);
+        }
+    }
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
 
     private String rootMessage(Exception e) {
         Throwable t = e;

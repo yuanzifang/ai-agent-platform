@@ -100,13 +100,15 @@ public class ChatService {
         String modelName = String.valueOf(modelConfig.getOrDefault("modelName", "deepseek-flash"));
         String fallbackModel = String.valueOf(modelConfig.getOrDefault("fallbackModelName", ""));
         Double temperature = toDouble(modelConfig.get("temperature"));
+        Boolean thinking = modelConfig.get("thinking") instanceof Boolean b ? b : null;
+        String reasoningEffort = modelConfig.get("reasoningEffort") == null ? null : String.valueOf(modelConfig.get("reasoningEffort"));
         systemPrompt = contextWindow.fitPrompt(modelName, systemPrompt, message);
 
         String usedModel = modelName;
         long start = System.currentTimeMillis();
         org.springframework.ai.chat.model.ChatResponse chatResponse;
         try {
-            chatResponse = debugSpec(modelName, systemPrompt, message, runtime.callbacks(), temperature).call().chatResponse();
+            chatResponse = debugSpec(modelName, systemPrompt, message, runtime.callbacks(), temperature, thinking, reasoningEffort).call().chatResponse();
         } catch (Exception e) {
             if (fallbackModel.isBlank() || fallbackModel.equals(modelName)
                     || !chatModelRouter.isFallbackable(e)) {
@@ -115,7 +117,7 @@ public class ChatService {
             log.warn("调试对话模型失败，切换备用 {} -> {}：{}", modelName, fallbackModel, e.getMessage());
             usedModel = fallbackModel;
             chatResponse = debugSpec(fallbackModel, systemPrompt, message,
-                    runtime.callbacks(), temperature).call().chatResponse();
+                    runtime.callbacks(), temperature, thinking, reasoningEffort).call().chatResponse();
         }
         String answer = chatResponse.getResult().getOutput().getText();
         Usage usage = chatResponse.getMetadata().getUsage();
@@ -143,9 +145,9 @@ public class ChatService {
 
     private ChatClient.ChatClientRequestSpec debugSpec(String model, String systemPrompt, String message,
                                                         java.util.List<org.springframework.ai.tool.ToolCallback> callbacks,
-                                                        Double temperature) {
+                                                        Double temperature, Boolean thinking, String reasoningEffort) {
         org.springframework.ai.chat.prompt.ChatOptions options =
-                chatModelRouter.options(model, temperature, callbacks);
+                chatModelRouter.options(model, temperature, callbacks, thinking, reasoningEffort);
         ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModelRouter.resolve(model))
                 .prompt().options(options);
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
@@ -228,6 +230,11 @@ public class ChatService {
                 }
             }
             com.platform.knowledge.entity.KnowledgeBase kb = knowledgeBaseMapper.selectById(kbId);
+            int beforeDedup = hits.size();
+            hits = dedupeHitsByParent(hits);
+            if (hits.size() < beforeDedup) {
+                log.debug("同父块命中去重 kb={} before={} after={}", kbId, beforeDedup, hits.size());
+            }
             long stepEnd = System.currentTimeMillis();
             if (steps != null) {
                 steps.add("retrieval", "kb-" + kbId, "SUCCESS", stepStart, stepEnd,
@@ -265,6 +272,8 @@ public class ChatService {
                 Map<String, Object> citation = new LinkedHashMap<>();
                 citation.put("content", hit.get("content"));
                 citation.put("score", hit.get("score"));
+                citation.put("mergedScores", hit.get("mergedScores"));
+                citation.put("mergedHitCount", hit.get("mergedHitCount"));
                 citation.put("metadata", hit.get("metadata"));
                 // 引用下钻：文档名 + 知识库 + 分段位置
                 Map<String, Object> meta = hitMetas.get(hitIndex);
@@ -285,6 +294,46 @@ public class ChatService {
                 + "\n</untrusted_retrieval>";
         return systemPrompt == null || systemPrompt.isBlank()
                 ? rag : systemPrompt + "\n\n" + rag;
+    }
+
+    /**
+     * 同一父块下的多个子块命中只注入一次父块文本；保留多个分数，避免 topK 命中
+     * 重复挤占上下文预算。
+     */
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> dedupeHitsByParent(List<Map<String, Object>> hits) {
+        Map<String, Map<String, Object>> unique = new LinkedHashMap<>();
+        for (Map<String, Object> hit : hits) {
+            Map<String, Object> meta = metadataMap(hit.get("metadata"));
+            Long docId = toLong(meta.get("document_id"));
+            Long parentIndex = toLong(hit.get("parentIndex"));
+            if (parentIndex == null) parentIndex = toLong(meta.get("parent_index"));
+            Long chunkId = toLong(meta.get("chunk_id"));
+            String key;
+            if (docId != null && parentIndex != null) {
+                key = "p:" + docId + ":" + parentIndex;
+            } else if (chunkId != null) {
+                key = "c:" + chunkId;
+            } else {
+                Object content = hit.get("parentContent") != null
+                        ? hit.get("parentContent") : hit.get("content");
+                key = "h:" + docId + ":" + String.valueOf(content).hashCode();
+            }
+            Map<String, Object> existing = unique.get(key);
+            if (existing == null) {
+                unique.put(key, new LinkedHashMap<>(hit));
+                continue;
+            }
+            double previous = toDoubleOrDefault(existing.get("score"), 0);
+            double current = toDoubleOrDefault(hit.get("score"), 0);
+            existing.put("score", Math.max(previous, current));
+            List<Object> scores = (List<Object>) existing.computeIfAbsent("mergedScores",
+                    ignored -> new ArrayList<>());
+            if (!scores.contains(previous)) scores.add(previous);
+            if (!scores.contains(current)) scores.add(current);
+            existing.put("mergedHitCount", scores.size());
+        }
+        return new ArrayList<>(unique.values());
     }
 
     @SuppressWarnings("unchecked")

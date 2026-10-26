@@ -295,6 +295,8 @@ public class ChatStreamService {
         String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-chat"));
         String fallbackModel = str(modelConfig.get("fallbackModelName"));
         Double temperature = modelConfig.get("temperature") instanceof Number n ? n.doubleValue() : null;
+        Boolean thinking = modelConfig.get("thinking") instanceof Boolean b ? b : null;
+        String reasoningEffort = str(modelConfig.get("reasoningEffort"));
         boolean selfCorrection = selfCorrectionEnabled(config);
 
         // 上下文窗口适配：超限时截断系统提示 + 历史摘要压缩
@@ -329,7 +331,7 @@ public class ChatStreamService {
         final String effModel = activeModel;
         final String effFallback = activeFallback;
         ChatClient.ChatClientRequestSpec spec = buildSpec(effModel, systemPrompt, history,
-                userMsgWithAttachments, runtime.callbacks(), temperature);
+                userMsgWithAttachments, runtime.callbacks(), temperature, thinking, reasoningEffort);
         AtomicBoolean emitted = new AtomicBoolean(false);
         AtomicReference<String> usedModel = new AtomicReference<>(effModel);
         Flux<org.springframework.ai.chat.model.ChatResponse> flux = spec.stream().chatResponse()
@@ -350,7 +352,7 @@ public class ChatStreamService {
                                     "error", err.getMessage() == null ? "" : err.getMessage()));
                     usedModel.set(fallbackModel);
                     return buildSpec(fallbackModel, fallbackSystemPrompt, fallbackHistory, userMsgWithAttachments,
-                            runtime.callbacks(), temperature).stream().chatResponse();
+                            runtime.callbacks(), temperature, thinking, reasoningEffort).stream().chatResponse();
                 });
 
         Runnable persist = () -> TenantContext.run(tenantId, () -> {
@@ -647,6 +649,8 @@ public class ChatStreamService {
         String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-chat"));
         String fallbackModel = str(modelConfig.get("fallbackModelName"));
         Double temperature = modelConfig.get("temperature") instanceof Number n ? n.doubleValue() : null;
+        Boolean thinking = modelConfig.get("thinking") instanceof Boolean b ? b : null;
+        String reasoningEffort = str(modelConfig.get("reasoningEffort"));
         boolean selfCorrection = selfCorrectionEnabled(config);
 
         com.platform.agent.service.ContextWindowService.Fitted fitted =
@@ -664,7 +668,7 @@ public class ChatStreamService {
         org.springframework.ai.chat.model.ChatResponse resp;
         try {
             resp = buildSpec(usedModel, systemPrompt, history, userMsgWithAttachments,
-                    runtime.callbacks(), temperature).call().chatResponse();
+                    runtime.callbacks(), temperature, thinking, reasoningEffort).call().chatResponse();
         } catch (Exception e) {
             chatModelRouter.recordModelFailure(usedModel);
             if (fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(usedModel)
@@ -677,7 +681,7 @@ public class ChatStreamService {
                             "error", e.getMessage() == null ? "" : e.getMessage()));
             usedModel = fallbackModel;
             resp = buildSpec(fallbackModel, systemPrompt, history, userMsgWithAttachments,
-                    runtime.callbacks(), temperature).call().chatResponse();
+                    runtime.callbacks(), temperature, thinking, reasoningEffort).call().chatResponse();
         }
         chatModelRouter.recordModelSuccess(usedModel);
         String answer = resp.getResult().getOutput().getText();
@@ -781,9 +785,10 @@ public class ChatStreamService {
                                                        List<org.springframework.ai.chat.messages.Message> history,
                                                        String userMessage,
                                                        List<org.springframework.ai.tool.ToolCallback> callbacks,
-                                                       Double temperature) {
+                                                       Double temperature,
+                                                       Boolean thinking, String reasoningEffort) {
         org.springframework.ai.chat.prompt.ChatOptions options =
-                chatModelRouter.options(model, temperature, callbacks);
+                chatModelRouter.options(model, temperature, callbacks, thinking, reasoningEffort);
         ChatClient.ChatClientRequestSpec spec = ChatClient.create(chatModelRouter.resolve(model))
                 .prompt().options(options);
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
