@@ -43,6 +43,31 @@ jobs:
           npm ci --ignore-scripts
           npm audit --omit=dev --audit-level=high || true   # 先观察基线
 
+  gateway:
+    name: 运行时网关（镜像构建 + 冒烟 + 单测）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 构建镜像
+        run: docker build -t agent-gateway:ci runtime/agent-gateway
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 黑盒单测（内存模式，起真实进程走 HTTP）
+        working-directory: runtime/agent-gateway
+        run: npm test
+      - name: 容器冒烟（/healthz 与 401/200 行为）
+        run: |
+          docker run -d --name gw-smoke -p 18099:8080 -e RUNTIME_TOKEN=smoke-token agent-gateway:ci
+          trap 'docker rm -f gw-smoke >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:18099/healthz >/dev/null 2>&1 && break; sleep 1; done
+          curl -fsS http://127.0.0.1:18099/healthz | grep -q ok
+          code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18099/v1/models)
+          [ "$code" = "401" ] || { echo "期望 401 实得 $code"; docker logs gw-smoke; exit 1; }
+          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer smoke-token" http://127.0.0.1:18099/v1/models)
+          [ "$code" = "200" ] || { echo "期望 200 实得 $code"; docker logs gw-smoke; exit 1; }
+          echo "gateway 容器冒烟通过"
+
   build:
     name: 后端构建 + 前端类型检查/构建
     runs-on: ubuntu-latest
