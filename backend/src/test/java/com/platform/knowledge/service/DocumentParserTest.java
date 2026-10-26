@@ -76,6 +76,7 @@ import java.util.zip.ZipOutputStream;
 import javax.imageio.ImageIO;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -272,6 +273,41 @@ class DocumentParserTest {
         assertTrue(text.contains("rowspan=\"55\"") && text.contains("Fruit"),
                 "附录长纵向分组不应在 50 行处拆开，实际=" + text);
         assertTrue(text.contains("Product"), "长表表头应保留，实际=" + text);
+    }
+
+    @Test
+    void doesNotTreatTextOnlySignatureListAsTable() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                String[][] rows = new String[13][];
+                rows[0] = new String[]{"Name", "Date", "Signature"};
+                for (int i = 1; i < rows.length; i++) {
+                    rows[i] = new String[]{"Person " + i, "January", "Signed"};
+                }
+                float y = 780;
+                for (String[] row : rows) {
+                    float[] xs = {50, 240, 420};
+                    for (int col = 0; col < row.length; col++) {
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 50;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+
+        String text = String.join("\n", parser.parse("signature-list.pdf", pdf));
+
+        assertFalse(text.contains("<table"), "纯文本签名名单不应输出表格，实际=" + text);
+        assertFalse(text.contains("| Name |"), "纯文本签名名单不应输出 Markdown 表，实际=" + text);
     }
 
     @Test
