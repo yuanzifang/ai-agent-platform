@@ -56,6 +56,7 @@ public class AgentService {
     private final com.platform.agent.mapper.AgentSkillBindingMapper agentSkillBindingMapper;
     private final com.platform.eval.service.EvalService evalService;
     private final com.platform.system.service.AuditService auditService;
+    private final com.platform.deploy.service.AgentDeploymentService deploymentService;
     private final AgentVersionMapper versionMapper;
     private final QuotaService quotaService;
     private final ObjectMapper objectMapper;
@@ -247,6 +248,11 @@ public class AgentService {
         patch.setId(id);
         patch.setStatus("DELETED");
         agentMapper.updateById(patch);
+        try {
+            deploymentService.removeIfExists(id, principal);
+        } catch (Exception ignored) {
+            // 清理容器失败不阻塞 Agent 删除
+        }
         auditService.record(principal.userId(), "agent.delete", "agent", String.valueOf(id), "SUCCESS", Map.of());
     }
 
@@ -306,10 +312,23 @@ public class AgentService {
         Map<String, Object> snap = asMap(fromJson(target.getSnapshot()));
         AgentRegistry patch = new AgentRegistry();
         patch.setId(id);
-        patch.setSystemPrompt(str(snap.get("systemPrompt")));
-        patch.setOpeningStatement(str(snap.get("openingStatement")));
-        if (snap.get("modelConfig") != null) patch.setModelConfig(toJson(asMap(snap.get("modelConfig"))));
+        if (snap.containsKey("name")) patch.setName(str(snap.get("name")));
+        if (snap.containsKey("description")) patch.setDescription(str(snap.get("description")));
+        if (snap.containsKey("systemPrompt")) patch.setSystemPrompt(str(snap.get("systemPrompt")));
+        if (snap.containsKey("openingStatement")) patch.setOpeningStatement(str(snap.get("openingStatement")));
+        if (snap.containsKey("agentCapabilities")) patch.setAgentCapabilities(toJson(snap.get("agentCapabilities")));
+        if (snap.containsKey("memoryConfig")) patch.setMemoryConfig(toJson(snap.get("memoryConfig")));
+        if (snap.containsKey("modelConfig")) patch.setModelConfig(toJson(snap.get("modelConfig")));
+        if (snap.containsKey("retrievalConfig")) patch.setRetrievalConfig(toJson(snap.get("retrievalConfig")));
+        if (snap.containsKey("variables")) patch.setVariables(toJson(snap.get("variables")));
         agentMapper.updateById(patch);
+
+        // 关联配置也回到快照：知识库/技能/工具/子 Agent（旧版本快照没有这些键时保持现状）
+        Long tenantId = agent.getTenantId();
+        if (snap.containsKey("knowledgeBases")) replaceKnowledgeBases(id, tenantId, snap.get("knowledgeBases"));
+        if (snap.containsKey("skills")) replaceSkills(id, tenantId, snap.get("skills"));
+        if (snap.containsKey("tools")) replaceTools(id, tenantId, snap.get("tools"));
+        if (snap.containsKey("subAgents")) replaceSubAgents(id, tenantId, snap.get("subAgents"));
 
         int count = versionMapper.countByAgent(id);
         String newVersion = "V" + (count + 1);
@@ -319,8 +338,10 @@ public class AgentService {
         v.setSnapshot(target.getSnapshot());
         v.setCreatedBy(principal.userId());
         v.setCreatedAt(LocalDateTime.now());
-        v.setTenantId(agent.getTenantId());
+        v.setTenantId(tenantId);
         versionMapper.insert(v);
+        auditService.record(principal.userId(), "agent.rollback", "agent", String.valueOf(id),
+                "SUCCESS", Map.of("from", version, "newVersion", newVersion));
         return Map.of("version", newVersion, "rolledBackFrom", version);
     }
 

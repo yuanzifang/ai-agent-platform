@@ -222,6 +222,26 @@ billing:
   # 余额低于该值时前端提示充值（需求 3.11）
   low-balance-threshold: ${BILLING_LOW_BALANCE_THRESHOLD:10}
 
+agent:
+  # Agent 容器部署（MVP：本机 Docker；发布后可把 Agent 跑成独立容器）
+  deploy:
+    image: ${AGENT_DEPLOY_IMAGE:nginx:alpine}
+    port-start: ${AGENT_DEPLOY_PORT_START:19000}
+    port-end: ${AGENT_DEPLOY_PORT_END:19999}
+    # 容器端口绑定地址：0.0.0.0 允许局域网/Tailscale 访问，127.0.0.1 仅本机
+    bind: ${AGENT_DEPLOY_BIND:0.0.0.0}
+    # 容器内访问平台的地址（Docker Desktop 用 host.docker.internal；Linux 可换成宿主内网 IP）
+    platform-base-url: ${AGENT_DEPLOY_PLATFORM_BASE:http://host.docker.internal:8080}
+    # 对外地址前缀（如 https://agents.example.com），留空自动取本机 Tailscale/内网 IP
+    public-base: ${AGENT_DEPLOY_PUBLIC_BASE:}
+    # 模板目录（留空用 ~/.aap-agent-runtime），需要能被 Docker 挂载
+    workdir: ${AGENT_DEPLOY_WORKDIR:}
+    # 容器接口限流（每 IP，每分钟）与 CORS 允许来源
+    rate-limit-per-min: ${AGENT_DEPLOY_RATE_LIMIT:60}
+    rate-limit-burst: ${AGENT_DEPLOY_RATE_BURST:20}
+    cors-origins: ${AGENT_DEPLOY_CORS_ORIGINS:*}
+    docker-bin: ${AGENT_DEPLOY_DOCKER_BIN:docker}
+
 app:
   # SSO 回调地址默认前端地址（/sso/callback）
   frontend-base: ${APP_FRONTEND_BASE:http://localhost:5173}
