@@ -436,6 +436,37 @@ public class KnowledgeService {
         return Map.of("documentId", docId, "status", "PENDING", "retryTimes", used + 1);
     }
 
+    /** 批量重试本知识库的失败文档（受单文档重试上限约束；每批最多 50 篇）。 */
+    public Map<String, Object> retryFailedDocuments(Long kbId, int limit,
+                                                    KnowledgePermissionService.Viewer viewer) {
+        permissionService.requireEdit(kbId, viewer);
+        int max = Math.max(1, Math.min(limit, 50));
+        List<KnowledgeDocument> docs = docMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeDocument>()
+                        .eq(KnowledgeDocument::getKnowledgeBaseId, kbId)
+                        .eq(KnowledgeDocument::getStatus, "FAILED")
+                        .orderByAsc(KnowledgeDocument::getCreatedAt)
+                        .last("LIMIT " + max));
+        int triggered = 0;
+        int skipped = 0;
+        if (docs != null) {
+            for (KnowledgeDocument doc : docs) {
+                try {
+                    retryDocument(kbId, doc.getId(), viewer);
+                    triggered++;
+                } catch (Exception e) {
+                    skipped++;
+                    log.warn("批量重试文档失败 doc={} err={}", doc.getId(), e.getMessage());
+                }
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("scanned", docs == null ? 0 : docs.size());
+        result.put("triggered", triggered);
+        result.put("skipped", skipped);
+        return result;
+    }
+
     /** 申请直传：返回预签名 PUT URL 与登记的 objectName（架构 3.8 路径规范）；需编辑权限。
      * documentId 非空表示重新上传覆盖：仅允许已完成/失败文档，解析中拒绝。 */
     public Map<String, Object> requestUpload(Long kbId, String fileName, Long sizeBytes,
