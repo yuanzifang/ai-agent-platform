@@ -1044,7 +1044,7 @@
     </el-drawer>
 
     <!-- 容器部署 -->
-    <el-dialog v-model="deployVisible" :title="t('deploy.title')" width="680px">
+    <el-dialog v-model="deployVisible" :title="t('deploy.title')" width="760px">
       <el-alert v-if="form.status !== 'PUBLISHED'" type="warning" :closable="false"
                 :title="t('deploy.publishedOnly')" class="mb8" />
       <el-alert v-if="!deployInfo.dockerAvailable" type="error" :closable="false"
@@ -1094,6 +1094,43 @@
                      :disabled="!deployInfo.dockerAvailable" @click="doDeploy">{{ t('deploy.redeploy') }}</el-button>
           <el-button type="danger" plain @click="removeDeploy">{{ t('deploy.remove') }}</el-button>
         </div>
+
+        <el-divider content-position="left">{{ t('deploy.keysTitle') }}</el-divider>
+        <div class="deploy-keys-head">
+          <span class="hint">{{ t('deploy.keysHint') }}</span>
+          <div>
+            <el-button size="small" @click="loadDeployStats">{{ t('deploy.refreshUsage') }}</el-button>
+            <el-button size="small" type="primary" plain @click="openKeyDialog()">{{ t('deploy.addKey') }}</el-button>
+          </div>
+        </div>
+        <el-table v-if="runtimeKeys.length" :data="runtimeKeys" size="small">
+          <el-table-column prop="name" :label="t('deploy.keyName')" min-width="110" />
+          <el-table-column :label="t('deploy.keyPrefix')" width="110">
+            <template #default="{ row }"><code>{{ row.keyPrefix }}…</code></template>
+          </el-table-column>
+          <el-table-column :label="t('deploy.keyQuota')" width="85">
+            <template #default="{ row }">{{ row.dailyQuota ? row.dailyQuota : t('deploy.unlimited') }}</template>
+          </el-table-column>
+          <el-table-column :label="t('deploy.keyUsage')" width="85">
+            <template #default="{ row }">{{ keyUsage(row) }}</template>
+          </el-table-column>
+          <el-table-column :label="t('deploy.keyStatus')" width="85">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">{{ row.status }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('deploy.actionCol')" width="170">
+            <template #default="{ row }">
+              <el-button text size="small" @click="openKeyDialog(row)">{{ t('deploy.edit') }}</el-button>
+              <el-button text size="small" @click="toggleRuntimeKey(row)">
+                {{ row.status === 'ENABLED' ? t('deploy.disable') : t('deploy.enable') }}
+              </el-button>
+              <el-button text size="small" type="danger" @click="removeRuntimeKey(row)">{{ t('deploy.delete') }}</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div v-else class="hint">{{ t('deploy.noKeys') }}</div>
+        <div class="hint mt8">{{ t('deploy.mainTokenUsage') }}{{ mainTokenUsage }}</div>
       </template>
       <el-empty v-else :image-size="60" :description="t('deploy.empty')">
         <el-button type="primary" :loading="deploying" :disabled="!deployInfo.dockerAvailable"
@@ -1131,6 +1168,33 @@
       </el-table>
       <el-empty v-else :description="t('deploy.noHistory')" :image-size="60" />
     </el-drawer>
+
+    <el-dialog v-model="runtimeKeyDialogVisible" append-to-body width="440px"
+               :title="runtimeKeyForm.id ? t('deploy.editKey') : t('deploy.addKey')">
+      <el-form label-width="100px">
+        <el-form-item :label="t('deploy.keyName')">
+          <el-input v-model="runtimeKeyForm.name" maxlength="64" :placeholder="t('deploy.keyNamePh')" />
+        </el-form-item>
+        <el-form-item :label="t('deploy.keyQuota')">
+          <el-input-number v-model="runtimeKeyForm.dailyQuota" :min="0" :max="1000000" />
+          <span class="hint">{{ t('deploy.quotaHint') }}</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="runtimeKeyDialogVisible = false">{{ t('agentDlg.cancel') }}</el-button>
+        <el-button type="primary" :loading="runtimeKeySaving" @click="saveRuntimeKey">{{ t('agentDlg.save') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="newRuntimeKeyVisible" append-to-body width="520px" :title="t('deploy.keyCreated')">
+      <el-alert type="warning" :closable="false" :title="t('deploy.keyOnce')" />
+      <el-input :model-value="createdRuntimeKey" readonly class="mt8">
+        <template #append>
+          <el-button @click="copyText(createdRuntimeKey)">{{ t('deploy.copy') }}</el-button>
+        </template>
+      </el-input>
+      <div class="hint mt8">{{ t('deploy.keyUsageHint') }}</div>
+    </el-dialog>
   </div>
 </template>
 
@@ -1166,6 +1230,13 @@ const deployLogs = ref('')
 const deployHistoryVisible = ref(false)
 const deployHistory = ref<any[]>([])
 const runtimeToken = ref('')
+const runtimeKeys = ref<any[]>([])
+const runtimeStats = ref<any>({ callers: [] })
+const runtimeKeyDialogVisible = ref(false)
+const runtimeKeySaving = ref(false)
+const runtimeKeyForm = reactive({ id: 0, name: '', dailyQuota: 0 })
+const createdRuntimeKey = ref('')
+const newRuntimeKeyVisible = ref(false)
 const saving = ref(false)
 
 const form = reactive({
@@ -1777,9 +1848,12 @@ async function refreshDeploy() {
         runtimeToken.value = ((await http.get(`/agent/${agentId}/deployment/token`) as any).token) || ''
       } catch { /* 旧部署可能没有令牌 */ }
     }
+    await Promise.all([loadRuntimeKeys(), loadDeployStats()])
   } catch {
     deployment.value = null
     runtimeToken.value = ''
+    runtimeKeys.value = []
+    runtimeStats.value = { callers: [] }
   }
 }
 
@@ -1840,6 +1914,97 @@ async function rollbackDeployment(version: string) {
   ElMessage.success(t('deploy.rollbackDeployed'))
   deployHistoryVisible.value = false
   setTimeout(() => router.go(0), 800)
+}
+
+const mainTokenUsage = computed(() => {
+  const row = (runtimeStats.value?.callers || []).find((c: any) => c.caller === 'default')
+  return row?.requests || 0
+})
+
+function keyUsage(row: any) {
+  const stat = (runtimeStats.value?.callers || []).find((c: any) => c.caller === row.callerId)
+  return stat?.requests || 0
+}
+
+async function loadRuntimeKeys() {
+  try {
+    runtimeKeys.value = await http.get(`/agent/${agentId}/runtime-keys`) as any || []
+  } catch {
+    runtimeKeys.value = []
+  }
+}
+
+async function loadDeployStats() {
+  if (!deployment.value) {
+    runtimeStats.value = { callers: [] }
+    return
+  }
+  try {
+    runtimeStats.value = await http.get(`/agent/${agentId}/deployment/stats`) as any || { callers: [] }
+  } catch {
+    runtimeStats.value = { callers: [] }
+  }
+}
+
+function openKeyDialog(row?: any) {
+  runtimeKeyForm.id = row?.id || 0
+  runtimeKeyForm.name = row?.name || ''
+  runtimeKeyForm.dailyQuota = row?.dailyQuota || 0
+  runtimeKeyDialogVisible.value = true
+}
+
+async function saveRuntimeKey() {
+  if (!runtimeKeyForm.name.trim()) {
+    ElMessage.warning(t('deploy.keyNamePh'))
+    return
+  }
+  runtimeKeySaving.value = true
+  try {
+    if (runtimeKeyForm.id) {
+      await http.put(`/agent/${agentId}/runtime-keys/${runtimeKeyForm.id}`,
+        { name: runtimeKeyForm.name.trim(), dailyQuota: runtimeKeyForm.dailyQuota })
+    } else {
+      const created = await http.post(`/agent/${agentId}/runtime-keys`,
+        { name: runtimeKeyForm.name.trim(), dailyQuota: runtimeKeyForm.dailyQuota }) as any
+      createdRuntimeKey.value = created?.apiKey || ''
+      newRuntimeKeyVisible.value = true
+    }
+    runtimeKeyDialogVisible.value = false
+    await applyRuntimeKeys()
+  } finally {
+    runtimeKeySaving.value = false
+  }
+}
+
+async function toggleRuntimeKey(row: any) {
+  await http.put(`/agent/${agentId}/runtime-keys/${row.id}`,
+    { status: row.status === 'ENABLED' ? 'DISABLED' : 'ENABLED' })
+  await applyRuntimeKeys()
+}
+
+async function removeRuntimeKey(row: any) {
+  await ElMessageBox.confirm(`${t('deploy.confirmDeleteKey')}${row.name}?`,
+    t('deploy.delete'), { type: 'warning' })
+  await http.delete(`/agent/${agentId}/runtime-keys/${row.id}`)
+  await applyRuntimeKeys()
+  ElMessage.success(t('deploy.keyDeleted'))
+}
+
+/** Key 变更后重建容器使其生效（未部署则等下次部署） */
+async function applyRuntimeKeys() {
+  if (deployment.value) {
+    deploying.value = true
+    try {
+      deployment.value = await http.post(`/agent/${agentId}/deployment`, {}) as any
+      await refreshDeploy()
+      ElMessage.success(t('deploy.keySynced'))
+    } finally {
+      deploying.value = false
+    }
+  } else {
+    await loadRuntimeKeys()
+    ElMessage.info(t('deploy.keySavedPending'))
+  }
 }
 
 async function rotateDeployToken() {
@@ -3532,6 +3697,7 @@ onUnmounted(() => {
 }
 .deploy-logs { max-height: 50vh; }
 .deploy-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.deploy-keys-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 :deep(.el-descriptions__label) { white-space: nowrap; }
 
 @media (max-width: 768px) {

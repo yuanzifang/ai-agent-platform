@@ -10,6 +10,7 @@ import com.platform.common.context.TenantContext;
 import com.platform.common.security.CryptoService;
 import com.platform.common.exception.BusinessException;
 import com.platform.deploy.entity.AgentDeployment;
+import com.platform.deploy.entity.AgentRuntimeKey;
 import com.platform.deploy.entity.AgentDeploymentEvent;
 import com.platform.deploy.mapper.AgentDeploymentEventMapper;
 import com.platform.deploy.mapper.AgentDeploymentMapper;
@@ -53,6 +54,7 @@ import java.util.Set;
 public class AgentDeploymentService {
 
     private final AgentDeploymentMapper deploymentMapper;
+    private final AgentRuntimeKeyService runtimeKeyService;
     private final CryptoService cryptoService;
     private final AgentDeploymentEventMapper eventMapper;
     private final AgentRegistryMapper agentMapper;
@@ -75,6 +77,9 @@ public class AgentDeploymentService {
 
     @Value("${agent.deploy.caller-keys:}")
     private String callerKeys;
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
 
     @Value("${agent.deploy.port-start:19000}")
     private int portStart;
@@ -240,6 +245,17 @@ public class AgentDeploymentService {
                 env.put("PORT", "8080");
                 env.put("RATE_LIMIT_PER_MIN", String.valueOf(Math.max(0, rateLimitPerMin)));
                 env.put("CALLER_QUOTA_DAILY", String.valueOf(Math.max(0, callerQuotaDaily)));
+                List<Map<String, Object>> callerKeyPayload = new ArrayList<>();
+                for (AgentRuntimeKey key : runtimeKeyService.enabledKeys(agentId)) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("hash", key.getKeyHash());
+                    row.put("quota", key.getDailyQuota() == null ? 0 : key.getDailyQuota());
+                    row.put("name", key.getName());
+                    callerKeyPayload.add(row);
+                }
+                if (!callerKeyPayload.isEmpty()) {
+                    env.put("CALLER_KEYS_JSON", JSON.writeValueAsString(callerKeyPayload));
+                }
                 if (callerKeys != null && !callerKeys.isBlank()) env.put("CALLER_KEYS", callerKeys.trim());
                 mounts = List.of();
             } else {
@@ -359,6 +375,33 @@ public class AgentDeploymentService {
             eventMapper.insert(event);
         } catch (Exception e) {
             log.warn("写入部署事件失败（忽略）：{}", e.getMessage());
+        }
+    }
+
+    /** 代理容器 /stats：当日按 Key 的请求数与流式数。 */
+    public Map<String, Object> stats(Long agentId) {
+        AgentDeployment deployment = requireDeployment(agentId);
+        String token = runtimeToken(agentId);
+        java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(java.time.Duration.ofSeconds(2)).build();
+        java.net.http.HttpRequest request = java.net.http.HttpRequest
+                .newBuilder(java.net.URI.create("http://127.0.0.1:" + deployment.getHostPort() + "/stats"))
+                .timeout(java.time.Duration.ofSeconds(5))
+                .header("Authorization", "Bearer " + token)
+                .GET().build();
+        try {
+            java.net.http.HttpResponse<String> response = client.send(request,
+                    java.net.http.HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                throw new BusinessException(409, "当前运行时不支持用量统计（请使用 gateway 运行时）");
+            }
+            Map<String, Object> result = JSON.readValue(response.body(), Map.class);
+            result.put("runtime", gatewayRuntime() ? "gateway" : "nginx");
+            return result;
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(409, "获取容器用量失败：" + e.getMessage());
         }
     }
 

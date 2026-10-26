@@ -71,6 +71,12 @@ public class AgentDeploymentController {
         return ApiResponse.ok(deploymentService.rotateToken(agentId, principal));
     }
 
+    @GetMapping("/stats")
+    @PreAuthorize("hasAuthority('agent:edit')")
+    public ApiResponse<Map<String, Object>> stats(@PathVariable Long agentId) {
+        return ApiResponse.ok(deploymentService.stats(agentId));
+    }
+
     @GetMapping("/history")
     @PreAuthorize("hasAuthority('agent:edit')")
     public ApiResponse<List<Map<String, Object>>> history(@PathVariable Long agentId,

@@ -29,23 +29,47 @@ const safeEqual = (a, b) => {
   return left.length === right.length && crypto.timingSafeEqual(left, right)
 }
 
-/** CALLER_KEYS：key1:日配额,key2:0（0=不限） */
-function parseCallerKeys(raw) {
+/** CALLER_KEYS_JSON：[{hash, quota, name}]（平台注入，容器内不保存明文） */
+function parseCallerKeysJson(raw) {
+  const map = new Map()
+  if (!raw) return map
+  try {
+    for (const row of JSON.parse(raw)) {
+      const keyHash = String(row?.hash || '').toLowerCase()
+      if (!keyHash) continue
+      map.set(keyHash, {
+        id: keyHash.slice(0, 12),
+        name: String(row.name || `key-${keyHash.slice(0, 6)}`),
+        quota: Number(row.quota || 0) || 0
+      })
+    }
+  } catch (error) {
+    console.error('invalid CALLER_KEYS_JSON:', error.message)
+  }
+  return map
+}
+
+/** 兼容旧格式 CALLER_KEYS：key1:日配额,key2:0（0=不限） */
+function parseLegacyCallerKeys(raw) {
   const map = new Map()
   if (!raw) return map
   for (const part of raw.split(',')) {
     const [key, quota] = part.trim().split(':')
     if (!key) continue
-    map.set(hash(key), {
-      id: hash(key).slice(0, 12),
-      label: `${key.slice(0, 6)}…${key.slice(-4)}`,
+    const keyHash = hash(key)
+    map.set(keyHash, {
+      id: keyHash.slice(0, 12),
+      name: `key-${keyHash.slice(0, 6)}`,
       quota: Number(quota || CALLER_QUOTA_DAILY) || 0
     })
   }
   return map
 }
 
-const CALLER_KEYS = parseCallerKeys(process.env.CALLER_KEYS)
+const CALLER_KEYS = parseCallerKeysJson(process.env.CALLER_KEYS_JSON)
+for (const [keyHash, entry] of parseLegacyCallerKeys(process.env.CALLER_KEYS)) {
+  if (!CALLER_KEYS.has(keyHash)) CALLER_KEYS.set(keyHash, entry)
+}
 
 const usage = new Map()   // callerId -> { day, count, streams }
 const buckets = new Map() // callerId -> { tokens, last }
@@ -61,9 +85,10 @@ function resolveCaller(req) {
   const token = bearer(req)
   if (!token) return null
   if (RUNTIME_TOKEN && safeEqual(token, RUNTIME_TOKEN)) {
-    return { id: 'default', label: 'default', quota: CALLER_QUOTA_DAILY }
+    return { id: 'default', label: 'deployment token', quota: CALLER_QUOTA_DAILY }
   }
-  return CALLER_KEYS.get(hash(token)) || null
+  const entry = CALLER_KEYS.get(hash(token))
+  return entry ? { ...entry, label: entry.name } : null
 }
 
 function usageOf(caller) {
@@ -72,6 +97,7 @@ function usageOf(caller) {
     row = { day: day(), count: 0, streams: 0 }
     usage.set(caller.id, row)
   }
+  row.name = caller.label
   return row
 }
 
@@ -138,7 +164,12 @@ const server = http.createServer(async (req, res) => {
     }
     const callers = [...usage.entries()]
       .filter(([, row]) => row.day === day())
-      .map(([id, row]) => ({ caller: id, requests: row.count, streams: row.streams }))
+      .map(([id, row]) => ({
+        caller: id,
+        name: id === 'default' ? 'deployment token' : (row.name || id),
+        requests: row.count,
+        streams: row.streams
+      }))
     sendJson(200, {
       day: day(),
       rateLimitPerMin: RATE_LIMIT_PER_MIN,
