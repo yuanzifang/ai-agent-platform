@@ -1832,6 +1832,73 @@ class DocumentParserTest {
     }
 
     @Test
+    void deduplicatesCrossPageMultiRowHeader() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDType1Font font = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
+            PDPage first = new PDPage(PDRectangle.A4);
+            doc.addPage(first);
+            try (PDPageContentStream content = new PDPageContentStream(doc, first)) {
+                content.setFont(font, 12);
+                String[][] header = {
+                        {"Product", "Sales", "", "Discount"},
+                        {"", "Price", "Qty", ""}
+                };
+                float y = 780;
+                for (String[] row : header) {
+                    float[] xs = {50, 180, 300, 420};
+                    for (int col = 0; col < row.length; col++) {
+                        if (row[col].isEmpty()) continue;
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 40;
+                }
+                for (int i = 1; i <= 9; i++) {
+                    String[] row = {"Row " + i, String.valueOf(100 + i), String.valueOf(i), "5"};
+                    float[] xs = {50, 180, 300, 420};
+                    for (int col = 0; col < row.length; col++) {
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 60;
+                }
+            }
+            PDPage second = new PDPage(PDRectangle.A4);
+            doc.addPage(second);
+            try (PDPageContentStream content = new PDPageContentStream(doc, second)) {
+                content.setFont(font, 12);
+                String[][] rows = {
+                        {"Product", "Sales", "", "Discount"},
+                        {"", "Price", "Qty", ""},
+                        {"Row 10", "110", "10", "5"}
+                };
+                float y = 800;
+                for (String[] row : rows) {
+                    float[] xs = {50, 180, 300, 420};
+                    for (int col = 0; col < row.length; col++) {
+                        if (row[col].isEmpty()) continue;
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 40;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("cross-page-multi-header.pdf", pdf));
+        assertEquals(1, occurrences(text, "Product"), "跨页多行表头应只保留一次，实际=" + text);
+        assertTrue(text.contains("Row 10"), "续页数据行应保留，实际=" + text);
+    }
+
+    @Test
     void mergesCrossPageWithoutHeaderAndShiftedAnchors() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
