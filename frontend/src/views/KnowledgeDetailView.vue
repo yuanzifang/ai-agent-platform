@@ -462,8 +462,8 @@ let uploadSeq = 0
 const visibleDocuments = computed(() => validOnly.value
   ? documents.value.filter(doc => validityState(doc) === 'valid')
   : documents.value)
-const legacyDocCount = computed(() => documents.value.filter(
-  doc => doc.status === 'DONE' && !doc.parseFingerprint).length)
+const legacyDocCount = computed(() => documents.value.filter((doc: any) =>
+  doc.upgradePending ?? (doc.status === 'DONE' && !doc.parseFingerprint)).length)
 const uploading = computed(() => uploadTasks.value.some(
   task => task.status === 'uploading' || task.status === 'parsing'))
 const urlVisible = ref(false)

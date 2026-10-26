@@ -64,7 +64,10 @@ public class KnowledgeUpgradeService {
         int assigned = docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
                 .eq(KnowledgeDocument::getKnowledgeBaseId, kbId)
                 .eq(KnowledgeDocument::getStatus, "DONE")
-                .isNull(KnowledgeDocument::getParseFingerprint)
+                .and(w -> w.isNull(KnowledgeDocument::getParseFingerprint)
+                        .or().isNull(KnowledgeDocument::getParserVersion)
+                        .or().ne(KnowledgeDocument::getParserVersion,
+                                DocumentParser.PARSER_VERSION))
                 .set(KnowledgeDocument::getUpgradeJobId, job.getId())
                 .set(KnowledgeDocument::getUpgradeStatus, "PENDING"));
         job.setTotalDocuments(assigned);
