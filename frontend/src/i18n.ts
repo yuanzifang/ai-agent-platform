@@ -301,7 +301,15 @@ const messages = {
       taskSubmitted: '任务已提交，后台执行中（可稍后刷新看进度）', nameRequired: '名称必填', created: '已创建',
       deleteDsPrefix: '删除数据集「', deleteDsMid: '」？被任务引用时将拒绝删除', confirm: '确认',
       questionRequired: '问题必填', imported: '已导入 ', importedSuffix: ' 条', done: '已完成', running: '执行中',
-      failedStatus: '失败', pending: '待执行', sampleSuffix: ' 样本', contextSuffix: ' 上下文'
+      failedStatus: '失败', pending: '待执行', sampleSuffix: ' 样本', contextSuffix: ' 上下文',
+      stepSummary: '分步骤结果', stepType: '步骤', stepDetails: '步骤明细：',
+      stepAnswer: '回答', stepRewrite: '改写', stepRetrieval: '检索', stepRerank: '重排',
+      expectedPayload: '期望 JSON', expectedPayloadPh: 'expectedPayload JSON，如 {"chunk_ids":[1,2]}',
+      stepConfigPh: 'stepConfig JSON，如 {"knowledgeBaseId":1,"topK":5}',
+      review: '复核', reviewed: '已复核', reviewTitle: '人工复核',
+      reviewNote: '复核备注：', reviewNotePh: '记录核对依据、缺口原因或是否接受',
+      reviewHint: '只记录人工确认，不修改确定性分数。', markReviewed: '确认已复核',
+      reviewSaved: '复核状态已更新'
     },
     sysConfig: {
       header: '全局配置项（sys_config，实时生效于新请求）', key: '配置项', value: '值', desc: '说明',
@@ -1175,7 +1183,15 @@ const messages = {
       taskSubmitted: 'Task submitted; running in background (refresh later)', nameRequired: 'Name is required', created: 'Created',
       deleteDsPrefix: 'Delete dataset "', deleteDsMid: '"? Deletion is rejected if referenced by a task', confirm: 'Confirm',
       questionRequired: 'Question is required', imported: 'Imported ', importedSuffix: ' items', done: 'Completed', running: 'Running',
-      failedStatus: 'Failed', pending: 'Pending', sampleSuffix: ' samples', contextSuffix: ' context'
+      failedStatus: 'Failed', pending: 'Pending', sampleSuffix: ' samples', contextSuffix: ' context',
+      stepSummary: 'Step results', stepType: 'Step', stepDetails: 'Step details: ',
+      stepAnswer: 'Answer', stepRewrite: 'Rewrite', stepRetrieval: 'Retrieval', stepRerank: 'Rerank',
+      expectedPayload: 'Expected JSON', expectedPayloadPh: 'expectedPayload JSON, e.g. {"chunk_ids":[1,2]}',
+      stepConfigPh: 'stepConfig JSON, e.g. {"knowledgeBaseId":1,"topK":5}',
+      review: 'Review', reviewed: 'Reviewed', reviewTitle: 'Manual review',
+      reviewNote: 'Review note: ', reviewNotePh: 'Record evidence, gap reason, or acceptance',
+      reviewHint: 'Records manual confirmation only; deterministic scores are unchanged.',
+      markReviewed: 'Mark reviewed', reviewSaved: 'Review status updated'
     },
     sysConfig: {
       header: 'Global config (sys_config, applies to new requests immediately)', key: 'Key', value: 'Value', desc: 'Description',

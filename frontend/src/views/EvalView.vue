@@ -184,6 +184,16 @@
         <div class="sc"><div class="k">{{ t('evalPage.passRateShort') }}</div><div class="v">{{ current.passRate != null ? (current.passRate * 100).toFixed(0) + '%' : '-' }}</div></div>
         <div class="sc"><div class="k">{{ t('evalPage.judgeModel') }}</div><div class="v small">{{ current.judgeModel }}</div></div>
       </div>
+      <div v-if="current.stepSummary" class="step-summary">
+        <div class="step-summary-title">{{ t('evalPage.stepSummary') }}</div>
+        <div class="step-summary-row">
+          <el-tag v-for="(v, k) in current.stepSummary" :key="k" size="small"
+                  :type="v.count > 0 && v.passRate >= 0.8 ? 'success' : v.count > 0 ? 'warning' : 'info'">
+            {{ t('evalPage.step' + k.charAt(0) + k.slice(1).toLowerCase()) }}：
+            {{ v.count }} / {{ v.passRate != null ? (v.passRate * 100).toFixed(0) + '%' : '-' }}
+          </el-tag>
+        </div>
+      </div>
       <el-table :data="current.results || []" size="small">
         <el-table-column type="expand">
           <template #default="{ row }">
@@ -191,12 +201,19 @@
               <div><b>{{ t('evalPage.expected') }}</b>{{ row.expectedAnswer || t('evalPage.none') }}</div>
               <div class="mt4"><b>{{ t('evalPage.actual') }}</b>{{ row.answer }}</div>
               <div class="mt4"><b>{{ t('evalPage.judgeReason') }}</b>{{ row.judgeReason }}</div>
+              <div v-if="row.stepDetails" class="mt4"><b>{{ t('evalPage.stepDetails') }}</b><pre class="step-detail">{{ row.stepDetails }}</pre></div>
+              <div v-if="row.reviewNote" class="mt4"><b>{{ t('evalPage.reviewNote') }}</b>{{ row.reviewNote }}</div>
               <div class="mt4 trace-link">Trace: {{ row.traceId }}</div>
             </div>
           </template>
         </el-table-column>
         <el-table-column :label="t('evalPage.question')" min-width="140">
           <template #default="{ row }">{{ clip(row.question, 24) }}</template>
+        </el-table-column>
+        <el-table-column :label="t('evalPage.stepType')" width="105">
+          <template #default="{ row }">
+            <el-tag size="small">{{ row.stepType || 'ANSWER' }}</el-tag>
+          </template>
         </el-table-column>
         <el-table-column :label="t('evalPage.answer')" min-width="180">
           <template #default="{ row }">{{ clip(row.answer, 32) }}</template>
@@ -213,8 +230,28 @@
           <template #default="{ row }">{{ row.latencyMs }}ms</template>
         </el-table-column>
         <el-table-column prop="tokens" label="Token" width="80" />
+        <el-table-column :label="t('evalPage.review')" width="110">
+          <template #default="{ row }">
+            <el-tag v-if="row.reviewStatus === 'REVIEWED'" size="small" type="success">{{ t('evalPage.reviewed') }}</el-tag>
+            <el-button v-else-if="row.id" size="small" text type="primary" @click.stop="openReview(row)">
+              {{ t('evalPage.review') }}
+            </el-button>
+          </template>
+        </el-table-column>
       </el-table>
     </el-drawer>
+
+    <el-dialog v-model="reviewVisible" :title="t('evalPage.reviewTitle')" width="520px">
+      <el-input v-model="reviewNote" type="textarea" :rows="4"
+                :placeholder="t('evalPage.reviewNotePh')" />
+      <div class="hint mt8">{{ t('evalPage.reviewHint') }}</div>
+      <template #footer>
+        <el-button @click="reviewVisible = false">{{ t('evalPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="reviewSaving" @click="saveReview">
+          {{ t('evalPage.markReviewed') }}
+        </el-button>
+      </template>
+    </el-dialog>
 
     <!-- 样本管理抽屉 -->
     <el-drawer v-model="itemsVisible" :title="t('evalPage.sampleTitle') + (currentDs.name || '')" size="640px">
@@ -226,16 +263,30 @@
       <el-divider />
       <div class="item-form">
         <el-input v-model="itemForm.question" :placeholder="t('evalPage.question')" size="small" />
+        <el-select v-model="itemForm.stepType" size="small" style="width: 120px">
+          <el-option label="ANSWER" value="ANSWER" />
+          <el-option label="REWRITE" value="REWRITE" />
+          <el-option label="RETRIEVAL" value="RETRIEVAL" />
+          <el-option label="RERANK" value="RERANK" />
+        </el-select>
         <el-input v-model="itemForm.expectedAnswer" :placeholder="t('evalPage.expectedAnswer')" size="small" />
         <el-input v-model="itemForm.scoreCriteria" :placeholder="t('evalPage.criteriaPh')" size="small" />
+        <el-input v-model="itemForm.expectedPayload" :placeholder="t('evalPage.expectedPayloadPh')" size="small" />
+        <el-input v-model="itemForm.stepConfig" :placeholder="t('evalPage.stepConfigPh')" size="small" />
         <el-button size="small" type="primary" @click="addItem">{{ t('evalPage.addSample') }}</el-button>
       </div>
       <el-table :data="items" size="small" class="mt8">
         <el-table-column :label="t('evalPage.question')" min-width="160">
           <template #default="{ row }">{{ clip(row.question, 30) }}</template>
         </el-table-column>
+        <el-table-column :label="t('evalPage.stepType')" width="100">
+          <template #default="{ row }">{{ row.stepType || 'ANSWER' }}</template>
+        </el-table-column>
         <el-table-column :label="t('evalPage.expectedAnswer')" min-width="160">
           <template #default="{ row }">{{ clip(row.expectedAnswer, 30) }}</template>
+        </el-table-column>
+        <el-table-column :label="t('evalPage.expectedPayload')" min-width="150">
+          <template #default="{ row }">{{ clip(row.expectedPayload, 30) }}</template>
         </el-table-column>
         <el-table-column width="60">
           <template #default="{ row }">
@@ -294,8 +345,12 @@ const current = reactive<any>({})
 const itemsVisible = ref(false)
 const currentDs = reactive<any>({})
 const items = ref<any[]>([])
+const reviewVisible = ref(false)
+const reviewSaving = ref(false)
+const reviewRow = ref<any>(null)
+const reviewNote = ref('')
 const jsonl = ref('')
-const itemForm = reactive({ question: '', expectedAnswer: '', scoreCriteria: '' })
+const itemForm = reactive({ question: '', expectedAnswer: '', scoreCriteria: '', stepType: 'ANSWER', expectedPayload: '', stepConfig: '' })
 const dsDialog = ref(false)
 const dsForm = reactive({ name: '', description: '', agentId: null as number | null })
 
@@ -394,7 +449,29 @@ async function addItem() {
   if (!itemForm.question.trim()) { ElMessage.warning(t('evalPage.questionRequired')); return }
   await http.post(`/eval/datasets/${currentDs.id}/items`, { ...itemForm })
   items.value = await http.get(`/eval/datasets/${currentDs.id}/items`) as any
-  Object.assign(itemForm, { question: '', expectedAnswer: '', scoreCriteria: '' })
+  Object.assign(itemForm, { question: '', expectedAnswer: '', scoreCriteria: '', stepType: 'ANSWER', expectedPayload: '', stepConfig: '' })
+}
+
+function openReview(row: any) {
+  reviewRow.value = row
+  reviewNote.value = row.reviewNote || ''
+  reviewVisible.value = true
+}
+
+async function saveReview() {
+  if (!reviewRow.value) return
+  reviewSaving.value = true
+  try {
+    const data = await http.put(`/eval/results/${reviewRow.value.id}/review`, {
+      reviewed: true, note: reviewNote.value
+    }) as any
+    reviewRow.value.reviewStatus = data.reviewStatus
+    reviewRow.value.reviewNote = data.reviewNote
+    reviewVisible.value = false
+    ElMessage.success(t('evalPage.reviewSaved'))
+  } finally {
+    reviewSaving.value = false
+  }
 }
 
 async function importItems() {
@@ -444,4 +521,8 @@ function clip(t: string, n: number) { t = t || ''; return t.length > n ? t.slice
   .sum-cards { grid-template-columns: repeat(2, 1fr); }
   .toolbar { flex-wrap: wrap; row-gap: 8px; }
 }
+.step-summary { margin: 10px 0 14px; }
+.step-summary-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.step-summary-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.step-detail { white-space: pre-wrap; word-break: break-all; font-size: 12px; margin: 4px 0; }
 </style>
