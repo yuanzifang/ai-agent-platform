@@ -2993,17 +2993,13 @@ class DocumentParserTest {
     }
 
     @Test
-    void parsesLegacyDocWithTextutil() throws Exception {
-        Assumptions.assumeTrue(commandExists("textutil"), "本机无 textutil，跳过 .doc 真实样本");
-        Path txt = tempDir.resolve("legacy.txt");
-        Path doc = tempDir.resolve("legacy.doc");
-        Files.writeString(txt, "DOC格式测试：旧版Word内容。", StandardCharsets.UTF_8);
-        Process process = new ProcessBuilder("textutil", "-convert", "doc",
-                "-output", doc.toAbsolutePath().toString(), txt.toAbsolutePath().toString())
-                .redirectErrorStream(true).start();
-        assertTrue(process.waitFor() == 0, "textutil 生成 .doc 失败");
-        List<DocumentParser.ParsedChunk> chunks = parser.parseWithParents("legacy.doc",
-                Files.readAllBytes(doc));
+    void parsesLegacyDocFixture() throws Exception {
+        byte[] bytes;
+        try (var in = getClass().getResourceAsStream("/legacy.doc")) {
+            assertTrue(in != null, "缺少 .doc 测试 fixture");
+            bytes = in.readAllBytes();
+        }
+        List<DocumentParser.ParsedChunk> chunks = parser.parseWithParents("legacy.doc", bytes);
         String text = chunks.stream().map(DocumentParser.ParsedChunk::content).reduce("", String::concat);
         assertTrue(text.contains("DOC格式测试"), text);
     }
