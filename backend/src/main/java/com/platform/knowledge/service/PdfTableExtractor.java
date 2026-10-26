@@ -168,9 +168,16 @@ final class PdfTableExtractor {
         }
         LogicalRow previousHeader = previous.rows.isEmpty() ? null : previous.rows.get(0);
         LogicalRow currentHeader = current.rows.isEmpty() ? null : current.rows.get(0);
+        int previousHeaders = headerRows(previous.rows);
+        int currentHeaders = headerRows(current.rows);
         boolean duplicateHeader = !previous.rows.isEmpty() && !current.rows.isEmpty()
                 && (sameRow(previousHeader, currentHeader) || compatibleHeader(previous, current));
-        if (duplicateHeader) current.rows.remove(0);
+        if (previousHeaders > 1 && previousHeaders == currentHeaders
+                && sameHeaderRows(previous.rows, current.rows, previousHeaders)) {
+            for (int i = 0; i < currentHeaders; i++) current.rows.remove(0);
+        } else if (duplicateHeader) {
+            current.rows.remove(0);
+        }
         mergeLeadingContinuation(previous, current);
         if (!current.rows.isEmpty()) {
             if (previous.anchors.size() == current.anchors.size()) {
@@ -199,6 +206,16 @@ final class PdfTableExtractor {
         if (previous.notes.size() < 3) {
             previous.notes.addAll(current.notes.subList(0, Math.min(current.notes.size(), 3 - previous.notes.size())));
         }
+    }
+
+    /** 跨页多行表头完全一致时，删除续页整段表头，避免第二行混入数据区。 */
+    private static boolean sameHeaderRows(List<LogicalRow> previous, List<LogicalRow> current,
+                                          int count) {
+        if (previous.size() < count || current.size() < count) return false;
+        for (int i = 0; i < count; i++) {
+            if (!sameRow(previous.get(i), current.get(i))) return false;
+        }
+        return true;
     }
 
     /** 合并跨页拆开的单元格：续页开头只有单个非空文本单元时，接回上一页最后一行。 */
