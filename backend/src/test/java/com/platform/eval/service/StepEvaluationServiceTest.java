@@ -102,6 +102,20 @@ class StepEvaluationServiceTest {
     }
 
     @Test
+    void agentTaskRewriteUsesAgentModelOverStepConfigModel() {
+        when(rewrite.rewrite("退款怎么申请", "qwen2.5:7b", "保留实体"))
+                .thenReturn("如何申请退款");
+        var result = service.evaluate("REWRITE", "退款怎么申请",
+                "{\"rewrite\":\"如何申请退款\",\"must_keep\":[\"退款\"]}",
+                "{\"model\":\"platform-model\",\"instructions\":\"保留实体\"}",
+                "qwen2.5:7b", viewer);
+
+        assertEquals(1.0, result.score(), 0.0001);
+        assertTrue(result.details().contains("\"model\":\"qwen2.5:7b\""));
+        org.mockito.Mockito.verify(rewrite).rewrite("退款怎么申请", "qwen2.5:7b", "保留实体");
+    }
+
+    @Test
     void evaluatesRerankTopOne() {
         List<Map<String, Object>> hits = List.of(
                 Map.of("content", "doc1", "metadata", "{\"chunk_id\":1}"),
