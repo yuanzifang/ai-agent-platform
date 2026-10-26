@@ -134,6 +134,11 @@ knowledge:
     recovery-interval-ms: ${KNOWLEDGE_PARSE_RECOVERY_INTERVAL_MS:1800000}
     recovery-initial-delay-ms: ${KNOWLEDGE_PARSE_RECOVERY_INITIAL_DELAY_MS:300000}
     recovery-batch: ${KNOWLEDGE_PARSE_RECOVERY_BATCH:20}
+  hash-backfill:
+    # 历史文档 SHA256 定时回填：每批数量、扫描间隔
+    batch: ${KNOWLEDGE_HASH_BACKFILL_BATCH:20}
+    interval-ms: ${KNOWLEDGE_HASH_BACKFILL_INTERVAL_MS:600000}
+    initial-delay-ms: ${KNOWLEDGE_HASH_BACKFILL_INITIAL_DELAY_MS:60000}
   upgrade:
     # 存量升级任务后台每批提交文档数、扫描间隔
     batch: ${KNOWLEDGE_UPGRADE_BATCH:10}

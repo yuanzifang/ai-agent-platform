@@ -394,6 +394,23 @@ class KnowledgeServiceLifecycleTest {
     }
 
     @Test
+    void backfillsSourceHashesForTenantScheduler() {
+        KnowledgeDocument doc = new KnowledgeDocument();
+        doc.setId(81L);
+        doc.setKnowledgeBaseId(1L);
+        doc.setObjectName("scheduled-hash.pdf");
+        doc.setStatus("DONE");
+        when(docMapper.selectList(any())).thenReturn(List.of(doc));
+        when(storage.get("scheduled-hash.pdf")).thenReturn("hash-bytes".getBytes(
+                java.nio.charset.StandardCharsets.UTF_8));
+
+        Map<String, Object> result = service.backfillSourceHashesForTenant(20);
+
+        assertEquals(1, result.get("updated"));
+        verify(docMapper).update(isNull(), any());
+    }
+
+    @Test
     void updateDocumentValiditySyncsDocumentAndVectorRows() {
         KnowledgeDocument doc = new KnowledgeDocument();
         doc.setId(55L);

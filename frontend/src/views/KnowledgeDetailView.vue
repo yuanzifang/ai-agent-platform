@@ -128,6 +128,10 @@
                      :loading="failedRetrying" @click="retryFailedDocs">
             {{ t('kbDetail.retryFailed') }}（{{ failedDocCount }}）
           </el-button>
+          <el-button v-if="detail.canEdit && hashMissingCount > 0" size="small" text type="primary"
+                     :loading="hashBackfilling" @click="backfillHashes">
+            {{ t('kbDetail.backfillHashes') }}（{{ hashMissingCount }}）
+          </el-button>
         </div>
         <el-table :data="visibleDocuments" size="small" @row-click="toggleChunks">
           <el-table-column prop="fileName" :label="t('kbDetail.fileName')" min-width="180" />
@@ -468,7 +472,10 @@ const upgradeJob = ref<any>(null)
 let upgradeTimer: ReturnType<typeof setTimeout> | null = null
 const recoveringStale = ref(false)
 const failedRetrying = ref(false)
+const hashBackfilling = ref(false)
 const failedDocCount = computed(() => documents.value.filter((d: any) => d.status === 'FAILED').length)
+const hashMissingCount = computed(() => documents.value.filter(
+  (d: any) => d.status === 'DONE' && !d.sourceSha256).length)
 const uploadTasks = ref<any[]>([])
 let uploadSeq = 0
 const visibleDocuments = computed(() => validOnly.value
@@ -800,6 +807,19 @@ function parseAgeText(row: any): string {
   return minutes >= 360
     ? t('kbDetail.parseStale')
     : `${t('kbDetail.parsingForPrefix')}${minutes}${t('kbDetail.parsingForSuffix')}`
+}
+
+async function backfillHashes() {
+  hashBackfilling.value = true
+  try {
+    const data = await http.post(`/knowledge-base/${kbId}/documents/backfill-hashes`, null,
+      { params: { limit: 20 } }) as any
+    ElMessage.success(t('kbDetail.backfillHashesDone')
+      + `${data?.updated || 0}/${data?.scanned || 0}`)
+    await loadDocs()
+  } finally {
+    hashBackfilling.value = false
+  }
 }
 
 async function retryFailedDocs() {
