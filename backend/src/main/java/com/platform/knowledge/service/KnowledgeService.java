@@ -1358,6 +1358,38 @@ public class KnowledgeService {
                 .orderByDesc(KnowledgeDocument::getCreatedAt));
     }
 
+    /** 存量文档回填文件 SHA256；每次限量，避免一次读大量 MinIO 对象。 */
+    public Map<String, Object> backfillSourceHashes(Long kbId, int limit,
+                                                    KnowledgePermissionService.Viewer viewer) {
+        permissionService.requireEdit(kbId, viewer);
+        int max = Math.max(1, Math.min(limit, 100));
+        List<KnowledgeDocument> docs = docMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeDocument>()
+                        .eq(KnowledgeDocument::getKnowledgeBaseId, kbId)
+                        .eq(KnowledgeDocument::getStatus, "DONE")
+                        .isNull(KnowledgeDocument::getSourceSha256)
+                        .last("LIMIT " + max));
+        int updated = 0;
+        int failed = 0;
+        for (KnowledgeDocument doc : docs) {
+            try {
+                String sha = sha256(storage.get(doc.getObjectName()));
+                if (sha == null) {
+                    failed++;
+                    continue;
+                }
+                docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
+                        .eq(KnowledgeDocument::getId, doc.getId())
+                        .set(KnowledgeDocument::getSourceSha256, sha));
+                updated++;
+            } catch (Exception e) {
+                failed++;
+                log.warn("回填 source_sha256 失败 doc={} err={}", doc.getId(), e.getMessage());
+            }
+        }
+        return Map.of("scanned", docs.size(), "updated", updated, "failed", failed);
+    }
+
     private void deleteVectorsQuietly(Long tenantId, Long documentId) {
         try {
             vectorRepository.deleteByDocument(tenantId, documentId);

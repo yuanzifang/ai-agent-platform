@@ -199,6 +199,15 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.documents(id, viewer(principal)));
     }
 
+    /** 存量文档回填 source_sha256（每次最多 100 份；需编辑权限）。 */
+    @PostMapping("/{id}/documents/backfill-hashes")
+    public ApiResponse<Map<String, Object>> backfillHashes(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "20") int limit,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(knowledgeService.backfillSourceHashes(id, limit, viewer(principal)));
+    }
+
     /** 删除文档（级联 MinIO/PgVector/分段，需编辑权限）。 */
     @DeleteMapping("/{id}/documents/{docId}")
     public ApiResponse<Void> deleteDocument(@PathVariable Long id, @PathVariable Long docId,
