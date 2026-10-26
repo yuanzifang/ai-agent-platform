@@ -125,7 +125,10 @@
     <template v-else>
       <div class="sub-bar">
         <span></span>
-        <el-button type="primary" size="small" @click="dsDialog = true">{{ t('evalPage.newDs') }}</el-button>
+        <div>
+          <el-button size="small" @click="openCoverage">{{ t('evalPage.coverageMatrix') }}</el-button>
+          <el-button type="primary" size="small" @click="dsDialog = true">{{ t('evalPage.newDs') }}</el-button>
+        </div>
       </div>
       <el-card shadow="never">
         <el-table :data="datasets" size="small">
@@ -135,9 +138,10 @@
           <el-table-column :label="t('evalPage.boundAgent')" width="110">
             <template #default="{ row }">{{ agentName(row.agentId) }}</template>
           </el-table-column>
-          <el-table-column :label="t('evalPage.actions')" width="180">
+          <el-table-column :label="t('evalPage.actions')" width="260">
             <template #default="{ row }">
               <el-button size="small" @click="openItems(row)">{{ t('evalPage.sampleMgmt') }}</el-button>
+              <el-button size="small" @click="openTrend(row)">{{ t('evalPage.trend') }}</el-button>
               <el-button size="small" type="danger" plain @click="removeDs(row)">{{ t('evalPage.delete') }}</el-button>
             </template>
           </el-table-column>
@@ -194,6 +198,43 @@
             {{ v.count }} / {{ v.passRate != null ? (v.passRate * 100).toFixed(0) + '%' : '-' }}
           </el-tag>
         </div>
+      </div>
+      <div v-if="current.id" class="compare-bar">
+        <span class="compare-label">{{ t('evalPage.compare') }}</span>
+        <el-select v-model="compareBaselineId" size="small" style="width: 240px"
+                   :placeholder="t('evalPage.baselinePh')">
+          <el-option v-for="t in baselineCandidates" :key="t.id" :value="t.id"
+                     :label="`${t.name} · ${pct(t.passRate)}`" />
+        </el-select>
+        <el-button size="small" :disabled="!compareBaselineId" :loading="compareLoading"
+                   @click="loadCompare">{{ t('evalPage.compareRun') }}</el-button>
+        <span v-if="!baselineCandidates.length" class="hint-inline">{{ t('evalPage.noBaseline') }}</span>
+      </div>
+      <div v-if="compareResult" class="compare-result">
+        <div class="compare-tags">
+          <el-tag v-for="type in compareResult.comparison.improved" :key="'i' + type"
+                  size="small" type="success">{{ stepName(type) }} {{ t('evalPage.improved') }}</el-tag>
+          <el-tag v-for="type in compareResult.comparison.regressed" :key="'r' + type"
+                  size="small" type="danger">{{ stepName(type) }} {{ t('evalPage.regressed') }}</el-tag>
+          <span v-if="!compareResult.comparison.improved.length && !compareResult.comparison.regressed.length"
+                class="hint-inline">{{ t('evalPage.noDelta') }}</span>
+        </div>
+        <el-table :data="compareRows" size="small">
+          <el-table-column :label="t('evalPage.stepType')" width="110">
+            <template #default="{ row }">{{ stepName(row.type) }}</template>
+          </el-table-column>
+          <el-table-column :label="t('evalPage.currentPassRate')" width="90">
+            <template #default="{ row }">{{ pct(row.current.passRate) }}</template>
+          </el-table-column>
+          <el-table-column :label="t('evalPage.baselinePassRate')" width="90">
+            <template #default="{ row }">{{ pct(row.baseline.passRate) }}</template>
+          </el-table-column>
+          <el-table-column :label="t('evalPage.delta')" width="90">
+            <template #default="{ row }">
+              <span :class="deltaClass(row.passRateDelta)">{{ deltaText(row.passRateDelta) }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
       </div>
       <el-table :data="current.results || []" size="small">
         <el-table-column type="expand">
@@ -305,6 +346,53 @@
       </el-table>
     </el-drawer>
 
+    <!-- 数据集趋势 -->
+    <el-dialog v-model="trendVisible" :title="t('evalPage.trendTitle') + (trendDataset.name || '')" width="900px">
+      <el-table v-loading="trendLoading" :data="trendTasks" size="small">
+        <el-table-column prop="name" :label="t('evalPage.task')" min-width="150" />
+        <el-table-column :label="t('evalPage.time')" width="140">
+          <template #default="{ row }">{{ fmt(row.createdAt) }}</template>
+        </el-table-column>
+        <el-table-column :label="t('evalPage.avgScore')" width="85">
+          <template #default="{ row }">{{ pct(row.avgScore) }}</template>
+        </el-table-column>
+        <el-table-column :label="t('evalPage.passRateShort')" width="85">
+          <template #default="{ row }">{{ pct(row.passRate) }}</template>
+        </el-table-column>
+        <el-table-column v-for="type in stepKeys" :key="type" :label="stepName(type)" width="90">
+          <template #default="{ row }">{{ pct(row.stepSummary && row.stepSummary[type] && row.stepSummary[type].passRate) }}</template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!trendLoading && !trendTasks.length" :description="t('evalPage.emptyTrend')" :image-size="60" />
+    </el-dialog>
+
+    <!-- 覆盖矩阵 -->
+    <el-dialog v-model="coverageVisible" :title="t('evalPage.coverageTitle')" width="880px">
+      <div v-loading="coverageLoading">
+        <div v-if="coverage" class="coverage-totals">
+          <span v-for="type in stepKeys" :key="type" class="coverage-total">
+            {{ stepName(type) }}：{{ coverage.totalByType[type] || 0 }}
+          </span>
+          <span v-if="coverage.missingTypes && coverage.missingTypes.length" class="step-coverage-missing">
+            {{ t('evalPage.missingSteps') }}{{ coverage.missingTypes.map(stepName).join(' / ') }}
+          </span>
+        </div>
+        <el-table v-if="coverage" :data="coverage.datasets" size="small">
+          <el-table-column prop="name" :label="t('evalPage.datasetName')" min-width="170" />
+          <el-table-column v-for="type in stepKeys" :key="type" :label="stepName(type)" width="110">
+            <template #default="{ row }">{{ row.steps[type] || 0 }}</template>
+          </el-table-column>
+          <el-table-column :label="t('evalPage.missingSteps')" min-width="160">
+            <template #default="{ row }">
+              <el-tag v-for="type in row.missing" :key="type" size="small" type="warning" class="mr4">
+                {{ stepName(type) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </el-dialog>
+
     <!-- 单步试跑 -->
     <el-dialog v-model="stepRunVisible" :title="t('evalPage.stepRunTitle')" width="640px">
       <el-form label-width="96px">
@@ -410,6 +498,17 @@ const stepRunSaving = ref(false)
 const stepRunError = ref('')
 const stepRunResult = ref<any>(null)
 const stepRunForm = reactive({ stepType: 'REWRITE', query: '', expectedPayload: '', stepConfig: '' })
+const stepKeys = ['ANSWER', 'REWRITE', 'RETRIEVAL', 'RERANK']
+const trendVisible = ref(false)
+const trendLoading = ref(false)
+const trendDataset = reactive<any>({})
+const trendTasks = ref<any[]>([])
+const coverageVisible = ref(false)
+const coverageLoading = ref(false)
+const coverage = ref<any>(null)
+const compareBaselineId = ref<number | null>(null)
+const compareLoading = ref(false)
+const compareResult = ref<any>(null)
 const reviewVisible = ref(false)
 const reviewSaving = ref(false)
 const reviewRow = ref<any>(null)
@@ -488,8 +587,68 @@ async function createTask() {
 }
 
 async function openTask(row: any) {
+  compareBaselineId.value = null
+  compareResult.value = null
   Object.assign(current, await http.get(`/eval/tasks/${row.id}`) as any)
   taskVisible.value = true
+}
+
+async function loadCompare() {
+  if (!compareBaselineId.value) return
+  compareLoading.value = true
+  try {
+    compareResult.value = await http.get(
+      `/eval/tasks/${current.id}/compare/${compareBaselineId.value}`) as any
+  } finally {
+    compareLoading.value = false
+  }
+}
+
+async function openTrend(row: any) {
+  Object.assign(trendDataset, row)
+  trendTasks.value = []
+  trendVisible.value = true
+  trendLoading.value = true
+  try {
+    const data = await http.get(`/eval/datasets/${row.id}/trend`, {
+      params: { agentId: row.agentId || undefined, limit: 10 }
+    }) as any
+    trendTasks.value = data.tasks || []
+  } finally {
+    trendLoading.value = false
+  }
+}
+
+async function openCoverage() {
+  coverage.value = null
+  coverageVisible.value = true
+  coverageLoading.value = true
+  try {
+    coverage.value = await http.get('/eval/coverage', {
+      params: { agentId: agentId.value || undefined }
+    }) as any
+  } finally {
+    coverageLoading.value = false
+  }
+}
+
+function stepName(type: string) {
+  return t('evalPage.step' + type.charAt(0) + type.slice(1).toLowerCase())
+}
+
+function pct(value: any) {
+  return value == null ? '-' : (Number(value) * 100).toFixed(0) + '%'
+}
+
+function deltaText(value: any) {
+  if (value == null) return '-'
+  const n = Number(value) * 100
+  return (n > 0 ? '+' : '') + n.toFixed(0)
+}
+
+function deltaClass(value: any) {
+  if (value == null || Number(value) === 0) return ''
+  return Number(value) > 0 ? 'delta-up' : 'delta-down'
 }
 
 async function createDs() {
@@ -527,6 +686,20 @@ async function addItem() {
 
 const standaloneStepTypes = computed(() =>
   stepTypes.value.filter((s: any) => s.stepType !== 'ANSWER'))
+
+const baselineCandidates = computed(() =>
+  tasks.value.filter((t: any) => t.id !== current.id && t.datasetId === current.datasetId
+    && t.status === 'DONE'))
+
+const compareRows = computed(() => {
+  const steps = compareResult.value?.comparison?.steps || {}
+  return stepKeys.map((type) => ({
+    type,
+    current: steps[type]?.current || {},
+    baseline: steps[type]?.baseline || {},
+    passRateDelta: steps[type]?.passRateDelta,
+  }))
+})
 
 function openStepRun() {
   stepRunVisible.value = true
@@ -632,4 +805,13 @@ function clip(t: string, n: number) { t = t || ''; return t.length > n ? t.slice
 .step-run-metrics { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
 .step-run-block { margin-top: 8px; }
 .step-run-block pre { margin: 4px 0 0; white-space: pre-wrap; word-break: break-all; font-size: 12px; background: #f5f7fa; padding: 8px; border-radius: 4px; max-height: 240px; overflow: auto; }
+.compare-bar { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; }
+.compare-label { font-size: 13px; font-weight: 600; }
+.compare-result { border: 1px solid #ebeef5; border-radius: 6px; padding: 10px; margin-bottom: 14px; }
+.compare-tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.delta-up { color: #67c23a; }
+.delta-down { color: #f56c6c; }
+.coverage-totals { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; font-size: 13px; }
+.coverage-total { font-weight: 600; }
+.mr4 { margin-right: 4px; }
 </style>
