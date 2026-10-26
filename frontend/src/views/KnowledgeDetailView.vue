@@ -92,6 +92,10 @@
                      :loading="legacyReparsing" @click="reparseLegacy">
             {{ t('kbDetail.reparseLegacy') }}（{{ legacyDocCount }}）
           </el-button>
+          <el-button v-if="detail.canEdit" size="small" text type="warning"
+                     :loading="recoveringStale" @click="recoverStale">
+            {{ t('kbDetail.recoverStale') }}
+          </el-button>
         </div>
         <el-table :data="visibleDocuments" size="small" @row-click="toggleChunks">
           <el-table-column prop="fileName" :label="t('kbDetail.fileName')" min-width="180" />
@@ -415,6 +419,7 @@ const documents = ref<any[]>([])
 const validOnly = ref(false)
 const validityRebuilding = ref(false)
 const legacyReparsing = ref(false)
+const recoveringStale = ref(false)
 const uploadTasks = ref<any[]>([])
 let uploadSeq = 0
 const visibleDocuments = computed(() => validOnly.value
@@ -652,6 +657,18 @@ async function reparseLegacy() {
     pollDocs()
   } finally {
     legacyReparsing.value = false
+  }
+}
+
+async function recoverStale() {
+  await ElMessageBox.confirm(t('kbDetail.recoverStaleConfirm'), t('kbDetail.recoverStale'), { type: 'warning' })
+  recoveringStale.value = true
+  try {
+    const data = await http.post(`/knowledge-base/${kbId}/documents/recover-stale`) as any
+    ElMessage.success(t('kbDetail.recoverStaleDone', { count: data?.recovered || 0 }))
+    await loadDocs()
+  } finally {
+    recoveringStale.value = false
   }
 }
 

@@ -145,6 +145,15 @@ public class KnowledgeController {
                 req.parseConfig(), req.effectiveFrom(), req.effectiveTo(), viewer(principal)));
     }
 
+    /** 手动回收本知识库超时 PARSING 的文档（默认 6 小时）。 */
+    @PostMapping("/{id}/documents/recover-stale")
+    public ApiResponse<Map<String, Object>> recoverStale(@PathVariable Long id,
+                                                         @RequestParam(defaultValue = "360") int staleMinutes,
+                                                         @AuthenticationPrincipal JwtPrincipal principal) {
+        int recovered = knowledgeService.recoverStaleParsingForKb(id, staleMinutes, 50, viewer(principal));
+        return ApiResponse.ok(Map.of("recovered", recovered));
+    }
+
     /** 重新解析（DONE/FAILED）：清理旧分段/向量/图片后按最新解析配置重跑。 */
     @PostMapping("/{id}/documents/{docId}/reparse")
     public ApiResponse<Map<String, Object>> reparse(@PathVariable Long id, @PathVariable Long docId,
