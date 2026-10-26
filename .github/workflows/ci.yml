@@ -63,12 +63,18 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Node 单测
+      - name: Gateway Node 单测
         working-directory: runtime/agent-gateway
         run: npm test
 
+      - name: Alert-relay Node 单测
+        working-directory: runtime/alert-relay
+        run: npm test
+
       - name: 构建运行时镜像
-        run: docker build -t agent-gateway:ci runtime/agent-gateway
+        run: |
+          docker build -t agent-gateway:ci runtime/agent-gateway
+          docker build -t alert-relay:ci runtime/alert-relay
 
       - name: 容器冒烟（健康检查/鉴权/模型/统计/CORS）
         run: |

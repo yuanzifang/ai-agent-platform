@@ -11,8 +11,7 @@ route:
 receivers:
   - name: platform-webhook
     webhook_configs:
-      # 仅容器内网；后端 /internal/alertmanager 转成钉钉/企微/飞书文本，
-      # 群机器人地址由后端 ALERT_WEBHOOK_URL 配置。
-      - url: http://backend:8080/internal/alertmanager
+      # 独立中继（不依赖后端）；后端宕机时 AiAgentBackendDown 仍可送达。
+      - url: http://alert-relay:8080/alertmanager
         send_resolved: true
         max_alerts: 20
