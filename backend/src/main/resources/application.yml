@@ -87,8 +87,13 @@ llm:
 embedding:
   provider: ollama
   endpoint: ${OLLAMA_ENDPOINT:http://localhost:11434}
-  model: ${EMBEDDING_MODEL:nomic-embed-text}
-  dimensions: ${EMBEDDING_DIMENSIONS:768}
+  # 默认偏好 bge-m3（中文效果更好）；启动时探测 Ollama，未安装则自动回退 nomic-embed-text
+  model: ${EMBEDDING_MODEL:bge-m3}
+  dimensions: ${EMBEDDING_DIMENSIONS:1024}
+  # 远程 embedding API 可设 2-4 并发；本地 Ollama 单卡建议保持 1
+  batch-concurrency: ${EMBEDDING_BATCH_CONCURRENCY:1}
+  # embedding 向量缓存保留天数；每小时最多清理一次
+  cache-ttl-days: ${EMBEDDING_CACHE_TTL_DAYS:30}
   # 知识库可选的 embedding 模型及维度（需先在 Ollama 拉取对应模型）
   available:
     nomic-embed-text: 768
@@ -130,6 +135,8 @@ knowledge:
     languages: ${KNOWLEDGE_OCR_LANGUAGES:chi_sim+eng}
     max-pages: ${KNOWLEDGE_OCR_MAX_PAGES:20}
     dpi: ${KNOWLEDGE_OCR_DPI:150}
+    # 内嵌图片 OCR 并发数；本地 CPU 建议 1-2，远程/多核可 2-4
+    concurrency: ${KNOWLEDGE_OCR_CONCURRENCY:1}
   vision:
     # 可选图片多模态理解（本地 Ollama 视觉模型）；默认关闭
     enabled: ${KNOWLEDGE_VISION_ENABLED:false}
@@ -142,6 +149,11 @@ pgvector:
   url: ${PG_URL:jdbc:postgresql://localhost:5432/vector}
   username: ${PG_USERNAME:wangpan}
   password: ${PG_PASSWORD:}
+  hnsw:
+    enabled: ${PGVECTOR_HNSW_ENABLED:true}
+    concurrently: ${PGVECTOR_HNSW_CONCURRENTLY:true}
+  iterative-scan:
+    enabled: ${PGVECTOR_ITERATIVE_SCAN_ENABLED:true}
 
 asr:
   enabled: ${ASR_ENABLED:true}     # 本地 Qwen3-ASR（OpenAI 兼容协议，start-asr.sh 启动）
