@@ -17,6 +17,7 @@
 | Backend | healthy | `/actuator/health`、登录、知识库 API |
 | Frontend | healthy | 静态页、`/api` 反向代理、CORS/安全头 |
 | Prometheus | running | `ai-agent-backend` target `up` |
+| Alertmanager | running | 手动 firing 经 backend `/internal/alertmanager` 转到测试 webhook |
 | Grafana | running | `/api/health` database ok |
 | MinIO | 外部 | 宿主机 MinIO（Docker Hub 官方镜像 403） |
 
@@ -37,7 +38,7 @@ docker compose --env-file .env.docker \
 docker compose --env-file .env.docker exec ollama ollama pull bge-m3
 ```
 
-本次实际使用 18089 前端端口、19090 Prometheus、13000 Grafana、19002 MinIO console 占位；生产按 `.env.docker` 的默认端口即可。
+本次实际使用 18089 前端端口、19090 Prometheus、19093 Alertmanager、13000 Grafana、19002 MinIO console 占位；生产按 `.env.docker` 的默认端口即可。
 
 ## 业务链路验证
 
@@ -46,6 +47,7 @@ docker compose --env-file .env.docker exec ollama ollama pull bge-m3
 3. 创建知识库 → 预签名上传 `smoke.txt` 到 MinIO → callback → 解析 `DONE`、`chunkCount=1`。
 4. PgVector `tenant_1.embeddings_1024` 计数为 1。
 5. Prometheus `ai-agent-backend` target `up`；Grafana `/api/health` 正常。
+6. 向 Alertmanager `POST /api/v2/alerts` 手工 firing 后，backend `/internal/alertmanager` 转换为 text 消息并投递到本地测试 webhook，接收器收到 `[firing] ComposeSmokeAlert`。
 
 ## 本次发现并修复
 

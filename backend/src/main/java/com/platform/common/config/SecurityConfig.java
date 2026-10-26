@@ -44,8 +44,8 @@ public class SecurityConfig {
                                 "/api/v1/mcp-servers/oauth/callback",
                                 // 平台自身作为 MCP Server（API Key 在控制器内校验）
                                 "/mcp",
-                                // 仅容器内网供 Prometheus 抓取；Nginx 不反代该路径
-                                "/actuator/health/**", "/actuator/prometheus").permitAll()
+                                // 仅容器内网供 Prometheus 抓取 / Alertmanager 推送；Nginx 不反代这些路径
+                                "/actuator/health/**", "/actuator/prometheus", "/internal/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint((req, res, ex) -> {
                     res.setStatus(401);
