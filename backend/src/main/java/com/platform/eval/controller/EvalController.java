@@ -41,6 +41,12 @@ public class EvalController {
     }
 
     /** 跨数据集步骤覆盖矩阵，可按 Agent 过滤。 */
+    @GetMapping("/tasks/{id}/compare/{baselineId}")
+    public ApiResponse<Map<String, Object>> compareTasks(@PathVariable Long id,
+                                                          @PathVariable Long baselineId) {
+        return ApiResponse.ok(evalService.compareTasks(id, baselineId));
+    }
+
     @GetMapping("/coverage")
     public ApiResponse<Map<String, Object>> coverage(@RequestParam(required = false) Long agentId) {
         return ApiResponse.ok(evalService.coverage(agentId));

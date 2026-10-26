@@ -215,30 +215,24 @@ public class EvalService {
         return response;
     }
 
-    private Map<String, Object> summarizeSteps(List<EvalResult> results) {
-        Map<String, int[]> counts = new LinkedHashMap<>();
-        Map<String, Double> scores = new LinkedHashMap<>();
-        Map<String, Integer> passed = new LinkedHashMap<>();
-        for (EvalResult result : results) {
-            String type = result.getStepType() == null ? "ANSWER"
-                    : result.getStepType().toUpperCase(java.util.Locale.ROOT);
-            int[] count = counts.computeIfAbsent(type, ignored -> new int[1]);
-            count[0]++;
-            if (result.getScore() != null) scores.merge(type, result.getScore().doubleValue(), Double::sum);
-            if (result.getPassed() != null && result.getPassed() == 1) passed.merge(type, 1, Integer::sum);
+    /** 两个任务的分步骤对比：用于确认检索/重排/改写改动是否带来回归。 */
+    public Map<String, Object> compareTasks(Long taskId, Long baselineTaskId) {
+        EvalTask currentTask = taskMapper.selectById(taskId);
+        EvalTask baselineTask = taskMapper.selectById(baselineTaskId);
+        if (currentTask == null || baselineTask == null) {
+            throw new BusinessException(404, "评测任务不存在");
         }
-        Map<String, Object> summary = new LinkedHashMap<>();
-        for (String type : List.of("ANSWER", "REWRITE", "RETRIEVAL", "RERANK")) {
-            int count = counts.getOrDefault(type, new int[]{0})[0];
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("count", count);
-            row.put("avgScore", count == 0 ? null
-                    : BigDecimal.valueOf(scores.getOrDefault(type, 0.0) / count).setScale(4, RoundingMode.HALF_UP));
-            row.put("passRate", count == 0 ? null
-                    : BigDecimal.valueOf((double) passed.getOrDefault(type, 0) / count).setScale(4, RoundingMode.HALF_UP));
-            summary.put(type, row);
-        }
-        return summary;
+        List<EvalResult> current = resultMapper.selectList(new LambdaQueryWrapper<EvalResult>()
+                .eq(EvalResult::getTaskId, taskId));
+        List<EvalResult> baseline = resultMapper.selectList(new LambdaQueryWrapper<EvalResult>()
+                .eq(EvalResult::getTaskId, baselineTaskId));
+        Map<String, Object> comparison = StepMetrics.compare(
+                StepMetrics.summarize(current), StepMetrics.summarize(baseline));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("taskId", taskId);
+        result.put("baselineTaskId", baselineTaskId);
+        result.put("comparison", comparison);
+        return result;
     }
 
     /** 跨数据集步骤覆盖矩阵，按 Agent 过滤。 */
@@ -333,7 +327,7 @@ public class EvalService {
             rows.add(row);
         }
         detail.put("results", rows);
-        detail.put("stepSummary", summarizeSteps(results));
+        detail.put("stepSummary", StepMetrics.summarize(results));
         return detail;
     }
 
