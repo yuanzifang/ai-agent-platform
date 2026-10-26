@@ -198,6 +198,43 @@ class DocumentParserTest {
     }
 
     @Test
+    void keepsSparseUntitledWideTableWithFullHeader() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 8);
+                float y = 780;
+                // 完整 13 列表头
+                for (int col = 1; col <= 13; col++) {
+                    content.beginText();
+                    content.newLineAtOffset(30 + (col - 1) * 42, y);
+                    content.showText("C" + col);
+                    content.endText();
+                }
+                // 数据区故意稀疏，只填 5 列
+                for (int row = 1; row <= 4; row++) {
+                    y -= 30;
+                    for (int col : new int[]{1, 4, 7, 10, 13}) {
+                        content.beginText();
+                        content.newLineAtOffset(30 + (col - 1) * 42, y);
+                        content.showText("R" + row + "C" + col);
+                        content.endText();
+                    }
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+
+        String text = String.join("\n", parser.parse("wide-sparse.pdf", pdf));
+
+        assertTrue(text.contains("C13"), "完整表头应保留，实际=" + text);
+        assertTrue(text.contains("R4C13"), "稀疏数据行应保留，实际=" + text);
+    }
+
+    @Test
     void parsesXlsx() throws Exception {
         byte[] bytes;
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
