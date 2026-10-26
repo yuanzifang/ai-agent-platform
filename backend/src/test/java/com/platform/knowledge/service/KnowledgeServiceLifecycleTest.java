@@ -318,6 +318,25 @@ class KnowledgeServiceLifecycleTest {
     }
 
     @Test
+    void reparseLegacyDocumentsTriggersOnlyUnfingerprintedDoneDocs() {
+        ReflectionTestUtils.setField(service, "documentParseExecutor", mock(ThreadPoolTaskExecutor.class));
+        KnowledgeDocument legacy = new KnowledgeDocument();
+        legacy.setId(79L);
+        legacy.setKnowledgeBaseId(1L);
+        legacy.setTenantId(9L);
+        legacy.setStatus("DONE");
+        when(docMapper.selectList(any())).thenReturn(List.of(legacy));
+        when(docMapper.selectById(79L)).thenReturn(legacy);
+
+        Map<String, Object> result = service.reparseLegacyDocuments(1L, 20, viewer);
+
+        assertEquals(1, result.get("scanned"));
+        assertEquals(1, result.get("triggered"));
+        verify(docMapper).updateById(any(KnowledgeDocument.class));
+        verify(permissionService, atLeastOnce()).requireEdit(1L, viewer);
+    }
+
+    @Test
     void recoversStaleParsingDocumentAndCleansPartialData() {
         KnowledgeDocument stale = new KnowledgeDocument();
         stale.setId(78L);

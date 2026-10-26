@@ -88,6 +88,10 @@
                      :loading="validityRebuilding" @click="rebuildValidity">
             {{ t('kbDetail.rebuildValidity') }}
           </el-button>
+          <el-button v-if="detail.canEdit && legacyDocCount > 0" size="small" text type="primary"
+                     :loading="legacyReparsing" @click="reparseLegacy">
+            {{ t('kbDetail.reparseLegacy') }}（{{ legacyDocCount }}）
+          </el-button>
         </div>
         <el-table :data="visibleDocuments" size="small" @row-click="toggleChunks">
           <el-table-column prop="fileName" :label="t('kbDetail.fileName')" min-width="180" />
@@ -410,11 +414,14 @@ const detail = reactive<Record<string, any>>({
 const documents = ref<any[]>([])
 const validOnly = ref(false)
 const validityRebuilding = ref(false)
+const legacyReparsing = ref(false)
 const uploadTasks = ref<any[]>([])
 let uploadSeq = 0
 const visibleDocuments = computed(() => validOnly.value
   ? documents.value.filter(doc => validityState(doc) === 'valid')
   : documents.value)
+const legacyDocCount = computed(() => documents.value.filter(
+  doc => doc.status === 'DONE' && !doc.parseFingerprint).length)
 const uploading = computed(() => uploadTasks.value.some(
   task => task.status === 'uploading' || task.status === 'parsing'))
 const urlVisible = ref(false)
@@ -618,8 +625,9 @@ async function saveParse() {
 
 // 重新解析：仅当知识库或该文档配置了自定义解析设置时显示（否则重跑结果不变）
 function reparseAvailable(row: any) {
+  const legacy = row.status === 'DONE' && !row.parseFingerprint
   const kbCustom = detail.parseConfig && Object.keys(detail.parseConfig).length > 0
-  return !!kbCustom || !!row.parseConfig
+  return legacy || !!kbCustom || !!row.parseConfig
 }
 
 async function reparseDoc(row: any) {
@@ -631,6 +639,19 @@ async function reparseDoc(row: any) {
     pollDocs()
   } finally {
     row.reparseLoading = false
+  }
+}
+
+async function reparseLegacy() {
+  legacyReparsing.value = true
+  try {
+    const data = await http.post(`/knowledge-base/${kbId}/documents/reparse-legacy`, null,
+      { params: { limit: 20 } }) as any
+    ElMessage.success(t('kbDetail.reparseLegacySubmitted', { count: data?.triggered || 0 }))
+    await loadDocs()
+    pollDocs()
+  } finally {
+    legacyReparsing.value = false
   }
 }
 
