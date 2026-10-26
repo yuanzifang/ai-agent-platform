@@ -103,12 +103,21 @@ embedding:
 
 skill:
   script:
-    # 技能脚本执行（Python/JavaScript）；生产建议接入容器级隔离执行器
+    # 技能脚本执行（Python/JavaScript）
     enabled: ${SKILL_SCRIPT_ENABLED:true}
+    # 隔离层级：process=进程级（OS 沙箱+语言禁网，本机开发）；docker=容器沙箱（生产/SaaS 开脚本时用）
+    runtime: ${SKILL_SCRIPT_RUNTIME:process}
     python-command: ${SKILL_SCRIPT_PYTHON:python3}
     node-command: ${SKILL_SCRIPT_NODE:node}
     max-output-bytes: ${SKILL_SCRIPT_MAX_OUTPUT:65536}
     max-code-length: ${SKILL_SCRIPT_MAX_CODE:50000}
+    docker:
+      docker-bin: ${SKILL_SCRIPT_DOCKER_BIN:docker}
+      python-image: ${SKILL_SCRIPT_PYTHON_IMAGE:python:3.12-alpine}
+      node-image: ${SKILL_SCRIPT_NODE_IMAGE:node:22-alpine}
+      memory: ${SKILL_SCRIPT_DOCKER_MEMORY:256m}
+      cpus: ${SKILL_SCRIPT_DOCKER_CPUS:0.5}
+      pids-limit: ${SKILL_SCRIPT_DOCKER_PIDS:64}
 
 retrieval:
   rerank:

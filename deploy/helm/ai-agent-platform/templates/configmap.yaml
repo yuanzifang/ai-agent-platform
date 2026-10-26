@@ -32,6 +32,7 @@ data:
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.config.otelEndpoint | quote }}
   RATE_LIMIT_PER_MINUTE: {{ .Values.config.rateLimitPerMinute | quote }}
   SKILL_SCRIPT_ENABLED: {{ .Values.config.skillScriptEnabled | quote }}
+  SKILL_SCRIPT_RUNTIME: {{ .Values.config.skillScriptRuntime | quote }}
   ASR_ENABLED: {{ .Values.config.asrEnabled | quote }}
   ASR_ENDPOINT: {{ .Values.config.asrEndpoint | quote }}
   SMTP_HOST: {{ .Values.config.smtpHost | quote }}

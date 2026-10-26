@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -25,9 +26,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
 /**
- * 技能脚本执行：Python / JavaScript 进程级隔离（临时目录、超时、输出上限）。
+ * 技能脚本执行：Python / JavaScript 隔离执行（临时目录、超时、输出上限）。
  * 参数通过 SKILL_ARGS 环境变量与 stdin 传入，脚本内可直接使用 params/args；stdout 即工具结果。
- * 注意：这是进程级限制而非容器级沙箱，生产环境建议接入独立隔离执行器。
+ * 隔离层级由 skill.script.runtime 选择：
+ * - process（默认）：进程级（OS 沙箱 + 语言级禁网兜底），适合本机开发；
+ * - docker：容器级沙箱（--network none / 内存/CPU/PID 限额 / cap-drop ALL / tmpfs），
+ *   生产或 SaaS 开启脚本时使用；要求后端可访问 docker CLI（本机模式，或容器内挂载 socket+CLI）。
  */
 @Slf4j
 @Service
@@ -54,7 +58,30 @@ public class ScriptRunnerService {
     @Value("${skill.script.network-isolation:true}")
     private boolean networkIsolation;
 
+    /** 隔离层级：process（默认，进程级）/ docker（容器级沙箱）。 */
+    @Value("${skill.script.runtime:process}")
+    private String runtime;
+
+    @Value("${skill.script.docker-bin:docker}")
+    private String dockerBin;
+
+    @Value("${skill.script.docker.python-image:python:3.12-alpine}")
+    private String dockerPythonImage;
+
+    @Value("${skill.script.docker.node-image:node:22-alpine}")
+    private String dockerNodeImage;
+
+    @Value("${skill.script.docker.memory:256m}")
+    private String dockerMemory;
+
+    @Value("${skill.script.docker.cpus:0.5}")
+    private String dockerCpus;
+
+    @Value("${skill.script.docker.pids-limit:64}")
+    private int dockerPidsLimit;
+
     private volatile Boolean unshareUsable;
+    private volatile Boolean dockerUsable;
 
     public record Result(String output, String stderr, int exitCode, long durationMs, boolean truncated) {
     }
@@ -82,39 +109,62 @@ public class ScriptRunnerService {
         } catch (Exception e) {
             throw new BusinessException(400, "脚本参数不是合法 JSON");
         }
+        String fullCode = prelude(lang) + code;
 
         Path dir = null;
+        String containerName = null;
+        String dockerBinPath = null;
         long start = System.currentTimeMillis();
         try {
             dir = Files.createTempDirectory("skill-script-");
             Path file = dir.resolve("PYTHON".equals(lang) ? "main.py" : "main.js");
-            Files.writeString(file, prelude(lang) + code, StandardCharsets.UTF_8);
-            String executable = "PYTHON".equals(lang)
-                    ? resolveExecutable(pythonCommand, "python3")
-                    : resolveExecutable(nodeCommand, "node");
-            List<String> command = "PYTHON".equals(lang)
-                    ? List.of(executable, "-u", file.toString())
-                    : List.of(executable, file.toString());
-            if (networkIsolation) command = networkSandbox(command);
+            Files.writeString(file, fullCode, StandardCharsets.UTF_8);
+            boolean containerMode = "docker".equals(runtime);
+            if (containerMode) {
+                dockerBinPath = findExecutable(dockerBin);
+                if (dockerBinPath == null || !dockerUsable(dockerBinPath)) {
+                    log.warn("skill.script.runtime=docker 但 Docker 不可用，回退进程级隔离（网络仍受 OS/语言级沙箱限制）");
+                    containerMode = false;
+                }
+            }
+            List<String> command;
+            if (containerMode) {
+                containerName = "skill-" + UUID.randomUUID().toString().replace("-", "");
+                command = dockerCommand(dockerBinPath, lang, fullCode, argsJson, containerName);
+            } else {
+                String executable = "PYTHON".equals(lang)
+                        ? resolveExecutable(pythonCommand, "python3")
+                        : resolveExecutable(nodeCommand, "node");
+                command = "PYTHON".equals(lang)
+                        ? List.of(executable, "-u", file.toString())
+                        : List.of(executable, file.toString());
+                if (networkIsolation) command = networkSandbox(command);
+            }
             ProcessBuilder pb = new ProcessBuilder(command).directory(dir.toFile());
-            pb.environment().clear();
-            String path = System.getenv().getOrDefault("PATH", "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin");
-            pb.environment().put("PATH", path);
-            pb.environment().put("HOME", dir.toString());
-            pb.environment().put("TMPDIR", dir.toString());
-            pb.environment().put("TEMP", dir.toString());
-            pb.environment().put("TMP", dir.toString());
-            pb.environment().put("LANG", "en_US.UTF-8");
-            pb.environment().put("LC_ALL", "en_US.UTF-8");
-            pb.environment().put("SKILL_ARGS", argsJson);
-            if ("PYTHON".equals(lang)) {
-                pb.environment().put("PYTHONIOENCODING", "UTF-8");
-                pb.environment().put("PYTHONUNBUFFERED", "1");
-                pb.environment().put("PYTHONDONTWRITEBYTECODE", "1");
+            if (containerMode) {
+                // 参数经 -e 注入容器；docker CLI 自身保持宿主机环境（PATH 等）
+            } else {
+                pb.environment().clear();
+                String path = System.getenv().getOrDefault("PATH", "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin");
+                pb.environment().put("PATH", path);
+                pb.environment().put("HOME", dir.toString());
+                pb.environment().put("TMPDIR", dir.toString());
+                pb.environment().put("TEMP", dir.toString());
+                pb.environment().put("TMP", dir.toString());
+                pb.environment().put("LANG", "en_US.UTF-8");
+                pb.environment().put("LC_ALL", "en_US.UTF-8");
+                pb.environment().put("SKILL_ARGS", argsJson);
+                if ("PYTHON".equals(lang)) {
+                    pb.environment().put("PYTHONIOENCODING", "UTF-8");
+                    pb.environment().put("PYTHONUNBUFFERED", "1");
+                    pb.environment().put("PYTHONDONTWRITEBYTECODE", "1");
+                }
             }
             Process process = pb.start();
-            try (var stdin = process.getOutputStream()) {
-                stdin.write(argsJson.getBytes(StandardCharsets.UTF_8));
+            if (!containerMode) {
+                try (var stdin = process.getOutputStream()) {
+                    stdin.write(argsJson.getBytes(StandardCharsets.UTF_8));
+                }
             }
 
             ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -125,12 +175,14 @@ public class ScriptRunnerService {
                 while (!process.waitFor(100, TimeUnit.MILLISECONDS)) {
                     if (cancelled.getAsBoolean()) {
                         process.destroyForcibly();
+                        if (containerName != null) dockerRmF(dockerBinPath, containerName);
                         pool.shutdownNow();
                         throw new BusinessException(499, "脚本执行已取消");
                     }
                     if (System.currentTimeMillis() >= deadline) {
                         process.destroyForcibly();
                         process.waitFor(2, TimeUnit.SECONDS);
+                        if (containerName != null) dockerRmF(dockerBinPath, containerName);
                         pool.shutdownNow();
                         throw new BusinessException(504, "脚本执行超时（" + timeout + "ms）");
                     }
@@ -138,6 +190,7 @@ public class ScriptRunnerService {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 process.destroyForcibly();
+                if (containerName != null) dockerRmF(dockerBinPath, containerName);
                 throw new BusinessException(500, "脚本执行被中断");
             }
             Capped stdout = stdoutFuture.get(3, TimeUnit.SECONDS);
@@ -159,6 +212,7 @@ public class ScriptRunnerService {
             log.warn("技能脚本执行异常：{}", e.getMessage());
             throw new BusinessException(500, "脚本执行失败：" + rootMessage(e));
         } finally {
+            if (containerName != null) dockerRmF(dockerBinPath, containerName);
             if (dir != null) deleteRecursively(dir);
         }
     }
@@ -306,6 +360,59 @@ public class ScriptRunnerService {
         } catch (Exception e) {
             unshareUsable = false;
             return false;
+        }
+    }
+
+    /**
+     * 容器沙箱命令：无网络、资源限额、丢弃全部 capability、禁提权、/tmp 用 noexec tmpfs。
+     * 脚本经 -c/-e 参数直传（不挂载宿主路径——macOS 默认不共享临时目录，且避免宿主路径泄漏容器）。
+     * package-private 供单测断言命令构造。
+     */
+    List<String> dockerCommand(String dockerBinPath, String lang, String fullCode, String argsJson, String name) {
+        List<String> c = new ArrayList<>(List.of(
+                dockerBinPath, "run", "--rm", "--name", name,
+                "--network", "none",
+                "--memory", dockerMemory, "--cpus", dockerCpus,
+                "--pids-limit", String.valueOf(dockerPidsLimit),
+                "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+                "--tmpfs", "/tmp:rw,size=33554432,noexec,nosuid",
+                "-e", "SKILL_ARGS=" + argsJson,
+                "-e", "LANG=C.UTF-8"));
+        if ("PYTHON".equals(lang)) {
+            c.addAll(List.of("-e", "PYTHONIOENCODING=utf-8", "-e", "PYTHONUNBUFFERED=1",
+                    "-e", "PYTHONDONTWRITEBYTECODE=1",
+                    dockerPythonImage, "python3", "-u", "-c", fullCode));
+        } else {
+            c.addAll(List.of(dockerNodeImage, "node", "-e", fullCode));
+        }
+        return c;
+    }
+
+    private boolean dockerUsable(String dockerBinPath) {
+        Boolean cached = dockerUsable;
+        if (cached != null) return cached;
+        try {
+            Process p = new ProcessBuilder(dockerBinPath, "info").redirectErrorStream(true).start();
+            boolean ok = p.waitFor(3, TimeUnit.SECONDS) && p.exitValue() == 0;
+            p.destroyForcibly();
+            dockerUsable = ok;
+            if (!ok) log.debug("docker info 失败：{}", new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8));
+            return ok;
+        } catch (Exception e) {
+            dockerUsable = false;
+            return false;
+        }
+    }
+
+    /** 强制清理容器（超时/取消/兜底）；rm -f 幂等，失败仅记日志。 */
+    private void dockerRmF(String dockerBinPath, String name) {
+        if (dockerBinPath == null) return;
+        try {
+            Process p = new ProcessBuilder(dockerBinPath, "rm", "-f", name)
+                    .redirectErrorStream(true).start();
+            if (!p.waitFor(5, TimeUnit.SECONDS)) p.destroyForcibly();
+        } catch (Exception e) {
+            log.debug("容器清理失败 {}：{}", name, e.getMessage());
         }
     }
 
