@@ -1,6 +1,7 @@
 package com.platform.knowledge.service;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.platform.common.context.TenantContext;
 import com.platform.knowledge.entity.KnowledgeDocument;
@@ -11,6 +12,7 @@ import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.Map;
@@ -70,7 +72,7 @@ class KnowledgeUpgradeServiceTest {
         assertEquals("RUNNING", result.get("status"));
         assertEquals(3, result.get("totalDocuments"));
         verify(permissionService).requireEdit(1L, viewer);
-        verify(docMapper).update(isNull(), any());
+        verify(docMapper, org.mockito.Mockito.atLeastOnce()).update(isNull(), any());
     }
 
     @Test
@@ -133,5 +135,37 @@ class KnowledgeUpgradeServiceTest {
 
         assertTrue(submitted >= 1);
         verify(knowledgeService).reparseForUpgrade(1L, 79L);
+    }
+
+    @Test
+    void workerRetriesFailedDocumentAndIncrementsAttempts() {
+        KnowledgeUpgradeJob job = new KnowledgeUpgradeJob();
+        job.setId(5L);
+        job.setKnowledgeBaseId(1L);
+        job.setStatus("RUNNING");
+        job.setTotalDocuments(1);
+        KnowledgeDocument doc = new KnowledgeDocument();
+        doc.setId(79L);
+        doc.setKnowledgeBaseId(1L);
+        doc.setStatus("FAILED");
+        doc.setUpgradeJobId(5L);
+        doc.setUpgradeStatus("PENDING");
+        doc.setUpgradeAttempts(1);
+        when(jobMapper.selectList(any())).thenReturn(List.of(job));
+        when(docMapper.selectList(any())).thenReturn(List.of(doc));
+        when(docMapper.update(isNull(), any())).thenReturn(1);
+        when(docMapper.selectCount(any())).thenReturn(0L);
+        when(knowledgeService.reparseForUpgrade(1L, 79L)).thenReturn(true);
+
+        int submitted = service.processTenant(10);
+
+        assertTrue(submitted >= 1);
+        verify(knowledgeService).reparseForUpgrade(1L, 79L);
+        ArgumentCaptor<LambdaUpdateWrapper<KnowledgeDocument>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(docMapper, org.mockito.Mockito.atLeastOnce()).update(isNull(), captor.capture());
+        assertTrue(captor.getAllValues().stream()
+                        .anyMatch(wrapper -> wrapper.getSqlSet().contains("upgrade_attempts")),
+                "领取任务时应原子递增 upgrade_attempts");
     }
 }

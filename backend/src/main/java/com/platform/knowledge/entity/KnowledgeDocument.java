@@ -25,6 +25,7 @@ public class KnowledgeDocument {
     private LocalDateTime parseStartedAt;
     private Long upgradeJobId;
     private String upgradeStatus;
+    private Integer upgradeAttempts;
     private String errorMessage;
     private Integer retryTimes;
     private Long tenantId;
