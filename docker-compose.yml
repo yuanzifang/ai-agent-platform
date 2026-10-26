@@ -181,6 +181,22 @@ services:
       start_period: 60s
     logging: *default-logging
 
+  alert-relay:
+    build:
+      context: ./runtime/alert-relay
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      ALERT_WEBHOOK_SECRET: ${ALERT_WEBHOOK_SECRET:-}
+      ALERT_WEBHOOK_ENV: ${ALERT_WEBHOOK_ENV:-prod}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+
   alertmanager:
     image: prom/alertmanager:v0.28.1
     restart: unless-stopped
@@ -192,6 +208,9 @@ services:
       - alertmanager-data:/alertmanager
     ports:
       - "${ALERTMANAGER_BIND:-127.0.0.1}:${ALERTMANAGER_PORT:-9093}:9093"
+    depends_on:
+      alert-relay:
+        condition: service_healthy
     logging: *default-logging
 
   prometheus:

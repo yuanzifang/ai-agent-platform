@@ -1,0 +1,14 @@
+{
+  "name": "alert-relay",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Alertmanager → 钉钉/企微/飞书群机器人中继",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
