@@ -95,6 +95,8 @@ client → container:8080 /v1/chat/completions
 | `image` | `AGENT_DEPLOY_IMAGE` | `nginx:alpine` | nginx 回退方案镜像 |
 | `caller-quota-daily` | `AGENT_DEPLOY_CALLER_QUOTA_DAILY` | 0 | 主令牌日配额（0=不限） |
 | `caller-keys` | `AGENT_DEPLOY_CALLER_KEYS` | 空 | 额外调用方 Key：`key1:配额,key2:0` |
+| `replicas` | `AGENT_DEPLOY_REPLICAS` | 1 | 默认副本数（1-5）；部署时可单独指定 |
+| `redis-url` | `AGENT_DEPLOY_REDIS_URL` | `redis://host.docker.internal:6379/0` | 多副本共享限流/配额/用量 |
 | `port-start/port-end` | `AGENT_DEPLOY_PORT_START/END` | 19000-19999 | 宿主端口池（自动挑空端口） |
 | `bind` | `AGENT_DEPLOY_BIND` | `0.0.0.0` | 端口绑定地址；改 `127.0.0.1` 则只允许本机 |
 | `platform-base-url` | `AGENT_DEPLOY_PLATFORM_BASE` | `http://host.docker.internal:8080` | 容器访问平台的地址 |
@@ -106,6 +108,15 @@ client → container:8080 /v1/chat/completions
 | `docker-bin` | `AGENT_DEPLOY_DOCKER_BIN` | `docker` | Docker CLI 路径 |
 
 > `host.docker.internal` 在 Docker Desktop / colima 下可用；Linux 上已通过 `--add-host host.docker.internal:host-gateway` 兜底。若后端本身跑在 compose 里，请把 `platform-base-url` 改成平台在容器网络中的地址（如 `http://backend:8080`）。
+
+## 多副本
+
+部署弹窗可设置「副本数」（1-5），每个副本一个容器、独立端口：
+
+- 副本明细在弹窗内展示（容器名/端口/状态/地址），`agent_deployment` 主行保存第一个副本，明细存 `replicas_json`
+- 启停/删除/日志/统计会作用于全部副本
+- **多副本必须配置 Redis**（`agent.deploy.redis-url`），限流、日配额与用量跨副本共享；未配置时只允许 1 副本
+- 没有内置负载均衡：客户端可任选一个副本地址，或在外层网关做轮询
 
 ## 调用方 Key 与日配额
 
@@ -140,7 +151,7 @@ client → container:8080 /v1/chat/completions
 - 每个 Agent 只保留一个部署记录/容器，重新部署 = 删旧建新（短暂不可用）。重新部署优先复用原端口，最多等待 3 秒。
 - 「回滚并部署」= 完整恢复该版本的 Agent 配置（含知识库/工具/技能/子 Agent）+ 重新部署容器，详见 `docs/Agent版本与回滚.md`。
 - 发布自动重新部署是「已部署过才触发」；从未部署过的 Agent 发布后不会自动拉起容器，避免意外占用端口。
-- 暂未实现：K8s 部署、滚动更新、多副本/负载均衡、容器日志采集到平台可观测、资源配额（CPU/内存限制）；运行时网关为单实例内存统计，多副本需接 Redis。
+- 暂未实现：K8s 部署、滚动更新、内置负载均衡、容器日志采集到平台可观测、资源配额（CPU/内存限制）。多副本已支持（依赖 Redis），但没有内置 LB。
 
 ## 验证
 
@@ -149,6 +160,7 @@ client → container:8080 /v1/chat/completions
 - **真实 Docker（colima + agent-gateway:1）**：
   - 自研运行时：无令牌 401、正确令牌 200、SSE 对话正常、CORS 预检 204、限流 429、多 Key 配额与 `/stats` 验证通过
   - 调用方 Key：新建（配额 2）→ 调用 200/200/429 → `/stats` 显示名称与 2 次；停用后 401；删除后 401、主令牌仍 200；UI 新建→自动重建→停用→删除全流程通过
+  - 多副本：部署 2 副本（19001/19000）均 healthy；Key 配额 4 跨副本 4 次 200、第 5 次 429；`/stats` 返回 `store:"redis"` 且计数共享；UI 显示副本输入 2、副本表 2 行、Key 用量 4
 - **nginx 回退方案（colima + nginx:alpine）**：
   - `docker ps` → `aap-agent-1 Up (healthy) 0.0.0.0:19000->80/tcp`
   - `curl localhost:19000/healthz` → `ok`；`/v1/models` → `agent-1`

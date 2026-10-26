@@ -78,6 +78,12 @@ public class AgentDeploymentService {
     @Value("${agent.deploy.caller-keys:}")
     private String callerKeys;
 
+    @Value("${agent.deploy.replicas:1}")
+    private int defaultReplicas;
+
+    @Value("${agent.deploy.redis-url:}")
+    private String redisUrl;
+
     private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
             new com.fasterxml.jackson.databind.ObjectMapper();
 
@@ -177,6 +183,12 @@ public class AgentDeploymentService {
 
     @Transactional
     public Map<String, Object> deploy(Long agentId, JwtPrincipal principal) {
+        return deploy(agentId, null, principal);
+    }
+
+    /** 部署/重新部署：按 replicas 创建多个容器（1-5），共享 Redis 中的限流/配额/用量。 */
+    @Transactional
+    public Map<String, Object> deploy(Long agentId, Integer requestedReplicas, JwtPrincipal principal) {
         AgentRegistry agent = requireAgent(agentId);
         if (!"PUBLISHED".equals(agent.getStatus())) {
             throw new BusinessException(400, "请先发布 Agent，再部署到容器");
@@ -195,19 +207,26 @@ public class AgentDeploymentService {
             deployment.setContainerName("aap-agent-" + agentId);
             deployment.setCreatedAt(LocalDateTime.now());
             deployment.setStatus("PENDING");
-        } else {
-            removeContainerQuietly(deployment.getContainerName());
+            deployment.setReplicaCount(1);
         }
+        int replicas = requestedReplicas != null ? requestedReplicas
+                : (deployment.getReplicaCount() != null && deployment.getReplicaCount() > 0
+                    ? deployment.getReplicaCount() : defaultReplicas);
+        replicas = Math.max(1, Math.min(5, replicas));
+        if (replicas > 1 && (!gatewayRuntime() || redisUrl == null || redisUrl.isBlank())) {
+            throw new BusinessException(400, "多副本部署需要 gateway 运行时并配置 agent.deploy.redis-url（共享限流/配额/用量）");
+        }
+
+        removeReplicaContainers(deployment);
         // 旧 Key 先清理，避免每 Agent 10 个 Key 的上限被重复部署占满
         deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
 
-        int port = allocatePort(deployment);
-        String containerName = deployment.getContainerName();
+        String baseName = "aap-agent-" + agentId;
         String slug = "agent-" + agentId;
         String apiKey;
         try {
             Map<String, Object> key = apiKeyService.create(agentId, Map.of(
-                    "name", "container:" + containerName,
+                    "name", "container:" + baseName,
                     "channel", "api"), principal);
             deployment.setApiKeyId(((Number) key.get("id")).longValue());
             apiKey = String.valueOf(key.get("apiKey"));
@@ -222,15 +241,14 @@ public class AgentDeploymentService {
         String effectiveImage = gateway ? gatewayImage : nginxImage;
         int containerPort = gateway ? 8080 : 80;
         deployment.setImage(effectiveImage);
-        deployment.setHostPort(port);
         deployment.setStatus("PENDING");
         deployment.setLastError(null);
         deployment.setDeployedBy(principal.userId());
         deployment.setVersion(latestVersion(agentId));
-        deployment.setEndpoint(publicEndpoint(port));
-        deployment.setLocalEndpoint("http://localhost:" + port + "/v1");
+        deployment.setReplicaCount(replicas);
         save(deployment, existed);
 
+        List<Map<String, Object>> rows = new ArrayList<>();
         try {
             Map<String, String> env = new LinkedHashMap<>();
             env.put("PLATFORM_BASE", platformBase.replaceAll("/+$", ""));
@@ -239,19 +257,19 @@ public class AgentDeploymentService {
             env.put("RUNTIME_TOKEN", ensureRuntimeToken(deployment));
             env.put("RATE_BURST", String.valueOf(Math.max(0, rateLimitBurst)));
             env.put("CORS_ORIGIN", corsOrigins == null || corsOrigins.isBlank() ? "*" : corsOrigins.trim());
+            if (gateway && redisUrl != null && !redisUrl.isBlank()) env.put("REDIS_URL", redisUrl.trim());
             List<String> mounts;
             if (gateway) {
-                // 自研运行时：镜像内置网关逻辑，不再挂 nginx 模板
                 env.put("PORT", "8080");
                 env.put("RATE_LIMIT_PER_MIN", String.valueOf(Math.max(0, rateLimitPerMin)));
                 env.put("CALLER_QUOTA_DAILY", String.valueOf(Math.max(0, callerQuotaDaily)));
                 List<Map<String, Object>> callerKeyPayload = new ArrayList<>();
                 for (AgentRuntimeKey key : runtimeKeyService.enabledKeys(agentId)) {
-                    Map<String, Object> row = new LinkedHashMap<>();
-                    row.put("hash", key.getKeyHash());
-                    row.put("quota", key.getDailyQuota() == null ? 0 : key.getDailyQuota());
-                    row.put("name", key.getName());
-                    callerKeyPayload.add(row);
+                    Map<String, Object> payload = new LinkedHashMap<>();
+                    payload.put("hash", key.getKeyHash());
+                    payload.put("quota", key.getDailyQuota() == null ? 0 : key.getDailyQuota());
+                    payload.put("name", key.getName());
+                    callerKeyPayload.add(payload);
                 }
                 if (!callerKeyPayload.isEmpty()) {
                     env.put("CALLER_KEYS_JSON", JSON.writeValueAsString(callerKeyPayload));
@@ -264,35 +282,52 @@ public class AgentDeploymentService {
                 mounts = List.of(templateDir().toString() + ":/etc/nginx/templates:ro");
             }
 
-            ContainerRuntime.CreateRequest request = new ContainerRuntime.CreateRequest(
-                    containerName,
-                    effectiveImage,
-                    bind,
-                    port,
-                    containerPort,
-                    env,
-                    Map.of("aap.agent_id", String.valueOf(agentId),
-                            "aap.tenant_id", String.valueOf(agent.getTenantId()),
-                            "aap.managed_by", "ai-agent-platform"),
-                    mounts,
-                    List.of());
-            String containerId = runtime.create(request);
-            runtime.start(containerId);
-            // 启动后做一次真实健康检查：nginx 配置写错时会 crash-loop，不能只看 docker 状态
-            waitForHealthy(port);
-
-            deployment.setContainerId(containerId);
+            Set<Integer> reserved = new HashSet<>();
+            for (int i = 0; i < replicas; i++) {
+                String name = baseName + (i == 0 ? "" : "-r" + (i + 1));
+                int port = allocatePort(deployment, reserved, i == 0);
+                reserved.add(port);
+                ContainerRuntime.CreateRequest request = new ContainerRuntime.CreateRequest(
+                        name,
+                        effectiveImage,
+                        bind,
+                        port,
+                        containerPort,
+                        env,
+                        Map.of("aap.agent_id", String.valueOf(agentId),
+                                "aap.tenant_id", String.valueOf(agent.getTenantId()),
+                                "aap.managed_by", "ai-agent-platform"),
+                        mounts,
+                        List.of());
+                String containerId = runtime.create(request);
+                runtime.start(containerId);
+                waitForHealthy(port);
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("name", name);
+                row.put("containerId", containerId);
+                row.put("hostPort", port);
+                row.put("status", "RUNNING");
+                row.put("endpoint", publicEndpoint(port));
+                row.put("localEndpoint", "http://localhost:" + port + "/v1");
+                rows.add(row);
+            }
+            applyReplicaRows(deployment, rows);
             deployment.setStatus("RUNNING");
             save(deployment, true);
             auditService.record(principal.userId(), "agent.deploy", "agent", String.valueOf(agentId),
-                    "SUCCESS", Map.of("container", containerName, "port", port));
+                    "SUCCESS", Map.of("containers", rows.size(), "port", deployment.getHostPort()));
             recordEvent(deployment, "DEPLOY", "SUCCESS", null, principal);
             return view(deployment);
         } catch (Exception e) {
-            removeContainerQuietly(containerName);
+            for (Map<String, Object> row : rows) {
+                removeContainerQuietly(String.valueOf(row.get("name")));
+            }
+            if (rows.isEmpty()) removeContainerQuietly(baseName);
             deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
             deployment.setStatus("FAILED");
             deployment.setLastError(message(e));
+            deployment.setReplicasJson(null);
+            deployment.setReplicaCount(replicas);
             save(deployment, true);
             auditService.record(principal.userId(), "agent.deploy", "agent", String.valueOf(agentId),
                     "FAILED", Map.of("error", message(e)));
@@ -304,7 +339,13 @@ public class AgentDeploymentService {
 
     public Map<String, Object> start(Long agentId, JwtPrincipal principal) {
         AgentDeployment deployment = requireDeployment(agentId);
-        runtime.start(deployment.getContainerName());
+        List<Map<String, Object>> rows = replicaRows(deployment);
+        for (Map<String, Object> row : rows) {
+            runtime.start(String.valueOf(row.get("name")));
+            row.put("status", "RUNNING");
+            row.remove("error");
+        }
+        applyReplicaRows(deployment, rows);
         deployment.setStatus("RUNNING");
         deployment.setLastError(null);
         save(deployment, true);
@@ -314,7 +355,12 @@ public class AgentDeploymentService {
 
     public Map<String, Object> stop(Long agentId, JwtPrincipal principal) {
         AgentDeployment deployment = requireDeployment(agentId);
-        runtime.stop(deployment.getContainerName());
+        List<Map<String, Object>> rows = replicaRows(deployment);
+        for (Map<String, Object> row : rows) {
+            runtime.stop(String.valueOf(row.get("name")));
+            row.put("status", "STOPPED");
+        }
+        applyReplicaRows(deployment, rows);
         deployment.setStatus("STOPPED");
         save(deployment, true);
         recordEvent(deployment, "STOP", "SUCCESS", null, principal);
@@ -324,12 +370,15 @@ public class AgentDeploymentService {
     @Transactional
     public void remove(Long agentId, JwtPrincipal principal) {
         AgentDeployment deployment = requireDeployment(agentId);
+        for (Map<String, Object> row : replicaRows(deployment)) {
+            removeContainerQuietly(String.valueOf(row.get("name")));
+        }
         removeContainerQuietly(deployment.getContainerName());
         deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
         recordEvent(deployment, "REMOVE", "SUCCESS", null, principal);
         deploymentMapper.deleteById(deployment.getId());
         auditService.record(principal.userId(), "agent.undeploy", "agent", String.valueOf(agentId),
-                "SUCCESS", Map.of("container", deployment.getContainerName()));
+                "SUCCESS", Map.of("containers", replicaRows(deployment).size()));
     }
 
     /** 部署/启停/删除历史（按时间倒序）。 */
@@ -384,8 +433,15 @@ public class AgentDeploymentService {
         String token = runtimeToken(agentId);
         java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
                 .connectTimeout(java.time.Duration.ofSeconds(2)).build();
+        int port = replicaRows(deployment).stream()
+                .filter(row -> "RUNNING".equals(row.get("status")))
+                .map(row -> row.get("hostPort"))
+                .filter(Number.class::isInstance)
+                .map(value -> ((Number) value).intValue())
+                .findFirst()
+                .orElse(deployment.getHostPort());
         java.net.http.HttpRequest request = java.net.http.HttpRequest
-                .newBuilder(java.net.URI.create("http://127.0.0.1:" + deployment.getHostPort() + "/stats"))
+                .newBuilder(java.net.URI.create("http://127.0.0.1:" + port + "/stats"))
                 .timeout(java.time.Duration.ofSeconds(5))
                 .header("Authorization", "Bearer " + token)
                 .GET().build();
@@ -442,6 +498,9 @@ public class AgentDeploymentService {
     public void removeIfExists(Long agentId, JwtPrincipal principal) {
         AgentDeployment deployment = find(agentId);
         if (deployment == null) return;
+        for (Map<String, Object> row : replicaRows(deployment)) {
+            removeContainerQuietly(String.valueOf(row.get("name")));
+        }
         removeContainerQuietly(deployment.getContainerName());
         deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
         recordEvent(deployment, "REMOVE", "SUCCESS", "agent deleted", principal);
@@ -450,7 +509,12 @@ public class AgentDeploymentService {
 
     public String logs(Long agentId, int tail) {
         AgentDeployment deployment = requireDeployment(agentId);
-        return runtime.logs(deployment.getContainerName(), Math.min(Math.max(tail, 1), 1000));
+        String name = replicaRows(deployment).stream()
+                .filter(row -> "RUNNING".equals(row.get("status")))
+                .map(row -> String.valueOf(row.get("name")))
+                .findFirst()
+                .orElse(deployment.getContainerName());
+        return runtime.logs(name, Math.min(Math.max(tail, 1), 1000));
     }
 
     // ------------------------------------------------------------------
@@ -488,28 +552,100 @@ public class AgentDeploymentService {
     }
 
     private void refreshStatus(AgentDeployment deployment) {
-        if (deployment.getContainerId() == null || deployment.getContainerId().isBlank()) return;
-        try {
-            ContainerRuntime.Info info = runtime.inspect(deployment.getContainerName());
-            String next = info.running() ? "RUNNING" : "STOPPED";
-            if (!next.equals(deployment.getStatus())) {
-                deployment.setStatus(next);
-                save(deployment, true);
+        List<Map<String, Object>> rows = replicaRows(deployment);
+        if (rows.isEmpty()) return;
+        boolean changed = false;
+        boolean anyRunning = false;
+        boolean anyFailed = false;
+        String firstError = null;
+        for (Map<String, Object> row : rows) {
+            String name = String.valueOf(row.get("name"));
+            try {
+                ContainerRuntime.Info info = runtime.inspect(name);
+                String next = info.running() ? "RUNNING" : "STOPPED";
+                if (!next.equals(row.get("status"))) {
+                    row.put("status", next);
+                    changed = true;
+                }
+                if (info.running()) anyRunning = true;
+                if (info.error() != null && !info.error().isBlank()) row.put("error", info.error());
+            } catch (BusinessException e) {
+                anyFailed = true;
+                if (firstError == null) firstError = e.getMessage();
+                if (!"FAILED".equals(row.get("status"))) {
+                    row.put("status", "FAILED");
+                    changed = true;
+                }
+                row.put("error", e.getMessage());
             }
-        } catch (BusinessException e) {
-            deployment.setStatus("FAILED");
-            deployment.setLastError(e.getMessage());
+        }
+        String aggregate = anyRunning ? "RUNNING" : (anyFailed ? "FAILED" : "STOPPED");
+        boolean errorChanged = firstError != null && !firstError.equals(deployment.getLastError());
+        if (changed || !aggregate.equals(deployment.getStatus()) || errorChanged) {
+            applyReplicaRows(deployment, rows);
+            deployment.setStatus(aggregate);
+            if (firstError != null) deployment.setLastError(firstError);
             save(deployment, true);
         }
     }
 
-    private int allocatePort(AgentDeployment deployment) {
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> replicaRows(AgentDeployment deployment) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        if (deployment.getReplicasJson() != null && !deployment.getReplicasJson().isBlank()) {
+            try {
+                List<Map<String, Object>> parsed = JSON.readValue(deployment.getReplicasJson(), List.class);
+                if (parsed != null) rows.addAll(parsed);
+            } catch (Exception ignored) { /* 历史脏数据按单副本处理 */ }
+        }
+        if (rows.isEmpty() && deployment.getContainerName() != null && !deployment.getContainerName().isBlank()) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("name", deployment.getContainerName());
+            row.put("containerId", deployment.getContainerId());
+            row.put("hostPort", deployment.getHostPort());
+            row.put("status", deployment.getStatus());
+            row.put("endpoint", deployment.getEndpoint());
+            row.put("localEndpoint", deployment.getLocalEndpoint());
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private void applyReplicaRows(AgentDeployment deployment, List<Map<String, Object>> rows) {
+        try {
+            deployment.setReplicasJson(JSON.writeValueAsString(rows));
+        } catch (Exception e) {
+            throw new BusinessException(500, "副本信息序列化失败");
+        }
+        deployment.setReplicaCount(rows.size());
+        if (!rows.isEmpty()) {
+            Map<String, Object> first = rows.get(0);
+            deployment.setContainerName(String.valueOf(first.get("name")));
+            deployment.setContainerId(first.get("containerId") == null ? null : String.valueOf(first.get("containerId")));
+            deployment.setHostPort(first.get("hostPort") instanceof Number n ? n.intValue() : null);
+            deployment.setEndpoint(first.get("endpoint") == null ? null : String.valueOf(first.get("endpoint")));
+            deployment.setLocalEndpoint(first.get("localEndpoint") == null ? null : String.valueOf(first.get("localEndpoint")));
+        }
+    }
+
+    private void removeReplicaContainers(AgentDeployment deployment) {
+        for (Map<String, Object> row : replicaRows(deployment)) {
+            removeContainerQuietly(String.valueOf(row.get("name")));
+        }
+        if (deployment.getContainerName() != null) {
+            removeContainerQuietly(deployment.getContainerName());
+        }
+        deployment.setReplicasJson(null);
+    }
+
+    private int allocatePort(AgentDeployment deployment, Set<Integer> reserved, boolean preferExisting) {
         Set<Integer> used = new HashSet<>();
         for (AgentDeployment d : deploymentMapper.selectList(null)) {
             if (d.getHostPort() != null && !d.getId().equals(deployment.getId())) used.add(d.getHostPort());
         }
         // 优先复用原端口：客户端拿到的地址尽量不因重新部署而变化
-        if (deployment.getHostPort() != null && !used.contains(deployment.getHostPort())) {
+        if (preferExisting && deployment.getHostPort() != null
+                && !used.contains(deployment.getHostPort()) && !reserved.contains(deployment.getHostPort())) {
             for (int i = 0; i < 15; i++) {
                 if (portFree(deployment.getHostPort())) return deployment.getHostPort();
                 try {
@@ -523,7 +659,7 @@ public class AgentDeploymentService {
         int start = Math.max(1024, portStart);
         int end = Math.max(start, portEnd);
         for (int port = start; port <= end; port++) {
-            if (!used.contains(port) && portFree(port)) return port;
+            if (!used.contains(port) && !reserved.contains(port) && portFree(port)) return port;
         }
         throw new BusinessException(409, "端口池已用尽（" + start + "-" + end + "），请调整 agent.deploy.port-start/port-end");
     }
@@ -652,6 +788,14 @@ public class AgentDeploymentService {
         m.put("hostPort", deployment.getHostPort());
         m.put("endpoint", deployment.getEndpoint());
         m.put("localEndpoint", deployment.getLocalEndpoint());
+        List<Map<String, Object>> replicas = replicaRows(deployment);
+        m.put("replicas", replicas);
+        m.put("replicaCount", replicas.size());
+        m.put("endpoints", replicas.stream()
+                .map(row -> row.get("endpoint"))
+                .filter(java.util.Objects::nonNull)
+                .map(String::valueOf)
+                .toList());
         m.put("status", deployment.getStatus());
         m.put("hasToken", deployment.getRuntimeToken() != null && !deployment.getRuntimeToken().isBlank());
         m.put("lastError", deployment.getLastError());

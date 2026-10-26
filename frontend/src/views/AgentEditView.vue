@@ -1081,6 +1081,23 @@
         </el-descriptions>
         <el-alert v-if="deployment.lastError" type="error" :closable="false"
                   :title="deployment.lastError" class="mt8" />
+        <div class="deploy-replicas">
+          <span>{{ t('deploy.replicas') }}</span>
+          <el-input-number v-model="deployReplicas" :min="1" :max="5" size="small" />
+          <span class="hint">{{ t('deploy.replicasHint') }}</span>
+        </div>
+        <el-table v-if="(deployment.replicas || []).length > 1" :data="deployment.replicas" size="small" class="mt8">
+          <el-table-column prop="name" :label="t('deploy.replicaContainer')" min-width="150" />
+          <el-table-column prop="hostPort" :label="t('deploy.replicaPort')" width="80" />
+          <el-table-column :label="t('deploy.keyStatus')" width="100">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.status === 'RUNNING' ? 'success' : row.status === 'FAILED' ? 'danger' : 'info'">
+                {{ row.status }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="endpoint" :label="t('deploy.endpoint')" show-overflow-tooltip />
+        </el-table>
         <div class="mt8"><b>{{ t('deploy.curl') }}</b></div>
         <pre class="deploy-curl">{{ deployCurl }}</pre>
         <div class="hint mt8">{{ t('deploy.keyHint') }}</div>
@@ -1232,6 +1249,7 @@ const deployHistory = ref<any[]>([])
 const runtimeToken = ref('')
 const runtimeKeys = ref<any[]>([])
 const runtimeStats = ref<any>({ callers: [] })
+const deployReplicas = ref(1)
 const runtimeKeyDialogVisible = ref(false)
 const runtimeKeySaving = ref(false)
 const runtimeKeyForm = reactive({ id: 0, name: '', dailyQuota: 0 })
@@ -1842,6 +1860,7 @@ async function refreshDeploy() {
     deployInfo.dockerVersion = data.dockerVersion || ''
     deployInfo.image = data.image || ''
     deployment.value = data.deployment || null
+    deployReplicas.value = deployment.value?.replicaCount || 1
     runtimeToken.value = ''
     if (deployment.value?.hasToken) {
       try {
@@ -1864,7 +1883,7 @@ async function doDeploy() {
   }
   deploying.value = true
   try {
-    deployment.value = await http.post(`/agent/${agentId}/deployment`, {}) as any
+    deployment.value = await http.post(`/agent/${agentId}/deployment`, { replicas: deployReplicas.value }) as any
     await refreshDeploy()
     ElMessage.success(t('deploy.ok'))
   } finally {
@@ -1995,7 +2014,7 @@ async function applyRuntimeKeys() {
   if (deployment.value) {
     deploying.value = true
     try {
-      deployment.value = await http.post(`/agent/${agentId}/deployment`, {}) as any
+      deployment.value = await http.post(`/agent/${agentId}/deployment`, { replicas: deployReplicas.value }) as any
       await refreshDeploy()
       ElMessage.success(t('deploy.keySynced'))
     } finally {
@@ -2009,7 +2028,7 @@ async function applyRuntimeKeys() {
 
 async function rotateDeployToken() {
   await ElMessageBox.confirm(t('deploy.rotateConfirm'), t('deploy.rotateToken'), { type: 'warning' })
-  deployment.value = await http.post(`/agent/${agentId}/deployment/token/rotate`, {}) as any
+  deployment.value = await http.post(`/agent/${agentId}/deployment/token/rotate`, { replicas: deployReplicas.value }) as any
   await refreshDeploy()
   ElMessage.success(t('deploy.rotated'))
 }
@@ -3698,6 +3717,7 @@ onUnmounted(() => {
 .deploy-logs { max-height: 50vh; }
 .deploy-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .deploy-keys-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.deploy-replicas { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 :deep(.el-descriptions__label) { white-space: nowrap; }
 
 @media (max-width: 768px) {

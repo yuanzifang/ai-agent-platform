@@ -250,6 +250,10 @@ agent:
     caller-keys: ${AGENT_DEPLOY_CALLER_KEYS:}
     port-start: ${AGENT_DEPLOY_PORT_START:19000}
     port-end: ${AGENT_DEPLOY_PORT_END:19999}
+    # 默认副本数（1-5）；部署时可单独指定
+    replicas: ${AGENT_DEPLOY_REPLICAS:1}
+    # 多副本共享限流/配额/用量需要 Redis（容器内访问宿主机；留空则单副本内存统计）
+    redis-url: ${AGENT_DEPLOY_REDIS_URL:redis://host.docker.internal:6379/0}
     # 容器端口绑定地址：0.0.0.0 允许局域网/Tailscale 访问，127.0.0.1 仅本机
     bind: ${AGENT_DEPLOY_BIND:0.0.0.0}
     # 容器内访问平台的地址（Docker Desktop 用 host.docker.internal；Linux 可换成宿主内网 IP）

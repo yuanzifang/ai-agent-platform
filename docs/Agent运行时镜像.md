@@ -45,6 +45,7 @@ client → container:8080 /v1/chat/completions
 | `CALLER_KEYS_JSON` | 空 | 平台注入的调用方 Key：`[{"hash","quota","name"}]`（只含 SHA-256 哈希） |
 | `CALLER_KEYS` | 空 | 兼容旧格式：`key1:日配额,key2:0`（明文，不推荐） |
 | `STATS_TOKEN` | 等于 `RUNTIME_TOKEN` | `/stats` 的访问令牌 |
+| `REDIS_URL` | 空 | `redis://[:password@]host:port/db`；配置后限流/配额/用量改为 Redis 共享，支持多副本 |
 
 ## 接口
 
@@ -57,6 +58,16 @@ client → container:8080 /v1/chat/completions
 | OPTIONS | `*` | 无 | CORS 预检（204） |
 
 错误统一为 OpenAI 风格：`{"error":{"message":"...","type":"..."}}`。
+
+## Redis 共享（多副本）
+
+配置 `REDIS_URL` 后，以下状态进入 Redis，多个容器副本共享：
+
+- **限流**：Lua 原子令牌桶（`gw:tb:<callerId>`），容量/回填速率与单机实现一致
+- **日配额**：`gw:q:<callerId>:<day>`，`INCR` + 过期（2 天），超配额回退计数
+- **用量**：`gw:stats:<day>` / `gw:streams:<day>` 哈希计数，保留 7 天
+
+Redis 不可用时自动回退内存统计（并打印一次告警），单副本仍可工作；多副本下回退会导致计数不共享。
 
 ## 配额与限流
 
@@ -81,6 +92,8 @@ RATE_LIMIT_PER_MIN / RATE_BURST / CORS_ORIGIN / CALLER_QUOTA_DAILY
 
 ## 验证结果（真实 Docker）
 
+- Redis 多副本：两个容器共享同一 Redis，Key 日配额 3 → 跨副本第 4 次 429；令牌桶 6 次后 A/B 均 429；`/stats` 返回 `store:"redis"` 且计数共享
+
 - 镜像构建成功，容器 `healthy`，无挂载
 - `/healthz` 200；无令牌 401；正确令牌 200
 - 非流式对话、SSE 流式均正常（DeepSeek + 知识库）
@@ -91,6 +104,6 @@ RATE_LIMIT_PER_MIN / RATE_BURST / CORS_ORIGIN / CALLER_QUOTA_DAILY
 
 ## 边界与下一步
 
-- 单实例、内存统计：多副本需要外部存储（Redis）汇总配额/用量；容器重启后当日统计清零
+- 未配置 Redis 时为单实例内存统计（容器重启清零）；配置 Redis 后支持多副本共享，仍有单点 Redis 依赖
 - 目前配额维度是「Key/天」，未做 token 级配额
 - 资源限制（CPU/内存）、日志采集到平台可观测、K8s 侧 Deployment/Service 仍是后续项

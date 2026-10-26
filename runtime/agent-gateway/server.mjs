@@ -1,6 +1,7 @@
 import http from 'node:http'
 import crypto from 'node:crypto'
 import { Readable } from 'node:stream'
+import { createRedis } from './redis.mjs'
 
 /**
  * Agent 运行时网关（零依赖）：
@@ -21,6 +22,7 @@ const RATE_LIMIT_PER_MIN = Math.max(0, Number(process.env.RATE_LIMIT_PER_MIN || 
 const RATE_BURST = Math.max(0, Number(process.env.RATE_BURST || 20))
 const CALLER_QUOTA_DAILY = Math.max(0, Number(process.env.CALLER_QUOTA_DAILY || 0))
 const MAX_BODY = 2 * 1024 * 1024
+const REDIS_URL = process.env.REDIS_URL || ''
 
 const hash = (value) => crypto.createHash('sha256').update(value).digest('hex')
 const safeEqual = (a, b) => {
@@ -66,6 +68,28 @@ function parseLegacyCallerKeys(raw) {
   return map
 }
 
+const RATE_LUA = `local tokens = tonumber(redis.call('HGET', KEYS[1], 'tokens'))
+local last = tonumber(redis.call('HGET', KEYS[1], 'last'))
+local capacity = tonumber(ARGV[1])
+local ratePerMs = tonumber(ARGV[2])
+local now = tonumber(ARGV[3])
+if tokens == nil then tokens = capacity last = now end
+tokens = math.min(capacity, tokens + (now - last) * ratePerMs)
+local allowed = 0
+if tokens >= 1 then tokens = tokens - 1 allowed = 1 end
+redis.call('HSET', KEYS[1], 'tokens', tokens, 'last', last)
+redis.call('PEXPIRE', KEYS[1], 120000)
+return allowed`
+
+const redis = REDIS_URL ? createRedis(REDIS_URL) : null
+let redisWarned = false
+const redisError = (error) => {
+  if (!redisWarned) {
+    redisWarned = true
+    console.error('redis unavailable, falling back to memory:', error.message)
+  }
+}
+
 const CALLER_KEYS = parseCallerKeysJson(process.env.CALLER_KEYS_JSON)
 for (const [keyHash, entry] of parseLegacyCallerKeys(process.env.CALLER_KEYS)) {
   if (!CALLER_KEYS.has(keyHash)) CALLER_KEYS.set(keyHash, entry)
@@ -101,9 +125,23 @@ function usageOf(caller) {
   return row
 }
 
-/** 令牌桶：容量 burst+1，按 RATE_LIMIT_PER_MIN 匀速回填。 */
-function allowRequest(callerId) {
+/** 优先用 Redis 做跨副本限流（固定分钟窗口），失败回退内存令牌桶。 */
+async function allowRequest(callerId) {
   if (RATE_LIMIT_PER_MIN <= 0) return true
+  if (redis) {
+    try {
+      // 跨副本共享的令牌桶（Lua 原子执行，语义与内存实现一致）
+      const capacity = RATE_BURST + 1
+      const ratePerMs = RATE_LIMIT_PER_MIN / 60000
+      const allowed = await redis.command([
+        'EVAL', RATE_LUA, '1', `gw:tb:${callerId}`,
+        String(capacity), String(ratePerMs), String(Date.now())
+      ])
+      return Number(allowed) === 1
+    } catch (error) {
+      redisError(error)
+    }
+  }
   const now = Date.now()
   const capacity = RATE_BURST + 1
   const refillPerMs = RATE_LIMIT_PER_MIN / 60000
@@ -117,6 +155,84 @@ function allowRequest(callerId) {
   if (bucket.tokens < 1) return false
   bucket.tokens -= 1
   return true
+}
+
+async function reserveQuota(caller) {
+  if (!caller.quota) return true
+  if (redis) {
+    try {
+      const key = `gw:q:${caller.id}:${day()}`
+      const count = await redis.command(['INCR', key])
+      if (count === 1) await redis.command(['EXPIRE', key, '172800'])
+      if (count > caller.quota) {
+        await redis.command(['DECR', key])
+        return false
+      }
+      return true
+    } catch (error) {
+      redisError(error)
+    }
+  }
+  return usageOf(caller).count < caller.quota
+}
+
+async function recordUsage(caller, stream) {
+  if (redis) {
+    try {
+      const statsKey = `gw:stats:${day()}`
+      const streamKey = `gw:streams:${day()}`
+      await redis.command(['HINCRBY', statsKey, caller.id, '1'])
+      await redis.command(['EXPIRE', statsKey, '604800'])
+      if (stream) {
+        await redis.command(['HINCRBY', streamKey, caller.id, '1'])
+        await redis.command(['EXPIRE', streamKey, '604800'])
+      }
+      return
+    } catch (error) {
+      redisError(error)
+    }
+  }
+  const row = usageOf(caller)
+  row.count += 1
+  if (stream) row.streams += 1
+}
+
+function callerName(id) {
+  if (id === 'default') return 'deployment token'
+  const entry = [...CALLER_KEYS.values()].find(item => item.id === id)
+  return entry?.name || id
+}
+
+async function statsPayload() {
+  if (redis) {
+    try {
+      const counts = await redis.command(['HGETALL', `gw:stats:${day()}`])
+      const streams = await redis.command(['HGETALL', `gw:streams:${day()}`])
+      const streamMap = new Map()
+      for (let i = 0; i < streams.length; i += 2) streamMap.set(streams[i], Number(streams[i + 1] || 0))
+      const callers = []
+      for (let i = 0; i < counts.length; i += 2) {
+        callers.push({
+          caller: counts[i],
+          name: callerName(counts[i]),
+          requests: Number(counts[i + 1] || 0),
+          streams: streamMap.get(counts[i]) || 0
+        })
+      }
+      return { day: day(), rateLimitPerMin: RATE_LIMIT_PER_MIN, burst: RATE_BURST, callers, store: 'redis' }
+    } catch (error) {
+      redisError(error)
+    }
+  }
+  const callers = [...usage.entries()]
+    .filter(([, row]) => row.day === day())
+    .map(([id, row]) => ({
+      caller: id,
+      name: callerName(id),
+      requests: row.count,
+      streams: row.streams
+    }))
+  return { day: day(), rateLimitPerMin: RATE_LIMIT_PER_MIN, burst: RATE_BURST, callers, store: 'memory' }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -162,20 +278,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(401, { error: { message: 'invalid or missing bearer token', type: 'invalid_request_error' } })
       return
     }
-    const callers = [...usage.entries()]
-      .filter(([, row]) => row.day === day())
-      .map(([id, row]) => ({
-        caller: id,
-        name: id === 'default' ? 'deployment token' : (row.name || id),
-        requests: row.count,
-        streams: row.streams
-      }))
-    sendJson(200, {
-      day: day(),
-      rateLimitPerMin: RATE_LIMIT_PER_MIN,
-      burst: RATE_BURST,
-      callers
-    })
+    sendJson(200, await statsPayload())
     return
   }
   if (!url.pathname.startsWith('/v1/')) {
@@ -191,17 +294,15 @@ const server = http.createServer(async (req, res) => {
   }
   context.caller = caller.label
 
-  if (!allowRequest(caller.id)) {
+  if (!(await allowRequest(caller.id))) {
     sendJson(429, { error: { message: 'rate limit exceeded', type: 'rate_limit_error' } }, { 'Retry-After': '1' })
     return
   }
-  const row = usageOf(caller)
-  if (caller.quota > 0 && row.count >= caller.quota) {
+  if (!(await reserveQuota(caller))) {
     sendJson(429, { error: { message: `daily quota exceeded (${caller.quota})`, type: 'quota_exceeded' } })
     return
   }
-  row.count += 1
-  if ((req.headers.accept || '').includes('text/event-stream')) row.streams += 1
+  await recordUsage(caller, (req.headers.accept || '').includes('text/event-stream'))
 
   if (url.pathname === '/v1/models' && req.method === 'GET') {
     sendJson(200, {
@@ -270,7 +371,8 @@ server.listen(PORT, '0.0.0.0', () => {
     agent: AGENT_SLUG,
     rateLimitPerMin: RATE_LIMIT_PER_MIN,
     burst: RATE_BURST,
-    callerKeys: CALLER_KEYS.size
+    callerKeys: CALLER_KEYS.size,
+    redis: REDIS_URL ? 'configured' : 'disabled'
   }))
 })
 

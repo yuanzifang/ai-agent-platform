@@ -32,8 +32,10 @@ public class AgentDeploymentController {
     @PostMapping
     @PreAuthorize("hasAuthority('agent:edit')")
     public ApiResponse<Map<String, Object>> deploy(@PathVariable Long agentId,
+                                                   @RequestBody(required = false) Map<String, Object> body,
                                                    @AuthenticationPrincipal JwtPrincipal principal) {
-        return ApiResponse.ok(deploymentService.deploy(agentId, principal));
+        Integer replicas = body != null && body.get("replicas") instanceof Number n ? n.intValue() : null;
+        return ApiResponse.ok(deploymentService.deploy(agentId, replicas, principal));
     }
 
     @PostMapping("/start")

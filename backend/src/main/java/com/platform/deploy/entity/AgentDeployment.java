@@ -19,6 +19,8 @@ public class AgentDeployment {
     private String containerId;
     private String image;
     private Integer hostPort;
+    private Integer replicaCount;
+    private String replicasJson;
     private String endpoint;
     private String localEndpoint;
     private String status;
