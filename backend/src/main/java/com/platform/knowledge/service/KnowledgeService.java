@@ -1000,6 +1000,7 @@ public class KnowledgeService {
             row.put("effective_to", effectiveTo == null ? null : java.sql.Timestamp.valueOf(effectiveTo));
             rows.add(row);
         }
+        storeOutboxPayload(doc, rows, embeddingDimensions, embeddingModel);
         vectorRepository.saveBatch(doc.getTenantId(), rows, embeddingDimensions);
         if (mysqlJdbcTemplate != null) {
             long vectorCount = vectorRepository.countByDocument(doc.getTenantId(), doc.getId(),
@@ -1089,14 +1090,48 @@ public class KnowledgeService {
                 task.setUpdatedAt(now);
                 vectorOutboxMapper.insert(task);
             } else {
-                task.setStatus("PENDING");
-                task.setAvailableAt(now.plusMinutes(5));
-                task.setUpdatedAt(now);
-                vectorOutboxMapper.updateById(task);
+                vectorOutboxMapper.update(null, new LambdaUpdateWrapper<KnowledgeVectorOutbox>()
+                        .eq(KnowledgeVectorOutbox::getId, task.getId())
+                        .set(KnowledgeVectorOutbox::getStatus, "PENDING")
+                        .set(KnowledgeVectorOutbox::getAvailableAt, now.plusMinutes(5))
+                        .set(KnowledgeVectorOutbox::getPayload, null)
+                        .set(KnowledgeVectorOutbox::getEmbeddingModel, null)
+                        .set(KnowledgeVectorOutbox::getDimensions, null)
+                        .set(KnowledgeVectorOutbox::getUpdatedAt, now));
             }
         } catch (Exception e) {
             log.debug("outbox 写入失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
         }
+    }
+
+    private void storeOutboxPayload(KnowledgeDocument doc, List<Map<String, Object>> rows,
+                                    int dimensions, String embeddingModel) {
+        if (vectorOutboxMapper == null || doc == null || doc.getId() == null) return;
+        try {
+            String payload = objectMapper.writeValueAsString(rows);
+            // 超过 8MB 不写 payload，保留重跑解析的降级路径，避免打爆 MySQL 包大小。
+            if (payload.length() > 8_000_000) return;
+            vectorOutboxMapper.update(null, new LambdaUpdateWrapper<KnowledgeVectorOutbox>()
+                    .eq(KnowledgeVectorOutbox::getDocumentId, doc.getId())
+                    .set(KnowledgeVectorOutbox::getPayload, payload)
+                    .set(KnowledgeVectorOutbox::getEmbeddingModel, embeddingModel)
+                    .set(KnowledgeVectorOutbox::getDimensions, dimensions)
+                    .set(KnowledgeVectorOutbox::getStatus, "PENDING")
+                    .set(KnowledgeVectorOutbox::getAvailableAt, LocalDateTime.now().plusMinutes(5))
+                    .set(KnowledgeVectorOutbox::getUpdatedAt, LocalDateTime.now()));
+        } catch (Exception e) {
+            log.debug("outbox payload 写入失败（回退重跑解析）doc={}：{}", doc.getId(), e.getMessage());
+        }
+    }
+
+    /** outbox 直接补写向量成功后的文档收尾。 */
+    public boolean completeOutboxVectors(Long documentId, int chunkCount) {
+        KnowledgeDocument doc = docMapper.selectById(documentId);
+        if (doc == null) return false;
+        recordParserVersion(doc);
+        updateStatus(doc, "DONE", chunkCount, null);
+        markOutboxDone(doc);
+        return true;
     }
 
     private void markOutboxDone(KnowledgeDocument doc) {
@@ -1106,6 +1141,9 @@ public class KnowledgeService {
                     .eq(KnowledgeVectorOutbox::getDocumentId, doc.getId())
                     .set(KnowledgeVectorOutbox::getStatus, "DONE")
                     .set(KnowledgeVectorOutbox::getLastError, null)
+                    .set(KnowledgeVectorOutbox::getPayload, null)
+                    .set(KnowledgeVectorOutbox::getEmbeddingModel, null)
+                    .set(KnowledgeVectorOutbox::getDimensions, null)
                     .set(KnowledgeVectorOutbox::getUpdatedAt, LocalDateTime.now()));
         } catch (Exception e) {
             log.debug("outbox 完成标记失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
@@ -1279,6 +1317,15 @@ public class KnowledgeService {
 
     /** 补偿清理：重试前删除可能已写入的部分分段与向量，并清掉该文档贡献的自动图谱。 */
     private void cleanupPartial(KnowledgeDocument doc) {
+        if (vectorOutboxMapper != null && doc != null) {
+            try {
+                vectorOutboxMapper.update(null, new LambdaUpdateWrapper<KnowledgeVectorOutbox>()
+                        .eq(KnowledgeVectorOutbox::getDocumentId, doc.getId())
+                        .set(KnowledgeVectorOutbox::getPayload, null)
+                        .set(KnowledgeVectorOutbox::getEmbeddingModel, null)
+                        .set(KnowledgeVectorOutbox::getDimensions, null));
+            } catch (Exception ignored) { }
+        }
         try {
             chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                     .eq(KnowledgeChunk::getDocumentId, doc.getId()));
