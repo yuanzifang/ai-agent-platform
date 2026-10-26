@@ -39,6 +39,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -103,6 +105,10 @@ public class KnowledgeService {
     /** 父块独立表；测试环境未注入时回退 chunk.parent_content。 */
     @Autowired(required = false)
     private KnowledgeParentMapper parentMapper;
+
+    /** MySQL 本地事务：父块/分段/批量回退同成同败；PgVector 写入仍由 cleanupPartial 补偿。 */
+    @Autowired(required = false)
+    private PlatformTransactionManager transactionManager;
 
     /** 解析失败重试上限（需求 3.6.3(2)：默认 3 次，超限后需人工介入）。 */
     @Value("${knowledge.parse.max-retries:3}")
@@ -869,10 +875,7 @@ public class KnowledgeService {
             chunk.setCreatedAt(LocalDateTime.now());
             chunkRows.add(chunk);
         }
-        if (storeParents(doc, chunkRows, parseWarnings)) {
-            for (KnowledgeChunk chunk : chunkRows) chunk.setParentContent(null);
-        }
-        Map<Integer, Long> chunkIds = insertChunks(doc, chunkRows);
+        Map<Integer, Long> chunkIds = persistChunks(doc, chunkRows, parseWarnings);
 
         List<Map<String, Object>> rows = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
@@ -1520,10 +1523,7 @@ public class KnowledgeService {
                 chunk.setCreatedAt(LocalDateTime.now());
                 newChunks.add(chunk);
             }
-            if (storeParents(doc, newChunks, warnings)) {
-                for (KnowledgeChunk chunk : newChunks) chunk.setParentContent(null);
-            }
-            Map<Integer, Long> chunkIds = insertChunks(doc, newChunks);
+            Map<Integer, Long> chunkIds = persistChunks(doc, newChunks, warnings);
             if (chunkIds.size() != newChunks.size()) {
                 cleanupPartial(doc);
                 return false;
@@ -1710,6 +1710,35 @@ public class KnowledgeService {
         } catch (Exception e) {
             log.warn("embedding 缓存写入失败（不影响解析）：{}", e.getMessage());
         }
+    }
+
+    /**
+     * 父块/分段写入放在同一 MySQL 事务里；批量失败回退逐条也在事务内。
+     * PgVector 不在同一事务，后续失败由 cleanupPartial 删除补偿。
+     */
+    private Map<Integer, Long> persistChunks(KnowledgeDocument doc, List<KnowledgeChunk> chunks,
+                                             List<String> warnings) {
+        if (transactionManager == null) {
+            return persistChunksInTransaction(doc, chunks, warnings);
+        }
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        return template.execute(status -> {
+            Map<Integer, Long> ids = persistChunksInTransaction(doc, chunks, warnings);
+            if (ids.size() != chunks.size()) {
+                throw new IllegalStateException("分段写入数量不匹配：expected=" + chunks.size()
+                        + " actual=" + ids.size());
+            }
+            return ids;
+        });
+    }
+
+    private Map<Integer, Long> persistChunksInTransaction(KnowledgeDocument doc,
+                                                          List<KnowledgeChunk> chunks,
+                                                          List<String> warnings) {
+        if (storeParents(doc, chunks, warnings)) {
+            for (KnowledgeChunk chunk : chunks) chunk.setParentContent(null);
+        }
+        return insertChunks(doc, chunks);
     }
 
     /** 父块只存一份；失败时保留 chunk.parent_content 回退，不影响正文。 */
