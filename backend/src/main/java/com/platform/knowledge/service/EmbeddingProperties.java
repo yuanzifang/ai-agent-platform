@@ -15,8 +15,8 @@ public class EmbeddingProperties {
 
     private String provider = "ollama";
     private String endpoint = "http://localhost:11434";
-    private String model = "nomic-embed-text";
-    private int dimensions = 768;
+    private String model = "bge-m3";
+    private int dimensions = 1024;
     /** 单次 embedding HTTP 请求的最大文本数。 */
     private int batchSize = 32;
     /** modelName -> dimensions；未配置时只有默认模型。 */

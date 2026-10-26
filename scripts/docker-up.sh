@@ -56,10 +56,13 @@ for i in $(seq 1 60); do
   sleep 5
 done
 
-# 拉取本地嵌入模型（知识库需要）
-echo "→ 拉取 Ollama 嵌入模型 nomic-embed-text"
+# 拉取本地嵌入模型（知识库需要）；默认优先 bge-m3，后端会在未安装时回退 nomic
+echo "→ 拉取 Ollama 嵌入模型 bge-m3（中文推荐）"
+docker compose --env-file "$ENV_FILE" exec -T ollama ollama pull bge-m3 \
+  || echo "  ⚠ bge-m3 拉取失败，请稍后手动执行：docker compose --env-file .env.docker exec ollama ollama pull bge-m3"
+echo "→ 拉取 Ollama 兼容模型 nomic-embed-text"
 docker compose --env-file "$ENV_FILE" exec -T ollama ollama pull nomic-embed-text \
-  || echo "  ⚠ 模型拉取失败，请稍后手动执行：docker compose --env-file .env.docker exec ollama ollama pull nomic-embed-text"
+  || echo "  ⚠ nomic 拉取失败，请稍后手动执行：docker compose --env-file .env.docker exec ollama ollama pull nomic-embed-text"
 
 ADMIN_PASSWORD="$(grep -E '^PLATFORM_ADMIN_PASSWORD=' "$ENV_FILE" | tail -1 | cut -d= -f2-)"
 GRAFANA_PASSWORD="$(grep -E '^GRAFANA_ADMIN_PASSWORD=' "$ENV_FILE" | tail -1 | cut -d= -f2-)"

@@ -24,6 +24,12 @@ class ChartDataValidatorTest {
     }
 
     @Test
+    void acceptsTextXAxisLabels() {
+        assertNull(ChartDataValidator.validate("【图表数据】{\"series\":[{\"name\":\"Sales\","
+                + "\"points\":[{\"x\":\"一月\",\"y\":10},{\"x\":\"二月\",\"y\":12}]}]}"));
+    }
+
+    @Test
     void rejectsBrokenJsonAndNonNumericValues() {
         assertNotNull(ChartDataValidator.validate("【图表数据】{\"series\":["));
         assertNotNull(ChartDataValidator.validate(

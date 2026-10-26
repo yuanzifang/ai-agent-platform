@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpServer;
 import com.platform.agent.entity.AgentKnowledgeBase;
 import com.platform.agent.entity.AgentRegistry;
@@ -50,11 +52,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -230,6 +234,83 @@ class KnowledgeServiceLifecycleTest {
         assertEquals(null, row.get("effective_to"));
         assertTrue(String.valueOf(row.get("metadata")).contains(
                 "\"effective_from\":\"2026-01-01T10:00\""));
+    }
+
+    @Test
+    void chartChunkCompactsWithoutBreakingJson() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode chart = mapper.createObjectNode();
+        chart.put("isChart", true);
+        chart.put("title", "Very long chart ".repeat(30));
+        ArrayNode series = chart.putArray("series");
+        for (int s = 0; s < 8; s++) {
+            ObjectNode item = series.addObject();
+            item.put("name", "Series " + s);
+            ArrayNode points = item.putArray("points");
+            for (int p = 0; p < 200; p++) {
+                ObjectNode point = points.addObject();
+                point.put("x", "Label " + p);
+                point.put("y", p * 1.5);
+            }
+        }
+        java.util.List<String> warnings = new java.util.ArrayList<>();
+        String text = ReflectionTestUtils.invokeMethod(service, "buildChartChunk", chart, warnings);
+        assertTrue(text.length() <= 4000, "图表块应受长度约束，实际=" + text.length());
+        assertEquals(null, ChartDataValidator.validate(text), "压缩后仍必须是合法图表 JSON");
+        assertFalse(text.contains("..."), "不应使用字符截断破坏 JSON");
+        assertTrue(text.contains("truncatedPoints") || text.contains("compacted")
+                || text.contains("omittedSeries"), "应有压缩标记");
+        assertTrue(warnings.stream().anyMatch(w -> w.contains("图表数据过长")), "应记录解析告警");
+    }
+
+    @Test
+    void reusesChunksAndVectorsForSameFileHash() throws Exception {
+        byte[] bytes = "same-pdf".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        KnowledgeDocument doc = new KnowledgeDocument();
+        doc.setId(56L);
+        doc.setKnowledgeBaseId(1L);
+        doc.setTenantId(9L);
+        doc.setObjectName("obj-copy");
+        doc.setFileName("copy.pdf");
+        doc.setCreatedAt(LocalDateTime.of(2026, 1, 2, 10, 0));
+        KnowledgeDocument source = new KnowledgeDocument();
+        source.setId(44L);
+        source.setKnowledgeBaseId(1L);
+        source.setTenantId(9L);
+        source.setFileName("original.pdf");
+        source.setStatus("DONE");
+        source.setSourceSha256("any");
+        when(storage.get("obj-copy")).thenReturn(bytes);
+        when(docMapper.selectList(any())).thenReturn(List.of(source));
+        when(permissionService.aclOf(kb)).thenReturn(
+                new KnowledgePermissionService.Acl(List.of(), true));
+        when(embeddingService.dimension("default-embed")).thenReturn(2);
+        when(parser.extractImages(anyString(), any())).thenReturn(List.of());
+        KnowledgeChunk old = new KnowledgeChunk();
+        old.setId(70L);
+        old.setDocumentId(44L);
+        old.setKnowledgeBaseId(1L);
+        old.setChunkIndex(0);
+        old.setParentIndex(3);
+        old.setParentContent("父块");
+        old.setContent("复用正文");
+        old.setPageFrom(1);
+        old.setPageTo(1);
+        when(chunkMapper.selectList(any())).thenReturn(List.of(old));
+        doAnswer(invocation -> {
+            KnowledgeChunk chunk = invocation.getArgument(0);
+            chunk.setId(88L);
+            return 1;
+        }).when(chunkMapper).insert(any(KnowledgeChunk.class));
+        when(vectorRepository.copyDocumentVectors(anyLong(), anyLong(), anyLong(), anyInt(),
+                anyString(), any(), any())).thenReturn(1);
+
+        ReflectionTestUtils.invokeMethod(service, "parseOnce", doc);
+
+        verify(parser, never()).parseWithParentsAndWarnings(anyString(), any(), any());
+        verify(vectorRepository).copyDocumentVectors(eq(9L), eq(44L), eq(56L), eq(2),
+                eq("default-embed"), any(), any());
+        verify(chunkMapper, atLeastOnce()).insert(any(KnowledgeChunk.class));
     }
 
     @Test

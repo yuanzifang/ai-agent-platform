@@ -14,6 +14,7 @@ import com.platform.knowledge.entity.KnowledgeGraphEntity;
 import com.platform.knowledge.entity.KnowledgeGraphJob;
 import com.platform.knowledge.entity.KnowledgeGraphMention;
 import com.platform.knowledge.entity.KnowledgeGraphRelation;
+import com.platform.knowledge.entity.KnowledgeParent;
 import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.knowledge.mapper.KnowledgeChunkMapper;
 import com.platform.knowledge.mapper.KnowledgeDocumentMapper;
@@ -21,6 +22,7 @@ import com.platform.knowledge.mapper.KnowledgeGraphEntityMapper;
 import com.platform.knowledge.mapper.KnowledgeGraphJobMapper;
 import com.platform.knowledge.mapper.KnowledgeGraphMentionMapper;
 import com.platform.knowledge.mapper.KnowledgeGraphRelationMapper;
+import com.platform.knowledge.mapper.KnowledgeParentMapper;
 import com.platform.model.service.ChatModelRouter;
 import com.platform.model.service.UsageMetrics;
 import com.platform.system.entity.SysConfig;
@@ -34,6 +36,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -88,6 +91,9 @@ public class KnowledgeGraphService implements ApplicationRunner {
     private final AuditService auditService;
     private final ChatModelRouter modelRouter;
     private final ObjectMapper objectMapper;
+
+    @Autowired(required = false)
+    private KnowledgeParentMapper parentMapper;
 
     @Resource(name = "graphTaskExecutor")
     private ThreadPoolTaskExecutor graphTaskExecutor;
@@ -499,6 +505,26 @@ public class KnowledgeGraphService implements ApplicationRunner {
         if (allChunkIds.isEmpty()) return List.of();
         Map<Long, KnowledgeChunk> chunks = chunkMapper.selectBatchIds(allChunkIds).stream()
                 .collect(Collectors.toMap(KnowledgeChunk::getId, c -> c));
+        Map<String, String> parents = new HashMap<>();
+        if (parentMapper != null && !chunks.isEmpty()) {
+            Set<Long> docIds = chunks.values().stream().map(KnowledgeChunk::getDocumentId)
+                    .filter(Objects::nonNull).collect(Collectors.toSet());
+            Set<Integer> indexes = chunks.values().stream().map(KnowledgeChunk::getParentIndex)
+                    .filter(Objects::nonNull).collect(Collectors.toSet());
+            if (!docIds.isEmpty() && !indexes.isEmpty()) {
+                try {
+                    for (KnowledgeParent parent : parentMapper.selectList(
+                            new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeParent>()
+                                    .in(KnowledgeParent::getDocumentId, docIds)
+                                    .in(KnowledgeParent::getParentIndex, indexes))) {
+                        parents.put(parent.getDocumentId() + ":" + parent.getParentIndex(),
+                                parent.getContent());
+                    }
+                } catch (Exception e) {
+                    log.debug("图谱父块读取失败：{}", e.getMessage());
+                }
+            }
+        }
         boolean tenantWide = permissionService.aclOf(kb).tenantWide();
         List<Map<String, Object>> extras = new ArrayList<>();
         for (Long entityId : selectedIds) {
@@ -516,7 +542,13 @@ public class KnowledgeGraphService implements ApplicationRunner {
                         .filter(e -> e.getId().equals(entityId)).findFirst().orElse(null);
                 Map<String, Object> hit = new LinkedHashMap<>();
                 hit.put("content", chunk.getContent());
-                hit.put("parentContent", chunk.getParentContent());
+                String parentContent = chunk.getParentContent();
+                if ((parentContent == null || parentContent.isBlank())
+                        && chunk.getDocumentId() != null && chunk.getParentIndex() != null) {
+                    parentContent = parents.get(chunk.getDocumentId() + ":" + chunk.getParentIndex());
+                }
+                hit.put("parentContent", parentContent);
+                hit.put("parentIndex", chunk.getParentIndex());
                 hit.put("score", 0.55);
                 try {
                     Map<String, Object> meta = new LinkedHashMap<>();

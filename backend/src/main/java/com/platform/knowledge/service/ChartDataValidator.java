@@ -143,11 +143,16 @@ final class ChartDataValidator {
                 if (error != null) return error;
             }
         }
-        for (String key : new String[]{"value", "y", "x"}) {
+        for (String key : new String[]{"value", "y"}) {
             if (item.has(key)) {
                 String error = validateItem(item.get(key), path + "." + key);
                 if (error != null) return error;
             }
+        }
+        // x 轴标签允许文本（如 “一月”“Q1”），只拒绝对象/数组等非标量。
+        JsonNode x = item.get("x");
+        if (x != null && !x.isNull() && !x.isNumber() && !x.isTextual() && !x.isBoolean()) {
+            return path + ".x 格式不支持";
         }
         return null;
     }

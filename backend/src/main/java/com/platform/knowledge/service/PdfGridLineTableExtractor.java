@@ -28,6 +28,14 @@ final class PdfGridLineTableExtractor {
 
     static String extract(PDDocument doc) {
         String merged = "";
+        for (PdfTableBlock block : extractBlocks(doc)) {
+            merged = OcrTableExtractor.mergeTables(merged, block.html());
+        }
+        return merged;
+    }
+
+    static List<PdfTableBlock> extractBlocks(PDDocument doc) {
+        List<PdfTableBlock> blocks = new ArrayList<>();
         try {
             for (int p = 0; p < Math.min(doc.getNumberOfPages(), 50); p++) {
                 PDPage page = doc.getPage(p);
@@ -53,13 +61,16 @@ final class PdfGridLineTableExtractor {
                                     && g.getYDirAdj() <= bounds[3] + 220)
                             .toList();
                     String table = toTable(groupGlyphs, group, page.getMediaBox().getHeight());
-                    if (!table.isBlank()) merged = OcrTableExtractor.mergeTables(merged, table);
+                    if (!table.isBlank()) {
+                        blocks.add(PdfTableBlock.singlePage(p, bounds[2], bounds[3],
+                                bounds[0], bounds[1], table, true));
+                    }
                 }
             }
         } catch (Exception e) {
-            return "";
+            return blocks;
         }
-        return merged;
+        return blocks;
     }
 
     /** 按相交关系拆分同一页的多个表格。 */

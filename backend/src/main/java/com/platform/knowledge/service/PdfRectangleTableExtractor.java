@@ -27,6 +27,14 @@ final class PdfRectangleTableExtractor {
 
     static String extract(PDDocument doc) {
         String merged = "";
+        for (PdfTableBlock block : extractBlocks(doc)) {
+            merged = OcrTableExtractor.mergeTables(merged, block.html());
+        }
+        return merged;
+    }
+
+    static List<PdfTableBlock> extractBlocks(PDDocument doc) {
+        List<PdfTableBlock> blocks = new ArrayList<>();
         try {
             int pages = Math.min(doc.getNumberOfPages(), 50);
             for (int p = 0; p < pages; p++) {
@@ -53,13 +61,16 @@ final class PdfRectangleTableExtractor {
                                     && g.getYDirAdj() <= bounds[3] + 220)
                             .toList();
                     String table = toTable(groupGlyphs, group, page.getMediaBox().getHeight());
-                    if (!table.isBlank()) merged = OcrTableExtractor.mergeTables(merged, table);
+                    if (!table.isBlank()) {
+                        blocks.add(PdfTableBlock.singlePage(p, bounds[2], bounds[3],
+                                bounds[0], bounds[1], table, true));
+                    }
                 }
             }
         } catch (Exception e) {
-            return "";
+            return blocks;
         }
-        return merged;
+        return blocks;
     }
 
     /** 按矩形相交/相接关系拆分同页多个带边框表格。 */

@@ -3,8 +3,10 @@ package com.platform.knowledge.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.common.exception.BusinessException;
 import com.platform.knowledge.entity.KnowledgeChunk;
+import com.platform.knowledge.entity.KnowledgeParent;
 import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.knowledge.mapper.KnowledgeChunkMapper;
+import com.platform.knowledge.mapper.KnowledgeParentMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -213,6 +215,56 @@ class HybridRetrievalServiceTest {
 
         assertEquals("vector", result.mode());
         verify(chunkMapper, never()).searchFulltext(anyLong(), anyString(), anyInt());
+    }
+
+    @Test
+    void dedupesHitsFromSameParent() {
+        when(embedding.embedOne(eq("q"), anyString())).thenReturn(new float[]{0.1f});
+        when(vectorRepository.search(anyLong(), any(float[].class), anyLong(), anyInt(),
+                anyDouble(), anyInt())).thenReturn(List.of(
+                Map.of("content", "子块1", "score", 0.9,
+                        "metadata", "{\"chunk_id\":11,\"document_id\":100,\"chunk_index\":1}"),
+                Map.of("content", "子块2", "score", 0.8,
+                        "metadata", "{\"chunk_id\":12,\"document_id\":100,\"chunk_index\":2}")));
+        KnowledgeChunk c1 = chunk(11L, 100L, 1, "子块1");
+        c1.setParentContent("同一父块");
+        c1.setParentIndex(7);
+        KnowledgeChunk c2 = chunk(12L, 100L, 2, "子块2");
+        c2.setParentContent("同一父块");
+        c2.setParentIndex(7);
+        when(chunkMapper.selectBatchIds(anyCollection())).thenReturn(List.of(c1, c2));
+
+        var result = service.search(1L, "q", 1L, 5, 0.5, Map.of("mode", "vector"));
+
+        assertEquals(1, result.hits().size(), "同一父块的多个命中应合并");
+        assertEquals("同一父块", result.hits().get(0).get("parentContent"));
+        assertEquals(0.9, (double) result.hits().get(0).get("score"), 0.0001);
+        assertTrue(result.hits().get(0).get("mergedScores") instanceof List);
+    }
+
+    @Test
+    void loadsParentContentFromParentTable() {
+        KnowledgeParentMapper parentMapper = mock(KnowledgeParentMapper.class);
+        ReflectionTestUtils.setField(service, "parentMapper", parentMapper);
+        when(embedding.embedOne(eq("q"), anyString())).thenReturn(new float[]{0.1f});
+        when(vectorRepository.search(anyLong(), any(float[].class), anyLong(), anyInt(),
+                anyDouble(), anyInt())).thenReturn(List.of(
+                Map.of("content", "子块", "score", 0.9,
+                        "metadata", "{\"chunk_id\":11,\"document_id\":100,\"chunk_index\":1,\"parent_index\":7}")));
+        KnowledgeChunk stored = chunk(11L, 100L, 1, "子块");
+        stored.setParentIndex(7);
+        when(chunkMapper.selectBatchIds(anyCollection())).thenReturn(List.of(stored));
+        KnowledgeParent parent = new KnowledgeParent();
+        parent.setDocumentId(100L);
+        parent.setParentIndex(7);
+        parent.setContent("父块表内容");
+        when(parentMapper.selectList(any())).thenReturn(List.of(parent));
+
+        var result = service.search(1L, "q", 1L, 5, 0.5, Map.of("mode", "vector"));
+
+        assertEquals("父块表内容", result.hits().get(0).get("parentContent"));
+        assertEquals(7, result.hits().get(0).get("parentIndex"));
+        verify(chunkMapper, never()).selectList(any());
     }
 
     @Test

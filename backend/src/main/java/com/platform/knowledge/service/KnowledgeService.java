@@ -23,16 +23,22 @@ import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.knowledge.mapper.KnowledgeChunkMapper;
 import com.platform.knowledge.mapper.KnowledgeDocumentImageMapper;
 import com.platform.knowledge.mapper.KnowledgeDocumentMapper;
+import com.platform.knowledge.mapper.KnowledgeParentMapper;
+import com.platform.knowledge.entity.KnowledgeParent;
 import com.platform.system.entity.SysUser;
 import com.platform.system.mapper.SysUserMapper;
 import com.platform.system.service.AuditService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,6 +49,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -60,6 +68,8 @@ import java.util.*;
 public class KnowledgeService {
 
     private static final String CHART_CHUNK_MARKER = "【图表数据";
+    private static final String CHART_CHUNK_PREFIX = "【图表数据·模型识别，需人工核对】";
+    private static final int CHART_CHUNK_MAX = 4000;
 
     private final KnowledgeBaseMapper kbMapper;
     private final KnowledgeDocumentMapper docMapper;
@@ -85,6 +95,15 @@ public class KnowledgeService {
     private final NetworkPolicyService networkPolicy;
     private final CryptoService cryptoService;
 
+    /** MySQL 主库 JdbcTemplate；测试环境未注入时回退逐条 MyBatis insert。 */
+    @Autowired(required = false)
+    @Qualifier("jdbcTemplate")
+    private JdbcTemplate mysqlJdbcTemplate;
+
+    /** 父块独立表；测试环境未注入时回退 chunk.parent_content。 */
+    @Autowired(required = false)
+    private KnowledgeParentMapper parentMapper;
+
     /** 解析失败重试上限（需求 3.6.3(2)：默认 3 次，超限后需人工介入）。 */
     @Value("${knowledge.parse.max-retries:3}")
     private int maxParseRetries;
@@ -100,6 +119,12 @@ public class KnowledgeService {
     /** 文档解析专用线程池（架构 2.3）；队列满时 CallerRuns 保证不丢任务。 */
     @Resource(name = "documentParseExecutor")
     private ThreadPoolTaskExecutor documentParseExecutor;
+
+    /** embedding 缓存保留天数；每小时最多清理一次，避免每次解析都扫表。 */
+    @Value("${embedding.cache-ttl-days:30}")
+    private int embeddingCacheTtlDays = 30;
+    private final java.util.concurrent.atomic.AtomicLong lastCacheCleanupAt =
+            new java.util.concurrent.atomic.AtomicLong(0);
 
     public Map<String, Object> create(String name, String description, String visibility,
                                       String embeddingModel, Boolean graphEnabled, Long userId) {
@@ -333,6 +358,7 @@ public class KnowledgeService {
         graphService.deleteByKnowledgeBase(id);
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getKnowledgeBaseId, id));
+        for (KnowledgeDocument doc : docs) deleteParentsQuietly(doc.getId());
         docMapper.delete(new LambdaQueryWrapper<KnowledgeDocument>()
                 .eq(KnowledgeDocument::getKnowledgeBaseId, id));
         permissionService.deleteAll(id);
@@ -356,6 +382,7 @@ public class KnowledgeService {
         graphService.deleteByDocument(kbId, docId);
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getDocumentId, docId));
+        deleteParentsQuietly(docId);
         docMapper.deleteById(docId);
         auditService.record(viewer.userId(), "kb.document.delete", "knowledge_document",
                 String.valueOf(docId), "SUCCESS", Map.of("kbId", kbId, "fileName", doc.getFileName()));
@@ -391,6 +418,7 @@ public class KnowledgeService {
         }
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getDocumentId, docId));
+        deleteParentsQuietly(docId);
         deleteVectorsQuietly(kb.getTenantId(), docId);
         deleteDocumentImages(doc);
         triggerParse(kb.getTenantId(), docId);
@@ -697,6 +725,7 @@ public class KnowledgeService {
         KnowledgeDocument doc = docMapper.selectById(documentId);
         if (doc == null) return;
         updateStatus(doc, "PARSING", null, null);
+        storeParseWarning(doc, List.of());
         int attempts = 1 + Math.max(autoParseRetries, 0);
         for (int attempt = 0; attempt < attempts; attempt++) {
             try {
@@ -708,6 +737,12 @@ public class KnowledgeService {
                 log.warn("文档解析失败（第 {}/{} 次）doc={} err={}", attempt + 1, attempts,
                         documentId, root.getMessage());
                 cleanupPartial(doc);
+                if (root instanceof BusinessException business && !isRetryable(business)) {
+                    log.info("文档解析遇到确定性错误，不重试：doc={} code={} err={}",
+                            documentId, business.getCode(), business.getMessage());
+                    updateStatus(doc, "FAILED", null, business.getMessage());
+                    return;
+                }
                 if (attempt == attempts - 1) {
                     updateStatus(doc, "FAILED", null, root.getMessage());
                     return;
@@ -724,6 +759,12 @@ public class KnowledgeService {
         }
     }
 
+    /** 400/401/403/404/422 等确定性错误重试也不会成功；只重试 5xx 与限流。 */
+    private boolean isRetryable(BusinessException e) {
+        int code = e.getCode();
+        return code >= 500 || code == 429;
+    }
+
     /** 单次解析：上传对象 → 分段 → 嵌入 → 向量落库。失败时由 doParse 清理残留并重试。 */
     private void parseOnce(KnowledgeDocument doc) throws Exception {
         byte[] bytes = storage.get(doc.getObjectName());
@@ -734,10 +775,21 @@ public class KnowledgeService {
                 || kb.getEmbeddingModel().isBlank()
                 ? embeddingService.model() : kb.getEmbeddingModel();
         int embeddingDimensions = embeddingService.dimension(embeddingModel);
+        List<String> parseWarnings = new ArrayList<>();
+        String sourceSha = sha256(bytes);
+        recordSourceHash(doc, sourceSha, parseWarnings);
+        KnowledgeDocument reusable = findReusableDocument(doc, sourceSha);
+        if (reusable != null && reuseDocument(doc, bytes, reusable, acl, embeddingModel,
+                embeddingDimensions, parseWarnings)) {
+            return;
+        }
         // 四级解析配置：env → 平台 → 租户 → 知识库 → 文档（上传时选择）
         ParseOptions parseOptions = parseConfigResolver.resolve(kb, doc.getParseConfig());
-        List<DocumentParser.ParsedChunk> chunks = new ArrayList<>(
-                parser.parseWithParents(doc.getFileName(), bytes, parseOptions));
+        DocumentParser.ParseOutcome outcome = parser.parseWithParentsAndWarnings(
+                doc.getFileName(), bytes, parseOptions);
+        List<DocumentParser.ParsedChunk> chunks = new ArrayList<>(outcome == null
+                ? parser.parseWithParents(doc.getFileName(), bytes, parseOptions) : outcome.chunks());
+        parseWarnings.addAll(outcome == null ? List.of() : outcome.warnings());
         String chartEvidence = chunks.stream()
                 .map(DocumentParser.ParsedChunk::content)
                 .filter(java.util.Objects::nonNull)
@@ -749,8 +801,7 @@ public class KnowledgeService {
                 if (described >= maxImages) break;
                 String description = imageUnderstanding.describe(image.data(), image.extension(), parseOptions);
                 if (description == null || description.isBlank()) continue;
-                String content = "【图片说明】" + description.trim();
-                if (content.length() > 500) content = content.substring(0, 500);
+                String content = truncateAtSentence("【图片说明】" + description.trim(), 500);
                 chunks.add(new DocumentParser.ParsedChunk(content, chunks.size(), content));
                 if (description.contains("图") || description.toLowerCase().contains("chart")) {
                     try {
@@ -774,33 +825,33 @@ public class KnowledgeService {
                             enriched.put("validationChecked", cross.checked());
                             enriched.put("validationMissing", cross.missing());
                             if ("conflict".equals(cross.status())) enriched.put("confidence", "low");
-                            String chartText = "【图表数据·模型识别，需人工核对】"
-                                    + objectMapper.writeValueAsString(enriched);
-                            if (chartText.length() > 1200) chartText = chartText.substring(0, 1200);
+                            String chartText = buildChartChunk(enriched, parseWarnings);
                             String chartError = ChartDataValidator.validate(chartText);
                             if (chartError == null) {
                                 chunks.add(new DocumentParser.ParsedChunk(chartText, chunks.size(), chartText));
                             } else {
-                                log.debug("图表 JSON 校验失败，跳过 doc={}：{}", doc.getId(), chartError);
+                                String message = "图表 JSON 校验失败，已跳过：doc=" + doc.getId() + " " + chartError;
+                                log.warn(message);
+                                parseWarnings.add("图表结构化内容校验失败，已跳过：" + chartError);
                             }
                         }
                     } catch (Exception e) {
-                        log.debug("图表结构化分段跳过 doc={}：{}", doc.getId(), e.getMessage());
+                        log.warn("图表结构化分段生成失败，已跳过 doc={}：{}", doc.getId(), e.getMessage());
+                        parseWarnings.add("图表结构化分段生成失败，已跳过：" + e.getMessage());
                     }
                 }
                 described++;
             }
             if (described > 0) log.info("文档图片多模态分段：doc={} images={}", doc.getId(), described);
         }
-        float[][] vectors = embeddingService.embedBatch(
-                chunks.stream().map(DocumentParser.ParsedChunk::content).toList(), embeddingModel);
+        float[][] vectors = embedChunksWithCache(chunks, embeddingModel);
         // 业务有效期优先；未配置时回退文档入库时间，而不是向量写入时间。
         LocalDateTime effectiveFrom = doc.getEffectiveFrom() != null
                 ? doc.getEffectiveFrom() : doc.getCreatedAt();
         if (effectiveFrom == null) effectiveFrom = LocalDateTime.now();
         LocalDateTime effectiveTo = doc.getEffectiveTo();
 
-        List<Map<String, Object>> rows = new ArrayList<>();
+        List<KnowledgeChunk> chunkRows = new ArrayList<>(chunks.size());
         for (int i = 0; i < chunks.size(); i++) {
             DocumentParser.ParsedChunk parsed = chunks.get(i);
             KnowledgeChunk chunk = new KnowledgeChunk();
@@ -810,21 +861,34 @@ public class KnowledgeService {
             chunk.setParentIndex(parsed.parentIndex());
             chunk.setParentContent(parsed.parentContent());
             chunk.setContent(parsed.content());
+            chunk.setPageFrom(parsed.pageFrom() > 0 ? parsed.pageFrom() : null);
+            chunk.setPageTo(parsed.pageTo() > 0 ? parsed.pageTo() : null);
             chunk.setAllowedUsers(usersJson(acl.allowedUsers()));
             chunk.setTenantVisible(acl.tenantWide() ? 1 : 0);
             chunk.setTenantId(doc.getTenantId());
             chunk.setCreatedAt(LocalDateTime.now());
-            chunkMapper.insert(chunk);
+            chunkRows.add(chunk);
+        }
+        if (storeParents(doc, chunkRows, parseWarnings)) {
+            for (KnowledgeChunk chunk : chunkRows) chunk.setParentContent(null);
+        }
+        Map<Integer, Long> chunkIds = insertChunks(doc, chunkRows);
 
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 0; i < chunks.size(); i++) {
+            DocumentParser.ParsedChunk parsed = chunks.get(i);
+            Long chunkId = chunkIds.get(i);
             Map<String, Object> row = new HashMap<>();
             row.put("content", parsed.content());
             row.put("embedding", vectors[i]);
             Map<String, Object> metadata = new LinkedHashMap<>();
             metadata.put("knowledge_base_id", doc.getKnowledgeBaseId());
             metadata.put("document_id", doc.getId());
-            metadata.put("chunk_id", chunk.getId());
+            metadata.put("chunk_id", chunkId);
             metadata.put("chunk_index", i);
             metadata.put("parent_index", parsed.parentIndex());
+            if (parsed.pageFrom() > 0) metadata.put("page_from", parsed.pageFrom());
+            if (parsed.pageTo() > 0) metadata.put("page_to", parsed.pageTo());
             metadata.put("embedding_model", embeddingModel);
             metadata.put("allowed_users", acl.allowedUsers().stream().map(String::valueOf).toList());
             metadata.put("tenant_visible", acl.tenantWide());
@@ -840,6 +904,7 @@ public class KnowledgeService {
         vectorRepository.saveBatch(doc.getTenantId(), rows, embeddingDimensions);
         storeDocumentImages(doc, bytes);
         updateStatus(doc, "DONE", chunks.size(), null);
+        storeParseWarning(doc, parseWarnings);
         recordEmbeddingUsage(doc, chunks.size(), embeddingModel);
         // 解析完成后自动生成知识图谱（异步，失败不影响文档状态；可在系统配置关闭）
         graphService.autoExtractAfterParse(doc.getTenantId(), doc.getKnowledgeBaseId(), doc.getId());
@@ -980,11 +1045,22 @@ public class KnowledgeService {
         } catch (Exception e) {
             log.warn("清理失败分段失败 doc={}：{}", doc.getId(), e.getMessage());
         }
+        deleteParentsQuietly(doc.getId());
         deleteVectorsQuietly(doc.getTenantId(), doc.getId());
         try {
             graphService.deleteByDocument(doc.getKnowledgeBaseId(), doc.getId());
         } catch (Exception e) {
             log.warn("清理文档自动图谱失败 doc={}：{}", doc.getId(), e.getMessage());
+        }
+    }
+
+    private void deleteParentsQuietly(Long documentId) {
+        if (parentMapper == null) return;
+        try {
+            parentMapper.delete(new LambdaQueryWrapper<KnowledgeParent>()
+                    .eq(KnowledgeParent::getDocumentId, documentId));
+        } catch (Exception e) {
+            log.warn("清理父块失败 doc={}：{}", documentId, e.getMessage());
         }
     }
 
@@ -1046,6 +1122,8 @@ public class KnowledgeService {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", c.getId());
             m.put("chunkIndex", c.getChunkIndex());
+            m.put("pageFrom", c.getPageFrom());
+            m.put("pageTo", c.getPageTo());
             m.put("content", c.getContent());
             m.put("allowedUsers", parseJson(c.getAllowedUsers()));
             m.put("tenantVisible", c.getTenantVisible() == null || c.getTenantVisible() == 1);
@@ -1132,7 +1210,7 @@ public class KnowledgeService {
             String model = kb.getEmbeddingModel() == null || kb.getEmbeddingModel().isBlank()
                     ? embeddingService.model() : kb.getEmbeddingModel().trim();
             int dimensions = embeddingService.dimension(model);
-            float[] vector = embeddingService.embedOne(updatedContent, model);
+            float[] vector = embeddingService.embedOne(MarkdownText.toPlain(updatedContent), model);
             try {
                 vectorRepository.updateContentForChunk(kb.getTenantId(), kbId, chunkId,
                         updatedContent, vector, dimensions);
@@ -1154,6 +1232,106 @@ public class KnowledgeService {
         result.put("content", updatedContent);
         result.put("contentChanged", contentChanged);
         return result;
+    }
+
+    /**
+     * 图表 JSON 不做字符截断。超长时按“系列/数据点/长字符串”压缩，保证仍是合法 JSON；
+     * 极端情况下退化为合法摘要并记录 warning，而不是静默丢弃。
+     */
+    private String buildChartChunk(ObjectNode chart, List<String> warnings) throws Exception {
+        String originalJson = objectMapper.writeValueAsString(chart);
+        if (CHART_CHUNK_PREFIX.length() + originalJson.length() <= CHART_CHUNK_MAX) {
+            return CHART_CHUNK_PREFIX + originalJson;
+        }
+        ObjectNode compact = chart.deepCopy();
+        int[] pointLimits = {60, 40, 20, 10};
+        int[] seriesLimits = {20, 12, 8, 4};
+        for (int i = 0; i < pointLimits.length; i++) {
+            truncateSeriesPoints(compact, pointLimits[i]);
+            truncateTopLevelPoints(compact, pointLimits[i]);
+            truncateSeries(compact, seriesLimits[i]);
+            trimStrings(compact, 300);
+            String json = objectMapper.writeValueAsString(compact);
+            if (CHART_CHUNK_PREFIX.length() + json.length() <= CHART_CHUNK_MAX) {
+                if (i > 0) {
+                    warnings.add("图表数据过长，已压缩为每个系列前 " + pointLimits[i]
+                            + " 个数据点/最多 " + seriesLimits[i] + " 个系列；完整数据请查看原图");
+                }
+                return CHART_CHUNK_PREFIX + json;
+            }
+        }
+        ObjectNode summary = objectMapper.createObjectNode();
+        summary.put("isChart", compact.path("isChart").asBoolean(true));
+        summary.put("title", compact.path("title").asText(""));
+        summary.put("compacted", true);
+        summary.put("note", "图表数据过长，已压缩为摘要；完整数据请查看原图");
+        if (compact.get("data") instanceof ArrayNode data) summary.put("dataPointCount", data.size());
+        if (compact.get("points") instanceof ArrayNode points) summary.put("pointCount", points.size());
+        JsonNode series = compact.get("series");
+        if (series instanceof ArrayNode array) {
+            ArrayNode names = summary.putArray("series");
+            for (JsonNode item : array) {
+                ObjectNode shortSeries = names.addObject();
+                shortSeries.put("name", item.path("name").asText(""));
+                JsonNode points = item.has("points") ? item.get("points")
+                        : item.has("data") ? item.get("data") : item.get("values");
+                shortSeries.put("pointCount", points != null && points.isArray() ? points.size() : 0);
+            }
+        }
+        warnings.add("图表数据过长，已压缩为摘要；完整数据请查看原图");
+        return CHART_CHUNK_PREFIX + objectMapper.writeValueAsString(summary);
+    }
+
+    private void truncateTopLevelPoints(ObjectNode chart, int limit) {
+        for (String key : new String[]{"data", "points"}) {
+            JsonNode value = chart.get(key);
+            if (!(value instanceof ArrayNode points) || points.size() <= limit) continue;
+            int original = points.size();
+            while (points.size() > limit) points.remove(points.size() - 1);
+            chart.put("originalPointCount", original);
+            chart.put("truncatedPoints", original - limit);
+        }
+    }
+
+    private void truncateSeriesPoints(ObjectNode chart, int limit) {
+        JsonNode series = chart.get("series");
+        if (!(series instanceof ArrayNode array)) return;
+        for (JsonNode item : array) {
+            if (!(item instanceof ObjectNode object)) continue;
+            for (String key : new String[]{"points", "data", "values"}) {
+                JsonNode value = object.get(key);
+                if (!(value instanceof ArrayNode points) || points.size() <= limit) continue;
+                int original = points.size();
+                while (points.size() > limit) points.remove(points.size() - 1);
+                object.put("originalPointCount", original);
+                object.put("truncatedPoints", original - limit);
+            }
+        }
+    }
+
+    private void truncateSeries(ObjectNode chart, int limit) {        JsonNode series = chart.get("series");
+        if (!(series instanceof ArrayNode array) || array.size() <= limit) return;
+        int original = array.size();
+        while (array.size() > limit) array.remove(array.size() - 1);
+        chart.put("originalSeriesCount", original);
+        chart.put("omittedSeries", original - limit);
+    }
+
+    private void trimStrings(JsonNode node, int maxLength) {
+        if (node instanceof ObjectNode object) {
+            var fields = object.fields();
+            while (fields.hasNext()) {
+                var entry = fields.next();
+                JsonNode value = entry.getValue();
+                if (value.isTextual() && value.asText().length() > maxLength) {
+                    object.put(entry.getKey(), value.asText().substring(0, maxLength) + "…");
+                } else {
+                    trimStrings(value, maxLength);
+                }
+            }
+        } else if (node instanceof ArrayNode array) {
+            for (JsonNode item : array) trimStrings(item, maxLength);
+        }
     }
 
     private static boolean isChartChunk(String content) {
@@ -1268,6 +1446,404 @@ public class KnowledgeService {
         patch.setChunkCount(chunkCount);
         patch.setErrorMessage(error);
         docMapper.updateById(patch);
+    }
+
+    private KnowledgeDocument findReusableDocument(KnowledgeDocument doc, String sourceSha) {
+        if (sourceSha == null) return null;
+        try {
+            List<KnowledgeDocument> candidates = docMapper.selectList(
+                    new LambdaQueryWrapper<KnowledgeDocument>()
+                            .eq(KnowledgeDocument::getKnowledgeBaseId, doc.getKnowledgeBaseId())
+                            .eq(KnowledgeDocument::getSourceSha256, sourceSha)
+                            .ne(KnowledgeDocument::getId, doc.getId())
+                            .eq(KnowledgeDocument::getStatus, "DONE")
+                            .orderByDesc(KnowledgeDocument::getCreatedAt)
+                            .last("LIMIT 5"));
+            if (candidates == null) return null;
+            for (KnowledgeDocument candidate : candidates) {
+                if (Objects.equals(blankToNull(doc.getParseConfig()),
+                        blankToNull(candidate.getParseConfig()))) {
+                    return candidate;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("重复文件查询失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
+        }
+        return null;
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    /**
+     * 复用同知识库相同 SHA256 文档的分段、父块和向量，跳过重复解析/嵌入。
+     * 任一环节失败都会清理新文档残留并回退正常解析。
+     */
+    private boolean reuseDocument(KnowledgeDocument doc, byte[] bytes, KnowledgeDocument source,
+                                  KnowledgePermissionService.Acl acl, String embeddingModel,
+                                  int dimensions, List<String> warnings) {
+        try {
+            List<KnowledgeChunk> oldChunks = chunkMapper.selectList(
+                    new LambdaQueryWrapper<KnowledgeChunk>()
+                            .eq(KnowledgeChunk::getDocumentId, source.getId())
+                            .orderByAsc(KnowledgeChunk::getChunkIndex));
+            if (oldChunks == null || oldChunks.isEmpty()) return false;
+            Map<Integer, String> parentContents = new HashMap<>();
+            if (parentMapper != null) {
+                for (KnowledgeParent parent : parentMapper.selectList(
+                        new LambdaQueryWrapper<KnowledgeParent>()
+                                .eq(KnowledgeParent::getDocumentId, source.getId()))) {
+                    if (parent.getParentIndex() != null) {
+                        parentContents.put(parent.getParentIndex(), parent.getContent());
+                    }
+                }
+            }
+            List<KnowledgeChunk> newChunks = new ArrayList<>(oldChunks.size());
+            for (KnowledgeChunk old : oldChunks) {
+                KnowledgeChunk chunk = new KnowledgeChunk();
+                chunk.setDocumentId(doc.getId());
+                chunk.setKnowledgeBaseId(doc.getKnowledgeBaseId());
+                chunk.setChunkIndex(old.getChunkIndex());
+                chunk.setParentIndex(old.getParentIndex());
+                String parentContent = old.getParentContent();
+                if ((parentContent == null || parentContent.isBlank()) && old.getParentIndex() != null) {
+                    parentContent = parentContents.get(old.getParentIndex());
+                }
+                chunk.setParentContent(parentContent);
+                chunk.setContent(old.getContent());
+                chunk.setPageFrom(old.getPageFrom());
+                chunk.setPageTo(old.getPageTo());
+                chunk.setAllowedUsers(usersJson(acl.allowedUsers()));
+                chunk.setTenantVisible(acl.tenantWide() ? 1 : 0);
+                chunk.setTenantId(doc.getTenantId());
+                chunk.setCreatedAt(LocalDateTime.now());
+                newChunks.add(chunk);
+            }
+            if (storeParents(doc, newChunks, warnings)) {
+                for (KnowledgeChunk chunk : newChunks) chunk.setParentContent(null);
+            }
+            Map<Integer, Long> chunkIds = insertChunks(doc, newChunks);
+            if (chunkIds.size() != newChunks.size()) {
+                cleanupPartial(doc);
+                return false;
+            }
+            LocalDateTime effectiveFrom = doc.getEffectiveFrom() != null
+                    ? doc.getEffectiveFrom() : (doc.getCreatedAt() == null ? LocalDateTime.now() : doc.getCreatedAt());
+            LocalDateTime effectiveTo = doc.getEffectiveTo();
+            LocalDateTime now = LocalDateTime.now();
+            Map<String, Object> overrides = new LinkedHashMap<>();
+            overrides.put("knowledge_base_id", doc.getKnowledgeBaseId());
+            overrides.put("document_id", doc.getId());
+            overrides.put("file_name", doc.getFileName());
+            overrides.put("document_created_at",
+                    doc.getCreatedAt() == null ? null : doc.getCreatedAt().toString());
+            overrides.put("allowed_users", acl.allowedUsers().stream().map(String::valueOf).toList());
+            overrides.put("tenant_visible", acl.tenantWide());
+            overrides.put("embedding_model", embeddingModel);
+            overrides.put("effective_from", effectiveFrom.toString());
+            overrides.put("effective_to", effectiveTo == null ? null : effectiveTo.toString());
+            overrides.put("created_at", now.toString());
+            overrides.put("updated_at", now.toString());
+            int copied = vectorRepository.copyDocumentVectors(doc.getTenantId(), source.getId(),
+                    doc.getId(), dimensions, embeddingModel, chunkIds, overrides);
+            if (copied < newChunks.size()) {
+                cleanupPartial(doc);
+                return false;
+            }
+            try {
+                storeDocumentImages(doc, bytes);
+            } catch (Exception e) {
+                log.warn("复用文档图片存储失败（忽略）doc={} err={}", doc.getId(), e.getMessage());
+            }
+            warnings.add("已复用相同文件「" + source.getFileName() + "」的解析结果");
+            updateStatus(doc, "DONE", newChunks.size(), null);
+            storeParseWarning(doc, warnings);
+            try {
+                graphService.autoExtractAfterParse(doc.getTenantId(), doc.getKnowledgeBaseId(), doc.getId());
+            } catch (Exception e) {
+                log.warn("复用文档自动图谱失败（忽略）doc={} err={}", doc.getId(), e.getMessage());
+            }
+            log.info("文档复用完成：doc={} source={} chunks={}", doc.getId(), source.getId(), copied);
+            return true;
+        } catch (Exception e) {
+            log.warn("重复文件复用失败，回退重新解析 doc={} source={} err={}",
+                    doc.getId(), source.getId(), e.getMessage());
+            cleanupPartial(doc);
+            return false;
+        }
+    }
+
+    /** 文件 SHA256：用于重复上传提示；不阻断解析。 */
+    private String sha256(byte[] bytes) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String contentHash(String text) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(text.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            return Integer.toHexString(String.valueOf(text).hashCode());
+        }
+    }
+
+    private void recordSourceHash(KnowledgeDocument doc, String sha256, List<String> warnings) {
+        if (sha256 == null) return;
+        try {
+            doc.setSourceSha256(sha256);
+            docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
+                    .eq(KnowledgeDocument::getId, doc.getId())
+                    .set(KnowledgeDocument::getSourceSha256, sha256));
+            List<KnowledgeDocument> duplicates = docMapper.selectList(
+                    new LambdaQueryWrapper<KnowledgeDocument>()
+                            .eq(KnowledgeDocument::getKnowledgeBaseId, doc.getKnowledgeBaseId())
+                            .eq(KnowledgeDocument::getSourceSha256, sha256)
+                            .ne(KnowledgeDocument::getId, doc.getId())
+                            .eq(KnowledgeDocument::getStatus, "DONE")
+                            .last("LIMIT 1"));
+            if (duplicates != null && !duplicates.isEmpty()) {
+                warnings.add("检测到相同文件「" + duplicates.get(0).getFileName()
+                        + "」；相同文本嵌入会命中缓存，如需清理可删除重复文档");
+            }
+        } catch (Exception e) {
+            log.debug("文件哈希记录失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * 嵌入缓存：按 embedding_model + SHA256(embeddingText) 复用向量。
+     * 缓存不可用时自动回退全量嵌入；缓存写入失败不影响本次解析。
+     */
+    private float[][] embedChunksWithCache(List<DocumentParser.ParsedChunk> chunks, String model) {
+        cleanupEmbeddingCacheIfNeeded();
+        List<String> texts = chunks.stream()
+                .map(DocumentParser.ParsedChunk::embeddingContent).toList();
+        if (mysqlJdbcTemplate == null || texts.isEmpty()) {
+            return embeddingService.embedBatch(texts, model);
+        }
+        LinkedHashMap<String, Integer> unique = new LinkedHashMap<>();
+        for (int i = 0; i < texts.size(); i++) unique.putIfAbsent(texts.get(i), i);
+        Map<String, float[]> cached = loadEmbeddingCache(model, unique.keySet());
+        List<String> missing = unique.keySet().stream()
+                .filter(text -> !cached.containsKey(text)).toList();
+        if (!missing.isEmpty()) {
+            float[][] generated = embeddingService.embedBatch(missing, model);
+            for (int i = 0; i < missing.size(); i++) {
+                cached.put(missing.get(i), generated[i]);
+            }
+            storeEmbeddingCache(model, missing, generated);
+        }
+        float[][] vectors = new float[texts.size()][];
+        for (int i = 0; i < texts.size(); i++) {
+            vectors[i] = cached.get(texts.get(i));
+        }
+        return vectors;
+    }
+
+    private void cleanupEmbeddingCacheIfNeeded() {
+        if (mysqlJdbcTemplate == null) return;
+        long now = System.currentTimeMillis();
+        long last = lastCacheCleanupAt.get();
+        if (now - last < 3_600_000L || !lastCacheCleanupAt.compareAndSet(last, now)) return;
+        try {
+            int days = Math.max(1, embeddingCacheTtlDays);
+            mysqlJdbcTemplate.update("DELETE FROM knowledge_embedding_cache WHERE created_at < " +
+                    "DATE_SUB(NOW(), INTERVAL " + days + " DAY) LIMIT 10000");
+        } catch (Exception e) {
+            log.debug("embedding 缓存清理失败（忽略）：{}", e.getMessage());
+        }
+    }
+
+    private Map<String, float[]> loadEmbeddingCache(String model, java.util.Collection<String> texts) {
+        Map<String, float[]> cached = new HashMap<>();
+        if (texts == null || texts.isEmpty()) return cached;
+        try {
+            List<String> hashes = texts.stream().map(this::contentHash).toList();
+            for (int start = 0; start < hashes.size(); start += 500) {
+                List<String> batch = hashes.subList(start, Math.min(hashes.size(), start + 500));
+                String placeholders = String.join(",", java.util.Collections.nCopies(batch.size(), "?"));
+                List<Object> args = new ArrayList<>();
+                args.add(model);
+                args.addAll(batch);
+                List<Map<String, Object>> rows = mysqlJdbcTemplate.queryForList(
+                        "SELECT content_hash, embedding FROM knowledge_embedding_cache " +
+                                "WHERE embedding_model = ? AND content_hash IN (" + placeholders + ")",
+                        args.toArray());
+                for (Map<String, Object> row : rows) {
+                    Object hash = row.get("content_hash");
+                    Object embedding = row.get("embedding");
+                    if (hash == null || embedding == null) continue;
+                    try {
+                        cached.put(String.valueOf(hash),
+                                objectMapper.readValue(String.valueOf(embedding), float[].class));
+                    } catch (Exception ignored) {
+                        // 缓存损坏时按 miss 处理
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("embedding 缓存读取失败，回退全量嵌入：{}", e.getMessage());
+        }
+        return cached;
+    }
+
+    private void storeEmbeddingCache(String model, List<String> texts, float[][] vectors) {
+        if (texts.isEmpty()) return;
+        try {
+            String sql = "INSERT INTO knowledge_embedding_cache " +
+                    "(embedding_model, content_hash, dimensions, embedding) VALUES (?, ?, ?, ?) " +
+                    "ON DUPLICATE KEY UPDATE dimensions = VALUES(dimensions), embedding = VALUES(embedding)";
+            List<Object[]> batch = new ArrayList<>(texts.size());
+            for (int i = 0; i < texts.size(); i++) {
+                batch.add(new Object[]{model, contentHash(texts.get(i)), vectors[i].length,
+                        objectMapper.writeValueAsString(vectors[i])});
+            }
+            for (int start = 0; start < batch.size(); start += 500) {
+                mysqlJdbcTemplate.batchUpdate(sql,
+                        batch.subList(start, Math.min(batch.size(), start + 500)));
+            }
+        } catch (Exception e) {
+            log.warn("embedding 缓存写入失败（不影响解析）：{}", e.getMessage());
+        }
+    }
+
+    /** 父块只存一份；失败时保留 chunk.parent_content 回退，不影响正文。 */
+    private boolean storeParents(KnowledgeDocument doc, List<KnowledgeChunk> chunks,
+                                 List<String> warnings) {
+        if (parentMapper == null) return false;
+        Map<Integer, String> parents = new LinkedHashMap<>();
+        for (KnowledgeChunk chunk : chunks) {
+            if (chunk.getParentIndex() == null || chunk.getParentContent() == null
+                    || chunk.getParentContent().isBlank()) continue;
+            parents.putIfAbsent(chunk.getParentIndex(), chunk.getParentContent());
+        }
+        if (parents.isEmpty()) return false;
+        try {
+            if (mysqlJdbcTemplate != null) {
+                mysqlJdbcTemplate.update("DELETE FROM knowledge_parent WHERE document_id = ?", doc.getId());
+                String sql = "INSERT INTO knowledge_parent " +
+                        "(document_id, knowledge_base_id, parent_index, content, tenant_id, created_at) " +
+                        "VALUES (?, ?, ?, ?, ?, ?)";
+                List<Object[]> batch = new ArrayList<>(parents.size());
+                LocalDateTime now = LocalDateTime.now();
+                for (var entry : parents.entrySet()) {
+                    batch.add(new Object[]{doc.getId(), doc.getKnowledgeBaseId(), entry.getKey(),
+                            entry.getValue(), doc.getTenantId(), java.sql.Timestamp.valueOf(now)});
+                }
+                for (int start = 0; start < batch.size(); start += 500) {
+                    mysqlJdbcTemplate.batchUpdate(sql,
+                            batch.subList(start, Math.min(batch.size(), start + 500)));
+                }
+                return true;
+            }
+            parentMapper.delete(new LambdaQueryWrapper<KnowledgeParent>()
+                    .eq(KnowledgeParent::getDocumentId, doc.getId()));
+            for (var entry : parents.entrySet()) {
+                KnowledgeParent parent = new KnowledgeParent();
+                parent.setDocumentId(doc.getId());
+                parent.setKnowledgeBaseId(doc.getKnowledgeBaseId());
+                parent.setParentIndex(entry.getKey());
+                parent.setContent(entry.getValue());
+                parent.setTenantId(doc.getTenantId());
+                parent.setCreatedAt(LocalDateTime.now());
+                parentMapper.insert(parent);
+            }
+            return true;
+        } catch (Exception e) {
+            log.warn("父块独立存储失败，回退 chunk.parent_content doc={} err={}",
+                    doc.getId(), e.getMessage());
+            warnings.add("父块独立存储失败，已回退重复存储：" + e.getMessage());
+            return false;
+        }
+    }
+
+    /** MySQL 分段批量写入；批量失败时清理并回退逐条插入，保证不产生半批数据。 */
+    private Map<Integer, Long> insertChunks(KnowledgeDocument doc, List<KnowledgeChunk> chunks) {
+        Map<Integer, Long> ids = new HashMap<>();
+        if (mysqlJdbcTemplate != null && chunks.size() > 1) {
+            try {
+                String sql = """
+                        INSERT INTO knowledge_chunk
+                        (document_id, knowledge_base_id, chunk_index, parent_index, parent_content,
+                         page_from, page_to, content, allowed_users, tenant_visible, tenant_id, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """;
+                List<Object[]> batch = new ArrayList<>(chunks.size());
+                for (KnowledgeChunk chunk : chunks) {
+                    batch.add(new Object[]{chunk.getDocumentId(), chunk.getKnowledgeBaseId(),
+                            chunk.getChunkIndex(), chunk.getParentIndex(), chunk.getParentContent(),
+                            chunk.getPageFrom(), chunk.getPageTo(), chunk.getContent(),
+                            chunk.getAllowedUsers(), chunk.getTenantVisible(), chunk.getTenantId(),
+                            java.sql.Timestamp.valueOf(chunk.getCreatedAt())});
+                }
+                for (int start = 0; start < batch.size(); start += 500) {
+                    mysqlJdbcTemplate.batchUpdate(sql,
+                            batch.subList(start, Math.min(batch.size(), start + 500)));
+                }
+                for (Map<String, Object> row : mysqlJdbcTemplate.queryForList(
+                        "SELECT id, chunk_index FROM knowledge_chunk WHERE document_id = ?",
+                        doc.getId())) {
+                    Object index = row.get("chunk_index");
+                    Object id = row.get("id");
+                    if (index instanceof Number i && id instanceof Number value) {
+                        ids.put(i.intValue(), value.longValue());
+                    }
+                }
+                if (ids.size() == chunks.size()) return ids;
+                log.warn("MySQL 批量插入后分段数不匹配，回退逐条写入 doc={} expected={} actual={}",
+                        doc.getId(), chunks.size(), ids.size());
+                mysqlJdbcTemplate.update("DELETE FROM knowledge_chunk WHERE document_id = ?", doc.getId());
+                ids.clear();
+            } catch (Exception e) {
+                log.warn("MySQL 批量插入失败，回退逐条写入 doc={} err={}", doc.getId(), e.getMessage());
+                try {
+                    mysqlJdbcTemplate.update("DELETE FROM knowledge_chunk WHERE document_id = ?", doc.getId());
+                } catch (Exception ignored) {
+                    // 清理失败时由 doParse 的 cleanupPartial 兜底
+                }
+                ids.clear();
+            }
+        }
+        for (KnowledgeChunk chunk : chunks) {
+            chunkMapper.insert(chunk);
+            ids.put(chunk.getChunkIndex(), chunk.getId());
+        }
+        return ids;
+    }
+
+    /** 图片说明按句末截断，避免切在句子中间。 */
+    private String truncateAtSentence(String text, int max) {
+        if (text == null || text.length() <= max) return text;
+        int cut = max;
+        for (int i = max - 1; i >= max / 2; i--) {
+            char c = text.charAt(i);
+            if (c == '。' || c == '！' || c == '？' || c == '.' || c == '!' || c == '?'
+                    || c == '；' || c == ';' || c == '\n') {
+                cut = i + 1;
+                break;
+            }
+        }
+        return text.substring(0, cut).trim() + "…";
+    }
+
+    private void storeParseWarning(KnowledgeDocument doc, List<String> warnings) {        String text = warnings == null ? "" : warnings.stream()
+                .filter(message -> message != null && !message.isBlank())
+                .distinct()
+                .collect(java.util.stream.Collectors.joining("；"));
+        if (text.length() > 1000) text = text.substring(0, 1000);
+        KnowledgeDocument patch = new KnowledgeDocument();
+        patch.setId(doc.getId());
+        patch.setParseWarning(text);
+        try {
+            docMapper.updateById(patch);
+        } catch (Exception e) {
+            log.warn("解析告警写入失败（不影响文档状态）doc={} err={}", doc.getId(), e.getMessage());
+        }
     }
 
     private void recordEmbeddingUsage(KnowledgeDocument doc, int chunkCount, String embeddingModel) {

@@ -1,0 +1,112 @@
+package com.platform.knowledge.service;
+
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Test;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * 真实 PDF 样本基准：默认跳过，设置 PDF_BENCH_DIR 目录后运行。
+ * 输出 target/pdf-bench-report.md，用于人工检查标题、表格、页码与耗时。
+ */
+class PdfBenchmarkTest {
+
+    private static final Pattern HEADING = Pattern.compile("(?m)^#{1,4}\\s+");
+    private static final Pattern PIPE_TABLE = Pattern.compile("(?m)^\\|\\s*---");
+
+    @Test
+    void benchmark() throws Exception {
+        String dir = System.getenv("PDF_BENCH_DIR");
+        Assumptions.assumeTrue(dir != null && !dir.isBlank(), "未设置 PDF_BENCH_DIR，跳过真实 PDF 基准");
+        List<Path> files;
+        try (var stream = Files.list(Path.of(dir))) {
+            files = stream.filter(path -> path.toString().toLowerCase(Locale.ROOT).endsWith(".pdf"))
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                    .toList();
+        }
+        Assumptions.assumeFalse(files.isEmpty(), "目录内没有 PDF");
+
+        DocumentParser parser = new DocumentParser();
+        StringBuilder report = new StringBuilder("# PDF 解析基准报告\n\n");
+        report.append("| 文件 | 页数 | 大小 | 耗时 | 分段 | 字符 | 标题 | 表格 | 图片 | 页码覆盖 | 状态 |\n");
+        report.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |\n");
+        List<String> samples = new ArrayList<>();
+
+        for (Path file : files) {
+            byte[] bytes = Files.readAllBytes(file);
+            int pages = 0;
+            try (PDDocument doc = Loader.loadPDF(bytes)) {
+                pages = doc.getNumberOfPages();
+            } catch (Exception ignored) {
+                // 页数读取失败时保留 0，解析结果会给出错误
+            }
+            List<DocumentParser.ParsedChunk> chunks = List.of();
+            String error = null;
+            long start = System.nanoTime();
+            try {
+                chunks = parser.parseWithParents(file.getFileName().toString(), bytes);
+            } catch (Exception e) {
+                error = e.getMessage();
+            }
+            long ms = (System.nanoTime() - start) / 1_000_000;
+            String text = chunks.stream().map(DocumentParser.ParsedChunk::content).reduce("", (a, b) -> a + "\n" + b);
+            int headings = count(HEADING.matcher(text));
+            int tables = count(PIPE_TABLE.matcher(text)) + occurrences(text, "<table");
+            int images = 0;
+            try {
+                images = parser.extractImages(file.getFileName().toString(), bytes).size();
+            } catch (Exception ignored) {
+                // 图片统计失败不影响解析结果
+            }
+            int maxPage = chunks.stream().mapToInt(DocumentParser.ParsedChunk::pageTo).max().orElse(0);
+            String status = error == null ? "OK" : "FAIL: " + error;
+            report.append("| ").append(file.getFileName()).append(" | ").append(pages)
+                    .append(" | ").append(bytes.length / 1024).append("KB | ").append(ms)
+                    .append("ms | ").append(chunks.size())
+                    .append(" | ").append(text.length())
+                    .append(" | ").append(headings)
+                    .append(" | ").append(tables)
+                    .append(" | ").append(images)
+                    .append(" | 1-").append(maxPage)
+                    .append(" | ").append(status).append(" |\n");
+            if (error == null) {
+                samples.add("\n## " + file.getFileName() + "\n\n```text\n"
+                        + preview(text, 1200) + "\n```\n");
+            }
+        }
+        report.append(String.join("", samples));
+        Files.createDirectories(Path.of("target"));
+        Files.writeString(Path.of("target/pdf-bench-report.md"), report.toString());
+        System.out.println(report);
+    }
+
+    private static int count(Matcher matcher) {
+        int count = 0;
+        while (matcher.find()) count++;
+        return count;
+    }
+
+    private static int occurrences(String text, String value) {
+        int count = 0;
+        int index = 0;
+        while ((index = text.indexOf(value, index)) >= 0) {
+            count++;
+            index += value.length();
+        }
+        return count;
+    }
+
+    private static String preview(String text, int max) {
+        String value = text.replace("\r", "");
+        return value.length() <= max ? value : value.substring(0, max) + "\n...[truncated]";
+    }
+}

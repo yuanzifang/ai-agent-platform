@@ -17,6 +17,8 @@ public class KnowledgeChunk {
     private Integer chunkIndex;
     private Integer parentIndex;
     private String parentContent;
+    private Integer pageFrom;
+    private Integer pageTo;
     private String content;
     private String allowedUsers;
     private Integer tenantVisible;

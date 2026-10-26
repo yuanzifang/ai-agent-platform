@@ -7,7 +7,7 @@
 
 - 框架：Spring AI 1.0.x 基础框架 + Spring AI Alibaba（Graph 多 Agent 编排，M2+ 引入）
 - Chat 模型：DeepSeek（OpenAI 兼容协议），API Key 经 `DEEPSEEK_API_KEY` 注入（占位，后补）
-- 嵌入模型：本地 Ollama `nomic-embed-text`（768 维，零成本），`ollama.endpoint` 默认 http://localhost:11434
+- 嵌入模型：默认优先本地 Ollama `bge-m3`（1024 维，中文效果更好）；启动时探测 Ollama，未安装则自动回退 `nomic-embed-text`（768 维）。评测见 `docs/中文Embedding评测.md`
 - 语音转文字：本地 ASR 服务（接口样例后补，当前 `asr.enabled=false`）
 - 开发模式：本机直跑（无需 Docker）；Docker Compose 仅服务器部署用
 
@@ -29,8 +29,9 @@ mysql -uroot -e "CREATE DATABASE ai_agent_platform DEFAULT CHARACTER SET utf8mb4
 psql -d postgres -c "CREATE DATABASE vector;"
 # pgvector 扩展：psql -d vector -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-# 本地嵌入模型
+# 本地嵌入模型（默认优先 bge-m3，未安装时自动回退 nomic）
 ollama pull nomic-embed-text
+ollama pull bge-m3
 ```
 
 ## 环境变量（后端）

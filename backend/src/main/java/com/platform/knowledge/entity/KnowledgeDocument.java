@@ -16,8 +16,10 @@ public class KnowledgeDocument {
     private String fileName;
     private String objectName;
     private String status;   // PENDING / PARSING / DONE / FAILED
+    private String parseWarning;
     private Integer chunkCount;
     private Long sizeBytes;
+    private String sourceSha256;
     private String errorMessage;
     private Integer retryTimes;
     private Long tenantId;

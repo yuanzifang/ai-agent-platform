@@ -33,6 +33,17 @@ class VectorRepositoryTest {
     }
 
     @Test
+    void bgeDefaultKeepsLegacyEmbeddingsTableForNomic() {
+        EmbeddingProperties props = new EmbeddingProperties();
+        props.setModel("bge-m3");
+        props.setDimensions(1024);
+        props.setAvailable(Map.of("nomic-embed-text", 768, "bge-m3", 1024));
+        VectorRepository repo = new VectorRepository(mock(JdbcTemplate.class), props);
+        assertEquals("embeddings_1024", repo.table(1024));
+        assertEquals("embeddings", repo.table(768), "768 维 nomic 继续使用历史表名");
+    }
+
+    @Test
     void upgradeAddsAndBackfillsVectorTimestamps() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         VectorRepository repo = new VectorRepository(jdbc, properties());
@@ -47,6 +58,7 @@ class VectorRepositoryTest {
         assertTrue(all.contains("ADD COLUMN IF NOT EXISTS updated_at"), "旧表应补 updated_at");
         assertTrue(all.contains("SET metadata ="), "旧数据应回填 metadata 时间");
         assertTrue(all.contains("idx_embeddings_effective"), "应按生效时间建索引");
+        assertTrue(all.contains("USING hnsw"), "应为向量列建 HNSW 索引");
     }
 
     @Test
@@ -77,7 +89,7 @@ class VectorRepositoryTest {
         repo.saveBatch(1L, List.of(row), 768);
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-        verify(jdbc).update(sql.capture(), any(Object[].class));
+        verify(jdbc, atLeastOnce()).batchUpdate(sql.capture(), any(List.class));
         assertTrue(sql.getValue().contains("created_at"));
         assertTrue(sql.getValue().contains("updated_at"));
         assertTrue(sql.getValue().contains("effective_from"));

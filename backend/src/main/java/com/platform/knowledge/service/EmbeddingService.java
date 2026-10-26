@@ -2,6 +2,8 @@ package com.platform.knowledge.service;
 
 import com.platform.billing.service.QuotaService;
 import com.platform.common.exception.BusinessException;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -13,6 +15,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * 嵌入服务（架构 6.4）：Ollama/OpenAI 兼容 /v1/embeddings；知识库按名称选择模型与维度。
@@ -25,7 +32,79 @@ public class EmbeddingService {
     private final EmbeddingProperties properties;
     private final QuotaService quotaService;
 
-    private RestClient client;
+    /** 启动探测后的实际默认模型；未探测/探测失败时回退配置值。 */
+    private volatile String effectiveModel;
+
+    @org.springframework.beans.factory.annotation.Value("${embedding.batch-concurrency:1}")
+    private int batchConcurrency = 1;
+
+    private volatile RestClient client;
+    private volatile ExecutorService embedExecutor;
+
+    private ExecutorService executor() {
+        if (embedExecutor == null) {
+            synchronized (this) {
+                if (embedExecutor == null) {
+                    int threads = Math.max(1, Math.min(4, batchConcurrency));
+                    embedExecutor = Executors.newFixedThreadPool(threads, runnable -> {
+                        Thread thread = new Thread(runnable, "embedding-batch");
+                        thread.setDaemon(true);
+                        return thread;
+                    });
+                }
+            }
+        }
+        return embedExecutor;
+    }
+
+    @PreDestroy
+    void shutdownExecutor() {
+        if (embedExecutor != null) embedExecutor.shutdownNow();
+    }
+
+    /**
+     * 默认优先 bge-m3；如果 Ollama 未安装 bge-m3 但装了 nomic-embed-text，自动回退，
+     * 避免中文默认模型切换导致旧环境新知识库直接不可用。
+     */
+    @PostConstruct
+    void detectAvailableDefaultModel() {
+        String configured = properties.getModel();
+        effectiveModel = configured;
+        if (!"ollama".equalsIgnoreCase(properties.getProvider())) return;
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> body = client().get().uri("/api/tags").retrieve().body(Map.class);
+            List<Map<String, Object>> models = body == null ? null
+                    : (List<Map<String, Object>>) body.get("models");
+            if (models == null) return;
+            Set<String> installed = new java.util.HashSet<>();
+            for (Map<String, Object> item : models) {
+                String name = String.valueOf(item.get("name"));
+                installed.add(name);
+                installed.add(name.replace(":latest", ""));
+            }
+            String chosen = installed.contains(configured) ? configured : null;
+            if (chosen == null && installed.contains("bge-m3")) chosen = "bge-m3";
+            if (chosen == null && installed.contains("nomic-embed-text")) chosen = "nomic-embed-text";
+            if (chosen != null && !chosen.equals(configured)) {
+                log.warn("默认 embedding 模型 {} 未安装，自动回退 {}", configured, chosen);
+            }
+            if (chosen != null) {
+                effectiveModel = chosen;
+                properties.setModel(chosen);
+                Integer dimension = properties.models().get(chosen);
+                if (dimension == null) {
+                    dimension = "bge-m3".equals(chosen) ? 1024
+                            : "nomic-embed-text".equals(chosen) ? 768
+                            : properties.getDimensions();
+                    properties.getAvailable().putIfAbsent(chosen, dimension);
+                }
+                properties.setDimensions(dimension);
+            }
+        } catch (Exception e) {
+            log.warn("Ollama 模型探测失败，保持默认模型 {}：{}", configured, e.getMessage());
+        }
+    }
 
     private RestClient client() {
         if (client == null) {
@@ -39,7 +118,7 @@ public class EmbeddingService {
     }
 
     public float[] embedOne(String text) {
-        return embedBatch(List.of(text), properties.getModel())[0];
+        return embedBatch(List.of(text), model())[0];
     }
 
     public float[] embedOne(String text, String modelName) {
@@ -47,7 +126,7 @@ public class EmbeddingService {
     }
 
     public float[][] embedBatch(List<String> texts) {
-        return embedBatch(texts, properties.getModel());
+        return embedBatch(texts, model());
     }
 
     public float[][] embedBatch(List<String> texts, String modelName) {
@@ -62,10 +141,33 @@ public class EmbeddingService {
         int batchSize = Math.max(1, Math.min(properties.getBatchSize(), 128));
         if (texts.size() <= batchSize) return requestBatch(texts, effectiveModel);
         float[][] result = new float[texts.size()][];
-        for (int start = 0; start < texts.size(); start += batchSize) {
+        List<Integer> starts = new ArrayList<>();
+        for (int start = 0; start < texts.size(); start += batchSize) starts.add(start);
+        if (batchConcurrency <= 1 || starts.size() <= 1) {
+            for (int start : starts) {
+                int end = Math.min(texts.size(), start + batchSize);
+                float[][] part = requestBatch(texts.subList(start, end), effectiveModel);
+                System.arraycopy(part, 0, result, start, part.length);
+            }
+            return result;
+        }
+        List<Future<float[][]>> futures = new ArrayList<>(starts.size());
+        for (int start : starts) {
             int end = Math.min(texts.size(), start + batchSize);
-            float[][] part = requestBatch(texts.subList(start, end), effectiveModel);
-            System.arraycopy(part, 0, result, start, part.length);
+            futures.add(executor().submit(() -> requestBatch(texts.subList(start, end), effectiveModel)));
+        }
+        for (int i = 0; i < starts.size(); i++) {
+            try {
+                float[][] part = futures.get(i).get();
+                System.arraycopy(part, 0, result, starts.get(i), part.length);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new BusinessException(502, "embedding 批次被中断");
+            } catch (ExecutionException e) {
+                Throwable root = e.getCause() == null ? e : e.getCause();
+                if (root instanceof BusinessException business) throw business;
+                throw new BusinessException(502, "embedding 批次失败：" + root.getMessage());
+            }
         }
         return result;
     }
@@ -105,11 +207,12 @@ public class EmbeddingService {
     }
 
     public String model() {
-        return properties.getModel();
+        return effectiveModel == null || effectiveModel.isBlank()
+                ? properties.getModel() : effectiveModel;
     }
 
     public int dimension(String modelName) {
-        return properties.dimensionOf(modelName);
+        return properties.dimensionOf(modelName == null || modelName.isBlank() ? model() : modelName);
     }
 
     public boolean supports(String modelName) {

@@ -3,10 +3,10 @@ package com.platform.knowledge.service;
 import com.platform.common.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.contentstream.operator.Operator;
+import org.apache.pdfbox.cos.COSDictionary;
 import org.apache.pdfbox.pdfparser.PDFStreamParser;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
-import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
@@ -60,6 +60,7 @@ import org.w3c.dom.NodeList;
 
 import javax.imageio.ImageIO;
 import javax.xml.parsers.DocumentBuilderFactory;
+import jakarta.annotation.PreDestroy;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -68,10 +69,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.LinkedHashMap;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -85,9 +92,6 @@ import java.util.zip.ZipInputStream;
 @Service
 public class DocumentParser {
 
-    private static final int CHUNK_SIZE = 500;
-    private static final int CHUNK_OVERLAP = 50;
-    private static final int PARENT_SIZE = 2000;
     private static final long MAX_BYTES = 20 * 1024 * 1024;
 
     @Value("${knowledge.ocr.enabled:false}")
@@ -98,9 +102,33 @@ public class DocumentParser {
     private String ocrLanguages;
     @Value("${knowledge.ocr.max-pages:20}")
     private int ocrMaxPages;
+    @Value("${knowledge.ocr.concurrency:1}")
+    private int ocrConcurrency = 1;
 
     /** 解析级覆盖（上传/知识库/租户/平台配置解析产物）；为空时回落上方 @Value 默认。 */
     private final ThreadLocal<ParseOptions> optsHolder = new ThreadLocal<>();
+    private final ThreadLocal<List<String>> warningsHolder = new ThreadLocal<>();
+
+    public record ParseOutcome(List<ParsedChunk> chunks, List<String> warnings) {
+    }
+
+    /** 带警告的解析入口：OCR 超限、扫描页无文本等不会静默丢失。 */
+    public ParseOutcome parseWithParentsAndWarnings(String fileName, byte[] bytes, ParseOptions opts) {
+        warningsHolder.set(new ArrayList<>());
+        try {
+            return new ParseOutcome(parseWithParents(fileName, bytes, opts),
+                    List.copyOf(warningsHolder.get()));
+        } finally {
+            warningsHolder.remove();
+        }
+    }
+
+    private void warn(String message) {
+        List<String> warnings = warningsHolder.get();
+        if (warnings != null && message != null && !message.isBlank()) {
+            warnings.add(message);
+        }
+    }
 
     /** 带生效配置的解析入口（KnowledgeService 解析链使用）。 */
     public List<ParsedChunk> parseWithParents(String fileName, byte[] bytes, ParseOptions opts) {
@@ -138,8 +166,41 @@ public class DocumentParser {
     @Value("${knowledge.pdf.vector-chart-render-enabled:true}")
     private boolean vectorChartRenderEnabled;
     private final ThreadLocal<Integer> attachmentDepth = ThreadLocal.withInitial(() -> 0);
+    private volatile ExecutorService ocrExecutor;
 
-    public record ParsedChunk(String content, int parentIndex, String parentContent) {
+    private ExecutorService ocrExecutor() {
+        if (ocrExecutor == null) {
+            synchronized (this) {
+                if (ocrExecutor == null) {
+                    int threads = Math.max(1, Math.min(4, ocrConcurrency));
+                    ocrExecutor = Executors.newFixedThreadPool(threads, runnable -> {
+                        Thread thread = new Thread(runnable, "knowledge-ocr");
+                        thread.setDaemon(true);
+                        return thread;
+                    });
+                }
+            }
+        }
+        return ocrExecutor;
+    }
+
+    @PreDestroy
+    void shutdownOcrExecutor() {
+        if (ocrExecutor != null) ocrExecutor.shutdownNow();
+    }
+
+    public record ParsedChunk(String content, int parentIndex, String parentContent,
+                              String embeddingText, int pageFrom, int pageTo) {
+
+        /** 兼容旧构造：embedding 文本按去 Markdown/HTML 纯文本生成，页码未知。 */
+        public ParsedChunk(String content, int parentIndex, String parentContent) {
+            this(content, parentIndex, parentContent, MarkdownText.toPlain(content), 0, 0);
+        }
+
+        public String embeddingContent() {
+            return embeddingText == null || embeddingText.isBlank()
+                    ? MarkdownText.toPlain(content) : embeddingText;
+        }
     }
 
     public record ExtractedImage(byte[] data, String extension) {
@@ -172,19 +233,12 @@ public class DocumentParser {
                 try (PDDocument doc = loadPdf(bytes)) {
                     PDFRenderer renderer = new PDFRenderer(doc);
                     int count = 0;
+                    Set<COSDictionary> seen = new HashSet<>();
                     for (int p = 0; p < doc.getNumberOfPages() && count < 20; p++) {
                         PDPage page = doc.getPage(p);
                         PDResources resources = page.getResources();
                         if (resources != null) {
-                            for (var name : resources.getXObjectNames()) {
-                                if (count >= 20) break;
-                                PDXObject x = resources.getXObject(name);
-                                if (!(x instanceof PDImageXObject image)) continue;
-                                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                                ImageIO.write(image.getImage(), "png", out);
-                                addImage(images, out.toByteArray(), "png");
-                                count++;
-                            }
+                            count = collectPdfImages(resources, images, count, 0, seen);
                         }
                         // 内联图片（BI...ID...EI）不在 XObject 资源表中，需走内容流。
                         if (count < 20) {
@@ -215,6 +269,35 @@ public class DocumentParser {
             log.debug("提取文档图片失败（忽略）：{}", e.getMessage());
         }
         return images;
+    }
+
+    /** 递归提取 XObject 图片；Form XObject 内部常嵌套位图，只遍历顶层会漏图。 */
+    private int collectPdfImages(PDResources resources, List<ExtractedImage> images,
+                                 int count, int depth, Set<COSDictionary> seen) {
+        if (resources == null || depth > 4 || count >= 20) return count;
+        try {
+            for (var name : resources.getXObjectNames()) {
+                if (count >= 20) break;
+                PDXObject object = resources.getXObject(name);
+                if (object instanceof PDImageXObject image) {
+                    COSDictionary key = image.getCOSObject();
+                    if (key != null && !seen.add(key)) continue;
+                    try {
+                        ByteArrayOutputStream out = new ByteArrayOutputStream();
+                        ImageIO.write(image.getImage(), "png", out);
+                        addImage(images, out.toByteArray(), "png");
+                        count++;
+                    } catch (Exception e) {
+                        log.debug("PDF 图片解码跳过：{}", e.getMessage());
+                    }
+                } else if (object instanceof org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject form) {
+                    count = collectPdfImages(form.getResources(), images, count, depth + 1, seen);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("PDF XObject 图片遍历跳过：{}", e.getMessage());
+        }
+        return count;
     }
 
     private boolean hasVectorDrawing(PDPage page, int minPaintOps) {
@@ -261,10 +344,8 @@ public class DocumentParser {
             if (lower.endsWith(".docx")) text = parseDocx(bytes);
             else if (lower.endsWith(".doc")) text = parseDoc(bytes);
             else if (lower.endsWith(".ppt")) text = parsePpt(bytes);
-            else if (lower.endsWith(".pdf")) {
-                text = parsePdf(bytes);
-                if (needsOcr(text)) text = parsePdfOcr(bytes, fileName);
-            } else if (lower.endsWith(".xlsx")) text = parseExcel(bytes, false);
+            else if (lower.endsWith(".pdf")) text = parsePdf(bytes);
+            else if (lower.endsWith(".xlsx")) text = parseExcel(bytes, false);
             else if (lower.endsWith(".xls")) text = parseExcel(bytes, true);
             else if (lower.endsWith(".pptx")) text = parsePptx(bytes);
             else if (lower.endsWith(".epub")) text = parseEpub(bytes);
@@ -374,33 +455,174 @@ public class DocumentParser {
 
     private String parsePdf(byte[] bytes) throws Exception {
         try (PDDocument doc = loadPdf(bytes)) {
-            StringBuilder sb = new StringBuilder(new PDFTextStripper().getText(doc));
+            PdfMarkdownConverter converter = new PdfMarkdownConverter(opts(), this::ocrPage, this::warn);
+            StringBuilder sb = new StringBuilder(converter.convert(doc));
             appendPdfMetadata(doc, sb);
-            String rectTables = PdfRectangleTableExtractor.extract(doc);
-            String gridTables = rectTables.isBlank() ? PdfGridLineTableExtractor.extract(doc) : "";
-            String tables = !rectTables.isBlank() ? rectTables
-                    : !gridTables.isBlank() ? gridTables : PdfTableExtractor.extract(doc);
-            if (!tables.isBlank()) sb.append("\n").append(tables).append('\n');
             appendPdfFormsAndAnnotations(doc, sb);
             appendPdfOutlineAndLinks(doc, sb);
             appendPdfAttachments(doc, sb);
-            if (opts().ocrEnabled()) {
-                StringBuilder embeddedTables = new StringBuilder();
-                int count = 0;
-                for (int p = 0; p < doc.getNumberOfPages() && count < 20; p++) {
-                    PDResources resources = doc.getPage(p).getResources();
-                    if (resources == null) continue;
-                    for (var name : resources.getXObjectNames()) {
-                        if (count >= 20) break;
-                        PDXObject x = resources.getXObject(name);
-                        if (!(x instanceof PDImageXObject image)) continue;
-                        appendOcr(sb, image.getImage(), "png", embeddedTables);
-                        count++;
-                    }
-                }
-                if (!embeddedTables.isEmpty()) sb.append('\n').append(embeddedTables).append('\n');
-            }
+            appendEmbeddedImageOcr(doc, sb, converter.ocrPages());
             return sb.toString();
+        }
+    }
+
+    /** 单页 OCR：优先使用整页原图；增强后无文本时回退原始图像，兼容强噪点扫描件。 */
+    private PdfMarkdownConverter.OcrResult ocrPage(PDDocument doc, int pageIndex) throws Exception {
+        PDFRenderer renderer = new PDFRenderer(doc);
+        BufferedImage direct = singleLargePageImage(doc, pageIndex);
+        BufferedImage base = direct != null ? direct
+                : renderer.renderImageWithDPI(pageIndex, Math.max(72, opts().ocrDpi()));
+        boolean enhanced = direct == null || ocrPreprocess || ocrAutoOrient || ocrDeskew;
+        PdfMarkdownConverter.OcrResult result = ocrPageVariant(base, direct == null, true);
+        if (enhanced && result.text().isBlank() && result.tableHtml().isBlank()) {
+            result = ocrPageVariant(base, direct == null, false);
+        }
+        return result;
+    }
+
+    private PdfMarkdownConverter.OcrResult ocrPageVariant(BufferedImage base, boolean crop,
+                                                          boolean enhance) throws Exception {
+        BufferedImage image = base;
+        Path orientTemp = Files.createTempFile("kb-orient-", ".png");
+        Path imagePath = Files.createTempFile("kb-page-ocr-", ".png");
+        try {
+            if (enhance) {
+                if (crop) image = cropForOcr(image);
+                image = preprocessForOcr(image);
+                image = correctOrientation(image, orientTemp);
+                image = deskewForOcr(image);
+            }
+            ImageIO.write(image, "png", imagePath.toFile());
+            OcrTableExtractor.Result result = OcrTableExtractor.extract(runOcrTsv(imagePath), image);
+            return new PdfMarkdownConverter.OcrResult(result.text(), result.table());
+        } finally {
+            Files.deleteIfExists(imagePath);
+            Files.deleteIfExists(orientTemp);
+        }
+    }
+
+    /** 内嵌位图 OCR；Form XObject 内嵌的图片也递归处理。整页已 OCR 的页面跳过，避免重复。 */
+    private void appendEmbeddedImageOcr(PDDocument doc, StringBuilder sb, Set<Integer> ocrPages) {
+        if (!opts().ocrEnabled()) return;
+        StringBuilder tables = new StringBuilder();
+        int[] count = {0};
+        Set<COSDictionary> seen = new HashSet<>();
+        if (ocrConcurrency <= 1) {
+            for (int p = 0; p < doc.getNumberOfPages() && count[0] < 20; p++) {
+                if (ocrPages.contains(p)) continue;
+                PDResources resources = doc.getPage(p).getResources();
+                if (resources != null) collectImageOcr(resources, sb, tables, count, 0, seen);
+            }
+        } else {
+            List<BufferedImage> images = new ArrayList<>();
+            for (int p = 0; p < doc.getNumberOfPages() && count[0] < 20; p++) {
+                if (ocrPages.contains(p)) continue;
+                PDResources resources = doc.getPage(p).getResources();
+                if (resources != null) collectImagesForOcr(resources, images, count, 0, seen);
+            }
+            List<Future<OcrTableExtractor.Result>> futures = new ArrayList<>(images.size());
+            ParseOptions options = opts();
+            for (BufferedImage image : images) {
+                futures.add(ocrExecutor().submit(() -> ocrImageResult(image, options)));
+            }
+            for (Future<OcrTableExtractor.Result> future : futures) {
+                try {
+                    OcrTableExtractor.Result result = future.get();
+                    if (!result.text().isBlank()) {
+                        sb.append("\n[图片OCR]\n").append(result.text().trim()).append('\n');
+                    }
+                    if (!result.table().isBlank()) {
+                        tables = new StringBuilder(OcrTableExtractor.mergeTables(
+                                tables.toString(), result.table()));
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (ExecutionException e) {
+                    log.debug("内嵌图片 OCR 任务失败：{}", e.getCause() == null
+                            ? e.getMessage() : e.getCause().getMessage());
+                }
+            }
+        }
+        if (!tables.isEmpty()) sb.append('\n').append(tables).append('\n');
+    }
+
+    private void collectImagesForOcr(PDResources resources, List<BufferedImage> images,
+                                     int[] count, int depth, Set<COSDictionary> seen) {
+        if (resources == null || depth > 4 || count[0] >= 20) return;
+        try {
+            for (var name : resources.getXObjectNames()) {
+                if (count[0] >= 20) return;
+                PDXObject object = resources.getXObject(name);
+                if (object instanceof PDImageXObject image) {
+                    COSDictionary key = image.getCOSObject();
+                    if (key != null && !seen.add(key)) continue;
+                    if (image.getWidth() < 200 || image.getHeight() < 200) continue;
+                    try {
+                        images.add(image.getImage());
+                        count[0]++;
+                    } catch (Exception e) {
+                        log.debug("PDF 图片解码跳过：{}", e.getMessage());
+                    }
+                } else if (object instanceof org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject form) {
+                    collectImagesForOcr(form.getResources(), images, count, depth + 1, seen);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("PDF 内嵌图片收集跳过：{}", e.getMessage());
+        }
+    }
+
+    /** 单张图片 OCR（图片已解码）；供并发任务使用，线程安全。 */
+    private OcrTableExtractor.Result ocrImageResult(BufferedImage source, ParseOptions options) {
+        if (source == null || options == null || !options.ocrEnabled()) {
+            return new OcrTableExtractor.Result("", "");
+        }
+        optsHolder.set(options);
+        Path orientTemp = null;
+        Path imagePath = null;
+        try {
+            BufferedImage image = preprocessForOcr(source);
+            orientTemp = Files.createTempFile("kb-image-orient-", ".png");
+            image = correctOrientation(image, orientTemp);
+            image = deskewForOcr(image);
+            imagePath = Files.createTempFile("kb-image-ocr-", ".png");
+            ImageIO.write(image, "png", imagePath.toFile());
+            return OcrTableExtractor.extract(runOcrTsv(imagePath), image);
+        } catch (Exception e) {
+            log.debug("内嵌图片并发 OCR 跳过：{}", e.getMessage());
+            return new OcrTableExtractor.Result("", "");
+        } finally {
+            if (imagePath != null) {
+                try { Files.deleteIfExists(imagePath); } catch (Exception ignored) { }
+            }
+            if (orientTemp != null) {
+                try { Files.deleteIfExists(orientTemp); } catch (Exception ignored) { }
+            }
+            optsHolder.remove();
+        }
+    }
+
+    private void collectImageOcr(PDResources resources, StringBuilder sb, StringBuilder tables,
+                                 int[] count, int depth, Set<COSDictionary> seen) {
+        if (resources == null || depth > 4) return;
+        try {
+            for (var name : resources.getXObjectNames()) {
+                if (count[0] >= 20) return;
+                PDXObject object = resources.getXObject(name);
+                if (object instanceof PDImageXObject image) {
+                    COSDictionary key = image.getCOSObject();
+                    if (key != null && !seen.add(key)) continue;
+                    // 页眉 logo、图标等小图不进入 OCR，避免占满 20 张上限。
+                    if (image.getWidth() < 200 || image.getHeight() < 200) continue;
+                    appendOcr(sb, image.getImage(), "png", tables);
+                    count[0]++;
+                } else if (object instanceof org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject form) {
+                    collectImageOcr(form.getResources(), sb, tables, count, depth + 1, seen);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("PDF 内嵌图片 OCR 跳过：{}", e.getMessage());
         }
     }
 
@@ -974,38 +1196,6 @@ public class DocumentParser {
                 || lower.endsWith(".webp");
     }
 
-    private boolean needsOcr(String text) {
-        return opts().ocrEnabled() && (text == null || text.replaceAll("\\s", "").length() < 20);
-    }
-
-    /** 扫描版 PDF OCR：PDFBox 渲染页面为 PNG，再调用外部 tesseract。 */
-    private String parsePdfOcr(byte[] bytes, String fileName) throws Exception {
-        if (!opts().ocrEnabled()) return "";
-        StringBuilder sb = new StringBuilder();
-        String mergedTable = "";
-        Path tempDir = Files.createTempDirectory("kb-ocr-");
-        try (PDDocument doc = loadPdf(bytes)) {
-            PDFRenderer renderer = new PDFRenderer(doc);
-            int pages = Math.min(doc.getNumberOfPages(), Math.max(1, opts().ocrMaxPages()));
-            for (int i = 0; i < pages; i++) {
-                BufferedImage image = renderer.renderImageWithDPI(i, Math.max(72, opts().ocrDpi()));
-                Path imagePath = tempDir.resolve("page-" + (i + 1) + ".png");
-                ImageIO.write(image, "png", imagePath.toFile());
-                OcrTableExtractor.Result ocr = OcrTableExtractor.extract(runOcrTsv(imagePath), image);
-                sb.append("\n## Page ").append(i + 1).append('\n')
-                        .append(ocr.text()).append('\n');
-                if (!ocr.table().isBlank()) {
-                    mergedTable = OcrTableExtractor.mergeTables(mergedTable, ocr.table());
-                }
-            }
-            if (!mergedTable.isBlank()) sb.append(mergedTable).append('\n');
-        } finally {
-            deleteRecursively(tempDir.toFile());
-        }
-        log.info("扫描版 PDF OCR 完成：file={} pages={}", fileName, Math.min(opts().ocrMaxPages(), 999));
-        return sb.toString();
-    }
-
     /** 图表交叉校验用 OCR：只读取图片文字，不返回表格结构；失败时返回空串。 */
     public String ocrText(byte[] bytes, String extension, ParseOptions options) {
         if (bytes == null || bytes.length == 0 || options == null || !options.ocrEnabled()) return "";
@@ -1029,7 +1219,7 @@ public class DocumentParser {
     }
 
     private String ocrImage(byte[] bytes, String lower) throws Exception {
-        if (!ocrEnabled) {
+        if (!opts().ocrEnabled()) {
             throw new BusinessException(422, "图片解析需要启用 OCR（knowledge.ocr.enabled=true）");
         }
         Path temp = Files.createTempFile("kb-ocr-", extension(lower));
@@ -1073,7 +1263,7 @@ public class DocumentParser {
 
     private void appendOcr(StringBuilder sb, byte[] image, String extension,
                            StringBuilder tableAccumulator) {
-        if (!ocrEnabled || image == null || image.length == 0 || sb.length() > 100_000) return;
+        if (!opts().ocrEnabled() || image == null || image.length == 0 || sb.length() > 100_000) return;
         try {
             String ext = extension == null || extension.isBlank() ? "png" : extension.toLowerCase(Locale.ROOT);
             if (!ext.startsWith(".")) ext = "." + ext;
@@ -1092,6 +1282,72 @@ public class DocumentParser {
             }
         } catch (Exception e) {
             log.debug("内嵌图片 OCR 跳过：{}", e.getMessage());
+        }
+    }
+
+    /** 单页扫描件通常是一张整页图片，直接 OCR 原图可保留分辨率与方向信息。 */
+    private BufferedImage singleLargePageImage(PDDocument doc, int pageIndex) {
+        List<BufferedImage> images = new ArrayList<>();
+        collectPageImages(doc.getPage(pageIndex).getResources(), images, 0, new HashSet<>());
+        if (images.size() != 1) return null;
+        BufferedImage image = images.get(0);
+        return image.getWidth() >= 300 && image.getHeight() >= 300 ? image : null;
+    }
+
+    private void collectPageImages(PDResources resources, List<BufferedImage> images, int depth,
+                                   Set<COSDictionary> seen) {
+        if (resources == null || depth > 4 || images.size() > 1) return;
+        try {
+            for (var name : resources.getXObjectNames()) {
+                if (images.size() > 1) return;
+                PDXObject object = resources.getXObject(name);
+                if (object instanceof PDImageXObject image) {
+                    COSDictionary key = image.getCOSObject();
+                    if (key != null && !seen.add(key)) continue;
+                    try {
+                        images.add(image.getImage());
+                    } catch (Exception ignored) {
+                        // 解码失败的图片不影响其余页
+                    }
+                } else if (object instanceof org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject form) {
+                    collectPageImages(form.getResources(), images, depth + 1, seen);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("PDF 页面图片读取跳过：{}", e.getMessage());
+        }
+    }
+
+    /** 去掉整页扫描四周的空白边，提升 OSD 方向检测与 OCR 表格识别的稳定性。 */
+    private BufferedImage cropForOcr(BufferedImage source) {
+        if (source == null) return null;
+        try {
+            int minX = source.getWidth(), minY = source.getHeight(), maxX = -1, maxY = -1;
+            for (int y = 0; y < source.getHeight(); y += 2) {
+                for (int x = 0; x < source.getWidth(); x += 2) {
+                    int rgb = source.getRGB(x, y);
+                    int r = (rgb >> 16) & 0xff, g = (rgb >> 8) & 0xff, b = rgb & 0xff;
+                    if (r + g + b < 735) {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+            if (maxX <= minX || maxY <= minY) return source;
+            int margin = 12;
+            minX = Math.max(0, minX - margin);
+            minY = Math.max(0, minY - margin);
+            maxX = Math.min(source.getWidth() - 1, maxX + margin);
+            maxY = Math.min(source.getHeight() - 1, maxY + margin);
+            int width = maxX - minX + 1, height = maxY - minY + 1;
+            if (width >= source.getWidth() * 0.95 && height >= source.getHeight() * 0.95) {
+                return source;
+            }
+            return source.getSubimage(minX, minY, width, height);
+        } catch (Exception e) {
+            return source;
         }
     }
 
@@ -1268,7 +1524,7 @@ public class DocumentParser {
 
     private int detectRotation(Path imagePath) throws Exception {
         List<String> command = new ArrayList<>();
-        command.add(ocrCommand);
+        command.add(opts().ocrCommand());
         command.add(imagePath.toAbsolutePath().toString());
         command.add("stdout");
         command.add("-l");
@@ -1385,42 +1641,14 @@ public class DocumentParser {
         }
     }
 
-    /** 父块 ~2000 字符，子块按 500/50 切分；每个子块携带父块内容。 */
+    /** 结构化分块：Markdown 标题/段落优先，表格不拆；父块 ~2000、子块 ~500/50。 */
     private List<ParsedChunk> splitWithParents(String text) {
-        String normalized = text.replaceAll("\\r\\n", "\n").trim();
-        List<ParsedChunk> result = new ArrayList<>();
-        int parentStart = 0;
-        int parentIndex = 0;
-        while (parentStart < normalized.length()) {
-            int parentEnd = Math.min(parentStart + PARENT_SIZE, normalized.length());
-            if (parentEnd < normalized.length()) {
-                int newline = normalized.lastIndexOf('\n', parentEnd);
-                if (newline > parentStart + PARENT_SIZE / 2) parentEnd = newline;
-            }
-            String parent = normalized.substring(parentStart, parentEnd).trim();
-            if (!parent.isEmpty()) {
-                for (String child : split(parent)) {
-                    result.add(new ParsedChunk(child, parentIndex, parent));
-                }
-                parentIndex++;
-            }
-            if (parentEnd >= normalized.length()) break;
-            parentStart = Math.max(parentEnd - 100, parentStart + 1);
+        List<MarkdownChunker.Chunk> chunks = MarkdownChunker.split(text);
+        List<ParsedChunk> result = new ArrayList<>(chunks.size());
+        for (MarkdownChunker.Chunk chunk : chunks) {
+            result.add(new ParsedChunk(chunk.content(), chunk.parentIndex(), chunk.parentContent(),
+                    chunk.embeddingText(), chunk.pageFrom(), chunk.pageTo()));
         }
         return result;
-    }
-
-    /** 按字符分段，带重叠（架构 6.3 splitByCharacter）。 */
-    private List<String> split(String text) {
-        String normalized = text.replaceAll("\\r\\n", "\n").trim();
-        List<String> chunks = new ArrayList<>();
-        int start = 0;
-        while (start < normalized.length()) {
-            int end = Math.min(start + CHUNK_SIZE, normalized.length());
-            chunks.add(normalized.substring(start, end));
-            if (end == normalized.length()) break;
-            start = end - CHUNK_OVERLAP;
-        }
-        return chunks;
     }
 }

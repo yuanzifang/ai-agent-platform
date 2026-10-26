@@ -4,7 +4,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.common.exception.BusinessException;
 import com.platform.knowledge.entity.KnowledgeChunk;
+import com.platform.knowledge.entity.KnowledgeParent;
 import com.platform.knowledge.mapper.KnowledgeChunkMapper;
+import com.platform.knowledge.mapper.KnowledgeParentMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,6 +48,9 @@ public class HybridRetrievalService {
 
     @Autowired(required = false)
     private RerankService rerankService;
+
+    @Autowired(required = false)
+    private KnowledgeParentMapper parentMapper;
 
     public record Result(List<Map<String, Object>> hits, int vectorHits, int keywordHits,
                          long embedMs, long searchMs, String mode) {
@@ -219,6 +224,7 @@ public class HybridRetrievalService {
                     return m;
                 }).toList());
         enrichNeighbors(kbId, result);
+        result = dedupeByParent(result);
         boolean rerank = rerankService != null && rerankService.enabled()
                 && !"false".equalsIgnoreCase(String.valueOf(config.getOrDefault("rerank", "true")));
         if (rerank) {
@@ -227,6 +233,40 @@ public class HybridRetrievalService {
         log.debug("混合检索 kb={} mode={} vector={} keyword={} merged={} rerank={}",
                 kbId, mode, vectorHits.size(), keywordHits.size(), result.size(), rerank);
         return new Result(result, vectorHits.size(), keywordHits.size(), embedMs, searchMs, mode);
+    }
+
+    /** 同一父块下的多个子块命中合并为一条，保留多个分数，减少重复父块注入。 */
+    private List<Map<String, Object>> dedupeByParent(List<Map<String, Object>> hits) {
+        Map<String, Map<String, Object>> unique = new LinkedHashMap<>();
+        for (Map<String, Object> hit : hits) {
+            HitMeta meta = readHitMeta(hit.get("metadata"));
+            Long parentIndex = longValue(hit.get("parentIndex"));
+            Long chunkId = meta.chunkId();
+            String key;
+            if (meta.docId() != null && parentIndex != null) {
+                key = "p:" + meta.docId() + ":" + parentIndex;
+            } else if (chunkId != null) {
+                key = "c:" + chunkId;
+            } else {
+                key = "h:" + meta.docId() + ":" + String.valueOf(hit.get("content")).hashCode();
+            }
+            Map<String, Object> existing = unique.get(key);
+            if (existing == null) {
+                unique.put(key, new LinkedHashMap<>(hit));
+                continue;
+            }
+            double previous = toDouble(existing.get("score"), 0);
+            double current = toDouble(hit.get("score"), 0);
+            existing.put("score", Math.max(previous, current));
+            @SuppressWarnings("unchecked")
+            List<Object> scores = existing.get("mergedScores") instanceof List<?>
+                    ? (List<Object>) existing.get("mergedScores") : new ArrayList<>();
+            if (!scores.contains(previous)) scores.add(previous);
+            if (!scores.contains(current)) scores.add(current);
+            existing.put("mergedScores", scores);
+            existing.put("mergedHitCount", scores.size());
+        }
+        return new ArrayList<>(unique.values());
     }
 
     /** 父块注入：优先使用入库时保存的 parent_content；历史数据回退到相邻 chunk 合并。 */
@@ -256,17 +296,64 @@ public class HybridRetrievalService {
         }
 
         List<NeighborNeed> needs = new ArrayList<>();
+        List<ParentNeed> parentNeeds = new ArrayList<>();
         for (int i = 0; i < hits.size(); i++) {
             HitMeta meta = metas.get(i);
             KnowledgeChunk stored = meta.chunkId() == null ? null : storedById.get(meta.chunkId());
+            Integer parentIndex = stored != null && stored.getParentIndex() != null
+                    ? stored.getParentIndex() : meta.parentIndex();
             if (stored != null && stored.getParentContent() != null
                     && !stored.getParentContent().isBlank()) {
                 hits.get(i).put("parentContent", stored.getParentContent());
-                hits.get(i).put("parentIndex", stored.getParentIndex());
+                hits.get(i).put("parentIndex", parentIndex);
                 continue;
             }
-            if (meta.docId() != null && meta.chunkIndex() != null) {
+            if (meta.docId() != null && parentIndex != null) {
+                parentNeeds.add(new ParentNeed(i, meta.docId(), parentIndex));
+            } else if (meta.docId() != null && meta.chunkIndex() != null) {
                 needs.add(new NeighborNeed(i, meta.docId(), meta.chunkIndex()));
+            }
+        }
+        if (!parentNeeds.isEmpty() && parentMapper != null) {
+            Set<Long> docIds = new LinkedHashSet<>();
+            Set<Integer> indexes = new LinkedHashSet<>();
+            for (ParentNeed need : parentNeeds) {
+                docIds.add(need.docId());
+                indexes.add(need.parentIndex());
+            }
+            Map<String, String> parentByKey = new HashMap<>();
+            try {
+                List<KnowledgeParent> parents = parentMapper.selectList(
+                        new LambdaQueryWrapper<KnowledgeParent>()
+                                .in(KnowledgeParent::getDocumentId, docIds)
+                                .in(KnowledgeParent::getParentIndex, indexes));
+                if (parents != null) {
+                    for (KnowledgeParent parent : parents) {
+                        parentByKey.put(parent.getDocumentId() + ":" + parent.getParentIndex(),
+                                parent.getContent());
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("父块表批量读取失败：{}", e.getMessage());
+            }
+            for (ParentNeed need : parentNeeds) {
+                String content = parentByKey.get(need.docId() + ":" + need.parentIndex());
+                if (content != null && !content.isBlank()) {
+                    hits.get(need.hitIndex()).put("parentContent", content);
+                    hits.get(need.hitIndex()).put("parentIndex", need.parentIndex());
+                } else {
+                    HitMeta meta = metas.get(need.hitIndex());
+                    if (meta.chunkIndex() != null) {
+                        needs.add(new NeighborNeed(need.hitIndex(), need.docId(), meta.chunkIndex()));
+                    }
+                }
+            }
+        } else {
+            for (ParentNeed need : parentNeeds) {
+                HitMeta meta = metas.get(need.hitIndex());
+                if (meta.chunkIndex() != null) {
+                    needs.add(new NeighborNeed(need.hitIndex(), need.docId(), meta.chunkIndex()));
+                }
             }
         }
         if (needs.isEmpty()) return;
@@ -320,14 +407,14 @@ public class HybridRetrievalService {
 
     private HitMeta readHitMeta(Object metadata) {
         if (!(metadata instanceof String text) || text.isBlank()) {
-            return new HitMeta(null, null, null);
+            return new HitMeta(null, null, null, null);
         }
         try {
             Map<?, ?> meta = objectMapper.readValue(text, Map.class);
             return new HitMeta(longValue(meta.get("chunk_id")), longValue(meta.get("document_id")),
-                    intValue(meta.get("chunk_index")));
+                    intValue(meta.get("chunk_index")), intValue(meta.get("parent_index")));
         } catch (Exception e) {
-            return new HitMeta(null, null, null);
+            return new HitMeta(null, null, null, null);
         }
     }
 
@@ -349,10 +436,13 @@ public class HybridRetrievalService {
         }
     }
 
-    private record HitMeta(Long chunkId, Long docId, Integer chunkIndex) {
+    private record HitMeta(Long chunkId, Long docId, Integer chunkIndex, Integer parentIndex) {
     }
 
     private record NeighborNeed(int hitIndex, Long docId, int chunkIndex) {
+    }
+
+    private record ParentNeed(int hitIndex, Long docId, int parentIndex) {
     }
 
     private void normalizeKeyword(Map<String, Candidate> merged) {
@@ -380,6 +470,9 @@ public class HybridRetrievalService {
         meta.put("document_id", hit.get("document_id"));
         meta.put("chunk_id", hit.get("id"));
         meta.put("chunk_index", hit.get("chunk_index"));
+        if (hit.get("parent_index") != null) meta.put("parent_index", hit.get("parent_index"));
+        if (hit.get("page_from") != null) meta.put("page_from", hit.get("page_from"));
+        if (hit.get("page_to") != null) meta.put("page_to", hit.get("page_to"));
         if (hit.get("effective_from") != null) meta.put("effective_from", hit.get("effective_from"));
         if (hit.get("effective_to") != null) meta.put("effective_to", hit.get("effective_to"));
         try {

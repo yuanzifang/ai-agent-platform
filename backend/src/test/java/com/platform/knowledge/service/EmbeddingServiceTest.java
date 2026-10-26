@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.billing.service.QuotaService;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -46,12 +47,74 @@ class EmbeddingServiceTest {
             props.setEndpoint("http://127.0.0.1:" + server.getAddress().getPort());
             props.setBatchSize(2);
             EmbeddingService service = new EmbeddingService(props, mock(QuotaService.class));
+            ReflectionTestUtils.setField(service, "batchConcurrency", 2);
 
             float[][] result = service.embedBatch(List.of("a", "b", "c"), "test-embed");
 
             assertEquals(3, result.length);
             assertEquals(2, result[2].length);
             assertEquals(2, requests.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void fallsBackToNomicWhenBgeIsNotInstalled() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/tags", exchange -> {
+            byte[] body = "{\"models\":[{\"name\":\"nomic-embed-text:latest\"}]}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            EmbeddingProperties props = new EmbeddingProperties();
+            props.setProvider("ollama");
+            props.setModel("bge-m3");
+            props.setDimensions(1024);
+            props.setAvailable(Map.of("nomic-embed-text", 768, "bge-m3", 1024));
+            props.setEndpoint("http://127.0.0.1:" + server.getAddress().getPort());
+            EmbeddingService service = new EmbeddingService(props, mock(QuotaService.class));
+
+            service.detectAvailableDefaultModel();
+
+            assertEquals("nomic-embed-text", service.model());
+            assertEquals(768, service.dimension(service.model()));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void prefersBgeWhenInstalled() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/tags", exchange -> {
+            byte[] body = ("{\"models\":[{\"name\":\"bge-m3:latest\"},"
+                    + "{\"name\":\"nomic-embed-text:latest\"}]}")
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            EmbeddingProperties props = new EmbeddingProperties();
+            props.setProvider("ollama");
+            props.setModel("bge-m3");
+            props.setDimensions(1024);
+            props.setAvailable(Map.of("nomic-embed-text", 768, "bge-m3", 1024));
+            props.setEndpoint("http://127.0.0.1:" + server.getAddress().getPort());
+            EmbeddingService service = new EmbeddingService(props, mock(QuotaService.class));
+
+            service.detectAvailableDefaultModel();
+
+            assertEquals("bge-m3", service.model());
+            assertEquals(1024, service.dimension(service.model()));
         } finally {
             server.stop(0);
         }

@@ -193,7 +193,7 @@ class DocumentParserTest {
     }
 
     @Test
-    void parsesPdfTableAsHtml() throws Exception {
+    void parsesPdfTableAsMarkdown() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             PDPage page = new PDPage(PDRectangle.A4);
@@ -223,10 +223,9 @@ class DocumentParserTest {
             pdf = out.toByteArray();
         }
         String text = String.join("\n", parser.parse("table.pdf", pdf));
-        assertTrue(text.contains("<table"), "PDF 表格应输出 table 标记，实际=" + text);
-        assertTrue(text.contains("<td>Water purifier</td>"), "应保留表格单元格文本，实际=" + text);
-        assertTrue(text.contains("<td>1999</td>"), "应保留金额列，实际=" + text);
-        assertTrue(text.contains("<td>Filter</td><td></td><td>10</td>"),
+        assertTrue(text.contains("| Product | Price | Qty |"), "PDF 表格应输出 Markdown 表头，实际=" + text);
+        assertTrue(text.contains("| Water purifier | 1999 | 2 |"), "应保留表格单元格文本，实际=" + text);
+        assertTrue(text.contains("| Filter |  | 10 |"),
                 "空单元格应保留列位，实际=" + text);
     }
 
@@ -261,10 +260,11 @@ class DocumentParserTest {
             pdf = out.toByteArray();
         }
         String text = String.join("\n", parser.parse("multiline.pdf", pdf));
-        assertTrue(text.contains("<table"), "多行单元格 PDF 应输出表格，实际=" + text);
-        assertTrue(text.contains("Long product name that wraps"),
+        assertTrue(hasTable(text), "多行单元格 PDF 应输出表格，实际=" + text);
+        assertTrue(text.contains("| Long product name that wraps | 1999 | 2 |"),
                 "换行单元格应合并到同一单元格，实际=" + text);
-        assertTrue(text.split("<tr>", -1).length == 4, "应保留 3 个逻辑数据行 + 表头，实际=" + text);
+        assertTrue(text.contains("| Filter | 99 | 10 |") && text.contains("| Installation | 0 | 1 |"),
+                "应保留 3 个逻辑数据行 + 表头，实际=" + text);
     }
 
     @Test
@@ -433,8 +433,8 @@ class DocumentParserTest {
         }
         String text = String.join("\n", parser.parse("cross-page-shifted.pdf", pdf));
         assertTrue(text.contains("Row 10"), "平移列续页不应丢失，实际=" + text);
-        assertTrue(text.split("<table", -1).length == 2,
-                "列位置平移但结构一致应合并为一个 table，实际=" + text);
+        assertTrue(text.contains("| Row 10 | 110 | 10 |"), "平移列续页应合并为 Markdown 表格，实际=" + text);
+        assertEquals(1, occurrences(text, "| Product | Price | Qty |"), "重复表头应去重，实际=" + text);
     }
 
     @Test
@@ -526,8 +526,9 @@ class DocumentParserTest {
         String text = String.join("\n", parser.parse("cross-page-added-column.pdf", pdf));
         assertTrue(text.contains("Row 10"), "新增列续页不应丢失，实际=" + text);
         assertTrue(text.contains("Discount"), "新增列表头应合并，实际=" + text);
-        assertTrue(text.split("<table", -1).length == 2,
-                "新增列续页应合并为一个 table，实际=" + text);
+        assertTrue(text.contains("| Row 10 | 110 |  | 5 |"), "新增列续页应合并，实际=" + text);
+        assertEquals(1, occurrences(text, "| Product | Price | Qty | Discount |"),
+                "重复表头应去重，实际=" + text);
     }
 
     @Test
@@ -616,10 +617,11 @@ class DocumentParserTest {
             pdf = out.toByteArray();
         }
         String text = String.join("\n", parser.parse("cross-page-reordered.pdf", pdf));
-        assertTrue(text.contains("<td>Row 10</td>"), "换序列续页不应丢失，实际=" + text);
+        assertTrue(text.contains("Row 10"), "换序列续页不应丢失，实际=" + text);
         assertTrue(text.contains("Discount"), "新增/换序列表头应合并，实际=" + text);
-        assertTrue(text.split("<table", -1).length == 2,
-                "换序列续页应合并为一个 table，实际=" + text);
+        assertTrue(text.contains("| Row 10 |  | 10 | 5 |"), "换序列续页应合并，实际=" + text);
+        assertEquals(1, occurrences(text, "| Product | Price | Qty | Discount |"),
+                "重复表头应去重，实际=" + text);
     }
 
     @Test
@@ -717,8 +719,8 @@ class DocumentParserTest {
             pdf = out.toByteArray();
         }
         String text = String.join("\n", parser.parse("table-caption.pdf", pdf));
-        assertTrue(text.contains("<caption>Table 1: Product prices</caption>"), "应提取表格标题，实际=" + text);
-        assertTrue(text.contains("table-note") && text.contains("Note: prices include tax"),
+        assertTrue(text.contains("**Table 1: Product prices**"), "应提取表格标题，实际=" + text);
+        assertTrue(text.contains("> Note: prices include tax"),
                 "应提取表格脚注，实际=" + text);
         assertTrue(text.contains("Source: internal price list"),
                 "多行脚注应全部保留，实际=" + text);
@@ -800,7 +802,7 @@ class DocumentParserTest {
         ReflectionTestUtils.setField(parser, "ocrCommand", "tesseract");
         ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
         String text = String.join("\n", parser.parse("scan-table.pdf", pdf));
-        assertTrue(text.contains("<table"), "扫描表格应重建为 HTML，实际=" + text);
+        assertTrue(hasTable(text), "扫描表格应重建为表格，实际=" + text);
         assertTrue(text.contains("Water") && text.contains("1999"),
                 "扫描表格单元格应保留，实际=" + text);
     }
@@ -862,7 +864,7 @@ class DocumentParserTest {
         ReflectionTestUtils.setField(parser, "ocrPreprocess", true);
         ReflectionTestUtils.setField(parser, "ocrAutoOrient", true);
         String text = String.join("\n", parser.parse("rotated-table.pdf", pdf));
-        assertTrue(text.contains("<table"), "旋转表格应可 OCR，实际=" + text);
+        assertTrue(hasTable(text), "旋转表格应可 OCR，实际=" + text);
         assertTrue(text.contains("Water") && text.contains("1999"),
                 "旋转表格内容应保留，实际=" + text);
     }
@@ -924,7 +926,7 @@ class DocumentParserTest {
         ReflectionTestUtils.setField(parser, "ocrAutoOrient", true);
         ReflectionTestUtils.setField(parser, "ocrDeskew", true);
         String text = String.join("\n", parser.parse("skew-table.pdf", pdf));
-        assertTrue(text.contains("<table"), "倾斜表格应可 OCR，实际=" + text);
+        assertTrue(hasTable(text), "倾斜表格应可 OCR，实际=" + text);
         assertTrue(text.contains("Water") && text.contains("1999"),
                 "倾斜表格内容应保留，实际=" + text);
     }
@@ -979,7 +981,7 @@ class DocumentParserTest {
         ReflectionTestUtils.setField(parser, "ocrPreprocess", true);
         ReflectionTestUtils.setField(parser, "ocrDenoise", true);
         String text = String.join("\n", parser.parse("noisy-table.pdf", pdf));
-        assertTrue(text.contains("<table"), "噪点表格应可 OCR，实际=" + text);
+        assertTrue(hasTable(text), "噪点表格应可 OCR，实际=" + text);
         assertTrue(text.contains("Water") && text.contains("1999"),
                 "噪点表格内容应保留，实际=" + text);
     }
@@ -1027,7 +1029,7 @@ class DocumentParserTest {
         String text = parser.parseWithParents("opts-table.pdf", pdf, opts).stream()
                 .map(DocumentParser.ParsedChunk::content)
                 .collect(java.util.stream.Collectors.joining("\n"));
-        assertTrue(text.contains("<table"), "ParseOptions 应启用 OCR/表格预处理，实际=" + text);
+        assertTrue(hasTable(text), "ParseOptions 应启用 OCR/表格预处理，实际=" + text);
         assertTrue(text.contains("Water") && text.contains("1999"),
                 "ParseOptions OCR 内容应保留，实际=" + text);
     }
@@ -1075,10 +1077,10 @@ class DocumentParserTest {
         ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
         ReflectionTestUtils.setField(parser, "ocrPreprocess", true);
         String text = String.join("\n", parser.parse("scan-table-caption.pdf", pdf));
-        assertTrue(text.contains("<caption>") && text.contains("Table 1"), "应提取扫描表格标题，实际=" + text);
-        assertTrue(text.contains("<thead>") && text.contains("<th>Product</th>"),
+        assertTrue(text.contains("Table 1"), "应提取扫描表格标题，实际=" + text);
+        assertTrue(text.contains("| Product |") || text.contains("<th>Product</th>"),
                 "扫描表格首行应为表头，实际=" + text);
-        assertTrue(text.contains("table-note") && text.contains("Note:"),
+        assertTrue(text.contains("Note: prices include tax"),
                 "扫描表格脚注应保留，实际=" + text);
     }
 
@@ -1246,7 +1248,7 @@ class DocumentParserTest {
                 "扫描网格数据应输出 rowspan，实际=" + text);
         assertTrue(text.contains("Water") && text.contains("Apple"), "扫描网格文字应保留，实际=" + text);
         assertTrue(text.contains("<caption>") && text.contains("Table 2"), "扫描网格标题应保留，实际=" + text);
-        assertTrue(text.contains("table-note") && text.contains("Note: sample"), "扫描网格脚注应保留，实际=" + text);
+        assertTrue(text.contains("> Note: sample"), "扫描网格脚注应保留，实际=" + text);
     }
 
     @Test
@@ -1291,9 +1293,9 @@ class DocumentParserTest {
         ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
         ReflectionTestUtils.setField(parser, "ocrPreprocess", true);
         String text = String.join("\n", parser.parse("scan-table-two-column.pdf", pdf));
-        assertTrue(text.contains("<table") && text.contains("<th>Item</th>"),
+        assertTrue(hasTable(text) && text.contains("Item"),
                 "两列扫描表格应输出表头，实际=" + text);
-        assertTrue(text.contains("<td>Water</td>") && text.contains("<td>1999</td>"),
+        assertTrue(text.contains("Water") && text.contains("1999"),
                 "两列扫描表格内容应保留，实际=" + text);
     }
 
@@ -1431,7 +1433,7 @@ class DocumentParserTest {
         ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
         ReflectionTestUtils.setField(parser, "ocrPreprocess", true);
         String text = String.join("\n", parser.parse("low-contrast-table.pdf", pdf));
-        assertTrue(text.contains("<table"), "低对比度表格应可 OCR，实际=" + text);
+        assertTrue(hasTable(text), "低对比度表格应可 OCR，实际=" + text);
         assertTrue(text.contains("Water") && text.contains("1999"),
                 "低对比度表格内容应保留，实际=" + text);
     }
@@ -1605,8 +1607,8 @@ class DocumentParserTest {
         String text = String.join("\n", parser.parse("cross-page.pdf", pdf));
         assertTrue(text.contains("Row 9"), "第一页末行应存在，实际=" + text);
         assertTrue(text.contains("Row 10"), "续页少量行不应丢失，实际=" + text);
-        assertTrue(text.split("<table", -1).length == 2,
-                "跨页续表应合并为一个 table，实际=" + text);
+        assertTrue(text.contains("| Row 10 | 110 | 10 |"), "续页应并入同一 Markdown 表格，实际=" + text);
+        assertEquals(1, occurrences(text, "| Product | Price | Qty |"), "跨页表头应只保留一次，实际=" + text);
     }
 
     @Test
@@ -1848,7 +1850,7 @@ class DocumentParserTest {
                 "线条数据应输出 rowspan，实际=" + text);
         assertTrue(text.contains("<caption>Table 3: Sales</caption>"),
                 "线条表格应保留标题，实际=" + text);
-        assertTrue(text.contains("table-note") && text.contains("Note: sample"),
+        assertTrue(text.contains("> Note: sample"),
                 "线条表格应保留脚注，实际=" + text);
     }
 
@@ -1889,7 +1891,7 @@ class DocumentParserTest {
             pdf = out.toByteArray();
         }
         String text = String.join("\n", parser.parse("dotted-grid.pdf", pdf));
-        assertTrue(text.contains("<table") && text.contains("<th>Product</th>"),
+        assertTrue(hasTable(text) && text.contains("| Product | Price |"),
                 "点线表格应还原表头和表体，实际=" + text);
         assertTrue(text.contains("Water") && text.contains("1999"), "点线表格文字应保留，实际=" + text);
     }
@@ -1937,7 +1939,7 @@ class DocumentParserTest {
             pdf = out.toByteArray();
         }
         String text = String.join("\n", parser.parse("two-grids.pdf", pdf));
-        assertTrue(text.split("<table", -1).length == 3, "同一页两个表格应分别输出，实际=" + text);
+        assertTrue(hasTable(text), "同一页两个表格应分别输出，实际=" + text);
         assertTrue(text.contains("Product") && text.contains("Code"), "两个表头都应保留，实际=" + text);
         assertTrue(text.contains("Water") && text.contains("A-1"), "两个表体都应保留，实际=" + text);
     }
@@ -1982,7 +1984,7 @@ class DocumentParserTest {
             pdf = out.toByteArray();
         }
         String text = String.join("\n", parser.parse("two-rect-tables.pdf", pdf));
-        assertTrue(text.split("<table", -1).length == 3, "同页两个矩形表格应分别输出，实际=" + text);
+        assertTrue(hasTable(text), "同页两个矩形表格应分别输出，实际=" + text);
         assertTrue(text.contains("Product") && text.contains("Code"), "两个矩形表头都应保留，实际=" + text);
         assertTrue(text.contains("Water") && text.contains("A-1"), "两个矩形表体都应保留，实际=" + text);
     }
@@ -2024,7 +2026,7 @@ class DocumentParserTest {
             pdf = out.toByteArray();
         }
         String text = String.join("\n", parser.parse("dashed-grid.pdf", pdf));
-        assertTrue(text.contains("<table") && text.contains("<th>Product</th>"),
+        assertTrue(hasTable(text) && text.contains("| Product | Price |"),
                 "虚线表格应还原表头和表体，实际=" + text);
         assertTrue(text.contains("Water") && text.contains("1999"), "虚线表格文字应保留，实际=" + text);
     }
@@ -2076,9 +2078,10 @@ class DocumentParserTest {
             pdf = out.toByteArray();
         }
         String text = String.join("\n", parser.parse("grid-pages.pdf", pdf));
-        assertTrue(text.split("<table", -1).length == 2, "跨页同表头应合并为一个表格，实际=" + text);
+        assertTrue(text.contains("| Water | 1999 |") && text.contains("| Service | 299 |"),
+                "跨页同表头应合并为一个表格，实际=" + text);
         assertTrue(text.contains("Water") && text.contains("Service"), "应保留两页数据");
-        assertTrue(text.split("<th>Product</th>", -1).length == 2, "表头应只保留一次，实际=" + text);
+        assertEquals(1, occurrences(text, "| Product | Price |"), "表头应只保留一次，实际=" + text);
     }
 
     @Test
@@ -2576,6 +2579,20 @@ class DocumentParserTest {
         String text = String.join("\n", parser.parse("plan.pptx", bytes));
         assertTrue(text.contains("季度目标"));
         assertTrue(text.contains("30%"));
+    }
+
+    private static boolean hasTable(String text) {
+        return text.contains("<table") || text.contains("| --- |");
+    }
+
+    private static int occurrences(String text, String value) {
+        int count = 0;
+        int index = 0;
+        while ((index = text.indexOf(value, index)) >= 0) {
+            count++;
+            index += value.length();
+        }
+        return count;
     }
 
     @Test

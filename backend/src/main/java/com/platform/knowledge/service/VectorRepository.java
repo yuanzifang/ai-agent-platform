@@ -6,8 +6,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -19,8 +23,19 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class VectorRepository {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     private final JdbcTemplate pgJdbcTemplate; // 由 PgVectorConfig 提供，指向 PostgreSQL
     private final EmbeddingProperties embeddingProperties;
+
+    @Value("${pgvector.hnsw.enabled:true}")
+    private boolean hnswEnabled = true;
+
+    @Value("${pgvector.iterative-scan.enabled:true}")
+    private boolean iterativeScanEnabled = true;
+
+    @Value("${pgvector.hnsw.concurrently:true}")
+    private boolean hnswConcurrently = true;
 
     public void ensureTenantSchema(Long tenantId) {
         String schema = schema(tenantId);
@@ -85,6 +100,35 @@ public class VectorRepository {
             pgJdbcTemplate.execute("""
                     CREATE INDEX IF NOT EXISTS idx_%s_effective ON %s.%s (effective_from, effective_to)
                     """.formatted(table, schema, table));
+            if (hnswEnabled) {
+                String create = """
+                        CREATE INDEX %s IF NOT EXISTS idx_%s_hnsw ON %s.%s
+                        USING hnsw (embedding vector_cosine_ops)
+                        WITH (m = 16, ef_construction = 64)
+                        """.formatted(hnswConcurrently ? "CONCURRENTLY" : "", table, schema, table);
+                try {
+                    pgJdbcTemplate.execute(create);
+                } catch (Exception e) {
+                    if (hnswConcurrently) {
+                        // CONCURRENTLY 不能放在事务里；失败时回退普通建索引。
+                        try {
+                            pgJdbcTemplate.execute("""
+                                    CREATE INDEX IF NOT EXISTS idx_%s_hnsw ON %s.%s
+                                    USING hnsw (embedding vector_cosine_ops)
+                                    WITH (m = 16, ef_construction = 64)
+                                    """.formatted(table, schema, table));
+                            continue;
+                        } catch (Exception fallback) {
+                            log.warn("HNSW 索引创建失败（跳过，继续使用精确扫描）schema={} table={} err={}",
+                                    schema, table, fallback.getMessage());
+                            continue;
+                        }
+                    }
+                    // 旧版 pgvector 或低权限账号可能不支持 HNSW；检索仍可走精确扫描。
+                    log.warn("HNSW 索引创建失败（跳过，继续使用精确扫描）schema={} table={} err={}",
+                            schema, table, e.getMessage());
+                }
+            }
         }
     }
 
@@ -94,17 +138,23 @@ public class VectorRepository {
     }
 
     public void saveBatch(Long tenantId, List<Map<String, Object>> rows, int dimensions) {
+        if (rows == null || rows.isEmpty()) return;
         String table = "%s.%s".formatted(schema(tenantId), table(dimensions));
-        rows.forEach(r -> pgJdbcTemplate.update(
-                ("INSERT INTO %s (content, embedding, metadata, created_at, updated_at, " +
-                        "effective_from, effective_to) " +
-                        "VALUES (?, ?::vector, " +
-                        "jsonb_set(jsonb_set(?::jsonb, '{created_at}', to_jsonb(now())), " +
-                        "'{updated_at}', to_jsonb(now())), now(), now(), " +
-                        "COALESCE(?::timestamptz, now()), ?::timestamptz)")
-                        .formatted(table),
-                r.get("content"), vectorLiteral((float[]) r.get("embedding")), r.get("metadata"),
-                r.get("effective_from"), r.get("effective_to")));
+        String sql = ("INSERT INTO %s (content, embedding, metadata, created_at, updated_at, " +
+                "effective_from, effective_to) " +
+                "VALUES (?, ?::vector, " +
+                "jsonb_set(jsonb_set(?::jsonb, '{created_at}', to_jsonb(now())), " +
+                "'{updated_at}', to_jsonb(now())), now(), now(), " +
+                "COALESCE(?::timestamptz, now()), ?::timestamptz)")
+                .formatted(table);
+        List<Object[]> batch = new ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            batch.add(new Object[]{row.get("content"), vectorLiteral((float[]) row.get("embedding")),
+                    row.get("metadata"), row.get("effective_from"), row.get("effective_to")});
+        }
+        for (int start = 0; start < batch.size(); start += 500) {
+            pgJdbcTemplate.batchUpdate(sql, batch.subList(start, Math.min(batch.size(), start + 500)));
+        }
     }
 
     public List<Map<String, Object>> search(Long tenantId, float[] queryVector, Long knowledgeBaseId,
@@ -162,6 +212,7 @@ public class VectorRepository {
                                             int topK, double threshold, int dimensions,
                                             Long userId, boolean tenantWide,
                                             Instant effectiveAfter, Instant effectiveBefore) {
+        enableIterativeScan();
         String q = vectorLiteral(queryVector);
         Timestamp after = effectiveAfter == null ? null : Timestamp.from(effectiveAfter);
         Timestamp before = effectiveBefore == null ? null : Timestamp.from(effectiveBefore);
@@ -197,6 +248,16 @@ public class VectorRepository {
                 tenantWide, String.valueOf(userId), q, topK);
     }
 
+    /** HNSW 过滤检索配合 iterative scan，避免 metadata 过滤后结果不足。 */
+    private void enableIterativeScan() {
+        if (!iterativeScanEnabled) return;
+        try {
+            pgJdbcTemplate.execute("SET hnsw.iterative_scan = relaxed_order");
+        } catch (Exception e) {
+            log.debug("pgvector iterative scan 不可用（继续精确扫描）：{}", e.getMessage());
+        }
+    }
+
     /** 人工修正图表内容后同步向量表内容与 embedding。 */
     public void updateContentForChunk(Long tenantId, Long knowledgeBaseId, Long chunkId,
                                       String content, float[] embedding, int dimensions) {
@@ -225,6 +286,66 @@ public class VectorRepository {
         }
     }
 
+    /**
+     * 复用相同文件的分段向量：复制已有文档的 embedding，替换 document_id/chunk_id
+     * 以及新文档的 ACL、文件名、有效期 metadata。
+     *
+     * @return 复制的向量行数；0 表示没有可复用数据；抛异常时调用方回退正常解析
+     */
+    @SuppressWarnings("unchecked")
+    public int copyDocumentVectors(Long tenantId, Long fromDocumentId, Long toDocumentId,
+                                   int dimensions, String embeddingModel,
+                                   Map<Integer, Long> chunkIdByIndex,
+                                   Map<String, Object> metadataOverrides) {
+        String table = "%s.%s".formatted(schema(tenantId), table(dimensions));
+        List<Map<String, Object>> rows = pgJdbcTemplate.queryForList(
+                ("SELECT content, embedding::text AS embedding, metadata, " +
+                        "effective_from, effective_to FROM %s.%s " +
+                        "WHERE metadata->>'document_id' = ?")
+                        .formatted(schema(tenantId), table),
+                String.valueOf(fromDocumentId));
+        if (rows == null || rows.isEmpty()) return 0;
+        String sql = ("INSERT INTO %s (content, embedding, metadata, created_at, updated_at, " +
+                "effective_from, effective_to) VALUES (?, ?::vector, ?::jsonb, now(), now(), " +
+                "COALESCE(?::timestamptz, now()), ?::timestamptz)").formatted(table);
+        List<Object[]> batch = new ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            try {
+                Map<String, Object> meta = MAPPER.readValue(String.valueOf(row.get("metadata")), Map.class);
+                Object model = meta.get("embedding_model");
+                if (model != null && !embeddingModel.equals(String.valueOf(model))) {
+                    throw new IllegalStateException("embedding model changed");
+                }
+                Integer chunkIndex = meta.get("chunk_index") instanceof Number n
+                        ? n.intValue() : Integer.valueOf(String.valueOf(meta.get("chunk_index")));
+                Long newChunkId = chunkIdByIndex.get(chunkIndex);
+                if (newChunkId == null) continue;
+                Map<String, Object> merged = new LinkedHashMap<>(meta);
+                merged.put("document_id", toDocumentId);
+                merged.put("chunk_id", newChunkId);
+                if (metadataOverrides != null) merged.putAll(metadataOverrides);
+                Object effectiveFrom = metadataOverrides != null
+                        && metadataOverrides.get("effective_from") != null
+                        ? metadataOverrides.get("effective_from") : row.get("effective_from");
+                Object effectiveTo = metadataOverrides != null
+                        && metadataOverrides.containsKey("effective_to")
+                        ? metadataOverrides.get("effective_to") : row.get("effective_to");
+                batch.add(new Object[]{row.get("content"), row.get("embedding"),
+                        MAPPER.writeValueAsString(merged), effectiveFrom, effectiveTo});
+            } catch (IllegalStateException e) {
+                throw e;
+            } catch (Exception e) {
+                log.warn("复制向量行失败 doc={} err={}", toDocumentId, e.getMessage());
+            }
+        }
+        if (batch.isEmpty()) return 0;
+        for (int start = 0; start < batch.size(); start += 500) {
+            pgJdbcTemplate.batchUpdate(sql,
+                    batch.subList(start, Math.min(batch.size(), start + 500)));
+        }
+        return batch.size();
+    }
+
     public void deleteByDocument(Long tenantId, Long documentId) {
         for (String table : tables()) {
             pgJdbcTemplate.update(
@@ -245,8 +366,9 @@ public class VectorRepository {
     }
 
     String table(int dimensions) {
-        return dimensions == embeddingProperties.getDimensions()
-                ? "embeddings" : "embeddings_" + dimensions;
+        // 兼容历史默认 768 维表名 embeddings；1024 维始终使用 embeddings_1024，
+        // 避免默认模型从 nomic(768) 切到 bge-m3(1024) 后把旧表当成新维度表。
+        return dimensions == 768 ? "embeddings" : "embeddings_" + dimensions;
     }
 
     private List<String> tables() {

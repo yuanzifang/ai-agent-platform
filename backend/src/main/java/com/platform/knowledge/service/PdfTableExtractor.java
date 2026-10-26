@@ -30,8 +30,24 @@ final class PdfTableExtractor {
 
     static String extract(PDDocument doc) {
         StringBuilder html = new StringBuilder();
+        for (Table table : buildTables(doc)) {
+            html.append('\n').append(render(table)).append('\n');
+        }
+        return html.toString();
+    }
+
+    static List<PdfTableBlock> extractBlocks(PDDocument doc) {
+        List<PdfTableBlock> blocks = new ArrayList<>();
+        for (Table table : buildTables(doc)) {
+            blocks.add(new PdfTableBlock(table.pageIndex, table.pageTo, table.firstY, table.lastY,
+                    render(table), List.copyOf(table.spans), false));
+        }
+        return blocks;
+    }
+
+    private static List<Table> buildTables(PDDocument doc) {
+        List<Table> tables = new ArrayList<>();
         try {
-            List<Table> tables = new ArrayList<>();
             Table previous = null;
             int pages = Math.min(doc.getNumberOfPages(), MAX_PAGES);
             for (int pageIndex = 0; pageIndex < pages; pageIndex++) {
@@ -55,20 +71,30 @@ final class PdfTableExtractor {
                     previous = null;
                     continue;
                 }
+                current.pageWidth = page.getMediaBox().getWidth();
                 if (current.continuation && previous != null) {
                     mergeContinuation(previous, current);
+                    previous.pageTo = pageIndex;
+                    previous.spans.add(new PdfTableBlock.PageSpan(pageIndex,
+                            current.firstY - 2, current.lastY + 12, 0, current.pageWidth));
                 } else {
+                    String html = render(current);
+                    if (!isPlausibleTable(current, html)) {
+                        previous = null;
+                        continue;
+                    }
+                    current.pageIndex = pageIndex;
+                    current.pageTo = pageIndex;
+                    current.spans.add(new PdfTableBlock.PageSpan(pageIndex,
+                            current.firstY - 2, current.lastY + 12, 0, current.pageWidth));
                     tables.add(current);
                     previous = current;
                 }
             }
-            for (Table table : tables) {
-                html.append('\n').append(render(table)).append('\n');
-            }
         } catch (Exception e) {
-            return "";
+            return tables;
         }
-        return html.toString();
+        return tables;
     }
 
     private static Table tableForPage(List<Row> captured, Table previous, float pageHeight) {
@@ -670,12 +696,57 @@ final class PdfTableExtractor {
         }
     }
 
+    /**
+     * 文本坐标表格的质量门槛：学术 PDF 的页眉/作者块/双栏正文容易被误判成整页表格。
+     * 有 "Table/表" 标题的表格直接保留；无标题时要求列数、空单元格比例、跨行数不过分。
+     */
+    private static boolean isPlausibleTable(Table table, String html) {
+        int cells = count(html, "<td") + count(html, "<th");
+        if (cells < 4) return false;
+        int maxColumns = 0;
+        for (String row : html.split("<tr")) {
+            maxColumns = Math.max(maxColumns, count(row, "<td") + count(row, "<th"));
+        }
+        int empty = count(html, "></td>") + count(html, "></th>");
+        double emptyRatio = (double) empty / cells;
+        int rowSpans = count(html, "rowspan=");
+        int emails = count(html, "@");
+
+        String caption = table.caption == null ? "" : table.caption.trim();
+        String lower = caption.toLowerCase(java.util.Locale.ROOT);
+        boolean captioned = lower.startsWith("table") || lower.startsWith("tab.")
+                || caption.startsWith("表");
+        if (captioned) {
+            return emptyRatio <= 0.72 && cells <= 800 && maxColumns <= 30;
+        }
+        if (maxColumns > 12) return false;
+        if (emptyRatio > 0.40) return false;
+        if (rowSpans > 20) return false;
+        if (emails >= 2) return false;
+        return table.pageHeight <= 0
+                || table.lastY - table.firstY <= table.pageHeight * 0.78f;
+    }
+
+    private static int count(String text, String value) {
+        int count = 0;
+        int index = 0;
+        while ((index = text.indexOf(value, index)) >= 0) {
+            count++;
+            index += value.length();
+        }
+        return count;
+    }
+
     private static final class Table {
         private final List<LogicalRow> rows;
         private List<Float> anchors;
         private final float firstY;
         private float lastY;
         private float pageHeight;
+        private float pageWidth;
+        private int pageIndex;
+        private int pageTo;
+        private final List<PdfTableBlock.PageSpan> spans = new ArrayList<>();
         private boolean continuation;
         private String caption;
         private List<String> notes = new ArrayList<>();
