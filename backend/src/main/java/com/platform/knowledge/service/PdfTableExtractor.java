@@ -141,6 +141,9 @@ final class PdfTableExtractor {
                 || current.firstY > pageHeight * 0.45f) return false;
         if (previous.anchors.size() == current.anchors.size()
                 && anchorsOverlap(previous.anchors, current.anchors)) return true;
+        // 续页省略表头、整列平移时，列数一致即可按列序合并；
+        // 仍要求上一页表在页尾、当前表在页首，避免把两个独立表误拼。
+        if (previous.anchors.size() == current.anchors.size()) return true;
         // 列位置平移或新增列：要求重复表头与共同前缀，避免把另一张表误合并。
         return compatibleHeader(previous, current);
     }
