@@ -14,23 +14,6 @@ public class QueryRewriteService {
 
     private final ChatModelRouter chatModelRouter;
 
-    /**
-     * 离线确定性 fallback：只去掉“帮我改写查询”等指令壳，保留原查询实体。
-     * 不调用任何模型，用于无外网/无模型配置时仍可跑 REWRITE 步骤评测。
-     */
-    public String rewriteLocal(String query) {
-        String original = query == null ? "" : query.strip();
-        String text = original.replaceAll("\\s+", " ");
-        text = text.replaceFirst(
-                "(?i)^(请|请帮我|帮我|帮忙)?\\s*(改写|重写|rewrite)\\s*(一下)?\\s*(查询|问题)?\\s*[：:]?\\s*",
-                "");
-        text = text.replaceFirst(
-                "(?i)[\\s,，。;；]*(请|请帮我|帮我|帮忙)?\\s*(改写|重写|rewrite)\\s*(一下)?\\s*(查询|问题)?\\s*[。！!?？]?$",
-                "");
-        text = text.strip();
-        return text.isBlank() ? original : text;
-    }
-
     public String rewrite(String query, String modelName, String instructions) {
         String model = modelName == null || modelName.isBlank() ? "deepseek-flash" : modelName;
         String guide = instructions == null || instructions.isBlank()

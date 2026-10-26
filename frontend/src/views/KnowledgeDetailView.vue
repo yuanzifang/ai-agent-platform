@@ -88,17 +88,13 @@
                      :loading="validityRebuilding" @click="rebuildValidity">
             {{ t('kbDetail.rebuildValidity') }}
           </el-button>
-          <el-button v-if="detail.canEdit && (legacyDocCount > 0
-              || upgradeJob?.status === 'RUNNING' || upgradeJob?.status === 'PAUSED')"
-                     size="small" text type="primary"
-                     :disabled="upgradeJob?.status === 'RUNNING' || upgradeJob?.status === 'PAUSED'"
+          <el-button v-if="detail.canEdit && (legacyDocCount > 0 || upgradeJob?.status === 'RUNNING')"
+                     size="small" text type="primary" :disabled="upgradeJob?.status === 'RUNNING'"
                      :loading="legacyReparsing" @click="reparseLegacy">
             {{ upgradeJob?.status === 'RUNNING'
               ? tf('kbDetail.upgradeRunning', { submitted: upgradeJob.submittedDocuments,
                   total: upgradeJob.totalDocuments })
-              : upgradeJob?.status === 'PAUSED'
-                ? t('kbDetail.upgradePaused')
-                : t('kbDetail.reparseLegacy') + '（' + legacyDocCount + '）' }}
+              : t('kbDetail.reparseLegacy') + '（' + legacyDocCount + '）' }}
           </el-button>
           <span v-if="upgradeJob?.status === 'RUNNING'" class="hint">
             {{ tf('kbDetail.upgradeProgress', { succeeded: upgradeJob.succeededDocuments,
@@ -107,18 +103,10 @@
           <span v-else-if="upgradeJob?.status === 'FAILED'" class="hint stale-parse">
             {{ t('kbDetail.upgradeFailed') }}（{{ upgradeJob.failedDocuments }}）
           </span>
-          <span v-else-if="upgradeJob?.status === 'PAUSED'" class="hint">
-            {{ t('kbDetail.upgradePausedHint') }}
-          </span>
           <span v-else-if="upgradeJob?.status === 'CANCELLED'" class="hint">
             {{ t('kbDetail.upgradeCancelled') }}
           </span>
-          <el-button v-if="upgradeJob?.status === 'RUNNING'" size="small" text type="warning"
-                     @click="pauseUpgrade">{{ t('kbDetail.upgradePause') }}</el-button>
-          <el-button v-if="upgradeJob?.status === 'PAUSED'" size="small" text type="primary"
-                     @click="resumeUpgrade">{{ t('kbDetail.upgradeResume') }}</el-button>
-          <el-button v-if="upgradeJob?.status === 'RUNNING' || upgradeJob?.status === 'PAUSED'"
-                     size="small" text type="danger"
+          <el-button v-if="upgradeJob?.status === 'RUNNING'" size="small" text type="danger"
                      @click="cancelUpgrade">{{ t('kbDetail.upgradeCancel') }}</el-button>
           <el-button v-if="detail.canEdit" size="small" text type="warning"
                      :loading="recoveringStale" @click="recoverStale">
@@ -127,10 +115,6 @@
           <el-button v-if="detail.canEdit && failedDocCount > 0" size="small" text type="primary"
                      :loading="failedRetrying" @click="retryFailedDocs">
             {{ t('kbDetail.retryFailed') }}（{{ failedDocCount }}）
-          </el-button>
-          <el-button v-if="detail.canEdit && hashMissingCount > 0" size="small" text type="primary"
-                     :loading="hashBackfilling" @click="backfillHashes">
-            {{ t('kbDetail.backfillHashes') }}（{{ hashMissingCount }}）
           </el-button>
         </div>
         <el-table :data="visibleDocuments" size="small" @row-click="toggleChunks">
@@ -472,17 +456,14 @@ const upgradeJob = ref<any>(null)
 let upgradeTimer: ReturnType<typeof setTimeout> | null = null
 const recoveringStale = ref(false)
 const failedRetrying = ref(false)
-const hashBackfilling = ref(false)
 const failedDocCount = computed(() => documents.value.filter((d: any) => d.status === 'FAILED').length)
-const hashMissingCount = computed(() => documents.value.filter(
-  (d: any) => d.status === 'DONE' && !d.sourceSha256).length)
 const uploadTasks = ref<any[]>([])
 let uploadSeq = 0
 const visibleDocuments = computed(() => validOnly.value
   ? documents.value.filter(doc => validityState(doc) === 'valid')
   : documents.value)
-const legacyDocCount = computed(() => documents.value.filter((doc: any) =>
-  doc.upgradePending ?? (doc.status === 'DONE' && !doc.parseFingerprint)).length)
+const legacyDocCount = computed(() => documents.value.filter(
+  doc => doc.status === 'DONE' && !doc.parseFingerprint).length)
 const uploading = computed(() => uploadTasks.value.some(
   task => task.status === 'uploading' || task.status === 'parsing'))
 const urlVisible = ref(false)
@@ -742,27 +723,6 @@ function pollUpgrade() {
   }, 3000)
 }
 
-async function pauseUpgrade() {
-  if (!upgradeJob.value?.jobId) return
-  upgradeJob.value = await http.post(
-    `/knowledge-base/${kbId}/documents/upgrade-jobs/${upgradeJob.value.jobId}/pause`) as any
-  if (upgradeTimer) {
-    clearTimeout(upgradeTimer)
-    upgradeTimer = null
-  }
-  ElMessage.success(t('kbDetail.upgradePausedMsg'))
-  await loadDocs()
-}
-
-async function resumeUpgrade() {
-  if (!upgradeJob.value?.jobId) return
-  upgradeJob.value = await http.post(
-    `/knowledge-base/${kbId}/documents/upgrade-jobs/${upgradeJob.value.jobId}/resume`) as any
-  ElMessage.success(t('kbDetail.upgradeResumedMsg'))
-  await loadDocs()
-  pollUpgrade()
-}
-
 async function cancelUpgrade() {
   if (!upgradeJob.value?.jobId) return
   await ElMessageBox.confirm(t('kbDetail.upgradeCancelConfirm'),
@@ -807,19 +767,6 @@ function parseAgeText(row: any): string {
   return minutes >= 360
     ? t('kbDetail.parseStale')
     : `${t('kbDetail.parsingForPrefix')}${minutes}${t('kbDetail.parsingForSuffix')}`
-}
-
-async function backfillHashes() {
-  hashBackfilling.value = true
-  try {
-    const data = await http.post(`/knowledge-base/${kbId}/documents/backfill-hashes`, null,
-      { params: { limit: 20 } }) as any
-    ElMessage.success(t('kbDetail.backfillHashesDone')
-      + `${data?.updated || 0}/${data?.scanned || 0}`)
-    await loadDocs()
-  } finally {
-    hashBackfilling.value = false
-  }
 }
 
 async function retryFailedDocs() {

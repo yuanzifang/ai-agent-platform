@@ -280,7 +280,6 @@ class KnowledgeServiceLifecycleTest {
         source.setFileName("original.pdf");
         source.setStatus("DONE");
         source.setSourceSha256("any");
-        source.setParserVersion(DocumentParser.PARSER_VERSION);
         ParseOptions parseOptions = ParseOptions.defaults(
                 false, "tesseract", "chi_sim+eng", 150, 20, false, "", "", 3);
         source.setParseFingerprint(ReflectionTestUtils.invokeMethod(
@@ -390,23 +389,6 @@ class KnowledgeServiceLifecycleTest {
 
         assertEquals(1, result.get("updated"));
         assertEquals(1, result.get("scanned"));
-        verify(docMapper).update(isNull(), any());
-    }
-
-    @Test
-    void backfillsSourceHashesForTenantScheduler() {
-        KnowledgeDocument doc = new KnowledgeDocument();
-        doc.setId(81L);
-        doc.setKnowledgeBaseId(1L);
-        doc.setObjectName("scheduled-hash.pdf");
-        doc.setStatus("DONE");
-        when(docMapper.selectList(any())).thenReturn(List.of(doc));
-        when(storage.get("scheduled-hash.pdf")).thenReturn("hash-bytes".getBytes(
-                java.nio.charset.StandardCharsets.UTF_8));
-
-        Map<String, Object> result = service.backfillSourceHashesForTenant(20);
-
-        assertEquals(1, result.get("updated"));
         verify(docMapper).update(isNull(), any());
     }
 

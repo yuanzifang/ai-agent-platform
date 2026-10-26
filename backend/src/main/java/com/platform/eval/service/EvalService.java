@@ -144,42 +144,15 @@ public class EvalService {
         item.setExpectedAnswer(expectedAnswer);
         item.setScoreCriteria(scoreCriteria);
         String normalizedStep = normalizeStepType(stepType);
-        String payload = blankToNull(expectedPayload);
-        String config = blankToNull(stepConfig);
-        String stepError = EvalStepCatalog.validate(normalizedStep, payload, config);
+        String stepError = EvalStepCatalog.validate(normalizedStep, expectedPayload, stepConfig);
         if (stepError != null) throw new BusinessException(400, stepError);
         item.setStepType(normalizedStep);
-        item.setExpectedPayload(payload);
-        item.setStepConfig(config);
+        item.setExpectedPayload(expectedPayload);
+        item.setStepConfig(stepConfig);
         item.setTenantId(principal.tenantId());
         item.setCreatedAt(LocalDateTime.now());
         itemMapper.insert(item);
         touchDataset(datasetId);
-    }
-
-    /** 编辑样本：保留 id 与历史引用，修改后刷新数据集时间以失效门禁缓存。 */
-    public void updateItem(Long itemId, String question, String expectedAnswer, String scoreCriteria,
-                           String stepType, String expectedPayload, String stepConfig) {
-        if (question == null || question.isBlank()) throw new BusinessException(400, "样本问题必填");
-        EvalDatasetItem item = itemMapper.selectById(itemId);
-        if (item == null) throw new BusinessException(404, "样本不存在");
-        String normalizedStep = normalizeStepType(stepType);
-        String payload = blankToNull(expectedPayload);
-        String config = blankToNull(stepConfig);
-        String stepError = EvalStepCatalog.validate(normalizedStep, payload, config);
-        if (stepError != null) throw new BusinessException(400, stepError);
-        item.setQuestion(question);
-        item.setExpectedAnswer(expectedAnswer);
-        item.setScoreCriteria(scoreCriteria);
-        item.setStepType(normalizedStep);
-        item.setExpectedPayload(payload);
-        item.setStepConfig(config);
-        itemMapper.updateById(item);
-        touchDataset(item.getDatasetId());
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
     }
 
     private static String normalizeStepType(String stepType) {
@@ -412,11 +385,7 @@ public class EvalService {
             rows.add(row);
         }
         detail.put("results", rows);
-        Map<String, Object> stepSummary = StepMetrics.summarize(results);
-        detail.put("stepSummary", stepSummary);
-        if ("PRE_RELEASE".equals(t.getEvalType())) {
-            detail.put("stepGate", stepGate(t.getId(), gateThreshold()));
-        }
+        detail.put("stepSummary", StepMetrics.summarize(results));
         return detail;
     }
 

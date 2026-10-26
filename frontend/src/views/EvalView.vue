@@ -194,28 +194,9 @@
         <div class="step-summary-row">
           <el-tag v-for="(v, k) in current.stepSummary" :key="k" size="small"
                   :type="v.count > 0 && v.passRate >= 0.8 ? 'success' : v.count > 0 ? 'warning' : 'info'">
-            {{ stepName(String(k)) }}：
+            {{ t('evalPage.step' + String(k).charAt(0) + String(k).slice(1).toLowerCase()) }}：
             {{ v.count }} / {{ v.passRate != null ? (v.passRate * 100).toFixed(0) + '%' : '-' }}
           </el-tag>
-        </div>
-      </div>
-      <div v-if="current.stepGate" class="gate-panel"
-           :class="{ 'gate-panel-failed': current.stepGate.failedSteps && current.stepGate.failedSteps.length }">
-        <div class="gate-head">
-          <el-tag :type="current.stepGate.failedSteps && current.stepGate.failedSteps.length ? 'danger' : 'success'" size="small">
-            {{ current.stepGate.failedSteps && current.stepGate.failedSteps.length
-              ? t('evalPage.gateFailed') : t('evalPage.gatePassed') }}
-          </el-tag>
-          <span>{{ t('evalPage.gateThreshold') }}{{ pct(current.stepGate.threshold) }}</span>
-          <span v-if="current.stepGate.failedSteps && current.stepGate.failedSteps.length">
-            {{ t('evalPage.failedSteps') }}{{ current.stepGate.failedSteps.map(stepName).join(' / ') }}
-          </span>
-        </div>
-        <div v-for="(failure, idx) in (current.stepGate.failures || [])" :key="idx" class="gate-failure">
-          <b>{{ stepName(failure.stepType) }}</b>
-          <span>score {{ failure.score }}</span>
-          <span>{{ failure.reason }}</span>
-          <span class="trace-link">{{ failure.traceId }}</span>
         </div>
       </div>
       <div v-if="current.id" class="compare-bar">
@@ -339,10 +320,7 @@
         <el-input v-model="itemForm.scoreCriteria" :placeholder="t('evalPage.criteriaPh')" size="small" />
         <el-input v-model="itemForm.expectedPayload" :placeholder="t('evalPage.expectedPayloadPh')" size="small" />
         <el-input v-model="itemForm.stepConfig" :placeholder="t('evalPage.stepConfigPh')" size="small" />
-        <el-button size="small" type="primary" @click="saveItem">
-          {{ editingItemId ? t('evalPage.saveSample') : t('evalPage.addSample') }}
-        </el-button>
-        <el-button v-if="editingItemId" size="small" @click="cancelEditItem">{{ t('evalPage.cancel') }}</el-button>
+        <el-button size="small" type="primary" @click="addItem">{{ t('evalPage.addSample') }}</el-button>
       </div>
       <el-table :data="items" size="small" class="mt8">
         <el-table-column :label="t('evalPage.question')" min-width="160">
@@ -357,9 +335,8 @@
         <el-table-column :label="t('evalPage.expectedPayload')" min-width="150">
           <template #default="{ row }">{{ clip(row.expectedPayload, 30) }}</template>
         </el-table-column>
-        <el-table-column width="120">
+        <el-table-column width="60">
           <template #default="{ row }">
-            <el-button size="small" text type="primary" @click="startEditItem(row)">{{ t('evalPage.editSample') }}</el-button>
             <el-button size="small" text type="danger" @click="removeItem(row)">{{ t('evalPage.delete') }}</el-button>
           </template>
         </el-table-column>
@@ -432,10 +409,6 @@
         <el-form-item :label="t('evalPage.stepConfig')">
           <el-input v-model="stepRunForm.stepConfig" type="textarea" :rows="3"
                     :placeholder="t('evalPage.stepConfigPh')" />
-        </el-form-item>
-        <el-form-item v-if="stepRunForm.stepType === 'REWRITE'" :label="t('evalPage.localRewrite')">
-          <el-switch v-model="stepRunForm.localOnly" />
-          <span class="hint" style="margin-left: 10px">{{ t('evalPage.localRewriteHint') }}</span>
         </el-form-item>
       </el-form>
       <div class="dialog-hint">{{ t('evalPage.stepRunHint') }}</div>
@@ -522,7 +495,7 @@ const stepRunVisible = ref(false)
 const stepRunSaving = ref(false)
 const stepRunError = ref('')
 const stepRunResult = ref<any>(null)
-const stepRunForm = reactive({ stepType: 'REWRITE', query: '', expectedPayload: '', stepConfig: '', localOnly: false })
+const stepRunForm = reactive({ stepType: 'REWRITE', query: '', expectedPayload: '', stepConfig: '' })
 const stepKeys = ['ANSWER', 'REWRITE', 'RETRIEVAL', 'RERANK']
 const trendVisible = ref(false)
 const trendLoading = ref(false)
@@ -540,7 +513,6 @@ const reviewRow = ref<any>(null)
 const reviewNote = ref('')
 const jsonl = ref('')
 const itemForm = reactive({ question: '', expectedAnswer: '', scoreCriteria: '', stepType: 'ANSWER', expectedPayload: '', stepConfig: '' })
-const editingItemId = ref<number | null>(null)
 const dsDialog = ref(false)
 const dsForm = reactive({ name: '', description: '', agentId: null as number | null })
 
@@ -694,7 +666,6 @@ async function removeDs(row: any) {
 async function openItems(row: any) {
   Object.assign(currentDs, row)
   itemsVisible.value = true
-  resetItemForm()
   stepCoverage.value = null
   const [list, coverage] = await Promise.all([
     http.get(`/eval/datasets/${row.id}/items`) as any,
@@ -704,45 +675,11 @@ async function openItems(row: any) {
   stepCoverage.value = coverage
 }
 
-function resetItemForm() {
-  Object.assign(itemForm, { question: '', expectedAnswer: '', scoreCriteria: '', stepType: 'ANSWER', expectedPayload: '', stepConfig: '' })
-  editingItemId.value = null
-}
-
-function startEditItem(row: any) {
-  editingItemId.value = row.id
-  Object.assign(itemForm, {
-    question: row.question || '',
-    expectedAnswer: row.expectedAnswer || '',
-    scoreCriteria: row.scoreCriteria || '',
-    stepType: row.stepType || 'ANSWER',
-    expectedPayload: row.expectedPayload || '',
-    stepConfig: row.stepConfig || ''
-  })
-}
-
-function cancelEditItem() {
-  resetItemForm()
-}
-
-async function reloadItems() {
-  const [list, coverage] = await Promise.all([
-    http.get(`/eval/datasets/${currentDs.id}/items`) as any,
-    http.get(`/eval/datasets/${currentDs.id}/step-summary`).catch(() => null) as any
-  ])
-  items.value = list
-  stepCoverage.value = coverage
-}
-
-async function saveItem() {
+async function addItem() {
   if (!itemForm.question.trim()) { ElMessage.warning(t('evalPage.questionRequired')); return }
-  if (editingItemId.value) {
-    await http.put(`/eval/datasets/items/${editingItemId.value}`, { ...itemForm })
-  } else {
-    await http.post(`/eval/datasets/${currentDs.id}/items`, { ...itemForm })
-  }
-  await reloadItems()
-  resetItemForm()
+  await http.post(`/eval/datasets/${currentDs.id}/items`, { ...itemForm })
+  items.value = await http.get(`/eval/datasets/${currentDs.id}/items`) as any
+  Object.assign(itemForm, { question: '', expectedAnswer: '', scoreCriteria: '', stepType: 'ANSWER', expectedPayload: '', stepConfig: '' })
 }
 
 const standaloneStepTypes = computed(() =>
@@ -777,21 +714,7 @@ async function runStep() {
   stepRunError.value = ''
   stepRunResult.value = null
   try {
-    let stepConfig = stepRunForm.stepConfig
-    if (stepRunForm.stepType === 'REWRITE' && stepRunForm.localOnly) {
-      let config: any
-      try {
-        config = JSON.parse(stepConfig || '{}')
-      } catch {
-        stepRunError.value = t('evalPage.stepRunInvalidConfig')
-        return
-      }
-      stepConfig = JSON.stringify({ ...config, localOnly: true })
-    }
-    stepRunResult.value = await http.post('/eval/steps/run', {
-      stepType: stepRunForm.stepType, query: stepRunForm.query,
-      expectedPayload: stepRunForm.expectedPayload, stepConfig
-    }) as any
+    stepRunResult.value = await http.post('/eval/steps/run', { ...stepRunForm }) as any
   } catch (e: any) {
     stepRunError.value = e?.response?.data?.message || e?.message || t('evalPage.stepRunFailed')
   } finally {
@@ -831,8 +754,7 @@ async function importItems() {
 
 async function removeItem(row: any) {
   await http.delete(`/eval/datasets/items/${row.id}`)
-  if (editingItemId.value === row.id) resetItemForm()
-  await reloadItems()
+  items.value = await http.get(`/eval/datasets/${currentDs.id}/items`) as any
 }
 
 function agentName(id: number | null) {
@@ -890,8 +812,4 @@ function clip(t: string, n: number) { t = t || ''; return t.length > n ? t.slice
 .coverage-totals { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; font-size: 13px; }
 .coverage-total { font-weight: 600; }
 .mr4 { margin-right: 4px; }
-.gate-panel { border: 1px solid #ebeef5; border-radius: 6px; padding: 10px; margin-bottom: 12px; background: #f0f9eb; }
-.gate-panel-failed { background: #fef0f0; border-color: #fde2e2; }
-.gate-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
-.gate-failure { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: #606266; }
 </style>

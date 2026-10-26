@@ -43,7 +43,7 @@ public class KnowledgeUpgradeService {
         KnowledgeUpgradeJob active = jobMapper.selectOne(
                 new LambdaQueryWrapper<KnowledgeUpgradeJob>()
                         .eq(KnowledgeUpgradeJob::getKnowledgeBaseId, kbId)
-                        .in(KnowledgeUpgradeJob::getStatus, List.of("RUNNING", "PAUSED"))
+                        .eq(KnowledgeUpgradeJob::getStatus, "RUNNING")
                         .orderByDesc(KnowledgeUpgradeJob::getCreatedAt)
                         .last("LIMIT 1"));
         if (active != null) return view(active);
@@ -64,13 +64,9 @@ public class KnowledgeUpgradeService {
         int assigned = docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
                 .eq(KnowledgeDocument::getKnowledgeBaseId, kbId)
                 .eq(KnowledgeDocument::getStatus, "DONE")
-                .and(w -> w.isNull(KnowledgeDocument::getParseFingerprint)
-                        .or().isNull(KnowledgeDocument::getParserVersion)
-                        .or().ne(KnowledgeDocument::getParserVersion,
-                                DocumentParser.PARSER_VERSION))
+                .isNull(KnowledgeDocument::getParseFingerprint)
                 .set(KnowledgeDocument::getUpgradeJobId, job.getId())
-                .set(KnowledgeDocument::getUpgradeStatus, "PENDING")
-                .set(KnowledgeDocument::getUpgradeAttempts, 0));
+                .set(KnowledgeDocument::getUpgradeStatus, "PENDING"));
         job.setTotalDocuments(assigned);
         if (assigned == 0) job.setStatus("COMPLETED");
         job.setUpdatedAt(LocalDateTime.now());
@@ -101,37 +97,6 @@ public class KnowledgeUpgradeService {
         return view(job);
     }
 
-    /** 暂停运行中的任务：已提交文档继续解析，不再提交新的待升级文档。 */
-    public Map<String, Object> pause(Long kbId, Long jobId,
-                                     KnowledgePermissionService.Viewer viewer) {
-        return transition(kbId, jobId, viewer, "PAUSED", "RUNNING", "仅运行中的升级任务可暂停");
-    }
-
-    /** 继续已暂停的任务。 */
-    public Map<String, Object> resume(Long kbId, Long jobId,
-                                      KnowledgePermissionService.Viewer viewer) {
-        return transition(kbId, jobId, viewer, "RUNNING", "PAUSED", "仅暂停中的升级任务可继续");
-    }
-
-    private Map<String, Object> transition(Long kbId, Long jobId,
-                                           KnowledgePermissionService.Viewer viewer,
-                                           String target, String expected, String error) {
-        permissionService.requireEdit(kbId, viewer);
-        KnowledgeUpgradeJob job = jobMapper.selectById(jobId);
-        if (job == null || !kbId.equals(job.getKnowledgeBaseId())) {
-            throw new BusinessException(404, "升级任务不存在");
-        }
-        if (!expected.equals(job.getStatus())) throw new BusinessException(400, error);
-        jobMapper.update(null, new LambdaUpdateWrapper<KnowledgeUpgradeJob>()
-                .eq(KnowledgeUpgradeJob::getId, jobId)
-                .eq(KnowledgeUpgradeJob::getStatus, expected)
-                .set(KnowledgeUpgradeJob::getStatus, target)
-                .set(KnowledgeUpgradeJob::getUpdatedAt, LocalDateTime.now()));
-        job.setStatus(target);
-        log.info("存量升级任务状态变更：kb={} job={} -> {}", kbId, jobId, target);
-        return view(job);
-    }
-
     /** 取消运行中的任务；已提交给解析器的文档不会强行中断。 */
     public Map<String, Object> cancel(Long kbId, Long jobId,
                                       KnowledgePermissionService.Viewer viewer) {
@@ -140,12 +105,12 @@ public class KnowledgeUpgradeService {
         if (job == null || !kbId.equals(job.getKnowledgeBaseId())) {
             throw new BusinessException(404, "升级任务不存在");
         }
-        if (!"RUNNING".equals(job.getStatus()) && !"PAUSED".equals(job.getStatus())) {
-            throw new BusinessException(400, "仅运行中/暂停中的升级任务可取消");
+        if (!"RUNNING".equals(job.getStatus())) {
+            throw new BusinessException(400, "仅运行中的升级任务可取消");
         }
         jobMapper.update(null, new LambdaUpdateWrapper<KnowledgeUpgradeJob>()
                 .eq(KnowledgeUpgradeJob::getId, jobId)
-                .eq(KnowledgeUpgradeJob::getStatus, job.getStatus())
+                .eq(KnowledgeUpgradeJob::getStatus, "RUNNING")
                 .set(KnowledgeUpgradeJob::getStatus, "CANCELLED")
                 .set(KnowledgeUpgradeJob::getUpdatedAt, LocalDateTime.now()));
         job.setStatus("CANCELLED");
@@ -181,8 +146,8 @@ public class KnowledgeUpgradeService {
                 new LambdaQueryWrapper<KnowledgeDocument>()
                         .eq(KnowledgeDocument::getUpgradeJobId, job.getId())
                         .eq(KnowledgeDocument::getUpgradeStatus, "PENDING")
-                        .in(KnowledgeDocument::getStatus, List.of("DONE", "FAILED"))
-                        .lt(KnowledgeDocument::getUpgradeAttempts, 3)
+                        .eq(KnowledgeDocument::getStatus, "DONE")
+                        .isNull(KnowledgeDocument::getParseFingerprint)
                         .orderByAsc(KnowledgeDocument::getId)
                         .last("LIMIT " + batch));
         int submitted = 0;
@@ -191,8 +156,6 @@ public class KnowledgeUpgradeService {
                 int claimed = docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
                         .eq(KnowledgeDocument::getId, doc.getId())
                         .eq(KnowledgeDocument::getUpgradeStatus, "PENDING")
-                        .lt(KnowledgeDocument::getUpgradeAttempts, 3)
-                        .setSql("upgrade_attempts = upgrade_attempts + 1")
                         .set(KnowledgeDocument::getUpgradeStatus, "RUNNING"));
                 if (claimed == 0) continue;
                 try {
@@ -216,19 +179,11 @@ public class KnowledgeUpgradeService {
                 .eq(KnowledgeDocument::getUpgradeJobId, jobId)
                 .eq(KnowledgeDocument::getStatus, "DONE")
                 .isNotNull(KnowledgeDocument::getParseFingerprint)
-                .eq(KnowledgeDocument::getParserVersion, DocumentParser.PARSER_VERSION)
                 .ne(KnowledgeDocument::getUpgradeStatus, "SUCCEEDED")
                 .set(KnowledgeDocument::getUpgradeStatus, "SUCCEEDED"));
         docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
                 .eq(KnowledgeDocument::getUpgradeJobId, jobId)
                 .eq(KnowledgeDocument::getStatus, "FAILED")
-                .lt(KnowledgeDocument::getUpgradeAttempts, 3)
-                .ne(KnowledgeDocument::getUpgradeStatus, "PENDING")
-                .set(KnowledgeDocument::getUpgradeStatus, "PENDING"));
-        docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
-                .eq(KnowledgeDocument::getUpgradeJobId, jobId)
-                .eq(KnowledgeDocument::getStatus, "FAILED")
-                .ge(KnowledgeDocument::getUpgradeAttempts, 3)
                 .ne(KnowledgeDocument::getUpgradeStatus, "FAILED")
                 .set(KnowledgeDocument::getUpgradeStatus, "FAILED"));
         // 提交后仍未产生指纹、又回到 DONE 的文档，回到 PENDING 由下一轮重试。
@@ -248,8 +203,6 @@ public class KnowledgeUpgradeService {
     }
 
     private void refresh(KnowledgeUpgradeJob job) {
-        // 先根据文档状态收敛，失败未满 3 次的文档回到待重试，避免任务被提前判定完成。
-        reconcile(job.getId());
         int pending = count(job.getId(), "PENDING");
         int running = count(job.getId(), "RUNNING");
         int succeeded = count(job.getId(), "SUCCEEDED");

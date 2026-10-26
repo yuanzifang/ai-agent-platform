@@ -1222,7 +1222,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElLoading, ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import http from '../api/http'
-import { escapeHtml, renderGateFailures } from '../utils/gateDetails'
 import WorkflowNodeForm from '../components/WorkflowNodeForm.vue'
 
 const { t } = useI18n()
@@ -3306,22 +3305,10 @@ async function publish(force = false) {
     const msg = String(err?.response?.data?.message || err?.message || err)
     if (msg.includes(t('agentMsg.gateFailed'))) {
       loading.close()
-      let gateHtml = ''
-      try {
-        const gate = await http.post(`/agent/${agentId}/gate-preview`, {},
-          { timeout: 600000 }) as any
-        gateHtml = renderGateFailures(gate, {
-          failedSteps: t('agentMsg.gateFailedSteps'), score: t('agentMsg.gateScore')
-        })
-      } catch {
-        // 明细获取失败不阻断“强制发布”确认
-      }
       try {
         await ElMessageBox.confirm(
-          `${escapeHtml(msg)}${gateHtml ? '<br/><br/>' + gateHtml : ''}<br/><br/>${escapeHtml(t('agentMsg.forcePublishPrompt'))}`,
-          t('agentMsg.gateTitle'),
-          { type: 'warning', dangerouslyUseHTMLString: true,
-            confirmButtonText: t('agentMsg.forcePublish'), cancelButtonText: t('agentDlg.cancel') })
+          `${msg}\n\n${t('agentMsg.forcePublishPrompt')}`, t('agentMsg.gateTitle'),
+          { type: 'warning', confirmButtonText: t('agentMsg.forcePublish'), cancelButtonText: t('agentDlg.cancel') })
         await publish(true)
       } catch { /* 取消 */ }
       return

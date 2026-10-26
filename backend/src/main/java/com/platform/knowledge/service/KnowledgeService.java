@@ -1002,7 +1002,6 @@ public class KnowledgeService {
             }
         }
         storeDocumentImages(doc, bytes);
-        recordParserVersion(doc);
         updateStatus(doc, "DONE", chunks.size(), null);
         storeParseWarning(doc, parseWarnings);
         recordEmbeddingUsage(doc, chunks.size(), embeddingModel);
@@ -1032,7 +1031,7 @@ public class KnowledgeService {
     public boolean reparseForUpgrade(Long kbId, Long documentId) {
         KnowledgeDocument doc = docMapper.selectById(documentId);
         if (doc == null || !Objects.equals(doc.getKnowledgeBaseId(), kbId)
-                || (!"DONE".equals(doc.getStatus()) && !"FAILED".equals(doc.getStatus()))) {
+                || !"DONE".equals(doc.getStatus())) {
             return false;
         }
         performReparse(doc);
@@ -1493,16 +1492,9 @@ public class KnowledgeService {
 
     public List<KnowledgeDocument> documents(Long kbId, KnowledgePermissionService.Viewer viewer) {
         permissionService.requireView(kbId, viewer);
-        List<KnowledgeDocument> docs = docMapper.selectList(new LambdaQueryWrapper<KnowledgeDocument>()
+        return docMapper.selectList(new LambdaQueryWrapper<KnowledgeDocument>()
                 .eq(KnowledgeDocument::getKnowledgeBaseId, kbId)
                 .orderByDesc(KnowledgeDocument::getCreatedAt));
-        for (KnowledgeDocument doc : docs) {
-            doc.setUpgradePending("DONE".equals(doc.getStatus())
-                    && (doc.getParseFingerprint() == null
-                    || doc.getParserVersion() == null
-                    || !DocumentParser.PARSER_VERSION.equals(doc.getParserVersion())));
-        }
-        return docs;
     }
 
     /** 存量文档回填文件 SHA256；每次限量，避免一次读大量 MinIO 对象。 */
@@ -1516,22 +1508,6 @@ public class KnowledgeService {
                         .eq(KnowledgeDocument::getStatus, "DONE")
                         .isNull(KnowledgeDocument::getSourceSha256)
                         .last("LIMIT " + max));
-        return backfillSourceHashRows(docs);
-    }
-
-    /** 定时回填调用：当前租户下所有知识库中缺失 SHA256 的 DONE 文档。 */
-    public Map<String, Object> backfillSourceHashesForTenant(int limit) {
-        int max = Math.max(1, Math.min(limit, 100));
-        List<KnowledgeDocument> docs = docMapper.selectList(
-                new LambdaQueryWrapper<KnowledgeDocument>()
-                        .eq(KnowledgeDocument::getStatus, "DONE")
-                        .isNull(KnowledgeDocument::getSourceSha256)
-                        .orderByAsc(KnowledgeDocument::getId)
-                        .last("LIMIT " + max));
-        return backfillSourceHashRows(docs);
-    }
-
-    private Map<String, Object> backfillSourceHashRows(List<KnowledgeDocument> docs) {
         int updated = 0;
         int failed = 0;
         for (KnowledgeDocument doc : docs) {
@@ -1672,7 +1648,6 @@ public class KnowledgeService {
                                     doc.getTenantId())
                             .eq(KnowledgeDocument::getSourceSha256, sourceSha)
                             .eq(KnowledgeDocument::getParseFingerprint, parseFingerprint)
-                            .eq(KnowledgeDocument::getParserVersion, DocumentParser.PARSER_VERSION)
                             .ne(KnowledgeDocument::getId, doc.getId())
                             .eq(KnowledgeDocument::getStatus, "DONE")
                             .orderByDesc(KnowledgeDocument::getCreatedAt)
@@ -1692,18 +1667,6 @@ public class KnowledgeService {
         } catch (Exception e) {
             log.debug("解析配置指纹生成失败（忽略）：{}", e.getMessage());
             return null;
-        }
-    }
-
-    private void recordParserVersion(KnowledgeDocument doc) {
-        if (DocumentParser.PARSER_VERSION.equals(doc.getParserVersion())) return;
-        try {
-            doc.setParserVersion(DocumentParser.PARSER_VERSION);
-            docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
-                    .eq(KnowledgeDocument::getId, doc.getId())
-                    .set(KnowledgeDocument::getParserVersion, DocumentParser.PARSER_VERSION));
-        } catch (Exception e) {
-            log.debug("解析器版本记录失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
         }
     }
 
@@ -1807,7 +1770,6 @@ public class KnowledgeService {
                     ? "已复用相同文件「" + source.getFileName() + "」的解析结果"
                     : "已复用同租户相同文件的解析结果";
             warnings.add(reuseMessage);
-            recordParserVersion(doc);
             updateStatus(doc, "DONE", newChunks.size(), null);
             storeParseWarning(doc, warnings);
             try {

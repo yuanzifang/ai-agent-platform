@@ -40,14 +40,6 @@ const detail = {
     RETRIEVAL: { count: 0, avgScore: null, passRate: null },
     RERANK: { count: 0, avgScore: null, passRate: null }
   },
-  stepGate: {
-    threshold: 0.8,
-    failedSteps: ['RETRIEVAL'],
-    failures: [{
-      stepType: 'RETRIEVAL', score: 0, reason: '未命中期望 chunk',
-      traceId: 'trace-gate-failure', datasetItemId: 88
-    }]
-  },
   results: [
     {
       id: 501,
@@ -156,8 +148,6 @@ test('任务详情：分步汇总、回归对比、趋势/覆盖矩阵与人工�
 
   const drawer = page.locator('.el-drawer:visible')
   await expect(drawer).toContainText('分步骤结果')
-  await expect(drawer).toContainText('门禁未通过')
-  await expect(drawer).toContainText('未命中期望 chunk')
   await expect(drawer).toContainText('改写')
   await expect(drawer.locator('.el-table__row').filter({ hasText: 'REWRITE' })).toBeVisible()
 

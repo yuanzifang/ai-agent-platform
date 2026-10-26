@@ -88,20 +88,6 @@ class StepEvaluationServiceTest {
     }
 
     @Test
-    void rewriteCanUseLocalFallbackWithoutModelCall() {
-        when(rewrite.rewriteLocal("帮我改写查询：退款怎么申请")).thenReturn("退款怎么申请");
-        var result = service.evaluate("REWRITE", "帮我改写查询：退款怎么申请",
-                "{\"must_keep\":[\"退款\"]}", "{\"localOnly\":true}", viewer);
-
-        assertEquals(1.0, result.score(), 0.0001);
-        assertTrue(result.passed());
-        assertTrue(result.details().contains("\"localOnly\":true"));
-        org.mockito.Mockito.verify(rewrite, org.mockito.Mockito.never())
-                .rewrite(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
     void evaluatesRerankTopOne() {
         List<Map<String, Object>> hits = List.of(
                 Map.of("content", "doc1", "metadata", "{\"chunk_id\":1}"),

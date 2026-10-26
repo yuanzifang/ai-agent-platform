@@ -21,11 +21,9 @@ public class KnowledgeDocument {
     private Long sizeBytes;
     private String sourceSha256;
     private String parseFingerprint;
-    private String parserVersion;
     private LocalDateTime parseStartedAt;
     private Long upgradeJobId;
     private String upgradeStatus;
-    private Integer upgradeAttempts;
     private String errorMessage;
     private Integer retryTimes;
     private Long tenantId;
@@ -33,7 +31,4 @@ public class KnowledgeDocument {
     private LocalDateTime effectiveFrom;
     private LocalDateTime effectiveTo;
     private String parseConfig; // JSON：解析配置覆盖（KB 默认 / 文档上传时选择）
-    /** 仅用于文档列表返回：当前解析结果是否需要按最新解析器版本升级。 */
-    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
-    private Boolean upgradePending;
 }
