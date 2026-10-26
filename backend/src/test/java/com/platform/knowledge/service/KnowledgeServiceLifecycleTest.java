@@ -234,6 +234,17 @@ class KnowledgeServiceLifecycleTest {
         assertEquals(null, row.get("effective_to"));
         assertTrue(String.valueOf(row.get("metadata")).contains(
                 "\"effective_from\":\"2026-01-01T10:00\""));
+        String metadata = String.valueOf(row.get("metadata"));
+        assertTrue(metadata.contains("\"document_type\":\"general\""), metadata);
+        assertTrue(metadata.contains("\"section_type\":\"body\""), metadata);
+        assertTrue(metadata.contains("\"parent_key\":\"55:0\""), metadata);
+        assertTrue(metadata.contains("\"relevance_score\""), metadata);
+        ArgumentCaptor<KnowledgeChunk> chunkCaptor = ArgumentCaptor.forClass(KnowledgeChunk.class);
+        verify(chunkMapper).insert(chunkCaptor.capture());
+        assertEquals("general", chunkCaptor.getValue().getDocumentType());
+        assertEquals("body", chunkCaptor.getValue().getSectionType());
+        assertEquals(1, chunkCaptor.getValue().getChunkLevel());
+        assertEquals("55:0", chunkCaptor.getValue().getParentKey());
     }
 
     @Test

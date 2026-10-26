@@ -953,15 +953,29 @@ public class KnowledgeService {
         if (effectiveFrom == null) effectiveFrom = LocalDateTime.now();
         LocalDateTime effectiveTo = doc.getEffectiveTo();
 
+        String profileText = chunks.stream().map(DocumentParser.ParsedChunk::content)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.joining("\n"));
+        ChunkMetadataExtractor.Profile profile = ChunkMetadataExtractor.profile(
+                doc.getFileName(), profileText.length() > 100_000
+                        ? profileText.substring(0, 100_000) : profileText);
         List<KnowledgeChunk> chunkRows = new ArrayList<>(chunks.size());
         for (int i = 0; i < chunks.size(); i++) {
             DocumentParser.ParsedChunk parsed = chunks.get(i);
+            ChunkMetadataExtractor.Metadata meta = ChunkMetadataExtractor.extract(doc.getId(), parsed, profile);
             KnowledgeChunk chunk = new KnowledgeChunk();
             chunk.setDocumentId(doc.getId());
             chunk.setKnowledgeBaseId(doc.getKnowledgeBaseId());
             chunk.setChunkIndex(i);
             chunk.setParentIndex(parsed.parentIndex());
             chunk.setParentContent(parsed.parentContent());
+            chunk.setDocumentType(meta.documentType());
+            chunk.setSectionType(meta.sectionType());
+            chunk.setChunkLevel(meta.chunkLevel());
+            chunk.setParentKey(meta.parentKey());
+            chunk.setDomainKeywords(objectMapper.writeValueAsString(meta.domainKeywords()));
+            chunk.setRelevanceScore(meta.relevanceScore());
+            chunk.setRegulatoryCategory(meta.regulatoryCategory());
             chunk.setContent(parsed.content());
             chunk.setPageFrom(parsed.pageFrom() > 0 ? parsed.pageFrom() : null);
             chunk.setPageTo(parsed.pageTo() > 0 ? parsed.pageTo() : null);
@@ -985,7 +999,20 @@ public class KnowledgeService {
             metadata.put("document_id", doc.getId());
             metadata.put("chunk_id", chunkId);
             metadata.put("chunk_index", i);
+            KnowledgeChunk stored = chunkRows.get(i);
             metadata.put("parent_index", parsed.parentIndex());
+            metadata.put("parent_key", stored.getParentKey());
+            metadata.put("chunk_level", stored.getChunkLevel());
+            metadata.put("document_type", stored.getDocumentType());
+            metadata.put("section_type", stored.getSectionType());
+            metadata.put("relevance_score", stored.getRelevanceScore());
+            metadata.put("regulatory_category", stored.getRegulatoryCategory());
+            try {
+                metadata.put("domain_keywords", objectMapper.readValue(
+                        stored.getDomainKeywords(), List.class));
+            } catch (Exception ignored) {
+                metadata.put("domain_keywords", List.of());
+            }
             if (parsed.pageFrom() > 0) metadata.put("page_from", parsed.pageFrom());
             if (parsed.pageTo() > 0) metadata.put("page_to", parsed.pageTo());
             metadata.put("embedding_model", embeddingModel);
@@ -1362,19 +1389,39 @@ public class KnowledgeService {
     public List<Map<String, Object>> search(Long kbId, String query, Integer topK, Double threshold,
                                             String mode, Instant effectiveAfter, Instant effectiveBefore,
                                             KnowledgePermissionService.Viewer viewer) {
+        return search(kbId, query, topK, threshold, mode, effectiveAfter, effectiveBefore,
+                null, null, null, null, null, viewer);
+    }
+
+    /** 携带文档类型/章节/监管类别/块层级/最低相关性的混合检索过滤。 */
+    public List<Map<String, Object>> search(Long kbId, String query, Integer topK, Double threshold,
+                                            String mode, Instant effectiveAfter, Instant effectiveBefore,
+                                            String documentType, String sectionType,
+                                            String regulatoryCategory, Integer chunkLevel,
+                                            Double minRelevance,
+                                            KnowledgePermissionService.Viewer viewer) {
         permissionService.requireView(kbId, viewer);
         if (effectiveAfter != null && effectiveBefore != null && effectiveAfter.isAfter(effectiveBefore)) {
             throw new BusinessException(400, "生效开始时间不能晚于生效结束时间");
         }
         Long tenantId = TenantContext.getTenantId();
-        Map<String, Object> retrievalConfig = mode == null || mode.isBlank()
-                ? Map.of() : Map.of("mode", mode);
+        Map<String, Object> retrievalConfig = new LinkedHashMap<>();
+        if (mode != null && !mode.isBlank()) retrievalConfig.put("mode", mode);
+        if (documentType != null && !documentType.isBlank()) retrievalConfig.put("documentType", documentType);
+        if (sectionType != null && !sectionType.isBlank()) retrievalConfig.put("sectionType", sectionType);
+        if (regulatoryCategory != null && !regulatoryCategory.isBlank()) {
+            retrievalConfig.put("regulatoryCategory", regulatoryCategory);
+        }
+        if (chunkLevel != null) retrievalConfig.put("chunkLevel", chunkLevel);
+        if (minRelevance != null) retrievalConfig.put("minRelevance", minRelevance);
         List<Map<String, Object>> hits = new ArrayList<>(hybridRetrieval.search(tenantId, query, kbId,
                 topK == null ? 5 : topK,
                 threshold == null ? 0.5 : threshold, retrievalConfig,
                 viewer.userId(), permissionService.tenantWide(viewer), effectiveAfter, effectiveBefore).hits());
-        // 图谱扩展分段没有有效期约束，时间筛选下不追加，避免返回已过期内容。
-        if (effectiveAfter == null && effectiveBefore == null) {
+        // 图谱扩展分段没有完整元数据/有效期约束；有筛选时跳过，避免返回不匹配内容。
+        boolean metadataFilter = documentType != null || sectionType != null
+                || regulatoryCategory != null || chunkLevel != null || minRelevance != null;
+        if (effectiveAfter == null && effectiveBefore == null && !metadataFilter) {
             Set<Long> existing = new java.util.HashSet<>();
             List<String> contents = new ArrayList<>();
             for (Map<String, Object> hit : hits) {
@@ -1903,6 +1950,13 @@ public class KnowledgeService {
                 }
                 chunk.setParentContent(parentContent);
                 chunk.setContent(old.getContent());
+                chunk.setDocumentType(old.getDocumentType());
+                chunk.setSectionType(old.getSectionType());
+                chunk.setChunkLevel(old.getChunkLevel());
+                chunk.setParentKey(doc.getId() + ":" + old.getParentIndex());
+                chunk.setDomainKeywords(old.getDomainKeywords());
+                chunk.setRelevanceScore(old.getRelevanceScore());
+                chunk.setRegulatoryCategory(old.getRegulatoryCategory());
                 chunk.setPageFrom(old.getPageFrom());
                 chunk.setPageTo(old.getPageTo());
                 chunk.setAllowedUsers(usersJson(acl.allowedUsers()));
@@ -2150,24 +2204,30 @@ public class KnowledgeService {
     private boolean storeParents(KnowledgeDocument doc, List<KnowledgeChunk> chunks,
                                  List<String> warnings) {
         if (parentMapper == null) return false;
-        Map<Integer, String> parents = new LinkedHashMap<>();
+        Map<Integer, KnowledgeChunk> parents = new LinkedHashMap<>();
         for (KnowledgeChunk chunk : chunks) {
             if (chunk.getParentIndex() == null || chunk.getParentContent() == null
                     || chunk.getParentContent().isBlank()) continue;
-            parents.putIfAbsent(chunk.getParentIndex(), chunk.getParentContent());
+            parents.putIfAbsent(chunk.getParentIndex(), chunk);
         }
         if (parents.isEmpty()) return false;
         try {
             if (mysqlJdbcTemplate != null) {
                 mysqlJdbcTemplate.update("DELETE FROM knowledge_parent WHERE document_id = ?", doc.getId());
                 String sql = "INSERT INTO knowledge_parent " +
-                        "(document_id, knowledge_base_id, parent_index, content, tenant_id, created_at) " +
-                        "VALUES (?, ?, ?, ?, ?, ?)";
+                        "(document_id, knowledge_base_id, parent_index, content, document_type, " +
+                        "section_type, chunk_level, domain_keywords, relevance_score, " +
+                        "regulatory_category, tenant_id, created_at) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 List<Object[]> batch = new ArrayList<>(parents.size());
                 LocalDateTime now = LocalDateTime.now();
                 for (var entry : parents.entrySet()) {
+                    KnowledgeChunk chunk = entry.getValue();
                     batch.add(new Object[]{doc.getId(), doc.getKnowledgeBaseId(), entry.getKey(),
-                            entry.getValue(), doc.getTenantId(), java.sql.Timestamp.valueOf(now)});
+                            chunk.getParentContent(), chunk.getDocumentType(), chunk.getSectionType(),
+                            chunk.getChunkLevel(), chunk.getDomainKeywords(), chunk.getRelevanceScore(),
+                            chunk.getRegulatoryCategory(), doc.getTenantId(),
+                            java.sql.Timestamp.valueOf(now)});
                 }
                 for (int start = 0; start < batch.size(); start += 500) {
                     mysqlJdbcTemplate.batchUpdate(sql,
@@ -2178,11 +2238,18 @@ public class KnowledgeService {
             parentMapper.delete(new LambdaQueryWrapper<KnowledgeParent>()
                     .eq(KnowledgeParent::getDocumentId, doc.getId()));
             for (var entry : parents.entrySet()) {
+                KnowledgeChunk chunk = entry.getValue();
                 KnowledgeParent parent = new KnowledgeParent();
                 parent.setDocumentId(doc.getId());
                 parent.setKnowledgeBaseId(doc.getKnowledgeBaseId());
                 parent.setParentIndex(entry.getKey());
-                parent.setContent(entry.getValue());
+                parent.setContent(chunk.getParentContent());
+                parent.setDocumentType(chunk.getDocumentType());
+                parent.setSectionType(chunk.getSectionType());
+                parent.setChunkLevel(chunk.getChunkLevel());
+                parent.setDomainKeywords(chunk.getDomainKeywords());
+                parent.setRelevanceScore(chunk.getRelevanceScore());
+                parent.setRegulatoryCategory(chunk.getRegulatoryCategory());
                 parent.setTenantId(doc.getTenantId());
                 parent.setCreatedAt(LocalDateTime.now());
                 parentMapper.insert(parent);
@@ -2204,14 +2271,19 @@ public class KnowledgeService {
                 String sql = """
                         INSERT INTO knowledge_chunk
                         (document_id, knowledge_base_id, chunk_index, parent_index, parent_content,
-                         page_from, page_to, content, allowed_users, tenant_visible, tenant_id, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         page_from, page_to, content, document_type, section_type, chunk_level,
+                         parent_key, domain_keywords, relevance_score, regulatory_category,
+                         allowed_users, tenant_visible, tenant_id, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """;
                 List<Object[]> batch = new ArrayList<>(chunks.size());
                 for (KnowledgeChunk chunk : chunks) {
                     batch.add(new Object[]{chunk.getDocumentId(), chunk.getKnowledgeBaseId(),
                             chunk.getChunkIndex(), chunk.getParentIndex(), chunk.getParentContent(),
                             chunk.getPageFrom(), chunk.getPageTo(), chunk.getContent(),
+                            chunk.getDocumentType(), chunk.getSectionType(), chunk.getChunkLevel(),
+                            chunk.getParentKey(), chunk.getDomainKeywords(), chunk.getRelevanceScore(),
+                            chunk.getRegulatoryCategory(),
                             chunk.getAllowedUsers(), chunk.getTenantVisible(), chunk.getTenantId(),
                             java.sql.Timestamp.valueOf(chunk.getCreatedAt())});
                 }

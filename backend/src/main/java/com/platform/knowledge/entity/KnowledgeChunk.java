@@ -16,6 +16,13 @@ public class KnowledgeChunk {
     private Long knowledgeBaseId;
     private Integer chunkIndex;
     private Integer parentIndex;
+    private String documentType;
+    private String sectionType;
+    private Integer chunkLevel;
+    private String parentKey;
+    private String domainKeywords; // JSON array
+    private Double relevanceScore;
+    private String regulatoryCategory;
     private String parentContent;
     private Integer pageFrom;
     private Integer pageTo;

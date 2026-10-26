@@ -15,7 +15,7 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
 
     /** 混合检索关键字路：MySQL ngram 全文索引。 */
     @Select("""
-            SELECT id, document_id, chunk_index, parent_index, content, page_from, page_to,
+            SELECT id, document_id, chunk_index, parent_index, document_type, section_type, chunk_level, parent_key, domain_keywords, relevance_score, regulatory_category, content, page_from, page_to,
                    MATCH(content) AGAINST(#{query} IN NATURAL LANGUAGE MODE) AS score
             FROM knowledge_chunk
             WHERE knowledge_base_id = #{kbId}
@@ -30,7 +30,7 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
     /** ACL 版本：userId/tenantWide 下推；旧数据 allowed_users 为空时按知识库级权限兜底。 */
     @Select("""
             <script>
-            SELECT id, document_id, chunk_index, parent_index, content, page_from, page_to,
+            SELECT id, document_id, chunk_index, parent_index, document_type, section_type, chunk_level, parent_key, domain_keywords, relevance_score, regulatory_category, content, page_from, page_to,
                    MATCH(content) AGAINST(#{query} IN NATURAL LANGUAGE MODE) AS score
             FROM knowledge_chunk
             WHERE knowledge_base_id = #{kbId}
@@ -53,7 +53,7 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
     /** 有效期感知的全文检索：JOIN 文档，按内容有效期区间重叠过滤。 */
     @Select("""
             <script>
-            SELECT kc.id, kc.document_id, kc.chunk_index, kc.parent_index, kc.content, kc.page_from, kc.page_to,
+            SELECT kc.id, kc.document_id, kc.chunk_index, kc.parent_index, kc.document_type, kc.section_type, kc.chunk_level, kc.parent_key, kc.domain_keywords, kc.relevance_score, kc.regulatory_category, kc.content, kc.page_from, kc.page_to,
                    kd.effective_from AS effective_from, kd.effective_to AS effective_to,
                    MATCH(kc.content) AGAINST(#{query} IN NATURAL LANGUAGE MODE) AS score
             FROM knowledge_chunk kc
@@ -86,7 +86,7 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
     /** 有效期感知的 LIKE 兜底。 */
     @Select("""
             <script>
-            SELECT kc.id, kc.document_id, kc.chunk_index, kc.parent_index, kc.content, kc.page_from, kc.page_to,
+            SELECT kc.id, kc.document_id, kc.chunk_index, kc.parent_index, kc.document_type, kc.section_type, kc.chunk_level, kc.parent_key, kc.domain_keywords, kc.relevance_score, kc.regulatory_category, kc.content, kc.page_from, kc.page_to,
                    kd.effective_from AS effective_from, kd.effective_to AS effective_to, 0.1 AS score
             FROM knowledge_chunk kc
             JOIN knowledge_document kd ON kd.id = kc.document_id
@@ -117,7 +117,7 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
 
     /** 全文索引不可用/短查询兜底。 */
     @Select("""
-            SELECT id, document_id, chunk_index, parent_index, content, page_from, page_to, 0.1 AS score
+            SELECT id, document_id, chunk_index, parent_index, document_type, section_type, chunk_level, parent_key, domain_keywords, relevance_score, regulatory_category, content, page_from, page_to, 0.1 AS score
             FROM knowledge_chunk
             WHERE knowledge_base_id = #{kbId}
               AND content LIKE CONCAT('%', #{query}, '%')
@@ -130,7 +130,7 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
 
     @Select("""
             <script>
-            SELECT id, document_id, chunk_index, parent_index, content, page_from, page_to, 0.1 AS score
+            SELECT id, document_id, chunk_index, parent_index, document_type, section_type, chunk_level, parent_key, domain_keywords, relevance_score, regulatory_category, content, page_from, page_to, 0.1 AS score
             FROM knowledge_chunk
             WHERE knowledge_base_id = #{kbId}
               AND content LIKE CONCAT('%', #{query}, '%')

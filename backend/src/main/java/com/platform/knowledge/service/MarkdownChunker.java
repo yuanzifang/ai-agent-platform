@@ -33,7 +33,7 @@ final class MarkdownChunker {
     }
 
     record Chunk(String content, String parentContent, int parentIndex,
-                 String embeddingText, int pageFrom, int pageTo) {
+                 String embeddingText, int pageFrom, int pageTo, List<String> headingPath) {
     }
 
     static List<Chunk> split(String raw) {
@@ -48,7 +48,7 @@ final class MarkdownChunker {
             if (parentContent.isBlank()) continue;
             for (Child child : splitChildren(parent)) {
                 chunks.add(new Chunk(child.content(), parentContent, parentIndex,
-                        embeddingText(child), child.pageFrom(), child.pageTo()));
+                        embeddingText(child), child.pageFrom(), child.pageTo(), child.headingPath()));
             }
             parentIndex++;
         }

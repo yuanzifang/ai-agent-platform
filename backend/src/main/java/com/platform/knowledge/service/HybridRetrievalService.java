@@ -172,6 +172,7 @@ public class HybridRetrievalService {
         Map<String, Integer> keywordRank = new HashMap<>();
         for (int i = 0; i < vectorHits.size(); i++) {
             Map<String, Object> hit = vectorHits.get(i);
+            if (!matchesFilters(hit.get("metadata"), retrievalConfig)) continue;
             String content = str(hit.get("content"));
             String key = chunkIdOf(hit.get("metadata"), "v" + i);
             Candidate c = merged.computeIfAbsent(key, k -> new Candidate());
@@ -182,6 +183,7 @@ public class HybridRetrievalService {
         }
         for (int i = 0; i < keywordHits.size(); i++) {
             Map<String, Object> hit = keywordHits.get(i);
+            if (!matchesFilters(keywordMetadata(kbId, hit), retrievalConfig)) continue;
             String key = String.valueOf(hit.get("id"));
             Candidate c = merged.computeIfAbsent(key, k -> new Candidate());
             if (c.content == null || c.content.isBlank()) c.content = str(hit.get("content"));
@@ -471,6 +473,13 @@ public class HybridRetrievalService {
         meta.put("chunk_id", hit.get("id"));
         meta.put("chunk_index", hit.get("chunk_index"));
         if (hit.get("parent_index") != null) meta.put("parent_index", hit.get("parent_index"));
+        if (hit.get("document_type") != null) meta.put("document_type", hit.get("document_type"));
+        if (hit.get("section_type") != null) meta.put("section_type", hit.get("section_type"));
+        if (hit.get("chunk_level") != null) meta.put("chunk_level", hit.get("chunk_level"));
+        if (hit.get("parent_key") != null) meta.put("parent_key", hit.get("parent_key"));
+        if (hit.get("domain_keywords") != null) meta.put("domain_keywords", hit.get("domain_keywords"));
+        if (hit.get("relevance_score") != null) meta.put("relevance_score", hit.get("relevance_score"));
+        if (hit.get("regulatory_category") != null) meta.put("regulatory_category", hit.get("regulatory_category"));
         if (hit.get("page_from") != null) meta.put("page_from", hit.get("page_from"));
         if (hit.get("page_to") != null) meta.put("page_to", hit.get("page_to"));
         if (hit.get("effective_from") != null) meta.put("effective_from", hit.get("effective_from"));
@@ -480,6 +489,39 @@ public class HybridRetrievalService {
         } catch (Exception e) {
             return "{}";
         }
+    }
+
+    /** 语义/规则过滤：文档类型、章节、监管类别、块层级、最低静态相关性。 */
+    private boolean matchesFilters(Object metadata, Map<String, Object> config) {
+        if (config == null || config.isEmpty()) return true;
+        Map<?, ?> meta;
+        try {
+            meta = metadata instanceof String text && !text.isBlank()
+                    ? objectMapper.readValue(text, Map.class) : Map.of();
+        } catch (Exception e) {
+            return false;
+        }
+        String docType = str(config.get("documentType"));
+        if (docType != null && !docType.isBlank()
+                && !docType.equalsIgnoreCase(str(meta.get("document_type")))) return false;
+        String section = str(config.get("sectionType"));
+        if (section != null && !section.isBlank()
+                && !section.equalsIgnoreCase(str(meta.get("section_type")))) return false;
+        String regulatory = str(config.get("regulatoryCategory"));
+        if (regulatory != null && !regulatory.isBlank()
+                && !regulatory.equalsIgnoreCase(str(meta.get("regulatory_category")))) return false;
+        Object level = config.get("chunkLevel");
+        if (level != null && !String.valueOf(level).isBlank()) {
+            Object actual = meta.get("chunk_level");
+            if (actual == null || intValue(actual) == null
+                    || !String.valueOf(level).equals(String.valueOf(intValue(actual)))) return false;
+        }
+        Object minRelevance = config.get("minRelevance");
+        if (minRelevance != null) {
+            Object actual = meta.get("relevance_score");
+            if (actual == null || toDouble(actual, 0) < toDouble(minRelevance, 0)) return false;
+        }
+        return true;
     }
 
     private double toDouble(Object o, double def) {
