@@ -139,6 +139,13 @@ knowledge:
     batch: ${KNOWLEDGE_HASH_BACKFILL_BATCH:20}
     interval-ms: ${KNOWLEDGE_HASH_BACKFILL_INTERVAL_MS:600000}
     initial-delay-ms: ${KNOWLEDGE_HASH_BACKFILL_INITIAL_DELAY_MS:60000}
+  outbox:
+    # MySQL/PgVector 解析同步 outbox：批大小、扫描间隔、解析租约和重试窗口
+    batch: ${KNOWLEDGE_OUTBOX_BATCH:10}
+    interval-ms: ${KNOWLEDGE_OUTBOX_INTERVAL_MS:60000}
+    initial-delay-ms: ${KNOWLEDGE_OUTBOX_INITIAL_DELAY_MS:60000}
+    stale-minutes: ${KNOWLEDGE_OUTBOX_STALE_MINUTES:30}
+    lease-minutes: ${KNOWLEDGE_OUTBOX_LEASE_MINUTES:5}
   upgrade:
     # 存量升级任务后台每批提交文档数、扫描间隔
     batch: ${KNOWLEDGE_UPGRADE_BATCH:10}
