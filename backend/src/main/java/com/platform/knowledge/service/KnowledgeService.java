@@ -24,7 +24,9 @@ import com.platform.knowledge.mapper.KnowledgeChunkMapper;
 import com.platform.knowledge.mapper.KnowledgeDocumentImageMapper;
 import com.platform.knowledge.mapper.KnowledgeDocumentMapper;
 import com.platform.knowledge.mapper.KnowledgeParentMapper;
+import com.platform.knowledge.mapper.KnowledgeVectorOutboxMapper;
 import com.platform.knowledge.entity.KnowledgeParent;
+import com.platform.knowledge.entity.KnowledgeVectorOutbox;
 import com.platform.system.entity.SysUser;
 import com.platform.system.mapper.SysUserMapper;
 import com.platform.system.service.AuditService;
@@ -109,6 +111,8 @@ public class KnowledgeService {
     /** MySQL 本地事务：父块/分段/批量回退同成同败；PgVector 写入仍由 cleanupPartial 补偿。 */
     @Autowired(required = false)
     private PlatformTransactionManager transactionManager;
+    @Autowired(required = false)
+    private KnowledgeVectorOutboxMapper vectorOutboxMapper;
 
     /** 解析失败重试上限（需求 3.6.3(2)：默认 3 次，超限后需人工介入）。 */
     @Value("${knowledge.parse.max-retries:3}")
@@ -817,6 +821,7 @@ public class KnowledgeService {
         KnowledgeDocument doc = docMapper.selectById(documentId);
         if (doc == null) return;
         updateStatus(doc, "PARSING", null, null);
+        markOutboxPending(doc);
         storeParseWarning(doc, List.of());
         int attempts = 1 + Math.max(autoParseRetries, 0);
         for (int attempt = 0; attempt < attempts; attempt++) {
@@ -833,10 +838,12 @@ public class KnowledgeService {
                     log.info("文档解析遇到确定性错误，不重试：doc={} code={} err={}",
                             documentId, business.getCode(), business.getMessage());
                     updateStatus(doc, "FAILED", null, business.getMessage());
+                    markOutboxFailed(doc, business.getMessage());
                     return;
                 }
                 if (attempt == attempts - 1) {
                     updateStatus(doc, "FAILED", null, root.getMessage());
+                    markOutboxFailed(doc, root.getMessage());
                     return;
                 }
                 try {
@@ -844,6 +851,7 @@ public class KnowledgeService {
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     updateStatus(doc, "FAILED", null, "解析被中断");
+                    markOutboxFailed(doc, "解析被中断");
                     return;
                 }
                 updateStatus(doc, "PARSING", null, null);
@@ -1004,6 +1012,7 @@ public class KnowledgeService {
         storeDocumentImages(doc, bytes);
         recordParserVersion(doc);
         updateStatus(doc, "DONE", chunks.size(), null);
+        markOutboxDone(doc);
         storeParseWarning(doc, parseWarnings);
         recordEmbeddingUsage(doc, chunks.size(), embeddingModel);
         // 解析完成后自动生成知识图谱（异步，失败不影响文档状态；可在系统配置关闭）
@@ -1037,6 +1046,84 @@ public class KnowledgeService {
         }
         performReparse(doc);
         return true;
+    }
+
+    /** 供 outbox 恢复使用：清理残留后重新排队解析，不做权限校验。 */
+    public boolean retryInterruptedForOutbox(Long documentId) {
+        KnowledgeDocument doc = docMapper.selectById(documentId);
+        if (doc == null) return false;
+        cleanupPartial(doc);
+        KnowledgeDocument patch = new KnowledgeDocument();
+        patch.setId(documentId);
+        patch.setStatus("PENDING");
+        patch.setChunkCount(0);
+        docMapper.updateById(patch);
+        triggerParse(doc.getTenantId(), documentId);
+        return true;
+    }
+
+    /** outbox 恢复超过重试上限时清理残留并置失败。 */
+    public void failInterruptedForOutbox(Long documentId, String error) {
+        KnowledgeDocument doc = docMapper.selectById(documentId);
+        if (doc == null) return;
+        cleanupPartial(doc);
+        updateStatus(doc, "FAILED", null, error);
+        markOutboxFailed(doc, error);
+    }
+
+    private void markOutboxPending(KnowledgeDocument doc) {
+        if (vectorOutboxMapper == null || doc == null || doc.getId() == null) return;
+        try {
+            LocalDateTime now = LocalDateTime.now();
+            KnowledgeVectorOutbox task = vectorOutboxMapper.selectOne(
+                    new LambdaQueryWrapper<KnowledgeVectorOutbox>()
+                            .eq(KnowledgeVectorOutbox::getDocumentId, doc.getId()));
+            if (task == null) {
+                task = new KnowledgeVectorOutbox();
+                task.setTenantId(doc.getTenantId());
+                task.setDocumentId(doc.getId());
+                task.setStatus("PENDING");
+                task.setAttempts(0);
+                task.setAvailableAt(now.plusMinutes(5));
+                task.setCreatedAt(now);
+                task.setUpdatedAt(now);
+                vectorOutboxMapper.insert(task);
+            } else {
+                task.setStatus("PENDING");
+                task.setAvailableAt(now.plusMinutes(5));
+                task.setUpdatedAt(now);
+                vectorOutboxMapper.updateById(task);
+            }
+        } catch (Exception e) {
+            log.debug("outbox 写入失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
+        }
+    }
+
+    private void markOutboxDone(KnowledgeDocument doc) {
+        if (vectorOutboxMapper == null || doc == null || doc.getId() == null) return;
+        try {
+            vectorOutboxMapper.update(null, new LambdaUpdateWrapper<KnowledgeVectorOutbox>()
+                    .eq(KnowledgeVectorOutbox::getDocumentId, doc.getId())
+                    .set(KnowledgeVectorOutbox::getStatus, "DONE")
+                    .set(KnowledgeVectorOutbox::getLastError, null)
+                    .set(KnowledgeVectorOutbox::getUpdatedAt, LocalDateTime.now()));
+        } catch (Exception e) {
+            log.debug("outbox 完成标记失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
+        }
+    }
+
+    private void markOutboxFailed(KnowledgeDocument doc, String error) {
+        if (vectorOutboxMapper == null || doc == null || doc.getId() == null) return;
+        try {
+            String message = error == null ? null : error.substring(0, Math.min(1000, error.length()));
+            vectorOutboxMapper.update(null, new LambdaUpdateWrapper<KnowledgeVectorOutbox>()
+                    .eq(KnowledgeVectorOutbox::getDocumentId, doc.getId())
+                    .set(KnowledgeVectorOutbox::getStatus, "FAILED")
+                    .set(KnowledgeVectorOutbox::getLastError, message)
+                    .set(KnowledgeVectorOutbox::getUpdatedAt, LocalDateTime.now()));
+        } catch (Exception e) {
+            log.debug("outbox 失败标记失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
+        }
     }
 
     private void performReparse(KnowledgeDocument doc) {
@@ -1809,6 +1896,7 @@ public class KnowledgeService {
             warnings.add(reuseMessage);
             recordParserVersion(doc);
             updateStatus(doc, "DONE", newChunks.size(), null);
+            markOutboxDone(doc);
             storeParseWarning(doc, warnings);
             try {
                 graphService.autoExtractAfterParse(doc.getTenantId(), doc.getKnowledgeBaseId(), doc.getId());
