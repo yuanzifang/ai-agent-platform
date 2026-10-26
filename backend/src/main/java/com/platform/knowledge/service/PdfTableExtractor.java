@@ -705,12 +705,14 @@ final class PdfTableExtractor {
         if (cells < 4) return false;
         int maxColumns = 0;
         int rows = 0;
+        int nonEmptyRows = 0;
         java.util.List<Integer> rowColumns = new java.util.ArrayList<>();
         for (String row : html.split("<tr")) {
             int columns = count(row, "<td") + count(row, "<th");
             if (columns == 0) continue;
             rows++;
             rowColumns.add(columns);
+            if (columns > count(row, "></td>") + count(row, "></th>")) nonEmptyRows++;
             maxColumns = Math.max(maxColumns, columns);
         }
         int empty = count(html, "></td>") + count(html, "></th>");
@@ -727,14 +729,22 @@ final class PdfTableExtractor {
         }
         if (maxColumns > 30) return false;
         if (maxColumns > 12) {
-            // 无标题宽表容易被页眉/多栏正文误判：要求至少 3 行、低空单元格比例，
-            // 且大多数行接近最大列数，而不是只放行任意 >12 列文本。
-            if (rows < 3 || emptyRatio > 0.15) return false;
+            // 无标题宽表容易被页眉/多栏正文误判：至少 3 行，并满足以下之一：
+            // 1) 密集表：空单元格少，且大多数行接近最大列数；
+            // 2) 稀疏表：有完整表头，非空单元格/非空行达到最低密度，避免普通宽文本误判。
+            if (rows < 3) return false;
             int denseRows = 0;
             for (int columns : rowColumns) {
                 if (columns >= maxColumns - 1) denseRows++;
             }
-            if (denseRows < Math.ceil(rows * 0.75)) return false;
+            boolean dense = emptyRatio <= 0.15
+                    && denseRows >= Math.ceil(rows * 0.75);
+            int nonEmpty = cells - empty;
+            boolean sparse = emptyRatio <= 0.75
+                    && nonEmpty >= Math.max(6, maxColumns / 2)
+                    && nonEmptyRows >= Math.max(2, (int) Math.ceil(rows * 0.5));
+            if (!dense && !sparse) return false;
+            if (rowSpans > 20 || emails >= 2) return false;
             return table.pageHeight <= 0
                     || table.lastY - table.firstY <= table.pageHeight * 0.85f;
         }
