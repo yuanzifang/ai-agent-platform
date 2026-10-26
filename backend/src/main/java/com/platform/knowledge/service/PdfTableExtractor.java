@@ -704,8 +704,14 @@ final class PdfTableExtractor {
         int cells = count(html, "<td") + count(html, "<th");
         if (cells < 4) return false;
         int maxColumns = 0;
+        int rows = 0;
+        java.util.List<Integer> rowColumns = new java.util.ArrayList<>();
         for (String row : html.split("<tr")) {
-            maxColumns = Math.max(maxColumns, count(row, "<td") + count(row, "<th"));
+            int columns = count(row, "<td") + count(row, "<th");
+            if (columns == 0) continue;
+            rows++;
+            rowColumns.add(columns);
+            maxColumns = Math.max(maxColumns, columns);
         }
         int empty = count(html, "></td>") + count(html, "></th>");
         double emptyRatio = (double) empty / cells;
@@ -719,7 +725,19 @@ final class PdfTableExtractor {
         if (captioned) {
             return emptyRatio <= 0.72 && cells <= 800 && maxColumns <= 30;
         }
-        if (maxColumns > 12) return false;
+        if (maxColumns > 30) return false;
+        if (maxColumns > 12) {
+            // 无标题宽表容易被页眉/多栏正文误判：要求至少 3 行、低空单元格比例，
+            // 且大多数行接近最大列数，而不是只放行任意 >12 列文本。
+            if (rows < 3 || emptyRatio > 0.15) return false;
+            int denseRows = 0;
+            for (int columns : rowColumns) {
+                if (columns >= maxColumns - 1) denseRows++;
+            }
+            if (denseRows < Math.ceil(rows * 0.75)) return false;
+            return table.pageHeight <= 0
+                    || table.lastY - table.firstY <= table.pageHeight * 0.85f;
+        }
         if (emptyRatio > 0.40) return false;
         if (rowSpans > 20) return false;
         if (emails >= 2) return false;

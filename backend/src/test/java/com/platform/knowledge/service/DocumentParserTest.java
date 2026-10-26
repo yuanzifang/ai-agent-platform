@@ -169,6 +169,35 @@ class DocumentParserTest {
     }
 
     @Test
+    void keepsDenseUntitledWideTable() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 8);
+                float y = 780;
+                for (int row = 0; row <= 4; row++) {
+                    for (int col = 1; col <= 13; col++) {
+                        content.beginText();
+                        content.newLineAtOffset(30 + (col - 1) * 42, y);
+                        content.showText(row == 0 ? "C" + col : "R" + row + "C" + col);
+                        content.endText();
+                    }
+                    y -= 30;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+
+        String text = String.join("\n", parser.parse("wide-untitled.pdf", pdf));
+
+        assertTrue(text.contains("C13"), "13 列无标题表格应保留，实际=" + text);
+        assertTrue(text.contains("R4C13"), "宽表数据行应保留，实际=" + text);
+    }
+
+    @Test
     void parsesXlsx() throws Exception {
         byte[] bytes;
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
