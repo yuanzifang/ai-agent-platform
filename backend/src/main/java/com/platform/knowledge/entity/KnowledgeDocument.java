@@ -26,6 +26,9 @@ public class KnowledgeDocument {
     private Long upgradeJobId;
     private String upgradeStatus;
     private Integer upgradeAttempts;
+    private String embeddingModel;
+    private Integer embeddingDimensions;
+    private LocalDateTime vectorVerifiedAt;
     private String errorMessage;
     private Integer retryTimes;
     private Long tenantId;
