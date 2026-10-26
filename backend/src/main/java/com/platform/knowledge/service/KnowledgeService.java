@@ -1032,7 +1032,7 @@ public class KnowledgeService {
     public boolean reparseForUpgrade(Long kbId, Long documentId) {
         KnowledgeDocument doc = docMapper.selectById(documentId);
         if (doc == null || !Objects.equals(doc.getKnowledgeBaseId(), kbId)
-                || !"DONE".equals(doc.getStatus())) {
+                || (!"DONE".equals(doc.getStatus()) && !"FAILED".equals(doc.getStatus()))) {
             return false;
         }
         performReparse(doc);

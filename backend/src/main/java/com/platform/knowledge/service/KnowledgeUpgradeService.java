@@ -69,7 +69,8 @@ public class KnowledgeUpgradeService {
                         .or().ne(KnowledgeDocument::getParserVersion,
                                 DocumentParser.PARSER_VERSION))
                 .set(KnowledgeDocument::getUpgradeJobId, job.getId())
-                .set(KnowledgeDocument::getUpgradeStatus, "PENDING"));
+                .set(KnowledgeDocument::getUpgradeStatus, "PENDING")
+                .set(KnowledgeDocument::getUpgradeAttempts, 0));
         job.setTotalDocuments(assigned);
         if (assigned == 0) job.setStatus("COMPLETED");
         job.setUpdatedAt(LocalDateTime.now());
@@ -180,8 +181,8 @@ public class KnowledgeUpgradeService {
                 new LambdaQueryWrapper<KnowledgeDocument>()
                         .eq(KnowledgeDocument::getUpgradeJobId, job.getId())
                         .eq(KnowledgeDocument::getUpgradeStatus, "PENDING")
-                        .eq(KnowledgeDocument::getStatus, "DONE")
-                        .isNull(KnowledgeDocument::getParseFingerprint)
+                        .in(KnowledgeDocument::getStatus, List.of("DONE", "FAILED"))
+                        .lt(KnowledgeDocument::getUpgradeAttempts, 3)
                         .orderByAsc(KnowledgeDocument::getId)
                         .last("LIMIT " + batch));
         int submitted = 0;
@@ -190,6 +191,8 @@ public class KnowledgeUpgradeService {
                 int claimed = docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
                         .eq(KnowledgeDocument::getId, doc.getId())
                         .eq(KnowledgeDocument::getUpgradeStatus, "PENDING")
+                        .lt(KnowledgeDocument::getUpgradeAttempts, 3)
+                        .setSql("upgrade_attempts = upgrade_attempts + 1")
                         .set(KnowledgeDocument::getUpgradeStatus, "RUNNING"));
                 if (claimed == 0) continue;
                 try {
@@ -218,6 +221,13 @@ public class KnowledgeUpgradeService {
         docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
                 .eq(KnowledgeDocument::getUpgradeJobId, jobId)
                 .eq(KnowledgeDocument::getStatus, "FAILED")
+                .lt(KnowledgeDocument::getUpgradeAttempts, 3)
+                .ne(KnowledgeDocument::getUpgradeStatus, "PENDING")
+                .set(KnowledgeDocument::getUpgradeStatus, "PENDING"));
+        docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
+                .eq(KnowledgeDocument::getUpgradeJobId, jobId)
+                .eq(KnowledgeDocument::getStatus, "FAILED")
+                .ge(KnowledgeDocument::getUpgradeAttempts, 3)
                 .ne(KnowledgeDocument::getUpgradeStatus, "FAILED")
                 .set(KnowledgeDocument::getUpgradeStatus, "FAILED"));
         // 提交后仍未产生指纹、又回到 DONE 的文档，回到 PENDING 由下一轮重试。
@@ -237,6 +247,8 @@ public class KnowledgeUpgradeService {
     }
 
     private void refresh(KnowledgeUpgradeJob job) {
+        // 先根据文档状态收敛，失败未满 3 次的文档回到待重试，避免任务被提前判定完成。
+        reconcile(job.getId());
         int pending = count(job.getId(), "PENDING");
         int running = count(job.getId(), "RUNNING");
         int succeeded = count(job.getId(), "SUCCEEDED");
