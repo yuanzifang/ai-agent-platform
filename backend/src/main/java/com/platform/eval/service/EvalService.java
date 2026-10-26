@@ -215,6 +215,36 @@ public class EvalService {
         return response;
     }
 
+    /** 数据集历史趋势：最近 N 个已完成任务的分步骤指标。 */
+    public Map<String, Object> datasetTrend(Long datasetId, Long agentId, int limit) {
+        int size = Math.max(1, Math.min(limit, 20));
+        List<EvalTask> tasks = taskMapper.selectList(new LambdaQueryWrapper<EvalTask>()
+                .eq(EvalTask::getDatasetId, datasetId)
+                .eq(agentId != null, EvalTask::getAgentId, agentId)
+                .eq(EvalTask::getStatus, "DONE")
+                .orderByDesc(EvalTask::getId)
+                .last("LIMIT " + size));
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (EvalTask task : tasks) {
+            List<EvalResult> results = resultMapper.selectList(new LambdaQueryWrapper<EvalResult>()
+                    .eq(EvalResult::getTaskId, task.getId()));
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("taskId", task.getId());
+            row.put("name", task.getName());
+            row.put("agentId", task.getAgentId());
+            row.put("evalType", task.getEvalType());
+            row.put("createdAt", task.getCreatedAt());
+            row.put("avgScore", task.getAvgScore());
+            row.put("passRate", task.getPassRate());
+            row.put("stepSummary", StepMetrics.summarize(results));
+            rows.add(row);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("datasetId", datasetId);
+        result.put("tasks", rows);
+        return result;
+    }
+
     /** 两个任务的分步骤对比：用于确认检索/重排/改写改动是否带来回归。 */
     public Map<String, Object> compareTasks(Long taskId, Long baselineTaskId) {
         EvalTask currentTask = taskMapper.selectById(taskId);

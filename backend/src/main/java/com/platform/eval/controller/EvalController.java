@@ -41,6 +41,13 @@ public class EvalController {
     }
 
     /** 跨数据集步骤覆盖矩阵，可按 Agent 过滤。 */
+    @GetMapping("/datasets/{id}/trend")
+    public ApiResponse<Map<String, Object>> datasetTrend(@PathVariable Long id,
+                                                          @RequestParam(required = false) Long agentId,
+                                                          @RequestParam(defaultValue = "10") int limit) {
+        return ApiResponse.ok(evalService.datasetTrend(id, agentId, limit));
+    }
+
     @GetMapping("/tasks/{id}/compare/{baselineId}")
     public ApiResponse<Map<String, Object>> compareTasks(@PathVariable Long id,
                                                           @PathVariable Long baselineId) {
