@@ -1,6 +1,10 @@
 <template>
   <el-container class="layout">
     <el-header class="header">
+      <el-button v-if="isMobile" class="hamburger" text circle :aria-label="t('layout.menu')"
+                 @click="mobileMenu = true">
+        <el-icon size="20"><Menu /></el-icon>
+      </el-button>
       <div class="brand" @click="$router.push('/agents')">{{ t('app.name') }}</div>
       <div class="global-search">
         <el-input v-model="searchKeyword" size="small" clearable :placeholder="t('layout.searchPh')"
@@ -17,7 +21,7 @@
         </div>
       </div>
       <div class="spacer" />
-      <el-select v-model="currentLocale" size="small" style="width: 92px" :aria-label="t('common.language')">
+      <el-select v-model="currentLocale" size="small" class="lang-select" style="width: 92px" :aria-label="t('common.language')">
         <el-option :label="t('common.chinese')" value="zh-CN" />
         <el-option label="English" value="en-US" />
       </el-select>
@@ -47,7 +51,7 @@
         </div>
       </el-popover>
       <el-select v-if="userStore.userInfo?.isPlatformAdmin"
-                 v-model="platformTenantId" size="small" style="width: 170px; margin-right: 10px"
+                 v-model="platformTenantId" size="small" class="tenant-select" style="width: 170px; margin-right: 10px"
                  :placeholder="t('layout.pickTenant')" @change="onTenantSwitch">
         <el-option v-for="tOpt in tenantOptions" :key="tOpt.id" :value="String(tOpt.id)"
                    :label="tOpt.name || tOpt.tenantKey" />
@@ -67,7 +71,7 @@
       </el-dropdown>
     </el-header>
     <el-container class="body">
-      <el-aside width="200px" class="aside">
+      <el-aside width="200px" class="aside" :class="{ open: mobileMenu }">
         <el-menu :default-active="$route.path" router :default-openeds="openedGroups">
           <el-sub-menu index="g-work">
             <template #title><el-icon><ChatDotRound /></el-icon>{{ t('layout.workbench') }}</template>
@@ -111,6 +115,9 @@
         <router-view />
       </el-main>
     </el-container>
+
+    <!-- 移动端侧栏遮罩：点空白处收起抽屉 -->
+    <div v-if="isMobile && mobileMenu" class="aside-mask" @click="mobileMenu = false" />
 
     <el-dialog v-model="securityVisible" :title="t('layout.security')" width="560px">
       <div class="sec-row">
@@ -174,16 +181,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '../stores/user'
+import { useIsMobile } from '../composables/useMediaQuery'
 import http from '../api/http'
 import { setLocale, type Locale } from '../i18n'
 import { User, ArrowDown, ChatDotRound, Collection, Connection, DataLine,
   UserFilled, Setting, OfficeBuilding, Document, MagicStick, SetUp, DocumentCopy, Grid, Star, Link, Money,
-  Checked, Bell, Moon, Sunny, DataAnalysis, TrendCharts, View, FolderOpened } from '@element-plus/icons-vue'
+  Checked, Bell, Moon, Sunny, DataAnalysis, TrendCharts, View, FolderOpened, Menu } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -200,6 +208,11 @@ const userName = computed(() => userStore.userInfo?.displayName || t('common.use
 
 // 侧栏二级菜单：默认只展开当前路由所在分组（切换路由时 el-sub-menu 自动跟随激活项）
 const route = useRoute()
+
+// 移动端：侧栏改为抽屉，切换路由后自动收起
+const isMobile = useIsMobile()
+const mobileMenu = ref(false)
+watch(() => route.path, () => { mobileMenu.value = false })
 
 // 平台管理员：选择要查看的租户（选定后全局 X-Tenant-Id，刷新重载数据）
 const platformTenantId = ref(localStorage.getItem('platformTenantId') || '')
@@ -470,6 +483,7 @@ async function copyText(text: string) {
 <style scoped>
 .layout {
   height: 100vh;
+  height: 100dvh;
 }
 .header {
   display: flex;
@@ -495,6 +509,7 @@ async function copyText(text: string) {
 }
 .body {
   height: calc(100vh - 60px);
+  height: calc(100dvh - 60px);
 }
 .aside {
   border-right: 1px solid #e4e7ed;
@@ -528,4 +543,72 @@ async function copyText(text: string) {
 .notif-title { font-size: 13px; font-weight: 600; color: #303133; }
 .notif-content { font-size: 12px; color: #606266; margin-top: 2px; word-break: break-word; }
 .notif-time { font-size: 11px; color: #a8abb2; margin-top: 2px; }
+
+/* ===== 移动端（H5）：顶栏精简 + 侧栏改抽屉 ===== */
+.hamburger {
+  margin-right: 2px;
+}
+.aside-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+@media (max-width: 768px) {
+  .header {
+    height: 52px;
+    padding: 0 8px;
+    gap: 4px;
+  }
+  .brand {
+    font-size: 15px;
+    max-width: 38vw;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* 屏幕太窄：全局搜索、语言、租户选择挪到桌面端使用 */
+  .global-search,
+  .lang-select,
+  .tenant-select,
+  .theme-btn {
+    display: none !important;
+  }
+  .spacer { flex: 1; }
+  .bell { margin-right: 10px; }
+  .user-chip {
+    font-size: 12px;
+    max-width: 84px;
+    overflow: hidden;
+  }
+  .user-chip > * { flex-shrink: 0; }
+
+  .body {
+    height: calc(100vh - 52px);
+    height: calc(100dvh - 52px);
+  }
+  /* 侧栏变成可滑出的抽屉，不再固定占 200px 宽 */
+  .aside {
+    position: fixed;
+    top: 52px;
+    bottom: 0;
+    left: 0;
+    width: min(78vw, 260px) !important;
+    z-index: 2001;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.08);
+  }
+  .aside.open { transform: none; }
+  .main {
+    padding: 10px;
+  }
+  :deep(.el-menu-item),
+  :deep(.el-sub-menu__title) {
+    height: 46px;
+    line-height: 46px;
+  }
+  .recovery-grid { grid-template-columns: 1fr; }
+}
 </style>

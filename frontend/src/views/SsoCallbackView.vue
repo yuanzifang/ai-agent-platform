@@ -55,6 +55,6 @@ onMounted(async () => {
 
 <style scoped>
 .sso-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f5f7fa; }
-.sso-card { width: 420px; padding: 8px; }
+.sso-card { width: 420px; max-width: 100%; padding: 8px; }
 h2 { text-align: center; margin-bottom: 16px; }
 </style>

@@ -189,4 +189,10 @@ function ratioClass(r: any) {
 .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .charts :deep(.el-card__body) { padding: 8px 12px 4px; }
 .hint-line { color: #909399; font-size: 12px; margin-top: 12px; }
+
+@media (max-width: 768px) {
+  .cards { grid-template-columns: repeat(2, 1fr); }
+  .charts { grid-template-columns: 1fr; }
+  .toolbar { flex-wrap: wrap; row-gap: 8px; }
+}
 </style>

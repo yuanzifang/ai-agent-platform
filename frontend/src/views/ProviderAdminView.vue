@@ -184,6 +184,31 @@
             <el-option v-for="c in contextOptions" :key="c.value" :value="c.value" :label="c.label" />
           </el-select>
         </el-form-item>
+        <el-divider content-position="left">{{ t('providerPage.reasoningTitle') }}</el-divider>
+        <el-form-item :label="t('providerPage.reasoningSupported')">
+          <el-switch v-model="price.reasoning" />
+          <span class="hint">{{ t('providerPage.reasoningHint') }}</span>
+        </el-form-item>
+        <template v-if="price.reasoning">
+          <el-form-item :label="t('providerPage.reasoningParam')">
+            <el-select v-model="price.reasoningParam" style="width: 220px">
+              <el-option value="effort" :label="t('providerPage.reasoningParamEffort')" />
+              <el-option value="budget" :label="t('providerPage.reasoningParamBudget')" />
+            </el-select>
+          </el-form-item>
+          <el-form-item :label="t('providerPage.reasoningLevels')">
+            <el-select v-model="price.reasoningLevels" multiple style="width: 260px">
+              <el-option v-for="lv in ['minimal', 'low', 'medium', 'high']" :key="lv" :value="lv"
+                         :label="t('providerPage.reasoningLevelsMap.' + lv)" />
+            </el-select>
+          </el-form-item>
+          <el-form-item :label="t('providerPage.defaultReasoning')">
+            <el-select v-model="price.defaultReasoningEffort" style="width: 160px">
+              <el-option v-for="lv in reasoningLevelOptions" :key="lv" :value="lv"
+                         :label="t('providerPage.reasoningLevelsMap.' + lv)" />
+            </el-select>
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="priceVisible = false">{{ t('providerPage.cancel') }}</el-button>
@@ -195,7 +220,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../api/http'
 
@@ -207,7 +232,11 @@ const disabled = ref<Set<number>>(new Set())
 const createVisible = ref(false)
 const creating = ref(false)
 const priceVisible = ref(false)
-const price = reactive({ id: 0, input: 0, output: 0, contextWindow: 0 })
+const price = reactive({
+  id: 0, input: 0, output: 0, contextWindow: 0,
+  reasoning: false, reasoningParam: 'effort',
+  reasoningLevels: ['low', 'medium', 'high'] as string[], defaultReasoningEffort: 'medium'
+})
 const modelCreateVisible = ref(false)
 const modelCreating = ref(false)
 const modelForm = reactive({ providerId: null as number | null, modelName: '', displayName: '', purpose: 'CHAT', contextWindow: 0 })
@@ -342,25 +371,49 @@ async function createModel() {
   }
 }
 
+function parseJson(value: any): Record<string, any> {
+  if (!value) return {}
+  if (typeof value === 'object') return value
+  try { return JSON.parse(String(value)) } catch { return {} }
+}
+
+const reasoningLevelOptions = computed(() =>
+  price.reasoningLevels.length ? price.reasoningLevels : ['low', 'medium', 'high'])
+
 function editPrice(row: any) {
   price.id = row.modelId
   price.input = Number(row.inputPrice ?? 0)
   price.output = Number(row.outputPrice ?? 0)
   price.contextWindow = Number(row.contextWindow ?? 0)
+  const caps = parseJson(row.capabilities)
+  price.reasoning = caps.reasoning === true
+  price.reasoningParam = caps.reasoningParam === 'budget' ? 'budget' : 'effort'
+  price.reasoningLevels = Array.isArray(caps.reasoningLevels) && caps.reasoningLevels.length
+    ? caps.reasoningLevels.map((x: any) => String(x))
+    : ['low', 'medium', 'high']
+  price.defaultReasoningEffort = String(parseJson(row.defaultParams).reasoningEffort || 'medium')
   priceVisible.value = true
 }
 
 async function savePrice() {
   await http.put(`/models/${price.id}`, {
-    inputPrice: price.input, outputPrice: price.output, contextWindow: price.contextWindow
+    inputPrice: price.input,
+    outputPrice: price.output,
+    contextWindow: price.contextWindow,
+    reasoning: price.reasoning,
+    reasoningParam: price.reasoningParam,
+    reasoningLevels: price.reasoning ? price.reasoningLevels : [],
+    defaultReasoningEffort: price.defaultReasoningEffort
   })
   ElMessage.success(t('providerPage.modelConfigSaved'))
   priceVisible.value = false
+  await load()
 }
 </script>
 
 <style scoped>
 .cap-tag { margin-right: 4px; }
+.hint { color: #909399; font-size: 12px; margin-left: 8px; }
 .m-caps { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
 .page { max-width: 1100px; margin: 0 auto; }
 .mr8 { margin-right: 8px; }

@@ -178,14 +178,18 @@ async function accept() {
 .mt12 { margin-top: 12px; }
 .login-wrap {
   height: 100vh;
+  height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   background: #f5f7fa;
+  padding: 16px;
+  box-sizing: border-box;
 }
 .login-lang { display: flex; justify-content: flex-end; margin-bottom: 4px; }
 .login-card {
   width: 380px;
+  max-width: 100%;
 }
 .mb {
   margin-bottom: 14px;

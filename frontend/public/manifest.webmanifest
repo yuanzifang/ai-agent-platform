@@ -1,0 +1,21 @@
+{
+  "name": "AI Agent 平台",
+  "short_name": "AI Agent",
+  "description": "企业级 AI Agent 平台：对话、知识库、Agent 编排与可观测",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f5f7fa",
+  "theme_color": "#409eff",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Agent 列表", "url": "/agents" },
+    { "name": "Agent 广场", "url": "/square" }
+  ]
+}

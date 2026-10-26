@@ -18,6 +18,7 @@
         <el-button @click="openSchedules">{{ t('agentEdit.schedules') }}</el-button>
         <el-button @click="openCredentials">{{ t('agentEdit.credentials') }}</el-button>
         <el-button @click="evalEntry">{{ t('agentEdit.eval') }}</el-button>
+        <el-button @click="openDeploy">{{ t('deploy.button') }}</el-button>
         <el-button type="success" plain @click="publish()">{{ t('agentEdit.publish') }}</el-button>
         <el-button type="primary" :loading="saving" @click="save">{{ t('agentEdit.save') }}</el-button>
       </div>
@@ -55,7 +56,22 @@
                 <span class="hint">{{ t('agentEdit.fallbackHint') }}</span>
               </el-form-item>
               <el-form-item :label="t('agentEdit.temperature')">
-                <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" style="width: 320px" />
+                <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" style="width: 320px"
+                           :disabled="thinkingActive" />
+                <span v-if="thinkingActive" class="hint">{{ t('agentEdit.temperatureOffHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('agentEdit.thinking')">
+                <el-switch v-model="form.thinking" :disabled="!supportsThinking" />
+                <span class="hint" style="margin-left: 10px">
+                  {{ supportsThinking ? t('agentEdit.thinkingHint') : t('agentEdit.thinkingUnsupported') }}
+                </span>
+              </el-form-item>
+              <el-form-item v-if="thinkingActive" :label="t('agentEdit.thinkingLevel')">
+                <el-select v-model="form.reasoningEffort" style="width: 200px">
+                  <el-option v-for="lv in reasoningLevels" :key="lv" :value="lv"
+                             :label="t('agentEdit.thinkingLevels.' + lv)" />
+                </el-select>
+                <span class="hint">{{ t('agentEdit.thinkingLevelHint') }}</span>
               </el-form-item>
             </el-form>
           </el-collapse-item>
@@ -744,7 +760,7 @@
     </el-dialog>
 
     <!-- 工作流编排 -->
-    <el-dialog v-model="workflowVisible" :title="t('wf.title')" width="900px" top="4vh">
+    <el-dialog v-model="workflowVisible" :title="t('wf.title')" width="900px" top="4vh" class="wf-dialog">
       <div class="wf-head">
         <el-input v-model="workflowForm.name" :placeholder="t('wf.namePh')" style="width: 220px" />
         <el-select v-model="workflowForm.status" style="width: 110px">
@@ -783,156 +799,8 @@
             <el-button v-if="!['START', 'END'].includes(n.type)" text type="danger"
                        @click="removeWorkflowNode(idx)">{{ t('wf.delete') }}</el-button>
           </div>
-          <div class="wf-node-body">
-            <template v-if="n.type === 'LLM'">
-              <el-input v-model="n.prompt" type="textarea" :rows="2" :placeholder="t('wf.nodePromptPh')" />
-              <el-input v-model="n.modelName" :placeholder="t('wf.modelPh')" style="width: 240px" class="mt8" />
-            </template>
-            <template v-else-if="n.type === 'AGENT'">
-              <el-select v-model="n.agentId" filterable :placeholder="t('wf.selectAgent')" style="width: 240px">
-                <el-option v-for="a in agentCatalog" :key="a.id" :value="a.id" :label="a.name" />
-              </el-select>
-              <el-input v-model="n.prompt" type="textarea" :rows="2" :placeholder="t('wf.extraPromptPh')" class="mt8" />
-            </template>
-            <template v-else-if="n.type === 'STATE'">
-              <el-input v-model="n.stateKey" :placeholder="t('wf.stateKeyPh')" style="width: 260px" />
-              <el-input v-model="n.valueTemplate" type="textarea" :rows="2" class="mt8"
-                        :placeholder="t('wf.valuePh')" />
-            </template>
-            <template v-else-if="n.type === 'HANDOFF'">
-              <el-select v-model="n.agentId" filterable :placeholder="t('wf.handoffAgent')" style="width: 260px">
-                <el-option v-for="a in agentCatalog" :key="a.id" :value="a.id" :label="a.name" />
-              </el-select>
-              <el-input v-model="n.inputTemplate" type="textarea" :rows="2" class="mt8"
-                        :placeholder="t('wf.handoffPh')" />
-              <div class="wf-line mt8">
-                <el-select v-model="n.returnAgentId" filterable clearable :placeholder="t('wf.returnAgent')" style="width: 260px">
-                  <el-option v-for="a in agentCatalog" :key="a.id" :value="a.id" :label="a.name" />
-                </el-select>
-                <span class="hint">{{ t('wf.returnHint') }}</span>
-              </div>
-              <el-input v-if="n.returnAgentId" v-model="n.returnTemplate" type="textarea" :rows="2" class="mt8"
-                        :placeholder="t('wf.returnPh')" />
-              <div v-if="n.returnAgentId" class="wf-line mt8">
-                <span>{{ t('wf.rounds') }}</span>
-                <el-input-number v-model="n.returnRounds" :min="1" :max="3" size="small" />
-                <span class="hint">{{ t('wf.roundsHint') }}</span>
-              </div>
-              <div class="hint">{{ t('wf.handoffDesc') }}</div>
-            </template>
-            <template v-else-if="n.type === 'TOOL'">
-              <el-select v-model="n.toolId" filterable :placeholder="t('wf.selectTool')" style="width: 260px">
-                <el-option v-for="tool in toolCatalog" :key="tool.id" :value="tool.id"
-                           :label="tool.name + (tool.toolType === 'MCP' ? t('agentDlg.mcpSuffix') : '')" />
-              </el-select>
-              <el-input v-model="n.argsTemplate" type="textarea" :rows="2" class="mt8"
-                        :placeholder="t('wf.argsPh')" />
-            </template>
-            <template v-else-if="n.type === 'KNOWLEDGE'">
-              <div class="wf-line">
-                <el-select v-model="n.knowledgeBaseId" filterable :placeholder="t('wf.selectKb')" style="width: 240px">
-                  <el-option v-for="k in kbRows" :key="k.knowledgeBaseId" :value="k.knowledgeBaseId" :label="k.name" />
-                </el-select>
-                <el-select v-model="n.mode" style="width: 110px">
-                  <el-option :label="t('agentEdit.hybrid')" value="hybrid" />
-                  <el-option :label="t('agentEdit.vector')" value="vector" />
-                  <el-option :label="t('agentEdit.keyword')" value="keyword" />
-                </el-select>
-                topK <el-input-number v-model="n.topK" :min="1" :max="20" size="small" />
-              </div>
-              <el-input v-model="n.queryTemplate" class="mt8"
-                        :placeholder="t('wf.queryPh')" />
-            </template>
-            <template v-else-if="n.type === 'CONDITION'">
-              <div class="wf-line">
-                <el-select v-model="n.conditionType" style="width: 130px">
-                  <el-option :label="t('wf.contains')" value="contains" />
-                  <el-option :label="t('wf.notContains')" value="notContains" />
-                  <el-option :label="t('wf.equals')" value="equals" />
-                  <el-option :label="t('wf.lengthGt')" value="lengthGt" />
-                </el-select>
-                <el-input v-model="n.conditionValue" :placeholder="t('wf.conditionPh')" style="width: 220px" />
-              </div>
-            </template>
-            <template v-else-if="n.type === 'PARALLEL'">
-              <div class="wf-line">
-                <el-select v-model="n.branches" multiple filterable :placeholder="t('wf.branchesPh')" style="width: 420px">
-                  <el-option v-for="o in wfBranchTargets(n.id)" :key="o.id" :value="o.id"
-                             :label="wfTypeText(o.type) + ' · ' + o.name" />
-                </el-select>
-                <el-select v-model="n.joinNode" :placeholder="t('wf.joinPh')" style="width: 200px">
-                  <el-option v-for="o in workflowForm.nodes.filter((x: any) => x.type === 'JOIN')"
-                             :key="o.id" :value="o.id" :label="'JOIN · ' + o.name" />
-                </el-select>
-                <el-select v-model="n.strategy" style="width: 170px">
-                  <el-option :label="t('wf.strategyAll')" value="ALL_OR_NOTHING" />
-                  <el-option :label="t('wf.strategyBest')" value="BEST_EFFORT" />
-                </el-select>
-              </div>
-            </template>
-            <template v-else-if="n.type === 'LOOP'">
-              <div class="wf-line">
-                <span>{{ t('wf.loopBody') }}</span>
-                <el-select v-model="n.bodyNode" style="width: 190px">
-                  <el-option v-for="o in wfBranchTargets(n.id)" :key="o.id" :value="o.id"
-                             :label="wfTypeText(o.type) + ' · ' + o.name" />
-                </el-select>
-                <span>{{ t('wf.loopEnd') }}</span>
-                <el-select v-model="n.loopEnd" clearable style="width: 180px">
-                  <el-option v-for="o in wfTargets(n.id)" :key="o.id" :value="o.id"
-                             :label="wfTypeText(o.type) + ' · ' + o.name" />
-                </el-select>
-                {{ t('wf.maxIter') }} <el-input-number v-model="n.maxIterations" :min="1" :max="50" size="small" />
-              </div>
-              <el-input v-model="n.itemsText" type="textarea" :rows="2" class="mt8"
-                        :placeholder="t('wf.itemsPh')" />
-              <div class="wf-line mt8">
-                <span class="hint">{{ t('wf.loopHint') }}</span>
-                {{ t('wf.approvalRole') }}
-                <el-select v-model="n.requiredRole" clearable placeholder="OWNER/ADMIN" size="small" style="width: 150px">
-                  <el-option label="OWNER" value="OWNER" />
-                  <el-option label="ADMIN" value="ADMIN" />
-                  <el-option label="EDITOR" value="EDITOR" />
-                </el-select>
-                {{ t('wf.timeoutMin') }} <el-input-number v-model="n.timeoutMinutes" :min="0" :max="10080" size="small" />
-              </div>
-            </template>
-            <template v-else-if="n.type === 'JOIN'">
-              <span class="hint">{{ t('wf.joinHint') }}</span>
-            </template>
-            <template v-else-if="n.type === 'APPROVAL'">
-              <div class="wf-line">
-                <el-input v-model="n.title" :placeholder="t('wf.approvalTitlePh')" style="width: 300px" />
-                <el-select v-model="n.requiredRole" clearable :placeholder="t('wf.approvalRolePh')" style="width: 180px">
-                  <el-option label="OWNER" value="OWNER" />
-                  <el-option label="ADMIN" value="ADMIN" />
-                  <el-option label="EDITOR" value="EDITOR" />
-                </el-select>
-                {{ t('wf.timeoutMin') }}
-                <el-input-number v-model="n.timeoutMinutes" :min="0" :max="10080" size="small" />
-                <span class="hint">{{ t('wf.unlimited') }}</span>
-              </div>
-            </template>
-            <template v-else>
-              <span class="hint">{{ t('wf.noConfig') }}</span>
-            </template>
-            <div v-if="['LLM','AGENT','HANDOFF','TOOL','KNOWLEDGE'].includes(n.type)" class="wf-line mt8">
-              <span class="hint">{{ t('wf.failStrategy') }}</span>
-              {{ t('wf.retry') }} <el-input-number v-model="n.retryTimes" :min="0" :max="3" size="small" />
-              <el-select v-model="n.onError" size="small" style="width: 160px">
-                <el-option :label="t('wf.fail')" value="FAIL" />
-                <el-option :label="t('wf.continue')" value="CONTINUE" />
-                <el-option :label="t('wf.branch')" value="BRANCH" />
-              </el-select>
-              <template v-if="n.onError === 'BRANCH'">
-                {{ t('wf.failBranch') }}
-                <el-select v-model="n.errorNext" size="small" style="width: 170px">
-                  <el-option v-for="o in wfTargets(n.id)" :key="o.id" :value="o.id"
-                             :label="wfTypeText(o.type) + ' · ' + o.name" />
-                </el-select>
-              </template>
-            </div>
-          </div>
+          <WorkflowNodeForm :node="n" :nodes="workflowForm.nodes" :agents="agentCatalog"
+                              :tools="toolCatalog" :kbs="kbRows" />
           <div v-if="n.type !== 'END' && n.type !== 'PARALLEL'" class="wf-node-next">
             <template v-if="n.type === 'CONDITION'">
               {{ t('wf.trueBranch') }}
@@ -959,40 +827,94 @@
 
       <div v-show="wfMode === 'canvas'">
         <div class="wf-canvas-tools">
+          <el-button size="small" :disabled="wfHistoryIndex <= 0" @click="undoWorkflow">↶ {{ t('wf.undo') }}</el-button>
+          <el-button size="small" :disabled="wfHistoryIndex >= wfHistory.length - 1" @click="redoWorkflow">↷ {{ t('wf.redo') }}</el-button>
+          <span class="wf-tool-sep" />
           <el-button size="small" @click="zoomCanvas(-0.1)">－</el-button>
           <span class="hint">{{ Math.round(wfZoom * 100) }}%</span>
           <el-button size="small" @click="zoomCanvas(0.1)">＋</el-button>
           <el-button size="small" @click="wfZoom = 1">100%</el-button>
+          <el-button size="small" @click="fitCanvas">{{ t('wf.fit') }}</el-button>
           <el-button size="small" @click="autoLayoutWorkflow">{{ t('wf.autoLayout') }}</el-button>
           <el-button size="small" :type="wfLinkMode ? 'warning' : 'default'" @click="toggleLinkMode">
             {{ wfLinkMode ? t('wf.exitLink') : t('wf.linkMode') }}
           </el-button>
+          <el-button v-if="wfSelectedEdge !== null" size="small"
+                     @click="startRewireEdge">{{ t('wf.rewireEdge') }}</el-button>
+          <el-button v-if="wfSelectedEdge !== null" size="small" type="danger" plain
+                     @click="deleteSelectedEdge">{{ t('wf.deleteEdgeSelected') }}</el-button>
+          <span v-if="wfRewireMode" class="hint">{{ t('wf.rewireHint') }}</span>
+          <el-button v-if="wfMultiSelected.length > 1" size="small" type="danger" plain
+                     @click="removeMultiSelected">{{ t('wf.deleteSelected') }} ({{ wfMultiSelected.length }})</el-button>
+          <el-button size="small" @click="copySelectedNodes">{{ t('wf.copyNodes') }}</el-button>
+          <el-button size="small" :disabled="wfClipboardSize === 0" @click="pasteNodes">
+            {{ t('wf.pasteNodes') }}<template v-if="wfClipboardSize"> ({{ wfClipboardSize }})</template>
+          </el-button>
         </div>
-        <div ref="wfCanvasEl" class="wf-canvas-wrap" @mousedown="startCanvasPan">
-        <div class="wf-canvas"
-             :style="{ width: wfCanvasSize.w + 'px', height: wfCanvasSize.h + 'px', transform: `scale(${wfZoom})`, transformOrigin: '0 0' }">
-          <svg class="wf-edges" :width="wfCanvasSize.w" :height="wfCanvasSize.h">
-            <defs>
-              <marker id="wf-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3"
-                      orient="auto" markerUnits="strokeWidth">
-                <path d="M0,0 L7,3 L0,6 z" fill="#909399" />
-              </marker>
-            </defs>
-            <path v-for="(e, i) in wfEdges" :key="i" :d="e.d" fill="none"
-                  :stroke="e.color" stroke-width="1.6" marker-end="url(#wf-arrow)" />
-          </svg>
-          <div v-for="n in workflowForm.nodes" :key="'c' + n.id"
-               class="wf-canvas-node" :class="{ selected: wfSelected === n.id }"
-               :style="{ left: nodeX(n) + 'px', top: nodeY(n) + 'px' }"
-               @mousedown.stop="startNodeDrag($event, n)"
-               @dblclick="editWorkflowNode(n.id)"
-               @click="onCanvasNodeClick(n)">
-            <el-tag size="small" :type="wfTagType(n.type)">{{ wfTypeText(n.type) }}</el-tag>
-            <div class="wf-cn-name">{{ n.name }}</div>
-            <div class="wf-cn-id">#{{ n.id }}</div>
+        <div class="wf-canvas-layout">
+          <div class="wf-palette">
+            <div class="wf-palette-title">{{ t('wf.palette') }}</div>
+            <div v-for="tp in wfTypes" :key="tp.value" class="wf-palette-item" draggable="true"
+                 :title="t('wf.paletteHint')"
+                 @dragstart="onPaletteDragStart($event, tp.value)"
+                 @click="addWorkflowNodeOfType(tp.value)">
+              <el-tag size="small" :type="wfTagType(tp.value)" effect="plain">{{ tp.label }}</el-tag>
+            </div>
+            <div class="hint">{{ t('wf.paletteHint') }}</div>
           </div>
-        </div>
-        <div class="hint mt8">{{ t('wf.canvasHint') }}</div>
+          <div ref="wfCanvasEl" class="wf-canvas-wrap" :class="{ 'drop-active': wfDropActive }"
+               @mousedown="startCanvasPan"
+               @dragover.prevent="wfDropActive = true"
+               @dragleave="wfDropActive = false"
+               @drop.prevent="onCanvasDrop">
+          <div class="wf-canvas"
+               :style="{ width: wfCanvasSize.w + 'px', height: wfCanvasSize.h + 'px', transform: `scale(${wfZoom})`, transformOrigin: '0 0' }">
+            <svg class="wf-edges" :width="wfCanvasSize.w" :height="wfCanvasSize.h">
+              <defs>
+                <marker id="wf-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3"
+                        orient="auto" markerUnits="strokeWidth">
+                  <path d="M0,0 L7,3 L0,6 z" fill="#909399" />
+                </marker>
+              </defs>
+              <path v-for="e in wfEdges" :key="e.id" :d="e.d" fill="none"
+                    :class="{ 'wf-edge-selected': e.explicit && wfSelectedEdge === e.index }"
+                    :stroke="e.color" stroke-width="1.6" marker-end="url(#wf-arrow)"
+                    @click.stop="selectEdge(e)" />
+              <text v-for="e in wfEdges" v-show="e.label" :key="'l' + e.id"
+                    :x="e.labelX" :y="e.labelY" class="wf-edge-label">{{ e.label }}</text>
+              <path v-if="wfLinkDrag" :d="wfLinkPath" class="wf-edge-temp" />
+            </svg>
+            <div v-for="n in workflowForm.nodes" :key="'c' + n.id"
+                 class="wf-canvas-node"
+                 :class="[{ selected: wfSelected === n.id, multi: wfMultiSelected.includes(n.id),
+                            'replay-current': wfReplayCurrent?.nodeId === n.id }, wfRunClass(n)]"
+                 :data-node-id="n.id"
+                 :style="{ left: nodeX(n) + 'px', top: nodeY(n) + 'px' }"
+                 @mousedown.stop="startNodeDrag($event, n)"
+                 @dblclick="openNodePanel(n)"
+                 @click="onCanvasNodeClick(n, $event)">
+              <el-tag size="small" :type="wfTagType(n.type)">{{ wfTypeText(n.type) }}</el-tag>
+              <div class="wf-cn-name">{{ n.name }}</div>
+              <div class="wf-cn-id">#{{ n.id }}</div>
+              <span v-if="n.type !== 'END'" class="wf-port" :title="t('wf.dragPortHint')"
+                    @mousedown.stop="startLinkDrag($event, n)" @click.stop />
+              <span v-if="n.type !== 'START'" class="wf-port wf-port-in" />
+            </div>
+            <div v-if="wfBoxSelect" class="wf-select-box" :style="wfBoxStyle" />
+          </div>
+          <div class="hint mt8">{{ t('wf.canvasHint') }}</div>
+          </div>
+          <div v-if="wfNodePanel && wfSelectedNode" class="wf-node-panel">
+            <div class="wf-node-panel-head">
+              <el-tag size="small" :type="wfTagType(wfSelectedNode.type)">{{ wfTypeText(wfSelectedNode.type) }}</el-tag>
+              <span class="wf-cn-id">#{{ wfSelectedNode.id }}</span>
+              <el-button text size="small" @click="openNodeInList">{{ t('wf.listEdit') }}</el-button>
+              <el-button text size="small" type="danger" @click="removeSelectedNode">{{ t('wf.delete') }}</el-button>
+              <el-button text size="small" @click="closeNodePanel">×</el-button>
+            </div>
+            <WorkflowNodeForm :node="wfSelectedNode" :nodes="workflowForm.nodes" :agents="agentCatalog"
+                              :tools="toolCatalog" :kbs="kbRows" />
+          </div>
         </div>
       </div>
 
@@ -1012,7 +934,7 @@
               <el-option label="true" value="true" />
               <el-option label="false" value="false" />
             </el-select>
-            <el-button text type="danger" @click="workflowForm.edges.splice(i, 1)">{{ t('wf.delete') }}</el-button>
+            <el-button text type="danger" @click="removeGraphEdge(i)">{{ t('wf.delete') }}</el-button>
           </div>
           <el-button size="small" @click="addGraphEdge">{{ t('wf.addEdge') }}</el-button>
           <div class="hint">{{ t('wf.graphHint') }}</div>
@@ -1036,6 +958,26 @@
         <div v-if="workflowRunResult.nodeRuns?.length" class="hint mt8">
           {{ t('wf.nodes') }}
           {{ workflowRunResult.nodeRuns.map((x: any) => `${x.name || x.nodeId}(${x.status})`).join(' → ') }}
+        </div>
+        <div v-if="workflowRunResult.nodeRuns?.length" class="wf-replay">
+          <div class="wf-replay-bar">
+            <el-button size="small" type="primary" plain @click="toggleReplay">
+              {{ wfReplayPlaying ? t('wf.replayPause') : t('wf.replayPlay') }}
+            </el-button>
+            <el-button size="small" :disabled="wfReplayIndex <= 0" @click="stepReplay(-1)">{{ t('wf.replayPrev') }}</el-button>
+            <el-button size="small" :disabled="wfReplayIndex >= wfReplaySteps.length - 1" @click="stepReplay(1)">{{ t('wf.replayNext') }}</el-button>
+            <el-button v-if="wfReplayIndex >= 0" size="small" @click="stopReplay">{{ t('wf.replayStop') }}</el-button>
+            <span class="hint">{{ t('wf.replayStep') }} {{ wfReplayIndex + 1 }} / {{ wfReplaySteps.length }}</span>
+          </div>
+          <div v-if="wfReplayCurrent" class="wf-replay-info">
+            <el-tag size="small" :type="wfReplayCurrent.status === 'SUCCESS' ? 'success' : wfReplayCurrent.status === 'FAILED' ? 'danger' : 'info'">
+              {{ wfReplayCurrent.status }}
+            </el-tag>
+            <b>{{ wfReplayCurrent.name || wfReplayCurrent.nodeId }}</b>
+            <span v-if="replayDuration(wfReplayCurrent)" class="hint">{{ replayDuration(wfReplayCurrent) }}ms</span>
+            <span v-if="wfReplayCurrent.errorMessage" class="hint">{{ wfReplayCurrent.errorMessage }}</span>
+            <div v-if="wfReplayCurrent.outputText" class="wf-replay-output">{{ wfReplayCurrent.outputText }}</div>
+          </div>
         </div>
       </div>
       <template #footer>
@@ -1100,16 +1042,106 @@
         </el-table-column>
       </el-table>
     </el-drawer>
+
+    <!-- 容器部署 -->
+    <el-dialog v-model="deployVisible" :title="t('deploy.title')" width="680px">
+      <el-alert v-if="form.status !== 'PUBLISHED'" type="warning" :closable="false"
+                :title="t('deploy.publishedOnly')" class="mb8" />
+      <el-alert v-if="!deployInfo.dockerAvailable" type="error" :closable="false"
+                :title="t('deploy.dockerMissing')" class="mb8" />
+      <template v-if="deployment">
+        <el-descriptions :column="1" border size="small">
+          <el-descriptions-item :label="t('deploy.status')">
+            <el-tag :type="deployTagType" size="small">{{ deployStatusText }}</el-tag>
+            <span class="hint">{{ t('deploy.versionPrefix') }}{{ deployment.version || '-' }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('deploy.endpoint')">
+            <code class="deploy-code">{{ deployment.endpoint }}</code>
+            <el-button size="small" text type="primary" @click="copyText(deployment.endpoint!)">
+              {{ t('deploy.copy') }}
+            </el-button>
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('deploy.localEndpoint')">
+            <code class="deploy-code">{{ deployment.localEndpoint }}</code>
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('deploy.token')">
+            <template v-if="runtimeToken">
+              <code class="deploy-code">{{ runtimeToken }}</code>
+              <el-button size="small" text type="primary" @click="copyText(runtimeToken)">{{ t('deploy.copy') }}</el-button>
+            </template>
+            <span v-else class="hint">{{ t('deploy.tokenMissing') }}</span>
+            <el-button size="small" text type="warning" @click="rotateDeployToken">{{ t('deploy.rotateToken') }}</el-button>
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('deploy.container')">
+            {{ deployment.containerName }}
+            <span class="hint">{{ deployment.containerId }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('deploy.image')">{{ deployment.image }}</el-descriptions-item>
+          <el-descriptions-item :label="t('deploy.updatedAt')">{{ deployment.updatedAt }}</el-descriptions-item>
+        </el-descriptions>
+        <el-alert v-if="deployment.lastError" type="error" :closable="false"
+                  :title="deployment.lastError" class="mt8" />
+        <div class="mt8"><b>{{ t('deploy.curl') }}</b></div>
+        <pre class="deploy-curl">{{ deployCurl }}</pre>
+        <div class="hint mt8">{{ t('deploy.keyHint') }}</div>
+        <div class="deploy-actions">
+          <el-button @click="refreshDeploy">{{ t('deploy.refresh') }}</el-button>
+          <el-button v-if="deployment.status !== 'RUNNING'" @click="deployAction('start')">{{ t('deploy.start') }}</el-button>
+          <el-button v-else @click="deployAction('stop')">{{ t('deploy.stop') }}</el-button>
+          <el-button @click="openDeployLogs">{{ t('deploy.logs') }}</el-button>
+          <el-button @click="openDeployHistory">{{ t('deploy.history') }}</el-button>
+          <el-button type="primary" :loading="deploying"
+                     :disabled="!deployInfo.dockerAvailable" @click="doDeploy">{{ t('deploy.redeploy') }}</el-button>
+          <el-button type="danger" plain @click="removeDeploy">{{ t('deploy.remove') }}</el-button>
+        </div>
+      </template>
+      <el-empty v-else :image-size="60" :description="t('deploy.empty')">
+        <el-button type="primary" :loading="deploying" :disabled="!deployInfo.dockerAvailable"
+                   @click="doDeploy">{{ t('deploy.deployNow') }}</el-button>
+        <el-button @click="openDeployHistory">{{ t('deploy.history') }}</el-button>
+      </el-empty>
+    </el-dialog>
+
+    <el-dialog v-model="deployLogsVisible" append-to-body :title="t('deploy.logs')" width="760px">
+      <pre class="deploy-logs">{{ deployLogs || t('deploy.noLogs') }}</pre>
+    </el-dialog>
+
+    <el-drawer v-model="deployHistoryVisible" :title="t('deploy.history')" size="780px">
+      <el-table v-if="deployHistory.length" :data="deployHistory" size="small">
+        <el-table-column prop="createdAt" :label="t('deploy.time')" width="165" />
+        <el-table-column :label="t('deploy.action')" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="deployActionTag(row.action)">{{ deployActionText(row.action) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="version" :label="t('deploy.versionCol')" width="70" />
+        <el-table-column prop="hostPort" :label="t('deploy.port')" width="65" />
+        <el-table-column :label="t('deploy.statusCol')" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.status === 'SUCCESS' ? 'success' : 'danger'">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="message" :label="t('deploy.message')" show-overflow-tooltip />
+        <el-table-column :label="t('deploy.actionCol')" width="120">
+          <template #default="{ row }">
+            <el-button v-if="row.action === 'DEPLOY' && row.version" size="small" text type="primary"
+                       @click="rollbackDeployment(row.version)">{{ t('deploy.rollbackDeploy') }}</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-else :description="t('deploy.noHistory')" :image-size="60" />
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElLoading, ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import http from '../api/http'
+import WorkflowNodeForm from '../components/WorkflowNodeForm.vue'
 
 const { t } = useI18n()
 
@@ -1125,12 +1157,22 @@ const members = ref<any[]>([])
 const grantedIds = ref<number[]>([])
 const ownerId = ref<number>(0)
 const versionsVisible = ref(false)
+const deployVisible = ref(false)
+const deployInfo = reactive({ dockerAvailable: false, dockerVersion: '', image: '' })
+const deployment = ref<any>(null)
+const deploying = ref(false)
+const deployLogsVisible = ref(false)
+const deployLogs = ref('')
+const deployHistoryVisible = ref(false)
+const deployHistory = ref<any[]>([])
+const runtimeToken = ref('')
 const saving = ref(false)
 
 const form = reactive({
   status: 'DRAFT', updatedAt: '',
   name: '', description: '', category: '', visibility: 'TENANT', listed: true,
   modelName: '', fallbackModelName: '', temperature: 0.7,
+  thinking: false, reasoningEffort: 'medium',
   systemPrompt: '', openingStatement: '',
   capabilities: { streamOutput: true, functionCall: false, multimodal: false, selfCorrection: false,
     selfCorrectionRounds: 1, writeToolPolicy: 'ALLOW_ALL', allowedWriteToolIds: [] as number[], writeToolMaxArgs: 16384 },
@@ -1139,6 +1181,35 @@ const form = reactive({
 })
 const tagsStr = ref('')
 const enabledKbCount = computed(() => kbRows.value.filter(k => k.enabled).length)
+
+/** 模型能力（capabilities 可能是 JSON 字符串）：决定是否允许开启思考、以及可选思考级别 */
+function modelCaps(m: any): Record<string, any> {
+  const caps = m?.capabilities
+  if (!caps) return {}
+  if (typeof caps === 'string') {
+    try { return JSON.parse(caps) } catch { return {} }
+  }
+  return caps
+}
+const selectedModel = computed(() => models.value.find((m: any) => m.modelName === form.modelName))
+const supportsThinking = computed(() => modelCaps(selectedModel.value).reasoning === true)
+const thinkingActive = computed(() => supportsThinking.value && form.thinking)
+const reasoningLevels = computed<string[]>(() => {
+  const levels = modelCaps(selectedModel.value).reasoningLevels
+  return Array.isArray(levels) && levels.length
+    ? levels.map((x: any) => String(x))
+    : ['low', 'medium', 'high']
+})
+// 换模型或关闭思考时，把非法/不适用的级别收敛到模型支持的范围内
+watch([() => form.modelName, () => form.thinking], () => {
+  if (!supportsThinking.value) {
+    form.thinking = false
+    return
+  }
+  if (!reasoningLevels.value.includes(form.reasoningEffort)) {
+    form.reasoningEffort = reasoningLevels.value.includes('medium') ? 'medium' : reasoningLevels.value[0]
+  }
+})
 
 interface KbRow { knowledgeBaseId: number; name: string; enabled: boolean; topK: number; scoreThreshold: number; mode: string; missing?: boolean }
 interface RefRow { id: number; name: string; description?: string; type?: string; isBuiltin?: boolean; enabled: boolean; missing?: boolean }
@@ -1232,6 +1303,33 @@ const wfMode = ref<'list' | 'canvas'>('list')
 const wfSelected = ref('')
 const wfLinkMode = ref(false)
 const wfLinkFrom = ref('')
+const wfHistory = ref<string[]>([])
+const wfHistoryIndex = ref(-1)
+const wfSelectedEdge = ref<number | null>(null)
+const wfDraggingType = ref('')
+const wfDropActive = ref(false)
+const wfLinkDrag = ref<null | { from: string; x1: number; y1: number; x2: number; y2: number }>(null)
+const wfNodePanel = ref(false)
+const wfRewireMode = ref(false)
+const wfMultiSelected = ref<string[]>([])
+const wfClipboardSize = ref(0)
+const wfReplayIndex = ref(-1)
+const wfReplayPlaying = ref(false)
+let wfReplayTimer: ReturnType<typeof setTimeout> | null = null
+const wfBoxSelect = ref<null | { x1: number; y1: number; x2: number; y2: number }>(null)
+let wfClipboard: { nodes: any[]; edges: any[] } | null = null
+let wfNodeEditBefore = ''
+const wfSelectedNode = computed(() => workflowForm.nodes.find((n: any) => n.id === wfSelected.value) || null)
+const wfBoxStyle = computed(() => {
+  const b = wfBoxSelect.value
+  if (!b) return {}
+  return {
+    left: Math.min(b.x1, b.x2) + 'px',
+    top: Math.min(b.y1, b.y2) + 'px',
+    width: Math.abs(b.x2 - b.x1) + 'px',
+    height: Math.abs(b.y2 - b.y1) + 'px'
+  }
+})
 const wfCanvasEl = ref<HTMLElement>()
 const wfDiffVisible = ref(false)
 const wfDiffTitle = ref('')
@@ -1289,6 +1387,8 @@ onMounted(async () => {
   form.modelName = mc.modelName || ''
   form.fallbackModelName = mc.fallbackModelName || ''
   form.temperature = mc.temperature ?? 0.7
+  form.thinking = mc.thinking === true
+  form.reasoningEffort = typeof mc.reasoningEffort === 'string' ? mc.reasoningEffort : 'medium'
   form.systemPrompt = detail.systemPrompt || ''
   form.openingStatement = detail.openingStatement || ''
   const caps = detail.agentCapabilities || {}
@@ -1645,6 +1745,110 @@ async function copyText(text: string) {
   }
 }
 
+// ---- 容器部署 ----
+const deployTagType = computed(() => ({
+  RUNNING: 'success', STOPPED: 'info', FAILED: 'danger', PENDING: 'warning'
+} as Record<string, string>)[deployment.value?.status] || 'info')
+
+const deployStatusText = computed(() =>
+  t('deploy.statuses.' + (deployment.value?.status || 'PENDING')))
+
+const deployCurl = computed(() => {
+  const endpoint = deployment.value?.endpoint || 'http://localhost:19000/v1'
+  const token = runtimeToken.value || '<访问令牌>'
+  return `curl -s ${endpoint}/chat/completions \\\n  -H 'Authorization: Bearer ${token}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{"model":"agent","messages":[{"role":"user","content":"你好"}]}'`
+})
+
+async function openDeploy() {
+  deployVisible.value = true
+  await refreshDeploy()
+}
+
+async function refreshDeploy() {
+  try {
+    const data = await http.get(`/agent/${agentId}/deployment`) as any
+    deployInfo.dockerAvailable = !!data.dockerAvailable
+    deployInfo.dockerVersion = data.dockerVersion || ''
+    deployInfo.image = data.image || ''
+    deployment.value = data.deployment || null
+    runtimeToken.value = ''
+    if (deployment.value?.hasToken) {
+      try {
+        runtimeToken.value = ((await http.get(`/agent/${agentId}/deployment/token`) as any).token) || ''
+      } catch { /* 旧部署可能没有令牌 */ }
+    }
+  } catch {
+    deployment.value = null
+    runtimeToken.value = ''
+  }
+}
+
+async function doDeploy() {
+  if (!deployInfo.dockerAvailable) {
+    ElMessage.warning(t('deploy.dockerMissing'))
+    return
+  }
+  deploying.value = true
+  try {
+    deployment.value = await http.post(`/agent/${agentId}/deployment`, {}) as any
+    await refreshDeploy()
+    ElMessage.success(t('deploy.ok'))
+  } finally {
+    deploying.value = false
+  }
+}
+
+async function deployAction(action: 'start' | 'stop') {
+  const data = await http.post(`/agent/${agentId}/deployment/${action}`, {}) as any
+  deployment.value = data
+  ElMessage.success(t(action === 'start' ? 'deploy.started' : 'deploy.stopped'))
+}
+
+async function openDeployLogs() {
+  const data = await http.get(`/agent/${agentId}/deployment/logs`, { params: { tail: 200 } }) as any
+  deployLogs.value = data?.logs || ''
+  deployLogsVisible.value = true
+}
+
+async function openDeployHistory() {
+  deployHistory.value = await http.get(`/agent/${agentId}/deployment/history`,
+    { params: { limit: 50 } }) as any || []
+  deployHistoryVisible.value = true
+}
+
+function deployActionText(action: string) {
+  const key = `deploy.actions.${action}`
+  return t(key) === key ? action : t(key)
+}
+
+function deployActionTag(action: string) {
+  return ({ DEPLOY: 'primary', START: 'success', STOP: 'warning', REMOVE: 'danger' } as any)[action] || 'info'
+}
+
+async function removeDeploy() {
+  await ElMessageBox.confirm(t('deploy.confirmRemove'), t('deploy.remove'), { type: 'warning' })
+  await http.delete(`/agent/${agentId}/deployment`)
+  deployment.value = null
+  ElMessage.success(t('deploy.removed'))
+}
+
+async function rollbackDeployment(version: string) {
+  await ElMessageBox.confirm(`${t('deploy.rollbackConfirm')}${version}${t('deploy.rollbackConfirmSuffix')}`,
+    t('deploy.rollbackDeploy'), { type: 'warning' })
+  await http.post(`/agent/${agentId}/versions/${version}/rollback`)
+  await http.post(`/agent/${agentId}/deployment`, {})
+  ElMessage.success(t('deploy.rollbackDeployed'))
+  deployHistoryVisible.value = false
+  setTimeout(() => router.go(0), 800)
+}
+
+async function rotateDeployToken() {
+  await ElMessageBox.confirm(t('deploy.rotateConfirm'), t('deploy.rotateToken'), { type: 'warning' })
+  deployment.value = await http.post(`/agent/${agentId}/deployment/token/rotate`, {}) as any
+  await refreshDeploy()
+  ElMessage.success(t('deploy.rotated'))
+}
+
 async function copyWidget() {
   try {
     await navigator.clipboard.writeText(widgetSnippet.value)
@@ -1781,6 +1985,7 @@ async function openWorkflow() {
     ]
     ensureWorkflowPositions()
   }
+  resetWorkflowHistory()
   workflowRunInput.value = ''
   workflowRunResult.value = null
   workflowVisible.value = true
@@ -1811,6 +2016,270 @@ function ensureWorkflowPositions() {
   })
 }
 
+// ---------- 画布右侧节点配置面板 ----------
+function openNodePanel(n: any) {
+  if (wfNodeEditBefore) closeNodePanel()
+  wfSelected.value = n.id
+  wfSelectedEdge.value = null
+  wfNodeEditBefore = snapshotWorkflow()
+  wfNodePanel.value = true
+}
+
+function closeNodePanel() {
+  if (wfNodeEditBefore) {
+    commitWorkflowHistory(wfNodeEditBefore)
+    wfNodeEditBefore = ''
+  }
+  wfNodePanel.value = false
+}
+
+function openNodeInList() {
+  const id = wfSelected.value
+  closeNodePanel()
+  editWorkflowNode(id)
+}
+
+function removeSelectedNode() {
+  const index = workflowForm.nodes.findIndex((x: any) => x.id === wfSelected.value)
+  wfNodePanel.value = false
+  wfNodeEditBefore = ''
+  if (index >= 0) removeWorkflowNode(index)
+}
+
+// ---------- 画布撤销/重做 ----------
+function snapshotWorkflow() {
+  return JSON.stringify({ nodes: workflowForm.nodes, edges: workflowForm.edges })
+}
+
+function resetWorkflowHistory() {
+  wfHistory.value = [snapshotWorkflow()]
+  wfHistoryIndex.value = 0
+  wfSelectedEdge.value = null
+  wfLinkDrag.value = null
+}
+
+function commitWorkflowHistory(before: string) {
+  const after = snapshotWorkflow()
+  if (after === before) return
+  if (wfHistory.value[wfHistoryIndex.value] === before) {
+    wfHistory.value.splice(wfHistoryIndex.value + 1)
+  } else {
+    wfHistory.value = [before]
+    wfHistoryIndex.value = 0
+  }
+  wfHistory.value.push(after)
+  if (wfHistory.value.length > 60) wfHistory.value.shift()
+  wfHistoryIndex.value = wfHistory.value.length - 1
+}
+
+function restoreWorkflow(snapshot: string) {
+  const data = JSON.parse(snapshot)
+  workflowForm.nodes = data.nodes || []
+  workflowForm.edges = data.edges || []
+  ensureWorkflowPositions()
+  wfSelected.value = ''
+  wfSelectedEdge.value = null
+  wfNodePanel.value = false
+  wfNodeEditBefore = ''
+  wfRewireMode.value = false
+  wfMultiSelected.value = []
+}
+
+function undoWorkflow() {
+  if (wfHistoryIndex.value <= 0) return
+  wfHistoryIndex.value -= 1
+  restoreWorkflow(wfHistory.value[wfHistoryIndex.value])
+}
+
+function redoWorkflow() {
+  if (wfHistoryIndex.value >= wfHistory.value.length - 1) return
+  wfHistoryIndex.value += 1
+  restoreWorkflow(wfHistory.value[wfHistoryIndex.value])
+}
+
+function onWorkflowKeydown(e: KeyboardEvent) {
+  if (!workflowVisible.value) return
+  const el = e.target as HTMLElement | null
+  if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return
+  const meta = e.metaKey || e.ctrlKey
+  if (meta && e.key.toLowerCase() === 'c' && wfMode.value === 'canvas') {
+    e.preventDefault()
+    copySelectedNodes()
+    return
+  }
+  if (meta && e.key.toLowerCase() === 'v' && wfMode.value === 'canvas') {
+    e.preventDefault()
+    pasteNodes()
+    return
+  }
+  if (meta && e.key.toLowerCase() === 'z') {
+    e.preventDefault()
+    if (e.shiftKey) redoWorkflow()
+    else undoWorkflow()
+    return
+  }
+  if (e.key === 'Escape' && wfRewireMode.value) {
+    e.preventDefault()
+    cancelRewire()
+    return
+  }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && wfMultiSelected.value.length > 1) {
+    e.preventDefault()
+    removeMultiSelected()
+    return
+  }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && wfSelectedEdge.value !== null) {
+    e.preventDefault()
+    deleteSelectedEdge()
+  }
+}
+
+// ---------- 画布交互：节点面板拖入 / 端口连线 / 选中连线 ----------
+function onPaletteDragStart(ev: DragEvent, type: string) {
+  wfDraggingType.value = type
+  if (ev.dataTransfer) {
+    ev.dataTransfer.setData('text/plain', type)
+    ev.dataTransfer.effectAllowed = 'copy'
+  }
+}
+
+function onCanvasDrop(ev: DragEvent) {
+  wfDropActive.value = false
+  const type = wfDraggingType.value || ev.dataTransfer?.getData('text/plain') || ''
+  wfDraggingType.value = ''
+  if (!type) return
+  const canvas = wfCanvasEl.value?.querySelector('.wf-canvas') as HTMLElement | null
+  if (!canvas) return
+  const rect = canvas.getBoundingClientRect()
+  const x = Math.max(0, (ev.clientX - rect.left) / wfZoom.value - 95)
+  const y = Math.max(0, (ev.clientY - rect.top) / wfZoom.value - 28)
+  insertWorkflowNode(type, { x: Math.round(x), y: Math.round(y) })
+}
+
+function startLinkDrag(ev: MouseEvent, n: any) {
+  ensureWorkflowPositions()
+  const canvas = wfCanvasEl.value?.querySelector('.wf-canvas') as HTMLElement | null
+  if (!canvas) return
+  const x1 = n.position.x + 190
+  const y1 = n.position.y + 34
+  wfLinkDrag.value = { from: n.id, x1, y1, x2: x1, y2: y1 }
+  const toCanvas = (e: MouseEvent) => {
+    const rect = canvas.getBoundingClientRect()
+    return { x: (e.clientX - rect.left) / wfZoom.value, y: (e.clientY - rect.top) / wfZoom.value }
+  }
+  const move = (e: MouseEvent) => {
+    if (!wfLinkDrag.value) return
+    const point = toCanvas(e)
+    wfLinkDrag.value.x2 = point.x
+    wfLinkDrag.value.y2 = point.y
+  }
+  const up = (e: MouseEvent) => {
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', up)
+    const fromId = wfLinkDrag.value?.from
+    wfLinkDrag.value = null
+    if (!fromId) return
+    const target = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)
+      ?.closest('.wf-canvas-node') as HTMLElement | null
+    const toId = target?.dataset.nodeId
+    if (toId && toId !== fromId) connectNodes(fromId, toId)
+  }
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', up)
+  ev.preventDefault()
+}
+
+function connectNodes(fromId: string, toId: string) {
+  const from = workflowForm.nodes.find((x: any) => x.id === fromId)
+  if (!from) return
+  if (workflowForm.edges.some((e: any) => e.from === fromId && e.to === toId)) {
+    ElMessage.info(t('agentMsg.edgeExists'))
+    return
+  }
+  // 顺序/条件/分支已经自动画出的连线不需要再手动加，避免"加了但看不到"
+  if (wfEdges.value.some((e: any) => !e.explicit && e.id === `derived-${fromId}-${toId}`)) {
+    ElMessage.info(t('agentMsg.edgeDerivedExists'))
+    return
+  }
+  const before = snapshotWorkflow()
+  workflowForm.edges.push({ from: fromId, to: toId, label: from.type === 'CONDITION' ? 'true' : '' })
+  commitWorkflowHistory(before)
+  ElMessage.success(t('agentMsg.edgeAdded'))
+}
+
+function startRewireEdge() {
+  if (wfSelectedEdge.value === null) return
+  wfRewireMode.value = true
+  wfSelected.value = ''
+  ElMessage.info(t('wf.rewireHint'))
+}
+
+function finishRewire(target: any) {
+  const index = wfSelectedEdge.value
+  const edge = index === null ? null : workflowForm.edges[index]
+  wfRewireMode.value = false
+  if (index === null || !edge) return
+  if (edge.from === target.id) {
+    ElMessage.warning(t('wf.rewireSelf'))
+    return
+  }
+  if (workflowForm.edges.some((e: any, i: number) => i !== index && e.from === edge.from && e.to === target.id)) {
+    ElMessage.info(t('agentMsg.edgeExists'))
+    return
+  }
+  const before = snapshotWorkflow()
+  workflowForm.edges[index].to = target.id
+  wfSelectedEdge.value = null
+  commitWorkflowHistory(before)
+  ElMessage.success(t('wf.edgeRewired'))
+}
+
+function cancelRewire() {
+  if (!wfRewireMode.value) return false
+  wfRewireMode.value = false
+  ElMessage.info(t('wf.rewireCancelled'))
+  return true
+}
+
+function selectEdge(edge: any) {
+  wfRewireMode.value = false
+  if (!edge.explicit) {
+    wfSelectedEdge.value = null
+    ElMessage.info(t('wf.derivedEdgeHint'))
+    return
+  }
+  wfSelectedEdge.value = edge.index
+}
+
+function deleteSelectedEdge() {
+  const index = wfSelectedEdge.value
+  wfRewireMode.value = false
+  if (index === null) return
+  const before = snapshotWorkflow()
+  workflowForm.edges.splice(index, 1)
+  wfSelectedEdge.value = null
+  commitWorkflowHistory(before)
+}
+
+function removeGraphEdge(index: number) {
+  const before = snapshotWorkflow()
+  workflowForm.edges.splice(index, 1)
+  wfSelectedEdge.value = null
+  commitWorkflowHistory(before)
+}
+
+function fitCanvas() {
+  const wrap = wfCanvasEl.value
+  if (!wrap) return
+  const scale = Math.min(1.2, Math.max(0.5, Math.min(
+    (wrap.clientWidth - 24) / wfCanvasSize.value.w,
+    (wrap.clientHeight - 24) / wfCanvasSize.value.h
+  )))
+  wfZoom.value = Number(scale.toFixed(2))
+  wrap.scrollLeft = 0
+  wrap.scrollTop = 0
+}
+
 function nodeX(n: any) {
   return n.position?.x ?? 0
 }
@@ -1833,27 +2302,50 @@ const wfEdges = computed(() => {
   const nodes = workflowForm.nodes
   const map = new Map(nodes.map((n: any) => [n.id, n]))
   const edges: any[] = []
-  const seen = new Set<string>()
-  const add = (from: any, to: any, color: string) => {
+  // 同一对节点只画一条线；条件 true/false 指向同一节点时合并成 "true/false"
+  const seen = new Map<string, any>()
+  const add = (from: any, to: any, color: string, index?: number, forceLabel?: string) => {
     if (!from || !to) return
     const key = `${from.id}->${to.id}`
-    if (seen.has(key)) return
-    seen.add(key)
+    const label = index != null
+      ? String(workflowForm.edges[index]?.label || '')
+      : (forceLabel || (color === '#67c23a' ? 'true' : color === '#f56c6c' ? 'false' : ''))
+    const previous = seen.get(key)
+    if (previous) {
+      if (label && !previous.label) previous.label = label
+      else if (label && previous.label && !previous.label.split('/').includes(label)) {
+        previous.label = `${previous.label}/${label}`
+        previous.color = '#e6a23c'
+      }
+      return
+    }
     const x1 = nodeX(from) + 190
     const y1 = nodeY(from) + 34
     const x2 = nodeX(to)
     const y2 = nodeY(to) + 34
-    edges.push({ color, d: `M ${x1} ${y1} C ${x1 + 60} ${y1}, ${x2 - 60} ${y2}, ${x2} ${y2}` })
+    const edge = {
+      id: index != null ? `edge-${index}` : `derived-${from.id}-${to.id}`,
+      index: index ?? null,
+      explicit: index != null,
+      color,
+      label,
+      labelX: (x1 + x2) / 2,
+      labelY: (y1 + y2) / 2 - 6,
+      d: `M ${x1} ${y1} C ${x1 + 60} ${y1}, ${x2 - 60} ${y2}, ${x2} ${y2}`
+    }
+    seen.set(key, edge)
+    edges.push(edge)
   }
-  for (const e of workflowForm.edges) {
+  // 手动连线优先（可选中删除）；其余按节点顺序/条件/并行分支推导，属于只读
+  workflowForm.edges.forEach((e: any, i: number) => {
     const color = e.label === 'false' ? '#f56c6c' : e.label === 'true' ? '#67c23a' : '#409eff'
-    add(map.get(e.from), map.get(e.to), color)
-  }
+    add(map.get(e.from), map.get(e.to), color, i)
+  })
   for (const n of nodes) {
     if (n.type === 'END') continue
     if (n.type === 'CONDITION') {
-      add(n, map.get(n.trueNext), '#67c23a')
-      add(n, map.get(n.falseNext), '#f56c6c')
+      add(n, map.get(n.trueNext), '#67c23a', undefined, 'true')
+      add(n, map.get(n.falseNext), '#f56c6c', undefined, 'false')
     } else if (n.type === 'PARALLEL') {
       const branches: string[] = Array.isArray(n.branches) ? n.branches : []
       const join = map.get(n.joinNode)
@@ -1870,14 +2362,61 @@ const wfEdges = computed(() => {
   return edges
 })
 
+const wfLinkPath = computed(() => {
+  const d = wfLinkDrag.value
+  if (!d) return ''
+  return `M ${d.x1} ${d.y1} C ${d.x1 + 60} ${d.y1}, ${d.x2 - 60} ${d.y2}, ${d.x2} ${d.y2}`
+})
+
+function wfRunClass(n: any) {
+  const status = String(wfRunNodeStatus.value[n.id] || '')
+  return {
+    'run-success': status === 'SUCCESS',
+    'run-failed': ['FAILED', 'ERROR', 'REJECTED'].includes(status),
+    'run-running': status === 'RUNNING',
+    'run-waiting': ['WAITING', 'SKIPPED'].includes(status)
+  }
+}
+
+const wfRunNodeStatus = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {}
+  for (const r of (workflowRunResult.value?.nodeRuns || [])) {
+    if (r?.nodeId) map[String(r.nodeId)] = String(r.status || '')
+  }
+  return map
+})
+
 function toggleLinkMode() {
   wfLinkMode.value = !wfLinkMode.value
   wfLinkFrom.value = ''
 }
 
-function onCanvasNodeClick(n: any) {
+let wfDragMoved = false
+let wfDragEndedAt = 0
+
+function onCanvasNodeClick(n: any, ev?: MouseEvent) {
+  // 拖拽结束后的 click 不要重置多选/触发面板
+  if (Date.now() - wfDragEndedAt < 300) {
+    wfDragEndedAt = 0
+    return
+  }
+  if (wfRewireMode.value) {
+    finishRewire(n)
+    return
+  }
+  if (ev?.shiftKey) {
+    const i = wfMultiSelected.value.indexOf(n.id)
+    if (i >= 0) wfMultiSelected.value.splice(i, 1)
+    else wfMultiSelected.value.push(n.id)
+    wfSelected.value = n.id
+    return
+  }
+  wfMultiSelected.value = []
   wfSelected.value = n.id
-  if (!wfLinkMode.value) return
+  if (!wfLinkMode.value) {
+    if (wfNodePanel.value) openNodePanel(n)
+    return
+  }
   if (!wfLinkFrom.value) {
     wfLinkFrom.value = n.id
     ElMessage.info(`${t('agentMsg.startSelected')}${n.name}${t('agentMsg.clickEnd')}`)
@@ -1901,9 +2440,11 @@ function zoomCanvas(delta: number) {
 }
 
 function autoLayoutWorkflow() {
+  const before = snapshotWorkflow()
   workflowForm.nodes.forEach((n: any, i: number) => {
     n.position = { x: 60 + (i % 3) * 240, y: 40 + Math.floor(i / 3) * 120 }
   })
+  commitWorkflowHistory(before)
 }
 
 function editWorkflowNode(id: string) {
@@ -1911,9 +2452,56 @@ function editWorkflowNode(id: string) {
   wfMode.value = 'list'
 }
 
+function startBoxSelect(ev: MouseEvent) {
+  const canvas = wfCanvasEl.value?.querySelector('.wf-canvas') as HTMLElement | null
+  if (!canvas) return
+  const rect = canvas.getBoundingClientRect()
+  const toCanvas = (e: MouseEvent) => ({
+    x: (e.clientX - rect.left) / wfZoom.value,
+    y: (e.clientY - rect.top) / wfZoom.value
+  })
+  const start = toCanvas(ev)
+  wfBoxSelect.value = { x1: start.x, y1: start.y, x2: start.x, y2: start.y }
+  const move = (e: MouseEvent) => {
+    if (!wfBoxSelect.value) return
+    const point = toCanvas(e)
+    wfBoxSelect.value.x2 = point.x
+    wfBoxSelect.value.y2 = point.y
+  }
+  const up = () => {
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', up)
+    const box = wfBoxSelect.value
+    wfBoxSelect.value = null
+    if (!box) return
+    const x1 = Math.min(box.x1, box.x2)
+    const x2 = Math.max(box.x1, box.x2)
+    const y1 = Math.min(box.y1, box.y2)
+    const y2 = Math.max(box.y1, box.y2)
+    if (x2 - x1 < 4 && y2 - y1 < 4) return
+    const hits = workflowForm.nodes.filter((n: any) => {
+      const nx1 = nodeX(n)
+      const ny1 = nodeY(n)
+      return nx1 < x2 && nx1 + 190 > x1 && ny1 < y2 && ny1 + 66 > y1
+    }).map((n: any) => n.id)
+    if (!hits.length) return
+    wfMultiSelected.value = Array.from(new Set([...wfMultiSelected.value, ...hits]))
+    wfSelected.value = ''
+    wfNodePanel.value = false
+  }
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', up)
+  ev.preventDefault()
+}
+
 function startCanvasPan(ev: MouseEvent) {
   const el = wfCanvasEl.value
   if (!el) return
+  if (cancelRewire()) return
+  if (ev.shiftKey) {
+    startBoxSelect(ev)
+    return
+  }
   const startX = ev.clientX
   const startY = ev.clientY
   const sl = el.scrollLeft
@@ -1936,6 +2524,7 @@ async function openWorkflowTemplates() {
 }
 
 function applyWorkflowTemplate(t: any) {
+  const before = snapshotWorkflow()
   let def: any = t?.definition
   if (typeof def === 'string') {
     try { def = JSON.parse(def) } catch { def = {} }
@@ -1949,23 +2538,129 @@ function applyWorkflowTemplate(t: any) {
   wfMode.value = 'list'
   wfSelected.value = ''
   wfTemplatesVisible.value = false
+  wfSelectedEdge.value = null
+  commitWorkflowHistory(before)
   ElMessage.success(t('agentMsg.templateLoaded'))
+}
+
+function copySelectedNodes() {
+  const ids = wfMultiSelected.value.length
+    ? [...wfMultiSelected.value]
+    : (wfSelected.value ? [wfSelected.value] : [])
+  const nodes = workflowForm.nodes.filter((n: any) => ids.includes(n.id) && !['START', 'END'].includes(n.type))
+  if (!nodes.length) {
+    ElMessage.warning(t('wf.copyNone'))
+    return
+  }
+  const idSet = new Set(nodes.map((n: any) => n.id))
+  wfClipboard = {
+    nodes: JSON.parse(JSON.stringify(nodes)),
+    edges: JSON.parse(JSON.stringify(workflowForm.edges.filter((e: any) => idSet.has(e.from) && idSet.has(e.to))))
+  }
+  wfClipboardSize.value = nodes.length
+  ElMessage.success(t('wf.copiedNodes'))
+}
+
+function pasteNodes() {
+  if (!wfClipboard || !wfClipboard.nodes.length) {
+    ElMessage.warning(t('wf.clipboardEmpty'))
+    return
+  }
+  const before = snapshotWorkflow()
+  const used = new Set(workflowForm.nodes.map((n: any) => n.id))
+  const idMap = new Map<string, string>()
+  const newId = () => {
+    let id = ''
+    do {
+      id = `n${Date.now().toString(36)}${Math.floor(Math.random() * 1000)}`
+    } while (used.has(id))
+    used.add(id)
+    return id
+  }
+  for (const n of wfClipboard.nodes) idMap.set(n.id, newId())
+
+  const clones = wfClipboard.nodes.map((n: any, i: number) => {
+    const copy = JSON.parse(JSON.stringify(n))
+    copy.id = idMap.get(n.id)
+    copy.name = `${n.name} ${t('wf.copySuffix')}`
+    copy.position = avoidWorkflowOverlap({
+      x: (n.position?.x ?? 60) + 40 + i * 16,
+      y: (n.position?.y ?? 40) + 40 + i * 16
+    })
+    // 指向副本内部的引用做重映射；指向外部的引用收敛到 end/空，避免粘贴出意外连线或环
+    copy.next = idMap.get(copy.next) || 'end'
+    copy.trueNext = idMap.get(copy.trueNext) || 'end'
+    copy.falseNext = idMap.get(copy.falseNext) || 'end'
+    copy.joinNode = idMap.get(copy.joinNode) || ''
+    copy.bodyNode = idMap.get(copy.bodyNode) || ''
+    copy.loopEnd = idMap.get(copy.loopEnd) || ''
+    if (Array.isArray(copy.branches)) copy.branches = copy.branches.map((b: string) => idMap.get(b)).filter(Boolean)
+    return copy
+  })
+
+  const endIndex = workflowForm.nodes.findIndex((n: any) => n.type === 'END')
+  if (endIndex >= 0) workflowForm.nodes.splice(endIndex, 0, ...clones)
+  else workflowForm.nodes.push(...clones)
+  for (const edge of wfClipboard.edges) {
+    workflowForm.edges.push({ ...edge, from: idMap.get(edge.from), to: idMap.get(edge.to) })
+  }
+  wfSelected.value = ''
+  wfSelectedEdge.value = null
+  wfMultiSelected.value = clones.map((c: any) => c.id)
+  commitWorkflowHistory(before)
+  ElMessage.success(t('wf.pastedNodes'))
+}
+
+function removeMultiSelected() {
+  const ids = new Set(wfMultiSelected.value)
+  const targets = workflowForm.nodes.filter((x: any) => ids.has(x.id) && !['START', 'END'].includes(x.type))
+  if (!targets.length) {
+    ElMessage.warning(t('wf.multiNoneRemovable'))
+    return
+  }
+  const before = snapshotWorkflow()
+  workflowForm.nodes = workflowForm.nodes.filter((x: any) => !targets.some((r: any) => r.id === x.id))
+  wfMultiSelected.value = []
+  wfSelected.value = ''
+  wfSelectedEdge.value = null
+  rewireWorkflow()
+  commitWorkflowHistory(before)
 }
 
 function startNodeDrag(ev: MouseEvent, n: any) {
   ensureWorkflowPositions()
+  const before = snapshotWorkflow()
   wfSelected.value = n.id
+  if (!wfRewireMode.value) wfSelectedEdge.value = null
+  const grouped = wfMultiSelected.value.includes(n.id) && wfMultiSelected.value.length > 1
+  // Shift+点击是多选操作，不要在这里清空已选集合
+  if (!grouped && !ev.shiftKey) wfMultiSelected.value = []
+  const ids = grouped ? [...wfMultiSelected.value] : [n.id]
+  const starts = new Map<string, { x: number; y: number }>()
+  for (const id of ids) {
+    const node = workflowForm.nodes.find((x: any) => x.id === id)
+    if (node) starts.set(id, { x: node.position.x, y: node.position.y })
+  }
   const startX = ev.clientX
   const startY = ev.clientY
-  const ox = n.position.x
-  const oy = n.position.y
+  wfDragMoved = false
   const move = (e: MouseEvent) => {
-    n.position.x = Math.max(0, ox + e.clientX - startX)
-    n.position.y = Math.max(0, oy + e.clientY - startY)
+    const dx = e.clientX - startX
+    const dy = e.clientY - startY
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) wfDragMoved = true
+    for (const [id, start] of starts) {
+      const node = workflowForm.nodes.find((x: any) => x.id === id)
+      if (!node) continue
+      node.position.x = Math.max(0, start.x + dx)
+      node.position.y = Math.max(0, start.y + dy)
+    }
   }
   const up = () => {
     window.removeEventListener('mousemove', move)
     window.removeEventListener('mouseup', up)
+    if (wfDragMoved) wfDragEndedAt = Date.now()
+    wfDragMoved = false
+    commitWorkflowHistory(before)
   }
   window.addEventListener('mousemove', move)
   window.addEventListener('mouseup', up)
@@ -2017,36 +2712,87 @@ function addGraphEdge() {
   workflowForm.edges.push({ from: 'start', to: 'end', label: '' })
 }
 
-function addWorkflowNode() {
+function buildWorkflowNode(type: string): any {
   const id = `n${Date.now().toString(36)}${Math.floor(Math.random() * 100)}`
-  const node: any = { id, type: wfAddType.value, name: wfTypeText(wfAddType.value), next: 'end' }
-  if (wfAddType.value === 'APPROVAL') node.title = t('agentMsg.approvalTitle')
-  if (wfAddType.value === 'LLM') node.prompt = ''
-  if (wfAddType.value === 'HANDOFF') { node.inputTemplate = '{{input}}'; node.returnRounds = 1 }
-  if (wfAddType.value === 'STATE') { node.stateKey = ''; node.valueTemplate = '{{last}}' }
-  if (wfAddType.value === 'TOOL') node.argsTemplate = '{}'
-  if (wfAddType.value === 'KNOWLEDGE') { node.mode = 'hybrid'; node.topK = 5; node.queryTemplate = '' }
-  if (wfAddType.value === 'APPROVAL') { node.requiredRole = ''; node.timeoutMinutes = 0 }
-  if (wfAddType.value === 'PARALLEL') { node.branches = []; node.joinNode = ''; node.next = ''; node.strategy = 'ALL_OR_NOTHING' }
-  if (wfAddType.value === 'LOOP') { node.bodyNode = ''; node.loopEnd = ''; node.itemsText = '["A","B"]'; node.maxIterations = 10; node.requiredRole = ''; node.timeoutMinutes = 0 }
-  if (['LLM','AGENT','HANDOFF','STATE','TOOL','KNOWLEDGE'].includes(wfAddType.value)) { node.retryTimes = 0; node.onError = 'FAIL' }
-  if (wfAddType.value === 'JOIN') node.next = 'end'
-  if (wfAddType.value === 'CONDITION') {
+  const node: any = { id, type, name: wfTypeText(type), next: 'end' }
+  if (type === 'APPROVAL') node.title = t('agentMsg.approvalTitle')
+  if (type === 'LLM') node.prompt = ''
+  if (type === 'HANDOFF') { node.inputTemplate = '{{input}}'; node.returnRounds = 1 }
+  if (type === 'STATE') { node.stateKey = ''; node.valueTemplate = '{{last}}' }
+  if (type === 'TOOL') node.argsTemplate = '{}'
+  if (type === 'KNOWLEDGE') { node.mode = 'hybrid'; node.topK = 5; node.queryTemplate = '' }
+  if (type === 'APPROVAL') { node.requiredRole = ''; node.timeoutMinutes = 0 }
+  if (type === 'PARALLEL') { node.branches = []; node.joinNode = ''; node.next = ''; node.strategy = 'ALL_OR_NOTHING' }
+  if (type === 'LOOP') { node.bodyNode = ''; node.loopEnd = ''; node.itemsText = '["A","B"]'; node.maxIterations = 10; node.requiredRole = ''; node.timeoutMinutes = 0 }
+  if (['LLM', 'AGENT', 'HANDOFF', 'STATE', 'TOOL', 'KNOWLEDGE'].includes(type)) { node.retryTimes = 0; node.onError = 'FAIL' }
+  if (type === 'JOIN') node.next = 'end'
+  if (type === 'CONDITION') {
     node.conditionType = 'contains'
     node.conditionValue = ''
     node.trueNext = 'end'
     node.falseNext = 'end'
   }
+  return node
+}
+
+/** 找一个不与现有节点重叠的空位（网格扫描） */
+function freeWorkflowPosition() {
+  const taken = (x: number, y: number) => workflowForm.nodes.some((n: any) =>
+    Math.abs(nodeX(n) - x) < 210 && Math.abs(nodeY(n) - y) < 100)
+  // 先按 3 列向下排，保证新节点落在可视区域内，避免加到画布右侧看不见
+  for (let row = 0; row < 30; row++) {
+    for (let col = 0; col < 3; col++) {
+      const x = 60 + col * 230
+      const y = 40 + row * 110
+      if (!taken(x, y)) return { x, y }
+    }
+  }
+  return { x: 60, y: 40 + workflowForm.nodes.length * 110 }
+}
+
+/** 拖入位置若与其他节点重叠，向下顺延，避免卡片互相盖住 */
+function avoidWorkflowOverlap(position: { x: number; y: number }) {
+  const overlaps = (x: number, y: number) => workflowForm.nodes.some((n: any) =>
+    Math.abs(nodeX(n) - x) < 210 && Math.abs(nodeY(n) - y) < 100)
+  let { x, y } = position
+  let guard = 0
+  while (overlaps(x, y) && guard++ < 30) y += 110
+  return { x, y }
+}
+
+/** 新增节点：列表模式按钮与画布拖入共用；position 为空时自动找空位 */
+function insertWorkflowNode(type: string, position?: { x: number; y: number }) {
+  const before = snapshotWorkflow()
+  const node = buildWorkflowNode(type)
+  position = position ? avoidWorkflowOverlap(position) : freeWorkflowPosition()
+  node.position = position
   const endIndex = workflowForm.nodes.findIndex((n: any) => n.type === 'END')
   if (endIndex >= 0) workflowForm.nodes.splice(endIndex, 0, node)
   else workflowForm.nodes.push(node)
   ensureWorkflowPositions()
+  if (position) node.position = position
   rewireWorkflow()
+  wfSelected.value = node.id
+  wfSelectedEdge.value = null
+  commitWorkflowHistory(before)
+  if (wfMode.value === 'canvas') openNodePanel(node)
+  return node
+}
+
+function addWorkflowNode() {
+  insertWorkflowNode(wfAddType.value)
+}
+
+function addWorkflowNodeOfType(type: string) {
+  insertWorkflowNode(type)
 }
 
 function removeWorkflowNode(index: number) {
+  const before = snapshotWorkflow()
   workflowForm.nodes.splice(index, 1)
   rewireWorkflow()
+  wfSelectedEdge.value = null
+  commitWorkflowHistory(before)
 }
 
 function moveWorkflowNode(index: number, delta: number) {
@@ -2152,6 +2898,8 @@ async function rollbackWorkflow(version: string) {
 async function runWorkflow() {
   if (!workflowRunInput.value.trim()) { ElMessage.warning(t('agentMsg.testInputRequired')); return }
   workflowRunning.value = true
+  stopReplay()
+  workflowRunResult.value = null
   try {
     workflowRunResult.value = await http.post(`/agent/${agentId}/workflow/run`,
       { input: workflowRunInput.value.trim() }, { timeout: 180000 }) as any
@@ -2161,6 +2909,87 @@ async function runWorkflow() {
   } finally {
     workflowRunning.value = false
   }
+}
+
+const wfReplaySteps = computed<any[]>(() => workflowRunResult.value?.nodeRuns || [])
+const wfReplayCurrent = computed<any>(() => wfReplaySteps.value[wfReplayIndex.value] || null)
+
+function replayDuration(step: any): number | null {
+  if (!step?.startedAt || !step?.endedAt) return null
+  const ms = new Date(step.endedAt).getTime() - new Date(step.startedAt).getTime()
+  return Number.isFinite(ms) && ms >= 0 ? ms : null
+}
+
+function clearReplayTimer() {
+  if (wfReplayTimer) {
+    clearTimeout(wfReplayTimer)
+    wfReplayTimer = null
+  }
+}
+
+function focusReplayNode() {
+  const step = wfReplayCurrent.value
+  const wrap = wfCanvasEl.value
+  if (!step || !wrap || wfMode.value !== 'canvas') return
+  const node = workflowForm.nodes.find((n: any) => n.id === step.nodeId)
+  if (!node) return
+  const x = nodeX(node) * wfZoom.value
+  const y = nodeY(node) * wfZoom.value
+  if (x < wrap.scrollLeft || x > wrap.scrollLeft + wrap.clientWidth - 220) {
+    wrap.scrollLeft = Math.max(0, x - 60)
+  }
+  if (y < wrap.scrollTop || y > wrap.scrollTop + wrap.clientHeight - 100) {
+    wrap.scrollTop = Math.max(0, y - 40)
+  }
+}
+
+function startReplay() {
+  if (!wfReplaySteps.value.length) return
+  clearReplayTimer()
+  wfMode.value = 'canvas'
+  wfSelectedEdge.value = null
+  wfNodePanel.value = false
+  if (wfReplayIndex.value < 0 || wfReplayIndex.value >= wfReplaySteps.value.length - 1) {
+    wfReplayIndex.value = -1
+  }
+  wfReplayPlaying.value = true
+  advanceReplay()
+}
+
+function advanceReplay() {
+  clearReplayTimer()
+  if (!wfReplayPlaying.value) return
+  if (wfReplayIndex.value >= wfReplaySteps.value.length - 1) {
+    wfReplayPlaying.value = false
+    return
+  }
+  wfReplayIndex.value += 1
+  focusReplayNode()
+  wfReplayTimer = setTimeout(advanceReplay, 1100)
+}
+
+function toggleReplay() {
+  if (wfReplayPlaying.value) {
+    wfReplayPlaying.value = false
+    clearReplayTimer()
+    return
+  }
+  startReplay()
+}
+
+function stepReplay(delta: number) {
+  if (!wfReplaySteps.value.length) return
+  wfReplayPlaying.value = false
+  clearReplayTimer()
+  const next = Math.min(wfReplaySteps.value.length - 1, Math.max(0, wfReplayIndex.value + delta))
+  wfReplayIndex.value = next
+  focusReplayNode()
+}
+
+function stopReplay() {
+  wfReplayPlaying.value = false
+  clearReplayTimer()
+  wfReplayIndex.value = -1
 }
 
 function goApprovals() {
@@ -2200,7 +3029,8 @@ function buildPayload() {
     agentCapabilities: { ...form.capabilities },
     memoryConfig: { ...form.memory },
     modelConfig: { modelName: form.modelName, fallbackModelName: form.fallbackModelName || null,
-      temperature: form.temperature },
+      temperature: form.temperature,
+      thinking: form.thinking, reasoningEffort: form.thinking ? form.reasoningEffort : null },
     variables: form.variables.filter(v => v.key),
     visibility: form.visibility,
     knowledgeBases: kbRows.value.filter(k => k.enabled).map(k => ({
@@ -2258,6 +3088,19 @@ async function publishCheckSummary(): Promise<boolean> {
   }
 }
 
+/** 已部署过的 Agent 发布后自动用新版本重新部署，保证容器与线上版本一致 */
+async function autoRedeployAfterPublish() {
+  try {
+    const data = await http.get(`/agent/${agentId}/deployment`) as any
+    if (!data?.deployment || !data.dockerAvailable) return
+    deployment.value = await http.post(`/agent/${agentId}/deployment`, {}) as any
+    deployInfo.dockerAvailable = true
+    ElMessage.success(t('deploy.autoRedeployed'))
+  } catch {
+    // 部署失败已由请求拦截器提示，不阻断发布结果
+  }
+}
+
 async function publish(force = false) {
   if (!force) {
     const go = await publishCheckSummary()
@@ -2273,6 +3116,7 @@ async function publish(force = false) {
     const res = await http.post(`/agent/${agentId}/publish`, { force }, { timeout: 600000 }) as any
     form.status = 'PUBLISHED'
     ElMessage.success(`${t('agentMsg.published')}${res.version}`)
+    await autoRedeployAfterPublish()
   } catch (err: any) {
     const msg = String(err?.response?.data?.message || err?.message || err)
     if (msg.includes(t('agentMsg.gateFailed'))) {
@@ -2366,6 +3210,12 @@ function clip(text: string, n: number) {
   text = text || ''
   return text.length > n ? text.slice(0, n) + '…' : text
 }
+watch(wfMode, mode => { if (mode !== 'canvas') closeNodePanel() })
+onMounted(() => window.addEventListener('keydown', onWorkflowKeydown))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onWorkflowKeydown)
+  clearReplayTimer()
+})
 </script>
 
 <style scoped>
@@ -2591,12 +3441,20 @@ function clip(text: string, n: number) {
 .wf-run { margin-top: 10px; padding: 10px; background: #f5f7fa; border-radius: 6px; }
 .wf-run pre { white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; font-size: 13px; line-height: 1.6; }
 .wf-mode { margin-bottom: 10px; }
-.wf-canvas-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.wf-canvas-wrap { max-height: 52vh; overflow: auto; border: 1px solid #ebeef5; border-radius: 8px; background: #fafbfc; cursor: grab; }
+.wf-canvas-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.wf-tool-sep { width: 1px; height: 18px; background: #e4e7ed; }
+.wf-canvas-wrap { flex: 1 1 auto; min-width: 0; max-height: 52vh; overflow: auto; border: 1px solid #ebeef5; border-radius: 8px; background: #fafbfc; cursor: grab; }
 .wf-canvas-wrap:active { cursor: grabbing; }
 .wf-node.selected { border-color: #409eff; box-shadow: 0 0 0 2px rgba(64,158,255,.15); }
 .wf-canvas { position: relative; min-width: 640px; min-height: 380px; }
 .wf-edges { position: absolute; left: 0; top: 0; pointer-events: none; }
+.wf-edges path { pointer-events: stroke; cursor: pointer; }
+.wf-edges path.wf-edge-selected { stroke-width: 3.2; filter: drop-shadow(0 0 3px rgba(64,158,255,.6)); }
+.wf-edge-temp { fill: none; stroke: #409eff; stroke-width: 2; stroke-dasharray: 5 4; pointer-events: none; }
+.wf-edge-label {
+  font-size: 10px; fill: #909399; pointer-events: none; text-anchor: middle;
+  paint-order: stroke; stroke: #fafbfc; stroke-width: 3px; stroke-linejoin: round;
+}
 .wf-canvas-node {
   position: absolute;
   width: 190px;
@@ -2612,4 +3470,84 @@ function clip(text: string, n: number) {
 .wf-canvas-node.selected { border-color: #409eff; box-shadow: 0 0 0 2px rgba(64,158,255,.2); }
 .wf-cn-name { margin-top: 4px; font-size: 13px; font-weight: 600; color: #303133; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wf-cn-id { font-size: 11px; color: #a8abb2; margin-top: 2px; }
+
+/* 画布：左节点面板 + 拖入 + 端口连线 + 运行态高亮 */
+.wf-canvas-layout { display: flex; gap: 10px; align-items: stretch; }
+.wf-palette { width: 148px; flex-shrink: 0; padding: 8px; border: 1px solid #ebeef5; border-radius: 8px; background: #fff; max-height: 52vh; overflow-y: auto; }
+.wf-palette-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #303133; }
+.wf-palette-item { margin-bottom: 6px; cursor: grab; }
+.wf-palette-item:active { cursor: grabbing; }
+.wf-canvas-wrap.drop-active { border-color: #409eff; box-shadow: inset 0 0 0 2px rgba(64,158,255,.15); }
+.wf-port {
+  position: absolute; right: -7px; top: 26px; width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; border: 2px solid #409eff; cursor: crosshair; z-index: 2;
+}
+.wf-port:hover { transform: scale(1.25); }
+.wf-port-in { left: -7px; right: auto; border-color: #c0c4cc; cursor: default; }
+.wf-node-panel {
+  width: 340px; flex-shrink: 0; padding: 10px; border: 1px solid #ebeef5; border-radius: 8px;
+  background: #fff; max-height: 52vh; overflow-y: auto;
+}
+.wf-node-panel-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.wf-node-panel-head .wf-cn-id { margin-left: auto; }
+.wf-canvas-node.run-success { border-color: #67c23a; box-shadow: 0 0 0 2px rgba(103,194,58,.18); }
+.wf-canvas-node.run-failed { border-color: #f56c6c; box-shadow: 0 0 0 2px rgba(245,108,108,.18); }
+.wf-canvas-node.run-running { border-color: #409eff; box-shadow: 0 0 0 2px rgba(64,158,255,.25); }
+.wf-canvas-node.run-waiting { border-color: #e6a23c; box-shadow: 0 0 0 2px rgba(230,162,60,.18); }
+.wf-canvas-node.multi { border-color: #e6a23c; box-shadow: 0 0 0 2px rgba(230,162,60,.25); }
+.wf-canvas-node.replay-current {
+  border-color: #409eff; box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.35);
+  animation: replay-pulse 1.2s ease-in-out infinite;
+}
+@keyframes replay-pulse {
+  50% { box-shadow: 0 0 0 6px rgba(64, 158, 255, 0.12); }
+}
+.wf-replay { margin-top: 10px; border-top: 1px dashed #ebeef5; padding-top: 8px; }
+.wf-replay-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.wf-replay-info { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-size: 13px; }
+.wf-replay-output {
+  flex-basis: 100%; background: #f5f7fa; border-radius: 6px; padding: 8px 10px;
+  font-size: 12px; color: #606266; max-height: 140px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+}
+.wf-select-box {
+  position: absolute; z-index: 3; pointer-events: none;
+  border: 1px dashed #409eff; background: rgba(64, 158, 255, 0.08); border-radius: 2px;
+}
+
+.deploy-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; }
+.deploy-curl,
+.deploy-logs {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  background: #f5f7fa;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 220px;
+  overflow: auto;
+}
+.deploy-logs { max-height: 50vh; }
+.deploy-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+:deep(.el-descriptions__label) { white-space: nowrap; }
+
+@media (max-width: 768px) {
+  .topbar { flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+  .title { flex-basis: calc(100% - 110px); font-size: 14px; }
+  .actions { width: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+  .actions .el-button { margin-left: 0; flex: 1 1 calc(33.33% - 6px); }
+  /* 配置面板与调试面板改为上下排列 */
+  .edit-body { flex-direction: column; }
+  .panels { flex: none; overflow: visible; padding: 0 10px 10px; }
+  .debug { min-height: 420px; }
+  /* 移动端：节点面板改为横向可滚动，画布在上 */
+  .wf-canvas-layout { flex-direction: column; }
+  .wf-palette { width: 100%; max-height: none; display: flex; flex-wrap: wrap; gap: 6px; }
+  .wf-palette-title, .wf-palette .hint { flex-basis: 100%; }
+  .wf-palette-item { margin-bottom: 0; }
+  .wf-node-panel { width: 100%; max-height: none; }
+}
 </style>

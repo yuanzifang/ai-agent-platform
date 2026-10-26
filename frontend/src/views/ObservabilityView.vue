@@ -782,4 +782,11 @@ function kindType(k: string) {
 .err-box { background: #fef0f0; color: #f56c6c; border-radius: 4px; padding: 8px 10px; font-size: 13px; margin-top: 8px; word-break: break-word; }
 .tag-item { margin-right: 4px; }
 .mb { margin-bottom: 12px; }
+
+@media (max-width: 768px) {
+  .cards { grid-template-columns: repeat(2, 1fr); }
+  .charts { grid-template-columns: 1fr; }
+  .toolbar { flex-wrap: wrap; row-gap: 8px; }
+  .adv-form .row { flex-wrap: wrap; }
+}
 </style>

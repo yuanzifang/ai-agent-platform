@@ -439,4 +439,9 @@ function clip(t: string, n: number) { t = t || ''; return t.length > n ? t.slice
 .trace-link { color: #409eff; font-family: monospace; font-size: 12px; }
 .import-box textarea { width: 100%; }
 .item-form { display: flex; flex-direction: column; gap: 8px; }
+
+@media (max-width: 768px) {
+  .sum-cards { grid-template-columns: repeat(2, 1fr); }
+  .toolbar { flex-wrap: wrap; row-gap: 8px; }
+}
 </style>

@@ -135,4 +135,10 @@ onMounted(load)
 .bar.in { background: #409eff; }
 .bar.out { background: #67c23a; }
 .bar-num { width: 70px; text-align: right; color: #606266; flex-shrink: 0; }
+
+@media (max-width: 768px) {
+  .cards { grid-template-columns: 1fr; }
+  .cols { grid-template-columns: 1fr; }
+  .toolbar { flex-wrap: wrap; row-gap: 8px; }
+}
 </style>

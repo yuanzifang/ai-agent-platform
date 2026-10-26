@@ -106,6 +106,7 @@
           <el-table-column :label="t('kbDetail.error')" min-width="160">
             <template #default="{ row }">
               <span class="err">{{ row.errorMessage || '' }}</span>
+              <span v-if="row.parseWarning" class="warn">{{ row.parseWarning }}</span>
               <span v-if="row.retryTimes > 0" class="retry-tip">{{ t('kbDetail.retriedPrefix') }}{{ row.retryTimes }}{{ t('kbDetail.retriedSuffix') }}</span>
             </template>
           </el-table-column>
@@ -137,7 +138,7 @@
             <el-button size="small" text @click="chunks.docId = null">{{ t('kbDetail.collapse') }}</el-button>
           </div>
           <div v-for="c in chunks.list" :key="c.id" class="chunk">
-            <span class="idx">#{{ c.chunkIndex }}</span>
+            <span class="idx">#{{ c.chunkIndex }}<template v-if="c.pageFrom"> · p.{{ c.pageFrom }}<template v-if="c.pageTo && c.pageTo !== c.pageFrom">-{{ c.pageTo }}</template></template></span>
             <span class="text">{{ c.content }}</span>
             <el-tag v-if="isChartChunk(c)" size="small"
                     :type="c.reviewStatus === 'REVIEWED' ? 'success' : 'warning'">
@@ -1055,6 +1056,7 @@ function statusText(s: string) {
 .retrieval { flex: 1; background: #fff; border: 1px solid #e4e7ed; border-radius: 6px; padding: 14px; overflow-y: auto; }
 .sec-title { font-weight: 600; font-size: 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
 .err { color: #f56c6c; font-size: 12px; }
+.warn { color: #e6a23c; font-size: 12px; display: block; margin-top: 2px; }
 .retry-tip { color: #e6a23c; font-size: 12px; }
 .chunks { margin-top: 14px; border-top: 1px dashed #dcdfe6; padding-top: 10px; }
 .chunk { display: flex; gap: 8px; font-size: 13px; padding: 6px 0; border-bottom: 1px dashed #ebeef5; }
@@ -1071,4 +1073,21 @@ function statusText(s: string) {
 .member-table { width: 100%; }
 .hint { color: #909399; font-size: 12px; margin-left: 8px; }
 .perm-tip { color: #909399; font-size: 12px; line-height: 20px; padding-left: 90px; }
+
+@media (max-width: 768px) {
+  /* 让整页随 el-main 滚动，而不是固定高度里塞两栏 */
+  .page { height: auto; }
+  .toolbar { flex-wrap: wrap; gap: 8px; }
+  .kb-title { font-size: 15px; }
+  .kb-meta { flex-basis: 100%; }
+  .upload-validity { flex-wrap: wrap; }
+  .upload-validity .el-date-editor { width: 100% !important; }
+  .body { flex-direction: column; }
+  .docs,
+  .retrieval { flex: none; padding: 10px; overflow: visible; }
+  .params { flex-wrap: wrap; }
+  .params .el-date-editor { width: 100% !important; }
+  .params .hint { flex-basis: 100%; margin-left: 0; }
+  .perm-tip { padding-left: 0; }
+}
 </style>

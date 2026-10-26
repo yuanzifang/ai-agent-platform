@@ -1,7 +1,7 @@
 <template>
   <div class="chat-page">
-    <!-- 左侧：会话列表 -->
-    <div class="sessions">
+    <!-- 左侧：会话列表（移动端变为可滑出的抽屉） -->
+    <div class="sessions" :class="{ open: sessionsOpen }">
       <el-button type="primary" class="new-btn" @click="newConversation">{{ t('chatPage.newChat') }}</el-button>
       <div class="session-list">
         <div v-for="s in sessions" :key="s.id" class="session-item"
@@ -24,12 +24,17 @@
         <el-empty v-if="sessions.length === 0" :description="t('chatPage.noSessions')" :image-size="60" />
       </div>
     </div>
+    <div v-if="isMobile && sessionsOpen" class="sessions-mask" @click="sessionsOpen = false" />
 
     <!-- 右侧：消息区 -->
     <div class="chat-main" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false"
          @drop.prevent="onDrop">
       <div v-if="dragging" class="drop-mask">{{ t('chatPage.dropMask') }}</div>
       <div class="chat-head">
+        <el-button v-if="isMobile" class="sessions-toggle" text circle :aria-label="t('chatPage.sessions')"
+                   @click="sessionsOpen = true">
+          <el-icon size="18"><Menu /></el-icon>
+        </el-button>
         <span class="agent-name">{{ agentName }}</span>
         <el-button size="small" :disabled="messages.length === 0" @click="share">{{ t('chatPage.share') }}</el-button>
       </div>
@@ -191,12 +196,17 @@ import { useI18n } from 'vue-i18n'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Microphone, Paperclip } from '@element-plus/icons-vue'
+import { Microphone, Paperclip, Menu } from '@element-plus/icons-vue'
 import http from '../api/http'
 import MarkdownContent from '../components/MarkdownContent.vue'
+import { useIsMobile } from '../composables/useMediaQuery'
 import { useUserStore } from '../stores/user'
 
 const { t } = useI18n()
+
+// 移动端：会话列表收进抽屉，避免和消息区争抢宽度
+const isMobile = useIsMobile()
+const sessionsOpen = ref(false)
 
 interface SessionItem { id: number; agentId: number; agentName: string; title: string; lastActiveAt: string; pinned?: boolean }
 interface ChatMessage {
@@ -295,6 +305,7 @@ async function newConversation() {
 }
 
 async function openConversation(id: number) {
+  sessionsOpen.value = false
   if (streaming.value) stopGen()
   conversationId.value = id
   // 恢复草稿时不要覆盖用户已开始输入的内容
@@ -900,11 +911,17 @@ function clip(text: string, n: number) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
   padding: 10px 16px;
   border-bottom: 1px solid #e4e7ed;
 }
 .agent-name {
   font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .messages {
   flex: 1;
@@ -1046,4 +1063,65 @@ function clip(text: string, n: number) {
   font-size: 12px;
   color: #909399;
 }
+
+/* ===== 移动端（H5）：会话列表抽屉 + 更宽松的聊天气泡 ===== */
+.sessions-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 2199;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+@media (max-width: 768px) {
+  .chat-page {
+    gap: 0;
+  }
+  .sessions {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(78vw, 300px);
+    box-sizing: border-box;
+    z-index: 2200;
+    border: 0;
+    border-radius: 0;
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.12);
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    padding-top: calc(12px + env(safe-area-inset-top));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+  .sessions.open { transform: none; }
+  /* 触屏没有 hover：常显「⋯」菜单入口 */
+  .s-more { opacity: 1; padding: 2px 8px; }
+  .chat-main {
+    border: 0;
+    border-radius: 0;
+  }
+  .chat-head { padding: 8px 10px; }
+  .sessions-toggle { margin-left: -4px; flex-shrink: 0; }
+  .messages {
+    padding: 10px;
+    gap: 10px;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+  .bubble {
+    max-width: 88%;
+    padding: 9px 12px;
+    font-size: 14px;
+  }
+  .msg-ops { flex-wrap: wrap; }
+  .msg-ops .el-button { padding: 6px 8px; }
+  .input-bar {
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  }
+  .input-row { gap: 8px; }
+  .write-gate .hint { display: none; }
+  .c-head { flex-wrap: wrap; }
+  .c-doc { max-width: 100%; }
+  .suggestions { margin-left: 0; }
+}
+
 </style>
