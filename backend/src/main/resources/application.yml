@@ -134,6 +134,11 @@ knowledge:
     recovery-interval-ms: ${KNOWLEDGE_PARSE_RECOVERY_INTERVAL_MS:1800000}
     recovery-initial-delay-ms: ${KNOWLEDGE_PARSE_RECOVERY_INITIAL_DELAY_MS:300000}
     recovery-batch: ${KNOWLEDGE_PARSE_RECOVERY_BATCH:20}
+  upgrade:
+    # 存量升级任务后台每批提交文档数、扫描间隔
+    batch: ${KNOWLEDGE_UPGRADE_BATCH:10}
+    interval-ms: ${KNOWLEDGE_UPGRADE_INTERVAL_MS:30000}
+    initial-delay-ms: ${KNOWLEDGE_UPGRADE_INITIAL_DELAY_MS:30000}
   ocr:
     # 扫描版 PDF/图片 OCR（需安装 tesseract；chi_sim+eng 需对应语言包）
     enabled: ${KNOWLEDGE_OCR_ENABLED:false}

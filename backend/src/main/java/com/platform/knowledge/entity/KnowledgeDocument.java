@@ -22,6 +22,8 @@ public class KnowledgeDocument {
     private String sourceSha256;
     private String parseFingerprint;
     private LocalDateTime parseStartedAt;
+    private Long upgradeJobId;
+    private String upgradeStatus;
     private String errorMessage;
     private Integer retryTimes;
     private Long tenantId;
