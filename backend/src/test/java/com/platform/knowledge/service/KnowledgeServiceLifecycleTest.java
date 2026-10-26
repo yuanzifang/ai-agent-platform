@@ -318,6 +318,25 @@ class KnowledgeServiceLifecycleTest {
     }
 
     @Test
+    void recoversStaleParsingDocumentAndCleansPartialData() {
+        KnowledgeDocument stale = new KnowledgeDocument();
+        stale.setId(78L);
+        stale.setKnowledgeBaseId(1L);
+        stale.setTenantId(9L);
+        stale.setStatus("PARSING");
+        stale.setParseStartedAt(LocalDateTime.now().minusHours(7));
+        when(docMapper.selectList(any())).thenReturn(List.of(stale));
+        when(docMapper.update(isNull(), any())).thenReturn(1);
+
+        int recovered = service.recoverStaleParsing(360, 20);
+
+        assertEquals(1, recovered);
+        verify(chunkMapper).delete(any());
+        verify(vectorRepository).deleteByDocument(9L, 78L);
+        verify(graphService).deleteByDocument(1L, 78L);
+    }
+
+    @Test
     void backfillsSourceHashForLegacyDocument() {
         KnowledgeDocument doc = new KnowledgeDocument();
         doc.setId(77L);

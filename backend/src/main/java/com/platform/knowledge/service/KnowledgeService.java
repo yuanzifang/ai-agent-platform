@@ -729,6 +729,43 @@ public class KnowledgeService {
         }
     }
 
+    /**
+     * 回收长时间停在 PARSING 的文档：先条件更新为 FAILED，再清理 MySQL/PgVector 残留。
+     * 多实例同时执行时，只有条件更新成功的实例会继续清理。
+     */
+    public int recoverStaleParsing(int staleMinutes, int limit) {
+        int minutes = Math.max(1, staleMinutes);
+        int max = Math.max(1, Math.min(limit, 100));
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(minutes);
+        List<KnowledgeDocument> stale = docMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeDocument>()
+                        .eq(KnowledgeDocument::getStatus, "PARSING")
+                        .isNotNull(KnowledgeDocument::getParseStartedAt)
+                        .lt(KnowledgeDocument::getParseStartedAt, cutoff)
+                        .orderByAsc(KnowledgeDocument::getParseStartedAt)
+                        .last("LIMIT " + max));
+        if (stale == null || stale.isEmpty()) return 0;
+        int recovered = 0;
+        for (KnowledgeDocument doc : stale) {
+            try {
+                int claimed = docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
+                        .eq(KnowledgeDocument::getId, doc.getId())
+                        .eq(KnowledgeDocument::getStatus, "PARSING")
+                        .set(KnowledgeDocument::getStatus, "FAILED")
+                        .set(KnowledgeDocument::getChunkCount, 0)
+                        .set(KnowledgeDocument::getErrorMessage,
+                                "解析超过 " + minutes + " 分钟未完成，已清理残留；请重试"));
+                if (claimed == 0) continue;
+                cleanupPartial(doc);
+                recovered++;
+                log.warn("回收超时解析文档：doc={} staleMinutes={}", doc.getId(), minutes);
+            } catch (Exception e) {
+                log.warn("回收超时解析文档失败 doc={} err={}", doc.getId(), e.getMessage());
+            }
+        }
+        return recovered;
+    }
+
     private void doParse(Long documentId) {
         KnowledgeDocument doc = docMapper.selectById(documentId);
         if (doc == null) return;
@@ -1492,6 +1529,7 @@ public class KnowledgeService {
         patch.setStatus(status);
         patch.setChunkCount(chunkCount);
         patch.setErrorMessage(error);
+        if ("PARSING".equals(status)) patch.setParseStartedAt(LocalDateTime.now());
         docMapper.updateById(patch);
     }
 
