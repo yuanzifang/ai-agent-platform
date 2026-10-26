@@ -734,6 +734,17 @@ public class KnowledgeService {
      * 多实例同时执行时，只有条件更新成功的实例会继续清理。
      */
     public int recoverStaleParsing(int staleMinutes, int limit) {
+        return recoverStaleParsing(null, staleMinutes, limit);
+    }
+
+    /** 知识库维度的超时解析回收（手动触发时使用，权限校验后调用）。 */
+    public int recoverStaleParsingForKb(Long kbId, int staleMinutes, int limit,
+                                        KnowledgePermissionService.Viewer viewer) {
+        permissionService.requireEdit(kbId, viewer);
+        return recoverStaleParsing(kbId, staleMinutes, limit);
+    }
+
+    public int recoverStaleParsing(Long kbId, int staleMinutes, int limit) {
         int minutes = Math.max(1, staleMinutes);
         int max = Math.max(1, Math.min(limit, 100));
         LocalDateTime cutoff = LocalDateTime.now().minusMinutes(minutes);
@@ -741,6 +752,7 @@ public class KnowledgeService {
         List<KnowledgeDocument> stale = docMapper.selectList(
                 new LambdaQueryWrapper<KnowledgeDocument>()
                         .eq(KnowledgeDocument::getStatus, "PARSING")
+                        .eq(kbId != null, KnowledgeDocument::getKnowledgeBaseId, kbId)
                         .and(w -> w.lt(KnowledgeDocument::getParseStartedAt, cutoff)
                                 .or()
                                 .isNull(KnowledgeDocument::getParseStartedAt)

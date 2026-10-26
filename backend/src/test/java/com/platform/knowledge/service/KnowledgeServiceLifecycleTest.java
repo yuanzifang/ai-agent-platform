@@ -356,6 +356,24 @@ class KnowledgeServiceLifecycleTest {
     }
 
     @Test
+    void recoversLegacyParsingDocumentWithoutStartedAt() {
+        KnowledgeDocument legacy = new KnowledgeDocument();
+        legacy.setId(79L);
+        legacy.setKnowledgeBaseId(1L);
+        legacy.setTenantId(9L);
+        legacy.setStatus("PARSING");
+        legacy.setCreatedAt(LocalDateTime.now().minusHours(8));
+        when(docMapper.selectList(any())).thenReturn(List.of(legacy));
+        when(docMapper.update(isNull(), any())).thenReturn(1);
+
+        int recovered = service.recoverStaleParsing(360, 20);
+
+        assertEquals(1, recovered);
+        verify(chunkMapper).delete(any());
+        verify(vectorRepository).deleteByDocument(9L, 79L);
+    }
+
+    @Test
     void backfillsSourceHashForLegacyDocument() {
         KnowledgeDocument doc = new KnowledgeDocument();
         doc.setId(77L);
