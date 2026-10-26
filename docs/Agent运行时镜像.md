@@ -74,7 +74,7 @@ Redis 不可用时自动回退内存统计（并打印一次告警），单副�
 - **限流**：按调用方 Key 的令牌桶，`RATE_LIMIT_PER_MIN` 回填、`RATE_BURST` 突发；超出返回 429 + `Retry-After`
 - **日配额**：`CALLER_KEYS` 中每个 Key 可设置独立日配额，主令牌用 `CALLER_QUOTA_DAILY`；按 UTC 日期重置；超出返回 429 `quota_exceeded`
 - **统计**：内存记录当日请求数与流式请求数，`/stats` 可查
-- 以上状态在容器重启后清零（当前为单实例内存实现）
+- 未配置 `REDIS_URL` 时状态在容器重启后清零（单实例内存实现）；配置后由 Redis 共享
 
 ## 平台侧接入
 
@@ -101,6 +101,12 @@ RATE_LIMIT_PER_MIN / RATE_BURST / CORS_ORIGIN / CALLER_QUOTA_DAILY
 - 限流：突发 5 次 200 后连续 429（burst=5, 60/min）
 - 配额：`CALLER_KEYS=keyA:2` 第 3 次请求 429 `quota_exceeded`
 - `/stats` 返回按 Key 的当日计数
+
+## 自动化验证（2026-10-26）
+
+- `cd runtime/agent-gateway && npm test`：5 个 `node:test` 用例，覆盖健康检查/CORS、Bearer 与调用方 Key 鉴权、日配额、分钟级限流、模型列表、JSON/SSE 透传、上游 `X-Api-Key`/`X-Request-Id`、2MB 请求体限制
+- CI `gateway` job：`docker build` 运行时镜像 + 启动 Redis service + 容器冒烟，验证 401/200、配额 429、`/stats` 返回 `store:"redis"` 与请求计数、CORS 预检
+- 本地已验证：镜像构建成功，Redis 容器冒烟 `store:"redis"`、首请求 200、超日配额 429
 
 ## 边界与下一步
 
