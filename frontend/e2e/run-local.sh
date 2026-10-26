@@ -67,4 +67,7 @@ if ! curl -fsS -m 2 http://127.0.0.1:8080/actuator/health >/dev/null 2>&1; then
 fi
 
 # webServer 会自动拉起 e2e/mock_servers.py 与 Vite；已有进程时复用。
+# 真实发布门禁 E2E 会临时加一个失败检索样本并在 finally 删除，默认随本地 E2E 运行。
+export E2E_GATE_ENABLED="${E2E_GATE_ENABLED:-1}"
+
 ./node_modules/.bin/playwright test "$@"
