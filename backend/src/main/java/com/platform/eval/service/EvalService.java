@@ -756,10 +756,27 @@ public class EvalService {
         List<EvalResult> results = resultMapper.selectList(new LambdaQueryWrapper<EvalResult>()
                 .eq(EvalResult::getTaskId, taskId));
         Map<String, Object> summary = StepMetrics.summarize(results);
+        List<String> failedSteps = StepMetrics.belowThreshold(summary, threshold);
+        List<Map<String, Object>> failures = new ArrayList<>();
+        for (EvalResult result : results) {
+            String type = result.getStepType() == null ? "ANSWER"
+                    : result.getStepType().toUpperCase(java.util.Locale.ROOT);
+            if (!failedSteps.contains(type) || (result.getPassed() != null && result.getPassed() == 1)) continue;
+            Map<String, Object> failure = new LinkedHashMap<>();
+            failure.put("stepType", type);
+            failure.put("traceId", result.getTraceId());
+            failure.put("datasetItemId", result.getDatasetItemId());
+            failure.put("score", result.getScore());
+            failure.put("reason", result.getJudgeReason());
+            failure.put("stepDetails", result.getStepDetails());
+            failures.add(failure);
+            if (failures.size() >= 20) break;
+        }
         Map<String, Object> gate = new LinkedHashMap<>();
         gate.put("threshold", threshold);
         gate.put("steps", summary);
-        gate.put("failedSteps", StepMetrics.belowThreshold(summary, threshold));
+        gate.put("failedSteps", failedSteps);
+        gate.put("failures", failures);
         return gate;
     }
 
@@ -1003,6 +1020,7 @@ public class EvalService {
         r.setDatasetItemId(item.getId());
         r.setTraceId(traceId);
         r.setMetricKey("correctness");
+        r.setStepType("ANSWER");
         r.setAnswer(answer);
         r.setScore(BigDecimal.valueOf(score).setScale(4, RoundingMode.HALF_UP));
         r.setPassed(score >= passThreshold ? 1 : 0);
