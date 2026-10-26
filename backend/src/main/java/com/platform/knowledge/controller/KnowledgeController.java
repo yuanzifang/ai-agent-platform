@@ -6,6 +6,7 @@ import com.platform.knowledge.service.EmbeddingService;
 import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.knowledge.service.KnowledgeGraphService;
 import com.platform.knowledge.service.KnowledgeService;
+import com.platform.knowledge.service.KnowledgeUpgradeService;
 import com.platform.security.JwtPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -33,6 +34,7 @@ public class KnowledgeController {
     private final KnowledgeGraphService graphService;
     private final KnowledgePermissionService permissionService;
     private final EmbeddingService embeddingService;
+    private final KnowledgeUpgradeService upgradeService;
 
     private static KnowledgePermissionService.Viewer viewer(JwtPrincipal principal) {
         return KnowledgePermissionService.Viewer.of(principal.userId(), principal.roles());
@@ -223,6 +225,31 @@ public class KnowledgeController {
             @RequestParam(defaultValue = "20") int limit,
             @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(knowledgeService.backfillSourceHashes(id, limit, viewer(principal)));
+    }
+
+    /** 创建存量升级任务（后台分批消费，持久化进度）。 */
+    @PostMapping("/{id}/documents/upgrade-jobs")
+    public ApiResponse<Map<String, Object>> startUpgradeJob(
+            @PathVariable Long id,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(upgradeService.start(id, viewer(principal)));
+    }
+
+    /** 最近一次存量升级任务进度。 */
+    @GetMapping("/{id}/documents/upgrade-jobs/latest")
+    public ApiResponse<Map<String, Object>> latestUpgradeJob(
+            @PathVariable Long id,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(upgradeService.latest(id, viewer(principal)));
+    }
+
+    /** 指定存量升级任务进度。 */
+    @GetMapping("/{id}/documents/upgrade-jobs/{jobId}")
+    public ApiResponse<Map<String, Object>> upgradeJob(
+            @PathVariable Long id,
+            @PathVariable Long jobId,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(upgradeService.status(id, jobId, viewer(principal)));
     }
 
     /** 存量文档升级：重新解析本库尚未生成 Markdown/页码/指纹的 DONE 文档（每次最多 50 篇）。 */

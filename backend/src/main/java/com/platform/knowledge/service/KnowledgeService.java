@@ -1021,17 +1021,32 @@ public class KnowledgeService {
         if (!"DONE".equals(doc.getStatus()) && !"FAILED".equals(doc.getStatus())) {
             throw new BusinessException(400, "仅已完成/失败的文档可重新解析（当前：" + doc.getStatus() + "）");
         }
-        cleanupPartial(doc);
-        deleteDocumentImages(doc);
-        KnowledgeDocument patch = new KnowledgeDocument();
-        patch.setId(documentId);
-        patch.setStatus("PENDING");
-        patch.setChunkCount(0);
-        docMapper.updateById(patch);
-        triggerParse(doc.getTenantId(), documentId);
+        performReparse(doc);
         auditService.record(viewer.userId(), "knowledge.document.reparse", "knowledge_document",
                 String.valueOf(documentId), "SUCCESS", Map.of("kbId", kbId));
         return Map.of("documentId", documentId, "status", "PENDING");
+    }
+
+    /** 存量升级任务内部调用：不再做用户权限校验，任务创建时已校验。 */
+    public boolean reparseForUpgrade(Long kbId, Long documentId) {
+        KnowledgeDocument doc = docMapper.selectById(documentId);
+        if (doc == null || !Objects.equals(doc.getKnowledgeBaseId(), kbId)
+                || !"DONE".equals(doc.getStatus())) {
+            return false;
+        }
+        performReparse(doc);
+        return true;
+    }
+
+    private void performReparse(KnowledgeDocument doc) {
+        cleanupPartial(doc);
+        deleteDocumentImages(doc);
+        KnowledgeDocument patch = new KnowledgeDocument();
+        patch.setId(doc.getId());
+        patch.setStatus("PENDING");
+        patch.setChunkCount(0);
+        docMapper.updateById(patch);
+        triggerParse(doc.getTenantId(), doc.getId());
     }
 
     /**
@@ -1615,6 +1630,10 @@ public class KnowledgeService {
         patch.setChunkCount(chunkCount);
         patch.setErrorMessage(error);
         if ("PARSING".equals(status)) patch.setParseStartedAt(LocalDateTime.now());
+        if (doc.getUpgradeJobId() != null) {
+            if ("DONE".equals(status)) patch.setUpgradeStatus("SUCCEEDED");
+            else if ("FAILED".equals(status)) patch.setUpgradeStatus("FAILED");
+        }
         docMapper.updateById(patch);
     }
 
