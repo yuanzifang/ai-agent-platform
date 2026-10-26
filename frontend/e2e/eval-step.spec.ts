@@ -96,3 +96,30 @@ test('步骤级评测样本：步骤类型/期望 JSON 可见并可编辑', asyn
     }
   }
 })
+
+test('本地模型 REWRITE：真实 Ollama 返回可用改写', async ({ page, request }) => {
+  test.setTimeout(180_000)
+  test.skip(!process.env.E2E_LOCAL_REWRITE, '设置 E2E_LOCAL_REWRITE=1 后运行本地模型验收')
+  await login(page)
+  const model = process.env.E2E_LOCAL_REWRITE_MODEL || 'qwen3.6:27b'
+  const token = await page.evaluate(() => localStorage.getItem('accessToken'))
+  const res = await request.post('/api/v1/eval/steps/run', {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 180_000,
+    data: {
+      stepType: 'REWRITE',
+      query: '用户说退款太慢，帮我改写查询',
+      expectedPayload: '{"must_keep":["退款","慢"]}',
+      stepConfig: JSON.stringify({ model, instructions: '保留退款、慢等实体，只做必要消歧' })
+    }
+  })
+  if (!res.ok()) console.log('LOCAL-REWRITE-ERROR', res.status(), await res.text())
+  expect(res.ok()).toBeTruthy()
+  const body = (await res.json()).data
+  expect(body.actual).toBeTruthy()
+  expect(body.actual).toContain('退款')
+  expect(body.score).toBeGreaterThanOrEqual(0.8)
+  expect(body.passed).toBe(true)
+  expect(body.details.localOnly).toBe(false)
+  console.log(`LOCAL-REWRITE model=${model} score=${body.score} actual=${body.actual}`)
+})
