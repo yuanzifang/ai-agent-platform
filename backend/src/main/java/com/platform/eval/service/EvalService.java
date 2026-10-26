@@ -714,11 +714,19 @@ public class EvalService {
                     && gateAgent.getUpdatedAt().isAfter(recent.getCreatedAt()))
                 || !Long.valueOf(samples).equals(Long.valueOf(recent.getEstimatedCalls() == null ? -1 : recent.getEstimatedCalls()));
         if (recent != null && !changed) {
+            Map<String, Object> stepGate = stepGate(recent.getId(), threshold);
             boolean cachedPass = recent.getPassRate() != null
-                    && recent.getPassRate().doubleValue() >= threshold;
-            return Map.of("skipped", false, "passed", cachedPass, "taskId", recent.getId(),
-                    "passRate", recent.getPassRate() == null ? 0 : recent.getPassRate().doubleValue(),
-                    "threshold", threshold, "cached", true);
+                    && recent.getPassRate().doubleValue() >= threshold
+                    && ((List<?>) stepGate.get("failedSteps")).isEmpty();
+            Map<String, Object> cached = new LinkedHashMap<>();
+            cached.put("skipped", false);
+            cached.put("passed", cachedPass);
+            cached.put("taskId", recent.getId());
+            cached.put("passRate", recent.getPassRate() == null ? 0 : recent.getPassRate().doubleValue());
+            cached.put("threshold", threshold);
+            cached.put("cached", true);
+            cached.put("stepGate", stepGate);
+            return cached;
         }
         // 同步执行（发布是同步操作），且放在独立事务（REQUIRES_NEW）中：
         // 1) 外层发布事务处于 RR 快照隔离，轮询 DB/读回任务状态都读不到异步提交——直接同步执行取内存结果；
@@ -729,14 +737,32 @@ public class EvalService {
         TaskOutcome outcome = selfProvider.getObject().createAndExecuteExclusive(
                 "预发布门禁-" + LocalDate.now(), agentId, dsId, "deepseek-flash",
                 threshold, "PRE_RELEASE", sysPrincipal);
+        Map<String, Object> stepGate = stepGate(outcome.taskId(), threshold);
         boolean pass = "DONE".equals(outcome.status()) && outcome.passRate() != null
-                && outcome.passRate().doubleValue() >= threshold;
-        return Map.of("skipped", false, "passed", pass, "taskId", outcome.taskId(),
-                "passRate", outcome.passRate() == null ? 0 : outcome.passRate().doubleValue(),
-                "threshold", threshold);
+                && outcome.passRate().doubleValue() >= threshold
+                && ((List<?>) stepGate.get("failedSteps")).isEmpty();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("skipped", false);
+        result.put("passed", pass);
+        result.put("taskId", outcome.taskId());
+        result.put("passRate", outcome.passRate() == null ? 0 : outcome.passRate().doubleValue());
+        result.put("threshold", threshold);
+        result.put("stepGate", stepGate);
+        return result;
     }
 
     /** 手动触发预发布评测（需求 3.5：发布前触发，或手动触发）；异步任务，不阻断。 */
+    private Map<String, Object> stepGate(Long taskId, double threshold) {
+        List<EvalResult> results = resultMapper.selectList(new LambdaQueryWrapper<EvalResult>()
+                .eq(EvalResult::getTaskId, taskId));
+        Map<String, Object> summary = StepMetrics.summarize(results);
+        Map<String, Object> gate = new LinkedHashMap<>();
+        gate.put("threshold", threshold);
+        gate.put("steps", summary);
+        gate.put("failedSteps", StepMetrics.belowThreshold(summary, threshold));
+        return gate;
+    }
+
     public Map<String, Object> runPreReleaseManual(Long agentId, Long datasetId, JwtPrincipal principal) {
         if (agentMapper.selectById(agentId) == null) throw new BusinessException(404, "Agent 不存在");
         Long dsId = datasetId;

@@ -35,5 +35,7 @@ class StepMetricsTest {
         Map<?, ?> steps = (Map<?, ?>) comparison.get("steps");
         Map<?, ?> retrieval = (Map<?, ?>) steps.get("RETRIEVAL");
         assertEquals(new BigDecimal("-1.0000"), retrieval.get("passRateDelta"));
+        assertEquals(List.of("RETRIEVAL"), StepMetrics.belowThreshold(current, 0.5));
+        assertEquals(List.of(), StepMetrics.belowThreshold(current, 0.0));
     }
 }

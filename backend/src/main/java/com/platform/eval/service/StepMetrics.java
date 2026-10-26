@@ -72,6 +72,20 @@ public final class StepMetrics {
         return result;
     }
 
+    /** 有样本且通过率低于阈值的步骤类型；没有样本的步骤不阻断。 */
+    public static List<String> belowThreshold(Map<String, Object> summary, double threshold) {
+        List<String> failed = new java.util.ArrayList<>();
+        for (String type : TYPES) {
+            Map<?, ?> row = summary.get(type) instanceof Map<?, ?> m ? m : Map.of();
+            int count = row.get("count") instanceof Number n ? n.intValue() : 0;
+            BigDecimal passRate = decimal(row.get("passRate"));
+            if (count > 0 && passRate != null && passRate.doubleValue() < threshold) {
+                failed.add(type);
+            }
+        }
+        return failed;
+    }
+
     private static String typeOf(EvalResult result) {
         return result.getStepType() == null ? "ANSWER"
                 : result.getStepType().toUpperCase(java.util.Locale.ROOT);
