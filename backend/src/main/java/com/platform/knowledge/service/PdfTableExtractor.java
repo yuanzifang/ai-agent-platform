@@ -168,6 +168,7 @@ final class PdfTableExtractor {
         boolean duplicateHeader = !previous.rows.isEmpty() && !current.rows.isEmpty()
                 && (sameRow(previousHeader, currentHeader) || compatibleHeader(previous, current));
         if (duplicateHeader) current.rows.remove(0);
+        mergeLeadingContinuation(previous, current);
         if (!current.rows.isEmpty()) {
             if (previous.anchors.size() == current.anchors.size()) {
                 previous.rows.addAll(current.rows);
@@ -194,6 +195,41 @@ final class PdfTableExtractor {
         }
         if (previous.notes.size() < 3) {
             previous.notes.addAll(current.notes.subList(0, Math.min(current.notes.size(), 3 - previous.notes.size())));
+        }
+    }
+
+    /** 合并跨页拆开的单元格：续页开头只有单个非空文本单元时，接回上一页最后一行。 */
+    private static void mergeLeadingContinuation(Table previous, Table current) {
+        if (previous.rows.isEmpty() || current.rows.isEmpty()) return;
+        LogicalRow last = previous.rows.get(previous.rows.size() - 1);
+        int lastNonEmpty = 0;
+        for (String value : last.values) {
+            if (value != null && !value.isBlank()) lastNonEmpty++;
+        }
+        if (lastNonEmpty < 2) return;
+        int merged = 0;
+        while (!current.rows.isEmpty() && merged < 3) {
+            LogicalRow first = current.rows.get(0);
+            int column = -1;
+            int nonEmpty = 0;
+            for (int i = 0; i < first.values.length; i++) {
+                String value = first.values[i];
+                if (value == null || value.isBlank()) continue;
+                nonEmpty++;
+                column = i;
+            }
+            if (nonEmpty != 1 || column < 0) return;
+            String text = first.values[column].trim();
+            if (text.matches("[-+]?\\d+([.,]\\d+)?%?")) return;
+            String base = last.values[column];
+            if (base == null || base.isBlank()) return;
+            if (base.endsWith("-")) {
+                last.values[column] = base.substring(0, base.length() - 1) + text;
+            } else {
+                last.values[column] = base + " " + text;
+            }
+            current.rows.remove(0);
+            merged++;
         }
     }
 

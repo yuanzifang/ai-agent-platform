@@ -1832,6 +1832,63 @@ class DocumentParserTest {
     }
 
     @Test
+    void mergesCrossPageSplitCellText() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDType1Font font = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
+            PDPage first = new PDPage(PDRectangle.A4);
+            doc.addPage(first);
+            try (PDPageContentStream content = new PDPageContentStream(doc, first)) {
+                content.setFont(font, 12);
+                String[][] rows = new String[10][];
+                rows[0] = new String[]{"Product", "Price", "Qty"};
+                for (int i = 1; i <= 8; i++) {
+                    rows[i] = new String[]{"Row " + i, String.valueOf(100 + i), String.valueOf(i)};
+                }
+                rows[9] = new String[]{"Long product", "1999", "2"};
+                float y = 780;
+                for (String[] row : rows) {
+                    float[] xs = {50, 220, 360};
+                    for (int col = 0; col < row.length; col++) {
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 60;
+                }
+            }
+            PDPage second = new PDPage(PDRectangle.A4);
+            doc.addPage(second);
+            try (PDPageContentStream content = new PDPageContentStream(doc, second)) {
+                content.setFont(font, 12);
+                content.beginText();
+                content.newLineAtOffset(50, 800);
+                content.showText("that wraps");
+                content.endText();
+                content.beginText();
+                content.newLineAtOffset(50, 760);
+                content.showText("Row 10");
+                content.endText();
+                content.beginText();
+                content.newLineAtOffset(220, 760);
+                content.showText("110");
+                content.endText();
+                content.beginText();
+                content.newLineAtOffset(360, 760);
+                content.showText("10");
+                content.endText();
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("cross-page-split-cell.pdf", pdf));
+        assertTrue(text.contains("| Long product that wraps | 1999 | 2 |"),
+                "跨页拆开的单元格应合并，实际=" + text);
+        assertTrue(text.contains("| Row 10 | 110 | 10 |"), "续页数据行应保留，实际=" + text);
+    }
+
+    @Test
     void mergesPdfCrossPageTableContinuation() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
