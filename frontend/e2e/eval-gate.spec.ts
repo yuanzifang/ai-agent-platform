@@ -60,6 +60,11 @@ test('真实发布门禁：检索步骤失败阻断发布并保留分步明细',
     expect(publish.status()).toBe(400)
     const publishBody = await publish.json()
     expect(publishBody.message).toContain('预发布测评未通过')
+    const preview = await request.post(`${API}/agent/${AGENT_ID}/gate-preview`, { headers, data: {} })
+    expect(preview.ok()).toBeTruthy()
+    const previewGate = (await preview.json()).data
+    expect(previewGate.stepGate.failedSteps).toContain('RETRIEVAL')
+    expect(previewGate.stepGate.failures.some((f: any) => f.stepType === 'RETRIEVAL')).toBeTruthy()
 
     const tasksRes = await request.get(`${API}/eval/tasks?agentId=${AGENT_ID}`, { headers })
     const tasks = (await tasksRes.json()).data.list as any[]
@@ -118,6 +123,9 @@ test('真实 ANSWER 裁判门禁：低分回答阻断发布并标记 ANSWER 失�
     })
     expect(publish.status()).toBe(400)
     expect((await publish.json()).message).toContain('预发布测评未通过')
+    const preview = await request.post(`${API}/agent/${AGENT_ID}/gate-preview`, { headers, data: {} })
+    expect(preview.ok()).toBeTruthy()
+    expect((await preview.json()).data.stepGate.failedSteps).toContain('ANSWER')
 
     const tasksRes = await request.get(`${API}/eval/tasks?agentId=${AGENT_ID}`, { headers })
     const tasks = (await tasksRes.json()).data.list as any[]
