@@ -1,6 +1,8 @@
 package com.platform.knowledge.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.platform.common.context.TenantContext;
 import com.platform.knowledge.entity.KnowledgeDocument;
@@ -15,8 +17,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * MySQL/PgVector outbox 恢复器：解析任务在开始时持久化，正常成功标记 DONE。
@@ -31,6 +36,8 @@ public class KnowledgeVectorOutboxScheduler {
     private final KnowledgeVectorOutboxMapper outboxMapper;
     private final KnowledgeDocumentMapper docMapper;
     private final KnowledgeService knowledgeService;
+    private final VectorRepository vectorRepository;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${knowledge.outbox.batch:10}")
     private int batch = 10;
@@ -100,6 +107,11 @@ public class KnowledgeVectorOutboxScheduler {
             // 仍在正常解析窗口内，租约到期后再看。
             return false;
         }
+        if (task.getPayload() != null && !task.getPayload().isBlank()
+                && task.getDimensions() != null && task.getDimensions() > 0) {
+            if (applyPayload(task, doc)) return true;
+            // 补写失败时回退到重跑解析；cleanupPartial 会清空 payload。
+        }
         int attempts = task.getAttempts() == null ? 0 : task.getAttempts();
         if (attempts >= 3) {
             knowledgeService.failInterruptedForOutbox(doc.getId(),
@@ -118,6 +130,58 @@ public class KnowledgeVectorOutboxScheduler {
         }
         log.warn("outbox 恢复解析：doc={} attempt={}", doc.getId(), attempts + 1);
         return true;
+    }
+
+    /** 直接用 outbox 中的内容/向量补写 PgVector，避免重新解析和重新嵌入。 */
+    private boolean applyPayload(KnowledgeVectorOutbox task, KnowledgeDocument doc) {
+        try {
+            List<Map<String, Object>> payload = objectMapper.readValue(task.getPayload(),
+                    new TypeReference<List<Map<String, Object>>>() { });
+            if (payload.isEmpty()) return false;
+            List<Map<String, Object>> rows = new ArrayList<>(payload.size());
+            for (Map<String, Object> raw : payload) {
+                Map<String, Object> row = new java.util.LinkedHashMap<>(raw);
+                Object embedding = row.get("embedding");
+                if (!(embedding instanceof List<?> values) || values.isEmpty()) return false;
+                float[] vector = new float[values.size()];
+                for (int i = 0; i < values.size(); i++) {
+                    vector[i] = ((Number) values.get(i)).floatValue();
+                }
+                if (vector.length != task.getDimensions()) return false;
+                row.put("embedding", vector);
+                row.put("effective_from", timestamp(row.get("effective_from")));
+                row.put("effective_to", timestamp(row.get("effective_to")));
+                rows.add(row);
+            }
+            vectorRepository.deleteByDocument(doc.getTenantId(), doc.getId());
+            vectorRepository.saveBatch(doc.getTenantId(), rows, task.getDimensions());
+            long actual = vectorRepository.countByDocument(doc.getTenantId(), doc.getId(),
+                    task.getDimensions());
+            if (actual != rows.size()) {
+                vectorRepository.deleteByDocument(doc.getTenantId(), doc.getId());
+                return false;
+            }
+            if (!knowledgeService.completeOutboxVectors(doc.getId(), rows.size())) return false;
+            markDone(task);
+            log.warn("outbox 直接补写向量完成：doc={} rows={}", doc.getId(), rows.size());
+            return true;
+        } catch (Exception e) {
+            log.warn("outbox 向量补写失败，回退重跑解析：doc={} err={}", doc.getId(), e.getMessage());
+            try { vectorRepository.deleteByDocument(doc.getTenantId(), doc.getId()); }
+            catch (Exception ignored) { }
+            return false;
+        }
+    }
+
+    private Timestamp timestamp(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number number) return new Timestamp(number.longValue());
+        String text = String.valueOf(value);
+        try {
+            return Timestamp.valueOf(text.replace('T', ' ').replace("Z", ""));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void markDone(KnowledgeVectorOutbox task) {

@@ -16,6 +16,9 @@ public class KnowledgeVectorOutbox {
     private Long documentId;
     private String status; // PENDING / DONE / FAILED
     private Integer attempts;
+    private String embeddingModel;
+    private Integer dimensions;
+    private String payload;
     private LocalDateTime availableAt;
     private String lastError;
     private LocalDateTime createdAt;
