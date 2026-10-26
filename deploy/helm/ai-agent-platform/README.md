@@ -97,3 +97,9 @@ helm test ai-agent -n ai-agent
 - Flyway 会在每个后端副本启动时执行；Flyway 自带锁表，能串行迁移，但发布时建议先跑一次 Job 或短暂单副本启动。
 - 技能脚本在容器内以 Python/Node 进程执行；生产建议替换为隔离执行器（Firecracker/gVisor/K8s Job）。
 - 当前 Chart 未包含 MySQL/Redis/PgVector/MinIO/Ollama 的 StatefulSet；全量单机请用根目录 `docker-compose.yml`。
+
+## 7. 本地 k3d 实跑记录
+
+2026-10-26 已在 k3d 5.9.0 / k3s v1.35.5 上完成首次 install 与 `helm test`，详见 `docs/Helm实跑验收.md`。
+
+受限网络下需先预载 k3s 系统镜像（pause/CoreDNS/local-path-provisioner）和 test 镜像 `curlimages/curl`，否则 Pod 会卡在 `ContainerCreating`。本地冒烟可关闭 Ingress 后用 `kubectl port-forward svc/<release>-frontend 18091:80` 验证。
