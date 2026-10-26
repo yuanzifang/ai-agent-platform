@@ -215,6 +215,69 @@ public class EvalService {
         return response;
     }
 
+    private Map<String, Object> summarizeSteps(List<EvalResult> results) {
+        Map<String, int[]> counts = new LinkedHashMap<>();
+        Map<String, Double> scores = new LinkedHashMap<>();
+        Map<String, Integer> passed = new LinkedHashMap<>();
+        for (EvalResult result : results) {
+            String type = result.getStepType() == null ? "ANSWER"
+                    : result.getStepType().toUpperCase(java.util.Locale.ROOT);
+            int[] count = counts.computeIfAbsent(type, ignored -> new int[1]);
+            count[0]++;
+            if (result.getScore() != null) scores.merge(type, result.getScore().doubleValue(), Double::sum);
+            if (result.getPassed() != null && result.getPassed() == 1) passed.merge(type, 1, Integer::sum);
+        }
+        Map<String, Object> summary = new LinkedHashMap<>();
+        for (String type : List.of("ANSWER", "REWRITE", "RETRIEVAL", "RERANK")) {
+            int count = counts.getOrDefault(type, new int[]{0})[0];
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("count", count);
+            row.put("avgScore", count == 0 ? null
+                    : BigDecimal.valueOf(scores.getOrDefault(type, 0.0) / count).setScale(4, RoundingMode.HALF_UP));
+            row.put("passRate", count == 0 ? null
+                    : BigDecimal.valueOf((double) passed.getOrDefault(type, 0) / count).setScale(4, RoundingMode.HALF_UP));
+            summary.put(type, row);
+        }
+        return summary;
+    }
+
+    /** 跨数据集步骤覆盖矩阵，按 Agent 过滤。 */
+    public Map<String, Object> coverage(Long agentId) {
+        List<EvalDataset> datasets = datasetMapper.selectList(new LambdaQueryWrapper<EvalDataset>()
+                .eq(agentId != null, EvalDataset::getAgentId, agentId)
+                .orderByDesc(EvalDataset::getId));
+        List<Map<String, Object>> rows = new ArrayList<>();
+        Map<String, Integer> totals = new LinkedHashMap<>();
+        for (String type : List.of("ANSWER", "REWRITE", "RETRIEVAL", "RERANK")) totals.put(type, 0);
+        for (EvalDataset dataset : datasets) {
+            List<EvalDatasetItem> items = itemMapper.selectList(new LambdaQueryWrapper<EvalDatasetItem>()
+                    .eq(EvalDatasetItem::getDatasetId, dataset.getId()));
+            Map<String, Integer> counts = new LinkedHashMap<>();
+            for (String type : totals.keySet()) counts.put(type, 0);
+            for (EvalDatasetItem item : items) {
+                String type = item.getStepType() == null ? "ANSWER"
+                        : item.getStepType().toUpperCase(java.util.Locale.ROOT);
+                counts.merge(type, 1, Integer::sum);
+                totals.merge(type, 1, Integer::sum);
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("datasetId", dataset.getId());
+            row.put("name", dataset.getName());
+            row.put("agentId", dataset.getAgentId());
+            row.put("total", items.size());
+            row.put("steps", counts);
+            row.put("missing", counts.entrySet().stream().filter(e -> e.getValue() == 0)
+                    .map(Map.Entry::getKey).toList());
+            rows.add(row);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("datasets", rows);
+        result.put("totalByType", totals);
+        result.put("missingTypes", totals.entrySet().stream().filter(e -> e.getValue() == 0)
+                .map(Map.Entry::getKey).toList());
+        return result;
+    }
+
     /** 按步骤类型统计数据集覆盖，便于补齐改写/检索/重排/回答黄金集。 */
     public Map<String, Object> stepSummary(Long datasetId) {
         List<EvalDatasetItem> items = itemMapper.selectList(
@@ -270,6 +333,7 @@ public class EvalService {
             rows.add(row);
         }
         detail.put("results", rows);
+        detail.put("stepSummary", summarizeSteps(results));
         return detail;
     }
 

@@ -40,6 +40,12 @@ public class EvalController {
         return ApiResponse.ok(com.platform.eval.service.EvalStepCatalog.definitions());
     }
 
+    /** 跨数据集步骤覆盖矩阵，可按 Agent 过滤。 */
+    @GetMapping("/coverage")
+    public ApiResponse<Map<String, Object>> coverage(@RequestParam(required = false) Long agentId) {
+        return ApiResponse.ok(evalService.coverage(agentId));
+    }
+
     @GetMapping("/datasets")
     public ApiResponse<List<Map<String, Object>>> datasets() {
         return ApiResponse.ok(evalService.datasets());
