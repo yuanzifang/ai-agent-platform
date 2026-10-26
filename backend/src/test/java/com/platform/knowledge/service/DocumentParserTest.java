@@ -235,6 +235,45 @@ class DocumentParserTest {
     }
 
     @Test
+    void keepsLongRowSpanInAppendixTable() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 7);
+                content.beginText();
+                content.newLineAtOffset(50, 800);
+                content.showText("Table 1. Appendix categories");
+                content.endText();
+                String[][] rows = new String[56][];
+                rows[0] = new String[]{"Product", "Price", "Qty"};
+                rows[1] = new String[]{"Fruit", "10", "1"};
+                for (int i = 2; i < rows.length; i++) {
+                    rows[i] = new String[]{"", String.valueOf(i), "1"};
+                }
+                float y = 770;
+                for (String[] row : rows) {
+                    float[] xs = {50, 240, 360};
+                    for (int col = 0; col < row.length; col++) {
+                        if (row[col].isEmpty()) continue;
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 11;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("appendix-rowspan.pdf", pdf));
+        assertTrue(text.contains("rowspan=\"55\"") && text.contains("Fruit"),
+                "附录长纵向分组不应在 50 行处拆开，实际=" + text);
+    }
+
+    @Test
     void parsesXlsx() throws Exception {
         byte[] bytes;
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
