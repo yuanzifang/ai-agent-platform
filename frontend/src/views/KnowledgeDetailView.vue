@@ -88,10 +88,21 @@
                      :loading="validityRebuilding" @click="rebuildValidity">
             {{ t('kbDetail.rebuildValidity') }}
           </el-button>
-          <el-button v-if="detail.canEdit && legacyDocCount > 0" size="small" text type="primary"
+          <el-button v-if="detail.canEdit && (legacyDocCount > 0 || upgradeJob?.status === 'RUNNING')"
+                     size="small" text type="primary" :disabled="upgradeJob?.status === 'RUNNING'"
                      :loading="legacyReparsing" @click="reparseLegacy">
-            {{ t('kbDetail.reparseLegacy') }}（{{ legacyDocCount }}）
+            {{ upgradeJob?.status === 'RUNNING'
+              ? t('kbDetail.upgradeRunning', { submitted: upgradeJob.submittedDocuments,
+                  total: upgradeJob.totalDocuments })
+              : t('kbDetail.reparseLegacy') + '（' + legacyDocCount + '）' }}
           </el-button>
+          <span v-if="upgradeJob?.status === 'RUNNING'" class="hint">
+            {{ t('kbDetail.upgradeProgress', { succeeded: upgradeJob.succeededDocuments,
+                failed: upgradeJob.failedDocuments, pending: upgradeJob.pendingDocuments }) }}
+          </span>
+          <span v-else-if="upgradeJob?.status === 'FAILED'" class="hint stale-parse">
+            {{ t('kbDetail.upgradeFailed') }}（{{ upgradeJob.failedDocuments }}）
+          </span>
           <el-button v-if="detail.canEdit" size="small" text type="warning"
                      :loading="recoveringStale" @click="recoverStale">
             {{ t('kbDetail.recoverStale') }}
@@ -408,7 +419,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
@@ -427,6 +438,8 @@ const documents = ref<any[]>([])
 const validOnly = ref(false)
 const validityRebuilding = ref(false)
 const legacyReparsing = ref(false)
+const upgradeJob = ref<any>(null)
+let upgradeTimer: ReturnType<typeof setTimeout> | null = null
 const recoveringStale = ref(false)
 const failedRetrying = ref(false)
 const failedDocCount = computed(() => documents.value.filter((d: any) => d.status === 'FAILED').length)
@@ -493,6 +506,11 @@ const grantableMembers = computed(() =>
 onMounted(async () => {
   await loadDetail()
   await loadDocs()
+  await loadUpgradeJob()
+})
+
+onUnmounted(() => {
+  if (upgradeTimer) clearTimeout(upgradeTimer)
 })
 
 async function loadDetail() {
@@ -657,17 +675,38 @@ async function reparseDoc(row: any) {
   }
 }
 
+async function loadUpgradeJob() {
+  try {
+    const data = await http.get(`/knowledge-base/${kbId}/documents/upgrade-jobs/latest`) as any
+    if (data?.jobId) {
+      upgradeJob.value = data
+      if (data.status === 'RUNNING') pollUpgrade()
+    }
+  } catch { /* 旧版本没有升级任务接口时忽略 */ }
+}
+
 async function reparseLegacy() {
   legacyReparsing.value = true
   try {
-    const data = await http.post(`/knowledge-base/${kbId}/documents/reparse-legacy`, null,
-      { params: { limit: 20 } }) as any
-    ElMessage.success(t('kbDetail.reparseLegacySubmitted', { count: data?.triggered || 0 }))
+    upgradeJob.value = await http.post(`/knowledge-base/${kbId}/documents/upgrade-jobs`) as any
+    ElMessage.success(t('kbDetail.upgradeStarted'))
     await loadDocs()
-    pollDocs()
+    pollUpgrade()
   } finally {
     legacyReparsing.value = false
   }
+}
+
+function pollUpgrade() {
+  if (upgradeTimer) clearTimeout(upgradeTimer)
+  upgradeTimer = setTimeout(async () => {
+    try {
+      const data = await http.get(`/knowledge-base/${kbId}/documents/upgrade-jobs/latest`) as any
+      if (data?.jobId) upgradeJob.value = data
+      await loadDocs()
+      if (data?.status === 'RUNNING') pollUpgrade()
+    } catch { /* 轮询失败下一轮页面刷新会恢复 */ }
+  }, 3000)
 }
 
 async function recoverStale() {
