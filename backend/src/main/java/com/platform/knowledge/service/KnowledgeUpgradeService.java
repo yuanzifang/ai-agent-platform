@@ -216,6 +216,7 @@ public class KnowledgeUpgradeService {
                 .eq(KnowledgeDocument::getUpgradeJobId, jobId)
                 .eq(KnowledgeDocument::getStatus, "DONE")
                 .isNotNull(KnowledgeDocument::getParseFingerprint)
+                .eq(KnowledgeDocument::getParserVersion, DocumentParser.PARSER_VERSION)
                 .ne(KnowledgeDocument::getUpgradeStatus, "SUCCEEDED")
                 .set(KnowledgeDocument::getUpgradeStatus, "SUCCEEDED"));
         docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
