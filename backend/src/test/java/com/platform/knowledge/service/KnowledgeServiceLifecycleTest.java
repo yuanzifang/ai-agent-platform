@@ -264,7 +264,7 @@ class KnowledgeServiceLifecycleTest {
     }
 
     @Test
-    void reusesChunksAndVectorsForSameFileHash() throws Exception {
+    void reusesChunksAndVectorsAcrossKnowledgeBasesForSameFileHash() throws Exception {
         byte[] bytes = "same-pdf".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         KnowledgeDocument doc = new KnowledgeDocument();
         doc.setId(56L);
@@ -275,11 +275,15 @@ class KnowledgeServiceLifecycleTest {
         doc.setCreatedAt(LocalDateTime.of(2026, 1, 2, 10, 0));
         KnowledgeDocument source = new KnowledgeDocument();
         source.setId(44L);
-        source.setKnowledgeBaseId(1L);
+        source.setKnowledgeBaseId(2L);
         source.setTenantId(9L);
         source.setFileName("original.pdf");
         source.setStatus("DONE");
         source.setSourceSha256("any");
+        ParseOptions parseOptions = ParseOptions.defaults(
+                false, "tesseract", "chi_sim+eng", 150, 20, false, "", "", 3);
+        source.setParseFingerprint(ReflectionTestUtils.invokeMethod(
+                service, "parseFingerprint", parseOptions));
         when(storage.get("obj-copy")).thenReturn(bytes);
         when(docMapper.selectList(any())).thenReturn(List.of(source));
         when(permissionService.aclOf(kb)).thenReturn(

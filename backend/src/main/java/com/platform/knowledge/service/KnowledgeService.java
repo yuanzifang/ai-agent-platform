@@ -785,14 +785,16 @@ public class KnowledgeService {
         int embeddingDimensions = embeddingService.dimension(embeddingModel);
         List<String> parseWarnings = new ArrayList<>();
         String sourceSha = sha256(bytes);
+        // 四级解析配置：env → 平台 → 租户 → 知识库 → 文档（上传时选择）
+        ParseOptions parseOptions = parseConfigResolver.resolve(kb, doc.getParseConfig());
+        String parseFingerprint = parseFingerprint(parseOptions);
         recordSourceHash(doc, sourceSha, parseWarnings);
-        KnowledgeDocument reusable = findReusableDocument(doc, sourceSha);
+        recordParseFingerprint(doc, parseFingerprint);
+        KnowledgeDocument reusable = findReusableDocument(doc, sourceSha, parseFingerprint);
         if (reusable != null && reuseDocument(doc, bytes, reusable, acl, embeddingModel,
                 embeddingDimensions, parseWarnings)) {
             return;
         }
-        // 四级解析配置：env → 平台 → 租户 → 知识库 → 文档（上传时选择）
-        ParseOptions parseOptions = parseConfigResolver.resolve(kb, doc.getParseConfig());
         DocumentParser.ParseOutcome outcome = parser.parseWithParentsAndWarnings(
                 doc.getFileName(), bytes, parseOptions);
         List<DocumentParser.ParsedChunk> chunks = new ArrayList<>(outcome == null
@@ -1493,37 +1495,54 @@ public class KnowledgeService {
         docMapper.updateById(patch);
     }
 
-    private KnowledgeDocument findReusableDocument(KnowledgeDocument doc, String sourceSha) {
-        if (sourceSha == null) return null;
+    private KnowledgeDocument findReusableDocument(KnowledgeDocument doc, String sourceSha,
+                                                   String parseFingerprint) {
+        // 老文档没有解析指纹时不做复用，避免用未知解析配置的旧结果覆盖新上传。
+        if (sourceSha == null || parseFingerprint == null) return null;
         try {
             List<KnowledgeDocument> candidates = docMapper.selectList(
                     new LambdaQueryWrapper<KnowledgeDocument>()
-                            .eq(KnowledgeDocument::getKnowledgeBaseId, doc.getKnowledgeBaseId())
+                            .eq(doc.getTenantId() != null, KnowledgeDocument::getTenantId,
+                                    doc.getTenantId())
                             .eq(KnowledgeDocument::getSourceSha256, sourceSha)
+                            .eq(KnowledgeDocument::getParseFingerprint, parseFingerprint)
                             .ne(KnowledgeDocument::getId, doc.getId())
                             .eq(KnowledgeDocument::getStatus, "DONE")
                             .orderByDesc(KnowledgeDocument::getCreatedAt)
                             .last("LIMIT 5"));
-            if (candidates == null) return null;
-            for (KnowledgeDocument candidate : candidates) {
-                if (Objects.equals(blankToNull(doc.getParseConfig()),
-                        blankToNull(candidate.getParseConfig()))) {
-                    return candidate;
-                }
-            }
+            if (candidates != null && !candidates.isEmpty()) return candidates.get(0);
         } catch (Exception e) {
             log.debug("重复文件查询失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
         }
         return null;
     }
 
-    private String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
+    /** 解析配置指纹：同内容、同配置才允许跨知识库复用。 */
+    private String parseFingerprint(ParseOptions options) {
+        if (options == null) return null;
+        try {
+            return sha256(objectMapper.writeValueAsBytes(options));
+        } catch (Exception e) {
+            log.debug("解析配置指纹生成失败（忽略）：{}", e.getMessage());
+            return null;
+        }
+    }
+
+    private void recordParseFingerprint(KnowledgeDocument doc, String fingerprint) {
+        if (fingerprint == null) return;
+        try {
+            doc.setParseFingerprint(fingerprint);
+            docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
+                    .eq(KnowledgeDocument::getId, doc.getId())
+                    .set(KnowledgeDocument::getParseFingerprint, fingerprint));
+        } catch (Exception e) {
+            log.debug("解析配置指纹记录失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
+        }
     }
 
     /**
-     * 复用同知识库相同 SHA256 文档的分段、父块和向量，跳过重复解析/嵌入。
-     * 任一环节失败都会清理新文档残留并回退正常解析。
+     * 复用同租户、相同 SHA256 且解析配置指纹一致文档的分段、父块和向量，
+     * 跳过重复解析/嵌入。任一环节失败都会清理新文档残留并回退正常解析。
      */
     private boolean reuseDocument(KnowledgeDocument doc, byte[] bytes, KnowledgeDocument source,
                                   KnowledgePermissionService.Acl acl, String embeddingModel,
@@ -1605,7 +1624,10 @@ public class KnowledgeService {
             } catch (Exception e) {
                 log.warn("复用文档图片存储失败（忽略）doc={} err={}", doc.getId(), e.getMessage());
             }
-            warnings.add("已复用相同文件「" + source.getFileName() + "」的解析结果");
+            String reuseMessage = Objects.equals(source.getKnowledgeBaseId(), doc.getKnowledgeBaseId())
+                    ? "已复用相同文件「" + source.getFileName() + "」的解析结果"
+                    : "已复用同租户相同文件的解析结果";
+            warnings.add(reuseMessage);
             updateStatus(doc, "DONE", newChunks.size(), null);
             storeParseWarning(doc, warnings);
             try {

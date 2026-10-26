@@ -20,6 +20,7 @@ public class KnowledgeDocument {
     private Integer chunkCount;
     private Long sizeBytes;
     private String sourceSha256;
+    private String parseFingerprint;
     private String errorMessage;
     private Integer retryTimes;
     private Long tenantId;
