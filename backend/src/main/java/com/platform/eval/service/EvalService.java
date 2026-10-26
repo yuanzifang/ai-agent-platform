@@ -969,8 +969,17 @@ public class EvalService {
             throw new BusinessException(400, "步骤评测缺少 Agent 所有者");
         }
         KnowledgePermissionService.Viewer viewer = KnowledgePermissionService.Viewer.of(agent.getOwnerId(), null);
+        String agentModel = null;
+        if ("REWRITE".equals(stepType)) {
+            Map<String, Object> agentConfig = "PRE_RELEASE".equals(task.getEvalType())
+                    ? editStateConfig(task.getAgentId()) : publishedConfig(task.getAgentId());
+            if (agentConfig.get("modelConfig") instanceof Map<?, ?> modelConfig) {
+                agentModel = str(modelConfig.get("modelName"));
+            }
+        }
         StepEvaluationService.StepResult step = stepEvaluationService.evaluate(
-                stepType, item.getQuestion(), item.getExpectedPayload(), item.getStepConfig(), viewer);
+                stepType, item.getQuestion(), item.getExpectedPayload(), item.getStepConfig(),
+                agentModel, viewer);
         long latency = System.currentTimeMillis() - startedAt;
         com.platform.capability.runtime.TraceStepCollector collector =
                 new com.platform.capability.runtime.TraceStepCollector();

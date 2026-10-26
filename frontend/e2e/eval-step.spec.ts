@@ -103,6 +103,11 @@ test('本地模型 REWRITE：真实 Ollama 返回可用改写', async ({ page, r
   await login(page)
   const model = process.env.E2E_LOCAL_REWRITE_MODEL || 'qwen3.6:27b'
   const token = await page.evaluate(() => localStorage.getItem('accessToken'))
+  const models = await request.get('/api/v1/provider/models?purpose=CHAT', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  const chatModels = (await models.json()).data as any[]
+  expect(chatModels.some((m) => m.modelName === model)).toBe(false)
   const res = await request.post('/api/v1/eval/steps/run', {
     headers: { Authorization: `Bearer ${token}` },
     timeout: 180_000,

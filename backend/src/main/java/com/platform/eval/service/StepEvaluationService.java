@@ -33,13 +33,22 @@ public class StepEvaluationService {
 
     public StepResult evaluate(String stepType, String query, String expectedPayload, String stepConfig,
                                KnowledgePermissionService.Viewer viewer) {
+        return evaluate(stepType, query, expectedPayload, stepConfig, null, viewer);
+    }
+
+    /**
+     * Agent 任务评测传入 agentModel：REWRITE 必须优先使用该 Agent 配置的模型，
+     * 单步试跑没有 Agent 时才使用 stepConfig.model（例如平台本地模型）。
+     */
+    public StepResult evaluate(String stepType, String query, String expectedPayload, String stepConfig,
+                               String agentModel, KnowledgePermissionService.Viewer viewer) {
         String type = stepType == null ? "ANSWER" : stepType.toUpperCase(Locale.ROOT);
         Map<String, Object> expected = parse(expectedPayload);
         Map<String, Object> config = parse(stepConfig);
         return switch (type) {
             case "RETRIEVAL" -> retrieval(query, expected, config, viewer);
             case "RERANK" -> rerank(query, expected, config, viewer);
-            case "REWRITE" -> rewrite(query, expected, config);
+            case "REWRITE" -> rewrite(query, expected, config, agentModel);
             default -> throw new BusinessException(400, "步骤评测类型不支持：" + stepType);
         };
     }
@@ -130,8 +139,10 @@ public class StepEvaluationService {
         return new StepResult(score, score >= passThreshold, json(after), json(details));
     }
 
-    private StepResult rewrite(String query, Map<String, Object> expected, Map<String, Object> config) {
-        String model = str(config.get("model"));
+    private StepResult rewrite(String query, Map<String, Object> expected, Map<String, Object> config,
+                               String agentModel) {
+        String configuredModel = str(config.get("model"));
+        String model = agentModel == null || agentModel.isBlank() ? configuredModel : agentModel;
         String instructions = str(config.get("instructions"));
         boolean localOnly = Boolean.parseBoolean(str(config.get("localOnly")))
                 || "local".equalsIgnoreCase(str(config.get("mode")));
@@ -157,6 +168,7 @@ public class StepEvaluationService {
         details.put("keptEntities", kept);
         details.put("forbiddenHit", blocked);
         details.put("localOnly", localOnly);
+        details.put("model", model);
         return new StepResult(score, score >= passThreshold, rewritten, json(details));
     }
 

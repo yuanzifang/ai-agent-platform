@@ -60,6 +60,7 @@ public class AgentService {
     private final AgentVersionMapper versionMapper;
     private final QuotaService quotaService;
     private final ObjectMapper objectMapper;
+    private final com.platform.model.mapper.ModelMapper modelMapper;
 
     /** 列表页"配置完整度"标志：批量查绑定，避免 N+1。published 且零能力 → 前端提示角标。 */
     public Map<Long, Map<String, Object>> capabilityFlags(java.util.List<Long> agentIds) {
@@ -169,6 +170,7 @@ public class AgentService {
         if (modelConfig == null || !modelConfig.containsKey("modelName")) {
             throw new BusinessException(400, "必须选择模型（modelConfig.modelName）");
         }
+        validateAgentModel(modelConfig, principal.tenantId());
         quotaService.checkAgentCreate();
         AgentRegistry agent = new AgentRegistry();
         agent.setAgentKey(UUID.randomUUID().toString().replace("-", ""));
@@ -200,8 +202,11 @@ public class AgentService {
     /** 按面板整体覆盖（需求文档 7.3 PUT 语义）；If-Match 携带 updated_at，冲突返回 409。 */
     @Transactional
     public Map<String, Object> update(Long id, Map<String, Object> req, String ifMatch) {
-        get(id); // 存在性 + 租户过滤（插件自动注入 tenant_id）
+        AgentRegistry current = get(id); // 存在性 + 租户过滤（插件自动注入 tenant_id）
         LocalDateTime expected = parseIfMatch(ifMatch);
+        if (req.containsKey("modelConfig")) {
+            validateAgentModel(asMap(req.get("modelConfig")), current.getTenantId());
+        }
 
         AgentRegistry patch = new AgentRegistry();
         patch.setId(id);
@@ -612,6 +617,20 @@ public class AgentService {
     }
 
     @SuppressWarnings("unchecked")
+    /** 平台专用模型（PLATFORM，如本地改写模型）不能绑定到 Agent，Agent 必须使用自己的模型。 */
+    private void validateAgentModel(Map<String, Object> modelConfig, Long tenantId) {
+        if (modelConfig == null) return;
+        for (String key : List.of("modelName", "fallbackModelName")) {
+            String name = str(modelConfig.get(key));
+            if (name == null || name.isBlank()) continue;
+            var model = modelMapper.findForPricing(name, tenantId);
+            if (model != null && "PLATFORM".equalsIgnoreCase(model.getPurpose())) {
+                throw new BusinessException(400,
+                        "模型「" + name + "」为平台评测专用，不能用于 Agent；请选择 Agent 自己的对话模型");
+            }
+        }
+    }
+
     private Map<String, Object> asMap(Object o) {
         if (o == null) return null;
         if (o instanceof Map<?, ?> m) return (Map<String, Object>) m;

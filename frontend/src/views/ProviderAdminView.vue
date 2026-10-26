@@ -152,6 +152,7 @@
         <el-form-item :label="t('providerPage.purpose')">
           <el-select v-model="modelForm.purpose" style="width: 160px">
             <el-option :label="t('providerPage.chat')" value="CHAT" />
+            <el-option :label="t('providerPage.platformOnly')" value="PLATFORM" />
             <el-option :label="t('providerPage.embedding')" value="EMBEDDING" />
             <el-option label="重排" value="RERANK" />
             <el-option label="视觉（图片理解）" value="VISION" />
