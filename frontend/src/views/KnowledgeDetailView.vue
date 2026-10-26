@@ -92,12 +92,12 @@
                      size="small" text type="primary" :disabled="upgradeJob?.status === 'RUNNING'"
                      :loading="legacyReparsing" @click="reparseLegacy">
             {{ upgradeJob?.status === 'RUNNING'
-              ? t('kbDetail.upgradeRunning', { submitted: upgradeJob.submittedDocuments,
+              ? tf('kbDetail.upgradeRunning', { submitted: upgradeJob.submittedDocuments,
                   total: upgradeJob.totalDocuments })
               : t('kbDetail.reparseLegacy') + '（' + legacyDocCount + '）' }}
           </el-button>
           <span v-if="upgradeJob?.status === 'RUNNING'" class="hint">
-            {{ t('kbDetail.upgradeProgress', { succeeded: upgradeJob.succeededDocuments,
+            {{ tf('kbDetail.upgradeProgress', { succeeded: upgradeJob.succeededDocuments,
                 failed: upgradeJob.failedDocuments, pending: upgradeJob.pendingDocuments }) }}
           </span>
           <span v-else-if="upgradeJob?.status === 'FAILED'" class="hint stale-parse">
@@ -426,6 +426,15 @@ import { ArrowLeft } from '@element-plus/icons-vue'
 import http from '../api/http'
 
 const { t } = useI18n()
+
+/** 项目里 i18n 消息的花括号被统一转义，这里做一次手动命名参数替换 */
+function tf(key: string, params: Record<string, unknown>): string {
+  let text = t(key)
+  for (const [name, value] of Object.entries(params)) {
+    text = text.split(`{${name}}`).join(String(value ?? ''))
+  }
+  return text
+}
 
 const route = useRoute()
 const router = useRouter()
