@@ -530,7 +530,8 @@ public class AgentDeploymentService {
 
     private boolean portFree(int port) {
         try (ServerSocket socket = new ServerSocket()) {
-            socket.setReuseAddress(false);
+            // 允许复用 TIME_WAIT 端口，重新部署时尽量保持原端口
+            socket.setReuseAddress(true);
             socket.bind(new java.net.InetSocketAddress(port));
             return true;
         } catch (IOException e) {

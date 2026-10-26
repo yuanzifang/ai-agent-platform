@@ -42,7 +42,8 @@ client → container:8080 /v1/chat/completions
 | `RATE_LIMIT_PER_MIN` | `60` | 每 Key 每分钟令牌回填速率，0=不限 |
 | `RATE_BURST` | `20` | 突发额度（令牌桶容量 = burst + 1） |
 | `CALLER_QUOTA_DAILY` | `0` | 主令牌日调用配额，0=不限 |
-| `CALLER_KEYS` | 空 | 额外调用方 Key：`key1:日配额,key2:0`（0=不限） |
+| `CALLER_KEYS_JSON` | 空 | 平台注入的调用方 Key：`[{"hash","quota","name"}]`（只含 SHA-256 哈希） |
+| `CALLER_KEYS` | 空 | 兼容旧格式：`key1:日配额,key2:0`（明文，不推荐） |
 | `STATS_TOKEN` | 等于 `RUNTIME_TOKEN` | `/stats` 的访问令牌 |
 
 ## 接口
@@ -76,7 +77,7 @@ RATE_LIMIT_PER_MIN / RATE_BURST / CORS_ORIGIN / CALLER_QUOTA_DAILY
 
 不挂载任何宿主机目录，`docker inspect` 只看到环境变量。
 
-额外调用方 Key 目前通过 `AGENT_DEPLOY_CALLER_KEYS`（平台配置）注入，后续可做成按 Agent 的可视化 Key 管理。
+调用方 Key 现在可在部署弹窗的「调用方 Key」面板管理（按 Key 日配额、今日调用、启停/删除），平台注入 `CALLER_KEYS_JSON`（哈希），容器内不保存明文；变更会自动重建容器。
 
 ## 验证结果（真实 Docker）
 
@@ -90,6 +91,6 @@ RATE_LIMIT_PER_MIN / RATE_BURST / CORS_ORIGIN / CALLER_QUOTA_DAILY
 
 ## 边界与下一步
 
-- 单实例、内存统计：多副本需要外部存储（Redis）汇总配额/用量
+- 单实例、内存统计：多副本需要外部存储（Redis）汇总配额/用量；容器重启后当日统计清零
 - 目前配额维度是「Key/天」，未做 token 级配额
 - 资源限制（CPU/内存）、日志采集到平台可观测、K8s 侧 Deployment/Service 仍是后续项

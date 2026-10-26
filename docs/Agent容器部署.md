@@ -107,10 +107,33 @@ client → container:8080 /v1/chat/completions
 
 > `host.docker.internal` 在 Docker Desktop / colima 下可用；Linux 上已通过 `--add-host host.docker.internal:host-gateway` 兜底。若后端本身跑在 compose 里，请把 `platform-base-url` 改成平台在容器网络中的地址（如 `http://backend:8080`）。
 
+## 调用方 Key 与日配额
+
+部署弹窗的「调用方 Key」面板（gateway 运行时时可用）：
+
+- **新建 Key**：名称 + 日配额（0=不限），明文只显示一次，可复制给调用方
+- 列表显示：名称、前缀、日配额、**今日调用**、状态；支持编辑、停用/启用、删除
+- 每次变更都会**自动重建容器**使 Key 生效；未部署时保存，部署后生效
+- 调用方式：`Authorization: Bearer sk-run-...`（与部署主令牌等价，独立配额）
+- 平台只把 **SHA-256 哈希 + 配额 + 名称** 注入容器（`CALLER_KEYS_JSON`），容器内没有明文
+- 「今日调用」来自容器 `/stats`，按 UTC 日重置；主令牌用量同时显示
+
+接口：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/agent/{id}/runtime-keys` | Key 列表（不含明文） |
+| POST | `/api/v1/agent/{id}/runtime-keys` | 新建（仅本次返回明文） |
+| PUT | `/api/v1/agent/{id}/runtime-keys/{keyId}` | 改名/配额/启停 |
+| DELETE | `/api/v1/agent/{id}/runtime-keys/{keyId}` | 删除 |
+| GET | `/api/v1/agent/{id}/deployment/stats` | 代理容器 `/stats`，按 Key 当日用量 |
+
+> 配额与限流都是运行时单实例内存实现，重启容器后当日统计清零。
+
 ## 安全说明
 
 - 容器接口需要 `Authorization: Bearer <访问令牌>`；令牌随部署生成、加密存储，可一键重置（重置即重建容器）。`/healthz` 不需要令牌，供容器 healthcheck 使用。
-- 运行时网关支持多调用方 Key（`CALLER_KEYS`）与各自日配额，`/stats` 查看当日用量；限流按 Key 令牌桶，超出返回 429。
+- 运行时网关支持多调用方 Key（UI 管理，容器内只存哈希）与各自日配额，`/stats` 查看当日用量；限流按 Key 令牌桶，超出返回 429。
 - CORS 默认 `*`，生产建议改成具体前端域名。
 - API Key 与令牌以环境变量形式存在容器里，`docker inspect` 可见；删除部署时会一并删除该 Key。
 - 默认绑定 `0.0.0.0` 是为了 Tailscale/手机访问；仍建议只在内网/网关后面暴露该端口。
@@ -125,6 +148,7 @@ client → container:8080 /v1/chat/completions
 - 部署链路（假 Docker CLI + 真实后端/数据库）：部署→运行态、端口 19000、环境变量/挂载/健康检查参数、停止/启动/日志、未发布拦截、删除并回收 Key，全部通过
 - **真实 Docker（colima + agent-gateway:1）**：
   - 自研运行时：无令牌 401、正确令牌 200、SSE 对话正常、CORS 预检 204、限流 429、多 Key 配额与 `/stats` 验证通过
+  - 调用方 Key：新建（配额 2）→ 调用 200/200/429 → `/stats` 显示名称与 2 次；停用后 401；删除后 401、主令牌仍 200；UI 新建→自动重建→停用→删除全流程通过
 - **nginx 回退方案（colima + nginx:alpine）**：
   - `docker ps` → `aap-agent-1 Up (healthy) 0.0.0.0:19000->80/tcp`
   - `curl localhost:19000/healthz` → `ok`；`/v1/models` → `agent-1`

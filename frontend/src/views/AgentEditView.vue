@@ -1105,7 +1105,7 @@
         </div>
         <el-table v-if="runtimeKeys.length" :data="runtimeKeys" size="small">
           <el-table-column prop="name" :label="t('deploy.keyName')" min-width="110" />
-          <el-table-column :label="t('deploy.keyPrefix')" width="110">
+          <el-table-column :label="t('deploy.keyPrefix')" width="120">
             <template #default="{ row }"><code>{{ row.keyPrefix }}…</code></template>
           </el-table-column>
           <el-table-column :label="t('deploy.keyQuota')" width="85">
@@ -1114,12 +1114,12 @@
           <el-table-column :label="t('deploy.keyUsage')" width="85">
             <template #default="{ row }">{{ keyUsage(row) }}</template>
           </el-table-column>
-          <el-table-column :label="t('deploy.keyStatus')" width="85">
+          <el-table-column :label="t('deploy.keyStatus')" width="100">
             <template #default="{ row }">
               <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">{{ row.status }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column :label="t('deploy.actionCol')" width="170">
+          <el-table-column :label="t('deploy.actionCol')" width="180">
             <template #default="{ row }">
               <el-button text size="small" @click="openKeyDialog(row)">{{ t('deploy.edit') }}</el-button>
               <el-button text size="small" @click="toggleRuntimeKey(row)">
