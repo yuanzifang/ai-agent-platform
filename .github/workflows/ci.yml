@@ -43,6 +43,65 @@ jobs:
           npm ci --ignore-scripts
           npm audit --omit=dev --audit-level=high || true   # 先观察基线
 
+  gateway:
+    name: 运行时网关（Node 单测 + 镜像/容器冒烟）
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Node 单测
+        working-directory: runtime/agent-gateway
+        run: npm test
+
+      - name: 构建运行时镜像
+        run: docker build -t agent-gateway:ci runtime/agent-gateway
+
+      - name: 容器冒烟（健康检查/鉴权/模型/统计/CORS）
+        run: |
+          set -euo pipefail
+          docker run -d --name agent-gateway-ci \
+            --add-host=host.docker.internal:host-gateway \
+            -e RUNTIME_TOKEN=ci-token \
+            -e STATS_TOKEN=ci-stats \
+            -e AGENT_SLUG=ci-agent \
+            -e RATE_LIMIT_PER_MIN=1000 \
+            -e CALLER_QUOTA_DAILY=1 \
+            -e REDIS_URL=redis://host.docker.internal:6379/0 \
+            -p 18081:8080 agent-gateway:ci
+          trap 'docker logs agent-gateway-ci || true; docker rm -f agent-gateway-ci || true' EXIT
+
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18081/healthz >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/v1/models)" = "401"
+          curl -fsS http://127.0.0.1:18081/v1/models \
+            -H 'Authorization: Bearer ci-token' | grep -q '"id":"ci-agent"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/v1/models \
+            -H 'Authorization: Bearer ci-token')" = "429"
+          curl -fsS http://127.0.0.1:18081/stats \
+            -H 'Authorization: Bearer ci-stats' | grep -q '"store":"redis"'
+          curl -fsS http://127.0.0.1:18081/stats \
+            -H 'Authorization: Bearer ci-stats' | grep -q '"requests":1'
+          curl -fsS -D /tmp/gateway-cors.headers -o /dev/null -X OPTIONS \
+            http://127.0.0.1:18081/v1/models
+          grep -qi 'access-control-allow-origin: \*' /tmp/gateway-cors.headers
+          echo "gateway container smoke passed"
+
   build:
     name: 后端构建 + 前端类型检查/构建
     runs-on: ubuntu-latest

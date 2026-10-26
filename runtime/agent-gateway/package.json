@@ -5,7 +5,8 @@
   "type": "module",
   "description": "AI Agent 平台运行时网关：OpenAI 兼容接口、令牌鉴权、限流、配额与用量统计",
   "scripts": {
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=22"
