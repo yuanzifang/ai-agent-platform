@@ -1,5 +1,6 @@
 package com.platform.system.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -9,6 +10,7 @@ import org.springframework.web.client.RestClient;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -40,9 +42,13 @@ public class AlertWebhookService {
         this.objectMapper = objectMapper;
     }
 
-    /** 统一入口：title 一句话摘要，detail 可空补充。 */
-    public void alert(String title, String detail) {
-        if (!enabled || url == null || url.isBlank()) return;
+    public boolean isConfigured() {
+        return enabled && url != null && !url.isBlank();
+    }
+
+    /** 统一入口：title 一句话摘要，detail 可空补充。返回是否成功投递（未配置/失败均为 false）。 */
+    public boolean alert(String title, String detail) {
+        if (!isConfigured()) return false;
         try {
             String text = "【AI Agent 平台·" + env + "】" + title
                     + (detail == null || detail.isBlank() ? "" : "\n" + detail)
@@ -50,31 +56,55 @@ public class AlertWebhookService {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("msgtype", "text");
             body.put("text", Map.of("content", text));
-            if (secret != null && !secret.isBlank()) {
-                // 钉钉加签（timestamp+secret HmacSHA256 → base64 → urlencoded）
+            String target = url;
+            if (secret != null && !secret.isBlank() && isDingTalk(url)) {
+                // 钉钉加签必须放 query，放 body 不会被校验（timestamp+secret HmacSHA256 → base64 → urlencoded）
                 long ts = System.currentTimeMillis();
-                String sign = dingtalkSign(ts, secret);
-                body.put("timestamp", String.valueOf(ts));
-                body.put("sign", sign);
+                target = appendQuery(url, "timestamp", String.valueOf(ts), "sign", dingtalkSign(ts, secret));
             }
             String resp = restClient.post()
-                    .uri(url)
+                    .uri(target)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(objectMapper.writeValueAsString(body))
                     .retrieve()
                     .body(String.class);
             webhookDownLogged = false;
-            if (resp != null && resp.contains("\"errcode\":0")) {
+            boolean ok = responseOk(resp);
+            if (ok) {
                 log.info("告警已推送：{}", title);
             } else {
                 log.warn("告警推送响应异常：{}", truncate(resp));
             }
+            return ok;
         } catch (Exception e) {
             // webhook 故障不阻断业务；连续失败只打一次避免日志风暴
             if (!webhookDownLogged) {
                 log.warn("告警推送失败（后续静默直至恢复）：{}", e.getMessage());
                 webhookDownLogged = true;
             }
+            return false;
+        }
+    }
+
+    private boolean isDingTalk(String target) {
+        return target.toLowerCase(Locale.ROOT).contains("dingtalk");
+    }
+
+    private String appendQuery(String base, String k1, String v1, String k2, String v2) {
+        char sep = base.contains("?") ? '&' : '?';
+        return base + sep + k1 + "=" + v1 + "&" + k2 + "=" + v2;
+    }
+
+    private boolean responseOk(String resp) {
+        if (resp == null || resp.isBlank()) return true;
+        try {
+            JsonNode node = objectMapper.readTree(resp);
+            if (node.has("errcode")) return node.path("errcode").asInt(-1) == 0;
+            if (node.has("code")) return node.path("code").asInt(-1) == 0;
+            return true;
+        } catch (Exception ignored) {
+            // 非 JSON 响应但 HTTP 2xx：按成功处理，避免误报
+            return true;
         }
     }
 
