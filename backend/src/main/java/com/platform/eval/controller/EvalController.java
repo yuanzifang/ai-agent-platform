@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -41,6 +42,18 @@ public class EvalController {
     }
 
     /** 跨数据集步骤覆盖矩阵，可按 Agent 过滤。 */
+    public record ReviewResultRequest(Boolean reviewed, String note) {
+    }
+
+    @PutMapping("/results/{id}/review")
+    @PreAuthorize("hasAuthority('eval:manage')")
+    public ApiResponse<Map<String, Object>> reviewResult(@PathVariable Long id,
+                                                          @RequestBody ReviewResultRequest req,
+                                                          @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(evalService.reviewResult(id,
+                Boolean.TRUE.equals(req.reviewed()), req.note(), principal));
+    }
+
     @GetMapping("/datasets/{id}/trend")
     public ApiResponse<Map<String, Object>> datasetTrend(@PathVariable Long id,
                                                           @RequestParam(required = false) Long agentId,

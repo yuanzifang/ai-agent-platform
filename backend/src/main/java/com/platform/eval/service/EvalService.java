@@ -215,6 +215,30 @@ public class EvalService {
         return response;
     }
 
+    /** 人工复核步骤/回答评测结果；仅记录人工确认，不覆盖确定性分数。 */
+    public Map<String, Object> reviewResult(Long resultId, boolean reviewed, String note, JwtPrincipal principal) {
+        EvalResult result = resultMapper.selectById(resultId);
+        if (result == null) throw new BusinessException(404, "评测结果不存在");
+        String status = reviewed ? "REVIEWED" : "PENDING";
+        LocalDateTime reviewedAt = reviewed ? LocalDateTime.now() : null;
+        Long reviewedBy = reviewed ? principal.userId() : null;
+        String reviewNote = note == null || note.isBlank() ? null
+                : note.substring(0, Math.min(note.length(), 1000));
+        resultMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<EvalResult>()
+                .eq(EvalResult::getId, resultId)
+                .set(EvalResult::getReviewStatus, status)
+                .set(EvalResult::getReviewNote, reviewNote)
+                .set(EvalResult::getReviewedBy, reviewedBy)
+                .set(EvalResult::getReviewedAt, reviewedAt));
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("id", resultId);
+        response.put("reviewStatus", status);
+        response.put("reviewNote", reviewNote);
+        response.put("reviewedBy", reviewedBy);
+        response.put("reviewedAt", reviewedAt);
+        return response;
+    }
+
     /** 数据集历史趋势：最近 N 个已完成任务的分步骤指标。 */
     public Map<String, Object> datasetTrend(Long datasetId, Long agentId, int limit) {
         int size = Math.max(1, Math.min(limit, 20));
@@ -351,6 +375,10 @@ public class EvalService {
             row.put("stepType", r.getStepType());
             row.put("stepPassed", r.getStepPassed() != null && r.getStepPassed() == 1);
             row.put("stepDetails", r.getStepDetails());
+            row.put("reviewStatus", r.getReviewStatus());
+            row.put("reviewNote", r.getReviewNote());
+            row.put("reviewedBy", r.getReviewedBy());
+            row.put("reviewedAt", r.getReviewedAt());
             row.put("traceId", r.getTraceId());
             row.put("latencyMs", r.getLatencyMs());
             row.put("tokens", r.getTokens());

@@ -20,6 +20,10 @@ public class EvalResult {
     private String stepType;
     private Integer stepPassed;
     private String stepDetails;
+    private String reviewStatus;
+    private String reviewNote;
+    private Long reviewedBy;
+    private java.time.LocalDateTime reviewedAt;
     private String answer;
     private BigDecimal score;
     private Integer passed;
