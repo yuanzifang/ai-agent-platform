@@ -1,5 +1,6 @@
 package com.platform.knowledge.service;
 
+import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.contentstream.operator.Operator;
@@ -65,11 +66,15 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.HexFormat;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -109,6 +114,10 @@ public class DocumentParser {
     private int ocrConcurrency = 1;
     @Value("${knowledge.ocr.retry-raw-min-chars:10}")
     private int ocrRetryRawMinChars = 10;
+    /** 进程内 OCR 结果缓存；0 表示关闭。key 含租户/OCR 命令/语言和图像内容哈希。 */
+    @Value("${knowledge.ocr.cache-size:256}")
+    private int ocrCacheSize = 256;
+    private final Map<String, OcrTableExtractor.Result> ocrCache = new ConcurrentHashMap<>();
 
     /** 解析级覆盖（上传/知识库/租户/平台配置解析产物）；为空时回落上方 @Value 默认。 */
     private final ThreadLocal<ParseOptions> optsHolder = new ThreadLocal<>();
@@ -513,23 +522,59 @@ public class DocumentParser {
 
     private PdfMarkdownConverter.OcrResult ocrPageVariant(BufferedImage base, boolean crop,
                                                           boolean enhance) throws Exception {
+        OcrTableExtractor.Result result = ocrBufferedImage(base, crop, enhance, "kb-page-");
+        return new PdfMarkdownConverter.OcrResult(result.text(), result.table());
+    }
+
+    /** 页面/内嵌图片共用的 OCR 流水线：预处理后按图像内容哈希查缓存。 */
+    private OcrTableExtractor.Result ocrBufferedImage(BufferedImage base, boolean crop,
+                                                       boolean enhance, String prefix) throws Exception {
         BufferedImage image = base;
-        Path orientTemp = Files.createTempFile("kb-orient-", ".png");
-        Path imagePath = Files.createTempFile("kb-page-ocr-", ".png");
+        Path orientTemp = null;
         try {
             if (enhance) {
                 if (crop) image = cropForOcr(image);
                 image = preprocessForOcr(image);
+                orientTemp = Files.createTempFile(prefix + "orient-", ".png");
                 image = correctOrientation(image, orientTemp);
                 image = deskewForOcr(image);
             }
-            ImageIO.write(image, "png", imagePath.toFile());
+            return runOcrWithCache(image);
+        } finally {
+            if (orientTemp != null) {
+                try { Files.deleteIfExists(orientTemp); } catch (Exception ignored) { }
+            }
+        }
+    }
+
+    private OcrTableExtractor.Result runOcrWithCache(BufferedImage image) throws Exception {
+        Path imagePath = Files.createTempFile("kb-ocr-", ".png");
+        try {
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+            ImageIO.write(image, "png", buffer);
+            byte[] png = buffer.toByteArray();
+            String cacheKey = ocrCacheKey(png);
+            if (ocrCacheSize > 0) {
+                OcrTableExtractor.Result cached = ocrCache.get(cacheKey);
+                if (cached != null) return cached;
+            }
+            Files.write(imagePath, png);
             OcrTableExtractor.Result result = OcrTableExtractor.extract(runOcrTsv(imagePath), image);
-            return new PdfMarkdownConverter.OcrResult(result.text(), result.table());
+            if (ocrCacheSize > 0 && result != null) {
+                if (ocrCache.size() >= ocrCacheSize) ocrCache.clear();
+                ocrCache.put(cacheKey, result);
+            }
+            return result;
         } finally {
             Files.deleteIfExists(imagePath);
-            Files.deleteIfExists(orientTemp);
         }
+    }
+
+    private String ocrCacheKey(byte[] png) throws Exception {
+        String prefix = String.valueOf(TenantContext.getTenantId()) + "|"
+                + opts().ocrCommand() + "|" + opts().ocrLanguages() + "|";
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        return prefix + HexFormat.of().formatHex(digest.digest(png));
     }
 
     /** 内嵌位图 OCR；Form XObject 内嵌的图片也递归处理。整页已 OCR 的页面跳过，避免重复。 */
@@ -610,26 +655,12 @@ public class DocumentParser {
             return new OcrTableExtractor.Result("", "");
         }
         optsHolder.set(options);
-        Path orientTemp = null;
-        Path imagePath = null;
         try {
-            BufferedImage image = preprocessForOcr(source);
-            orientTemp = Files.createTempFile("kb-image-orient-", ".png");
-            image = correctOrientation(image, orientTemp);
-            image = deskewForOcr(image);
-            imagePath = Files.createTempFile("kb-image-ocr-", ".png");
-            ImageIO.write(image, "png", imagePath.toFile());
-            return OcrTableExtractor.extract(runOcrTsv(imagePath), image);
+            return ocrBufferedImage(source, false, true, "kb-image-");
         } catch (Exception e) {
             log.debug("内嵌图片并发 OCR 跳过：{}", e.getMessage());
             return new OcrTableExtractor.Result("", "");
         } finally {
-            if (imagePath != null) {
-                try { Files.deleteIfExists(imagePath); } catch (Exception ignored) { }
-            }
-            if (orientTemp != null) {
-                try { Files.deleteIfExists(orientTemp); } catch (Exception ignored) { }
-            }
             optsHolder.remove();
         }
     }
