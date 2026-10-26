@@ -11,8 +11,13 @@
 #   ./scripts/backup.sh
 #   ./scripts/backup.sh --skip-minio
 #   BACKUP_ROOT=/data/backups ./scripts/backup.sh --prune --retention-days 14
+#   # 异地加密上传（MinIO/S3 兼容，mc）
+#   BACKUP_OFFSITE_ENDPOINT=https://minio.example.com \
+#   BACKUP_OFFSITE_BUCKET=platform-backups \
+#   BACKUP_OFFSITE_ACCESS_KEY=... BACKUP_OFFSITE_SECRET_KEY=... \
+#   BACKUP_ENCRYPT_KEY_FILE=/secure/backup.key ./scripts/backup.sh
 #
-# 依赖：mysqldump/mysql、pg_dump/psql/pg_restore、mc（MinIO Client）、gzip、python3
+# 依赖：mysqldump/mysql、pg_dump/psql/pg_restore、mc（MinIO Client）、gzip、python3、openssl、tar
 set -Eeuo pipefail
 umask 077
 
@@ -30,7 +35,9 @@ SKIP_MYSQL=0
 SKIP_PG=0
 SKIP_MINIO=0
 DO_PRUNE=0
+SKIP_OFFSITE=0
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+OFFSITE_ARCHIVE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -38,6 +45,7 @@ while [ $# -gt 0 ]; do
     --skip-pg|--skip-postgres) SKIP_PG=1 ;;
     --skip-minio) SKIP_MINIO=1 ;;
     --prune) DO_PRUNE=1 ;;
+    --skip-offsite) SKIP_OFFSITE=1 ;;
     --retention-days) RETENTION_DAYS="${2:?--retention-days 需要天数}"; shift ;;
     -h|--help)
       sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
@@ -57,6 +65,7 @@ OUT="$BACKUP_ROOT/backup-$TS"
 PARTIAL="$OUT.partial"
 LOCK="$BACKUP_ROOT/.backup.lock"
 MC_TMP=""
+MC_OFFSITE_TMP=""
 
 mkdir -p "$BACKUP_ROOT"
 if ! mkdir "$LOCK" 2>/dev/null; then
@@ -72,6 +81,7 @@ cleanup() {
   local status=$?
   trap - EXIT
   if [ -n "$MC_TMP" ] && [ -d "$MC_TMP" ]; then rm -rf "$MC_TMP"; fi
+  if [ -n "${MC_OFFSITE_TMP:-}" ] && [ -d "$MC_OFFSITE_TMP" ]; then rm -rf "$MC_OFFSITE_TMP"; fi
   if [ "$status" -ne 0 ] && [ -d "$PARTIAL" ]; then
     log "备份失败，删除未完成目录：$PARTIAL"
     rm -rf "$PARTIAL"
@@ -116,7 +126,7 @@ else
     --default-character-set=utf8mb4 --set-gtid-purged=OFF --column-statistics=0)
 
   "${MYSQL[@]}" -N -e "SELECT 1" >/dev/null 2>&1 \
-    || die "MySQL 连接失败：$MYSQL_BACKUP_USER@$MYSQL_HOST:$MYSQL_PORT/$MYSQL_DATABASE；请检查 MYSQL_* 配置"
+    || die "MySQL 连接失败：${MYSQL_BACKUP_USER}@${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}；请检查 MYSQL_* 配置"
 
   mkdir -p "$PARTIAL/mysql"
   log "MySQL：导出 $MYSQL_DATABASE 到 $PARTIAL/mysql"
@@ -192,13 +202,13 @@ else
 
   PSQL_CMD=("$PSQL" -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" -v ON_ERROR_STOP=1 --no-psqlrc)
   "${PSQL_CMD[@]}" -Atc "SELECT 1" >/dev/null 2>&1 \
-    || die "PostgreSQL 连接失败：$PG_USERNAME@$PG_HOST:$PG_PORT/$PG_DATABASE；请检查 PG_* 配置"
+    || die "PostgreSQL 连接失败：${PG_USERNAME}@${PG_HOST}:${PG_PORT}/${PG_DATABASE}；请检查 PG_* 配置"
 
   server_num="$("${PSQL_CMD[@]}" -Atc 'SHOW server_version_num')"
   server_major=$((server_num / 10000))
   dump_major="$("$PG_DUMP" --version | awk '{print $3}' | cut -d. -f1)"
   if [ "$dump_major" -lt "$server_major" ]; then
-    die "pg_dump 主版本 $dump_major 低于 PostgreSQL 服务端 $server_major；请设置 PG_DUMP=/path/to/pg_dump-$server_major"
+    die "pg_dump 主版本 ${dump_major} 低于 PostgreSQL 服务端 ${server_major}；请设置 PG_DUMP=/path/to/pg_dump-${server_major}"
   fi
 
   mkdir -p "$PARTIAL/pgvector"
@@ -387,6 +397,52 @@ if [ "$DO_PRUNE" = "1" ]; then
     find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -name 'backup-*' \
       ! -name "backup-$TS" -mtime +"$RETENTION_DAYS" -print -exec rm -rf {} \;
   fi
+fi
+
+# ---------------- 异地/对象存储副本 ----------------
+if [ "$SKIP_OFFSITE" = "0" ] && { [ -n "${BACKUP_OFFSITE_ENDPOINT:-}" ] || [ -n "${BACKUP_OFFSITE_BUCKET:-}" ]; }; then
+  [ -n "${BACKUP_OFFSITE_ENDPOINT:-}" ] || die "BACKUP_OFFSITE_ENDPOINT 未配置"
+  [ -n "${BACKUP_OFFSITE_BUCKET:-}" ] || die "BACKUP_OFFSITE_BUCKET 未配置"
+  [ -n "${BACKUP_OFFSITE_ACCESS_KEY:-}" ] || die "BACKUP_OFFSITE_ACCESS_KEY 未配置"
+  [ -n "${BACKUP_OFFSITE_SECRET_KEY:-}" ] || die "BACKUP_OFFSITE_SECRET_KEY 未配置"
+  command -v mc >/dev/null 2>&1 || die "异地备份需要 mc（MinIO Client）"
+  command -v tar >/dev/null 2>&1 || die "异地备份需要 tar"
+  [ -n "${BACKUP_ENCRYPT_KEY_FILE:-}" ] || die "异地备份要求 BACKUP_ENCRYPT_KEY_FILE（备份加密密钥文件）"
+  [ -r "$BACKUP_ENCRYPT_KEY_FILE" ] || die "备份加密密钥不可读：$BACKUP_ENCRYPT_KEY_FILE"
+  command -v openssl >/dev/null 2>&1 || die "备份加密需要 openssl"
+
+  BACKUP_OFFSITE_PREFIX="${BACKUP_OFFSITE_PREFIX:-ai-agent-platform}"
+  MC_OFFSITE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/aiagent-mc-offsite.XXXXXX")"
+  export MC_CONFIG_DIR="$MC_OFFSITE_TMP"
+  mc alias set offsite "$BACKUP_OFFSITE_ENDPOINT" "$BACKUP_OFFSITE_ACCESS_KEY"     "$BACKUP_OFFSITE_SECRET_KEY" >/dev/null 2>&1 \
+    || die "异地 mc alias 配置失败：$BACKUP_OFFSITE_ENDPOINT"
+  mc mb --ignore-existing "offsite/$BACKUP_OFFSITE_BUCKET" >/dev/null 2>&1 \
+    || die "异地 bucket 不可用：$BACKUP_OFFSITE_BUCKET"
+
+  log "异地备份：打包并加密 $OUT"
+  OFFSITE_ARCHIVE="$BACKUP_ROOT/backup-$TS.tar.gz"
+  tar -C "$OUT" -czf "$OFFSITE_ARCHIVE" .
+  openssl enc -aes-256-cbc -pbkdf2 -salt -pass "file:$BACKUP_ENCRYPT_KEY_FILE" \
+    -in "$OFFSITE_ARCHIVE" -out "$OFFSITE_ARCHIVE.enc"
+  rm -f "$OFFSITE_ARCHIVE"
+  OFFSITE_ARCHIVE="$OFFSITE_ARCHIVE.enc"
+  OBJECT="$BACKUP_OFFSITE_PREFIX/backup-$TS.tar.gz.enc"
+  mc cp "$OFFSITE_ARCHIVE" "offsite/$BACKUP_OFFSITE_BUCKET/$OBJECT" >/dev/null \
+    || die "异地上传失败：$OBJECT"
+  local_hash="$(python3 - "$OFFSITE_ARCHIVE" <<'PYH'
+import hashlib, pathlib, sys
+h = hashlib.sha256()
+with open(pathlib.Path(sys.argv[1]), 'rb') as f:
+    for chunk in iter(lambda: f.read(1024 * 1024), b''):
+        h.update(chunk)
+print(h.hexdigest())
+PYH
+)"
+  remote_hash="$(mc cat "offsite/$BACKUP_OFFSITE_BUCKET/$OBJECT" | python3 -c 'import hashlib,sys; h=hashlib.sha256(); [h.update(c) for c in iter(lambda: sys.stdin.buffer.read(1024*1024), b"")]; print(h.hexdigest())')"
+  [ "$local_hash" = "$remote_hash" ] || die "异地副本 SHA256 校验失败：$OBJECT"
+  rm -f "$OFFSITE_ARCHIVE"
+  OFFSITE_ARCHIVE=""
+  log "异地备份完成：offsite/${BACKUP_OFFSITE_BUCKET}/${OBJECT}（SHA256 ${local_hash}）"
 fi
 
 log "备份完成：$OUT"
