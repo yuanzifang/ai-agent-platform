@@ -74,6 +74,8 @@ def answer_for(body):
     if "markdown测试" in last_user:
         return "**加粗文本**\n\n| 列A | 列B |\n| --- | --- |\n| 1 | 2 |\n\n```js\nconst answer = 42\nconsole.log(answer)\n```"
     if "裁判" in system or "评分" in system:
+        if "E2E_LOW_SCORE" in last_user:
+            return '{"score":0.1,"reason":"E2E 强制低分"}'
         return '{"score":0.8,"reason":"mock 裁判"}'
     if "提示词工程师" in system or "提示词优化" in system:
         return "优化后的提示词：你是专业助手。请先给出结论，再补充必要细节；不确定时明确说明，不要编造。"
