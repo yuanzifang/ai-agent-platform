@@ -341,7 +341,9 @@ public class KnowledgeController {
     }
 
     public record SearchRequest(@NotBlank String query, Integer topK, Double scoreThreshold, String mode,
-                                Instant effectiveAfter, Instant effectiveBefore) {
+                                Instant effectiveAfter, Instant effectiveBefore,
+                                String documentType, String sectionType, String regulatoryCategory,
+                                Integer chunkLevel, Double minRelevance) {
     }
 
     @GetMapping("/{id}/graph")
@@ -431,6 +433,8 @@ public class KnowledgeController {
                                                          @Valid @RequestBody SearchRequest req,
                                                          @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(knowledgeService.search(id, req.query(), req.topK(), req.scoreThreshold(),
-                req.mode(), req.effectiveAfter(), req.effectiveBefore(), viewer(principal)));
+                req.mode(), req.effectiveAfter(), req.effectiveBefore(), req.documentType(),
+                req.sectionType(), req.regulatoryCategory(), req.chunkLevel(), req.minRelevance(),
+                viewer(principal)));
     }
 }

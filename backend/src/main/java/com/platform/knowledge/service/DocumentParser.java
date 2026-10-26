@@ -98,7 +98,7 @@ import java.util.zip.ZipInputStream;
 public class DocumentParser {
 
     /** 解析器版本：解析行为/结构化输出变化时递增，用于存量升级和复用判断。 */
-    public static final String PARSER_VERSION = "2026-10-26.10";
+    public static final String PARSER_VERSION = "2026-10-26.11";
 
     private static final long MAX_BYTES = 20 * 1024 * 1024;
 
@@ -204,11 +204,17 @@ public class DocumentParser {
     }
 
     public record ParsedChunk(String content, int parentIndex, String parentContent,
-                              String embeddingText, int pageFrom, int pageTo) {
+                              String embeddingText, int pageFrom, int pageTo,
+                              List<String> headingPath) {
 
         /** 兼容旧构造：embedding 文本按去 Markdown/HTML 纯文本生成，页码未知。 */
         public ParsedChunk(String content, int parentIndex, String parentContent) {
-            this(content, parentIndex, parentContent, MarkdownText.toPlain(content), 0, 0);
+            this(content, parentIndex, parentContent, MarkdownText.toPlain(content), 0, 0, List.of());
+        }
+
+        public ParsedChunk(String content, int parentIndex, String parentContent,
+                           String embeddingText, int pageFrom, int pageTo) {
+            this(content, parentIndex, parentContent, embeddingText, pageFrom, pageTo, List.of());
         }
 
         public String embeddingContent() {
@@ -1731,7 +1737,7 @@ public class DocumentParser {
         List<ParsedChunk> result = new ArrayList<>(chunks.size());
         for (MarkdownChunker.Chunk chunk : chunks) {
             result.add(new ParsedChunk(chunk.content(), chunk.parentIndex(), chunk.parentContent(),
-                    chunk.embeddingText(), chunk.pageFrom(), chunk.pageTo()));
+                    chunk.embeddingText(), chunk.pageFrom(), chunk.pageTo(), chunk.headingPath()));
         }
         return result;
     }

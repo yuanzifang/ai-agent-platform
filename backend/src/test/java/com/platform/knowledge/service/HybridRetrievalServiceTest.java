@@ -94,6 +94,23 @@ class HybridRetrievalServiceTest {
     }
 
     @Test
+    void filtersVectorHitsByChunkMetadata() {
+        when(embedding.embedOne(eq("q"), anyString())).thenReturn(new float[]{0.1f});
+        when(vectorRepository.search(anyLong(), any(float[].class), anyLong(), anyInt(),
+                anyDouble(), anyInt())).thenReturn(List.of(
+                Map.of("content", "research", "score", 0.9,
+                        "metadata", "{\"chunk_id\":1,\"document_type\":\"research_paper\"}"),
+                Map.of("content", "regulatory", "score", 0.8,
+                        "metadata", "{\"chunk_id\":2,\"document_type\":\"regulatory\",\"relevance_score\":0.9}")));
+
+        var result = service.search(1L, "q", 1L, 5, 0.5,
+                Map.of("mode", "vector", "documentType", "regulatory"));
+
+        assertEquals(1, result.hits().size());
+        assertEquals("regulatory", result.hits().get(0).get("content"));
+    }
+
+    @Test
     void hybridFallsBackToKeywordWhenEmbeddingFails() {
         when(embedding.embedOne(eq("q"), anyString())).thenThrow(new BusinessException(502, "ollama down"));
         when(chunkMapper.searchFulltext(eq(1L), anyString(), anyInt())).thenReturn(List.of(

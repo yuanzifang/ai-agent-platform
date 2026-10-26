@@ -17,6 +17,12 @@ public class KnowledgeParent {
     private Long knowledgeBaseId;
     private Integer parentIndex;
     private String content;
+    private String documentType;
+    private String sectionType;
+    private Integer chunkLevel;
+    private String domainKeywords; // JSON array
+    private Double relevanceScore;
+    private String regulatoryCategory;
     private Long tenantId;
     private LocalDateTime createdAt;
 }
