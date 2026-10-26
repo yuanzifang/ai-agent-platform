@@ -54,6 +54,9 @@ test('步骤级评测样本：步骤类型/期望 JSON 可见并可编辑', asyn
     const rewriteRow = drawer.locator('.el-table__row').filter({ hasText: 'REWRITE' })
     await expect(rewriteRow).toContainText('must_keep')
     await expect(rewriteRow).toContainText('退款')
+    await expect(drawer.locator('.step-coverage')).toContainText('步骤覆盖')
+    await expect(drawer.locator('.step-coverage')).toContainText('REWRITE 1')
+    await expect(drawer.locator('.step-coverage')).toContainText('RETRIEVAL 0')
 
     // 通过 UI 新增一个检索步骤，确认步骤类型与期望 JSON 会随表单提交。
     await drawer.getByPlaceholder('问题').fill('UI 新增检索样本')
@@ -73,6 +76,17 @@ test('步骤级评测样本：步骤类型/期望 JSON 可见并可编辑', asyn
       && row.expectedPayload?.includes('must_keep'))).toBeTruthy()
     expect(rows.some((row: any) => row.stepType === 'RETRIEVAL'
       && row.expectedPayload?.includes('chunk_ids'))).toBeTruthy()
+
+    await drawer.getByRole('button', { name: '关闭此对话框' }).click()
+    await page.getByRole('button', { name: '单步试跑' }).click()
+    const stepDialog = page.getByRole('dialog', { name: '单步评测' })
+    await expect(stepDialog).toBeVisible()
+    await expect(stepDialog.locator('.el-select')).toContainText('REWRITE')
+    await stepDialog.locator('.el-select').click()
+    await expect(page.getByRole('option', { name: /RETRIEVAL/ })).toBeVisible()
+    await expect(page.getByRole('option', { name: /ANSWER/ })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await stepDialog.getByRole('button', { name: '取消' }).click()
   } finally {
     if (datasetId != null) {
       await request.delete(`/api/v1/eval/datasets/${datasetId}`, { headers }).catch(() => {})

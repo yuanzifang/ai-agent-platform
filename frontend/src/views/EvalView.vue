@@ -5,6 +5,7 @@
         <el-icon><ArrowLeft /></el-icon> {{ t('evalPage.back') }}
       </el-button>
       <span class="page-title">{{ t('page.eval') }}</span>
+      <el-button size="small" @click="openStepRun">{{ t('evalPage.stepRun') }}</el-button>
       <el-radio-group v-model="tab">
         <el-radio-button value="once">{{ t('evalPage.once') }}</el-radio-button>
         <el-radio-button value="online">{{ t('evalPage.online') }}</el-radio-button>
@@ -255,6 +256,14 @@
 
     <!-- 样本管理抽屉 -->
     <el-drawer v-model="itemsVisible" :title="t('evalPage.sampleTitle') + (currentDs.name || '')" size="640px">
+      <div v-if="stepCoverage" class="step-coverage">
+        <span class="step-coverage-label">{{ t('evalPage.stepCoverage') }}</span>
+        <el-tag v-for="(count, type) in stepCoverage.steps" :key="type" size="small"
+                :type="count > 0 ? 'success' : 'info'">{{ type }} {{ count }}</el-tag>
+        <span v-if="stepCoverage.missing && stepCoverage.missing.length" class="step-coverage-missing">
+          {{ t('evalPage.missingSteps') }}{{ stepCoverage.missing.join(' / ') }}
+        </span>
+      </div>
       <div class="import-box">
         <el-input v-model="jsonl" type="textarea" :rows="3"
                   :placeholder="t('evalPage.importPh')" />
@@ -296,6 +305,51 @@
       </el-table>
     </el-drawer>
 
+    <!-- 单步试跑 -->
+    <el-dialog v-model="stepRunVisible" :title="t('evalPage.stepRunTitle')" width="640px">
+      <el-form label-width="96px">
+        <el-form-item :label="t('evalPage.stepType')">
+          <el-select v-model="stepRunForm.stepType" style="width: 100%">
+            <el-option v-for="s in standaloneStepTypes" :key="s.stepType" :value="s.stepType"
+                       :label="`${s.stepType} · ${s.name}`" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('evalPage.question')" required>
+          <el-input v-model="stepRunForm.query" :placeholder="t('evalPage.stepRunQueryPh')" />
+        </el-form-item>
+        <el-form-item :label="t('evalPage.expectedPayload')">
+          <el-input v-model="stepRunForm.expectedPayload" type="textarea" :rows="3"
+                    :placeholder="t('evalPage.expectedPayloadPh')" />
+        </el-form-item>
+        <el-form-item :label="t('evalPage.stepConfig')">
+          <el-input v-model="stepRunForm.stepConfig" type="textarea" :rows="3"
+                    :placeholder="t('evalPage.stepConfigPh')" />
+        </el-form-item>
+      </el-form>
+      <div class="dialog-hint">{{ t('evalPage.stepRunHint') }}</div>
+      <div v-if="stepRunError" class="step-run-error">{{ stepRunError }}</div>
+      <div v-if="stepRunResult" class="step-run-result">
+        <div class="step-run-metrics">
+          <el-tag :type="stepRunResult.passed ? 'success' : 'danger'">
+            {{ stepRunResult.passed ? t('evalPage.passed') : t('evalPage.failed') }}
+          </el-tag>
+          <span>{{ t('evalPage.stepScore') }}：{{ (stepRunResult.score * 100).toFixed(1) }}</span>
+        </div>
+        <div class="step-run-block">
+          <b>{{ t('evalPage.actualOutput') }}</b>
+          <pre>{{ stepRunResult.actual }}</pre>
+        </div>
+        <div class="step-run-block">
+          <b>{{ t('evalPage.stepDetails') }}</b>
+          <pre>{{ JSON.stringify(stepRunResult.details, null, 2) }}</pre>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="stepRunVisible = false">{{ t('evalPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="stepRunSaving" @click="runStep">{{ t('evalPage.runStep') }}</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 新建数据集 -->
     <el-dialog v-model="dsDialog" :title="t('evalPage.dsNew')" width="460px">
       <el-form label-width="80px">
@@ -317,7 +371,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
@@ -345,6 +399,17 @@ const current = reactive<any>({})
 const itemsVisible = ref(false)
 const currentDs = reactive<any>({})
 const items = ref<any[]>([])
+const stepCoverage = ref<any>(null)
+const stepTypes = ref<any[]>([
+  { stepType: 'REWRITE', name: '查询改写' },
+  { stepType: 'RETRIEVAL', name: '知识检索' },
+  { stepType: 'RERANK', name: '重排' }
+])
+const stepRunVisible = ref(false)
+const stepRunSaving = ref(false)
+const stepRunError = ref('')
+const stepRunResult = ref<any>(null)
+const stepRunForm = reactive({ stepType: 'REWRITE', query: '', expectedPayload: '', stepConfig: '' })
 const reviewVisible = ref(false)
 const reviewSaving = ref(false)
 const reviewRow = ref<any>(null)
@@ -355,14 +420,16 @@ const dsDialog = ref(false)
 const dsForm = reactive({ name: '', description: '', agentId: null as number | null })
 
 onMounted(async () => {
-  const [a, m, ds] = await Promise.all([
+  const [a, m, ds, st] = await Promise.all([
     http.get('/agent', { params: { pageSize: 100 } }) as any,
     http.get('/provider/models') as any,
-    http.get('/eval/datasets') as any
+    http.get('/eval/datasets') as any,
+    http.get('/eval/step-types').catch(() => []) as any
   ])
   agents.value = a.list || []
   models.value = (m || []).filter((x: any) => !x.purpose || String(x.purpose).toUpperCase() === 'CHAT')
   datasets.value = ds || []
+  if (Array.isArray(st) && st.length) stepTypes.value = st
   if (!taskForm.agentId && agents.value.length) taskForm.agentId = agents.value[0].id
   if (agentId.value) taskForm.agentId = agentId.value
   await loadTasks()
@@ -442,7 +509,13 @@ async function removeDs(row: any) {
 async function openItems(row: any) {
   Object.assign(currentDs, row)
   itemsVisible.value = true
-  items.value = await http.get(`/eval/datasets/${row.id}/items`) as any
+  stepCoverage.value = null
+  const [list, coverage] = await Promise.all([
+    http.get(`/eval/datasets/${row.id}/items`) as any,
+    http.get(`/eval/datasets/${row.id}/step-summary`).catch(() => null) as any
+  ])
+  items.value = list
+  stepCoverage.value = coverage
 }
 
 async function addItem() {
@@ -450,6 +523,32 @@ async function addItem() {
   await http.post(`/eval/datasets/${currentDs.id}/items`, { ...itemForm })
   items.value = await http.get(`/eval/datasets/${currentDs.id}/items`) as any
   Object.assign(itemForm, { question: '', expectedAnswer: '', scoreCriteria: '', stepType: 'ANSWER', expectedPayload: '', stepConfig: '' })
+}
+
+const standaloneStepTypes = computed(() =>
+  stepTypes.value.filter((s: any) => s.stepType !== 'ANSWER'))
+
+function openStepRun() {
+  stepRunVisible.value = true
+  stepRunError.value = ''
+  stepRunResult.value = null
+}
+
+async function runStep() {
+  if (!stepRunForm.query.trim()) {
+    ElMessage.warning(t('evalPage.stepRunQueryRequired'))
+    return
+  }
+  stepRunSaving.value = true
+  stepRunError.value = ''
+  stepRunResult.value = null
+  try {
+    stepRunResult.value = await http.post('/eval/steps/run', { ...stepRunForm }) as any
+  } catch (e: any) {
+    stepRunError.value = e?.response?.data?.message || e?.message || t('evalPage.stepRunFailed')
+  } finally {
+    stepRunSaving.value = false
+  }
 }
 
 function openReview(row: any) {
@@ -525,4 +624,12 @@ function clip(t: string, n: number) { t = t || ''; return t.length > n ? t.slice
 .step-summary-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
 .step-summary-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .step-detail { white-space: pre-wrap; word-break: break-all; font-size: 12px; margin: 4px 0; }
+.step-coverage { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.step-coverage-label { font-size: 13px; font-weight: 600; margin-right: 2px; }
+.step-coverage-missing { font-size: 12px; color: #e6a23c; }
+.step-run-error { margin-top: 8px; color: #f56c6c; font-size: 13px; white-space: pre-wrap; }
+.step-run-result { margin-top: 12px; border: 1px solid #ebeef5; border-radius: 6px; padding: 10px; }
+.step-run-metrics { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.step-run-block { margin-top: 8px; }
+.step-run-block pre { margin: 4px 0 0; white-space: pre-wrap; word-break: break-all; font-size: 12px; background: #f5f7fa; padding: 8px; border-radius: 4px; max-height: 240px; overflow: auto; }
 </style>
