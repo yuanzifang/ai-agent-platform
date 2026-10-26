@@ -56,17 +56,25 @@ public class EvalController {
 
     @GetMapping("/datasets/{id}/items")
     public ApiResponse<List<Map<String, Object>>> items(@PathVariable Long id) {
-        return ApiResponse.ok(evalService.items(id).stream().map(i -> Map.<String, Object>of(
-                "id", i.getId(), "question", i.getQuestion(),
-                "expectedAnswer", i.getExpectedAnswer() == null ? "" : i.getExpectedAnswer(),
-                "scoreCriteria", i.getScoreCriteria() == null ? "" : i.getScoreCriteria())).toList());
+        return ApiResponse.ok(evalService.items(id).stream().map(i -> {
+            Map<String, Object> row = new java.util.LinkedHashMap<>();
+            row.put("id", i.getId());
+            row.put("question", i.getQuestion());
+            row.put("expectedAnswer", i.getExpectedAnswer() == null ? "" : i.getExpectedAnswer());
+            row.put("scoreCriteria", i.getScoreCriteria() == null ? "" : i.getScoreCriteria());
+            row.put("stepType", i.getStepType() == null ? "ANSWER" : i.getStepType());
+            row.put("expectedPayload", i.getExpectedPayload());
+            row.put("stepConfig", i.getStepConfig());
+            return row;
+        }).toList());
     }
 
     @PostMapping("/datasets/{id}/items")
     @PreAuthorize("hasAuthority('eval:manage')")
     public ApiResponse<Void> addItem(@PathVariable Long id, @Valid @RequestBody ItemRequest req,
                                      @AuthenticationPrincipal JwtPrincipal principal) {
-        evalService.addItem(id, req.question(), req.expectedAnswer(), req.scoreCriteria(), principal);
+        evalService.addItem(id, req.question(), req.expectedAnswer(), req.scoreCriteria(),
+                req.stepType(), req.expectedPayload(), req.stepConfig(), principal);
         return ApiResponse.ok();
     }
 
@@ -126,7 +134,8 @@ public class EvalController {
     public record DatasetRequest(@NotBlank String name, String description, Long agentId) {
     }
 
-    public record ItemRequest(@NotBlank String question, String expectedAnswer, String scoreCriteria) {
+    public record ItemRequest(@NotBlank String question, String expectedAnswer, String scoreCriteria,
+                              String stepType, String expectedPayload, String stepConfig) {
     }
 
     public record ImportRequest(@NotBlank String jsonl) {

@@ -16,6 +16,9 @@ public class EvalDatasetItem {
     private String question;
     private String expectedAnswer;
     private String scoreCriteria;
+    private String stepType;
+    private String expectedPayload;
+    private String stepConfig;
     private Long tenantId;
     private LocalDateTime createdAt;
 }

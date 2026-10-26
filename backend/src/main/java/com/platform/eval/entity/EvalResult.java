@@ -17,6 +17,9 @@ public class EvalResult {
     private Long datasetItemId;
     private String traceId;
     private String metricKey;
+    private String stepType;
+    private Integer stepPassed;
+    private String stepDetails;
     private String answer;
     private BigDecimal score;
     private Integer passed;

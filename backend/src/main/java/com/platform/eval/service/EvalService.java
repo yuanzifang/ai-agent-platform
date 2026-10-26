@@ -22,6 +22,7 @@ import com.platform.eval.mapper.EvalDatasetItemMapper;
 import com.platform.eval.mapper.EvalDatasetMapper;
 import com.platform.eval.mapper.EvalResultMapper;
 import com.platform.eval.mapper.EvalTaskMapper;
+import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.observability.entity.AgentTrace;
 import com.platform.observability.mapper.AgentTraceMapper;
 import com.platform.observability.service.TraceService;
@@ -76,6 +77,7 @@ public class EvalService {
     @org.springframework.beans.factory.annotation.Qualifier("llmTaskExecutor")
     private final org.springframework.core.task.TaskExecutor llmExecutor;
     private final ObjectMapper objectMapper;
+    private final StepEvaluationService stepEvaluationService;
     /** 自身代理：用于以独立事务（REQUIRES_NEW）执行门禁评测（自调用不经代理会使事务注解失效）。 */
     private final org.springframework.beans.factory.ObjectProvider<EvalService> selfProvider;
 
@@ -130,16 +132,32 @@ public class EvalService {
 
     public void addItem(Long datasetId, String question, String expectedAnswer, String scoreCriteria,
                         JwtPrincipal principal) {
+        addItem(datasetId, question, expectedAnswer, scoreCriteria, "ANSWER", null, null, principal);
+    }
+
+    public void addItem(Long datasetId, String question, String expectedAnswer, String scoreCriteria,
+                        String stepType, String expectedPayload, String stepConfig, JwtPrincipal principal) {
         if (question == null || question.isBlank()) throw new BusinessException(400, "样本问题必填");
         EvalDatasetItem item = new EvalDatasetItem();
         item.setDatasetId(datasetId);
         item.setQuestion(question);
         item.setExpectedAnswer(expectedAnswer);
         item.setScoreCriteria(scoreCriteria);
+        item.setStepType(normalizeStepType(stepType));
+        item.setExpectedPayload(expectedPayload);
+        item.setStepConfig(stepConfig);
         item.setTenantId(principal.tenantId());
         item.setCreatedAt(LocalDateTime.now());
         itemMapper.insert(item);
         touchDataset(datasetId);
+    }
+
+    private static String normalizeStepType(String stepType) {
+        String value = stepType == null ? "ANSWER" : stepType.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!List.of("ANSWER", "REWRITE", "RETRIEVAL", "RERANK").contains(value)) {
+            throw new BusinessException(400, "不支持的步骤类型：" + stepType);
+        }
+        return value;
     }
 
     /** 数据集内容变更时刷新 updated_at，使预发布门禁缓存失效（preReleaseGate）。 */
@@ -158,7 +176,8 @@ public class EvalService {
             try {
                 Map<String, Object> row = objectMapper.readValue(line.trim(), Map.class);
                 addItem(datasetId, str(row.get("question")), str(row.get("expectedAnswer")),
-                        str(row.get("scoreCriteria")), principal);
+                        str(row.get("scoreCriteria")), str(row.get("stepType")),
+                        jsonString(row.get("expectedPayload")), jsonString(row.get("stepConfig")), principal);
                 count++;
             } catch (Exception e) {
                 throw new BusinessException(400, "样本格式错误（第 " + (count + 1) + " 行）：" + e.getMessage());
@@ -198,6 +217,9 @@ public class EvalService {
             row.put("score", r.getScore());
             row.put("passed", r.getPassed() != null && r.getPassed() == 1);
             row.put("judgeReason", r.getJudgeReason());
+            row.put("stepType", r.getStepType());
+            row.put("stepPassed", r.getStepPassed() != null && r.getStepPassed() == 1);
+            row.put("stepDetails", r.getStepDetails());
             row.put("traceId", r.getTraceId());
             row.put("latencyMs", r.getLatencyMs());
             row.put("tokens", r.getTokens());
@@ -705,11 +727,64 @@ public class EvalService {
         });
     }
 
+    /** 步骤级确定性评测：检索/重排/改写，不调用最终回答模型与 LLM 裁判。 */
+    private void evalStep(EvalTask task, EvalDatasetItem item, String stepType, String traceId) {
+        long startedAt = System.currentTimeMillis();
+        AgentRegistry agent = agentMapper.selectById(task.getAgentId());
+        if (agent == null || agent.getOwnerId() == null) {
+            throw new BusinessException(400, "步骤评测缺少 Agent 所有者");
+        }
+        KnowledgePermissionService.Viewer viewer = KnowledgePermissionService.Viewer.of(agent.getOwnerId(), null);
+        StepEvaluationService.StepResult step = stepEvaluationService.evaluate(
+                stepType, item.getQuestion(), item.getExpectedPayload(), item.getStepConfig(), viewer);
+        long latency = System.currentTimeMillis() - startedAt;
+        com.platform.capability.runtime.TraceStepCollector collector =
+                new com.platform.capability.runtime.TraceStepCollector();
+        Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put("stepType", stepType);
+        attributes.put("passed", step.passed());
+        attributes.put("score", step.score());
+        try {
+            attributes.put("details", objectMapper.readValue(step.details(), Map.class));
+        } catch (Exception ignored) {
+            attributes.put("details", step.details());
+        }
+        collector.add(stepType.toLowerCase(java.util.Locale.ROOT), "eval-step",
+                step.passed() ? "SUCCESS" : "ERROR", startedAt, System.currentTimeMillis(), attributes);
+        traceService.record(task.getTenantId(), traceId, null, null, task.getAgentId(),
+                task.getCreatedBy(), agent.getName(), "SUCCESS", "deterministic", 0, 0, latency, 0,
+                TraceService.TraceExtra.eval(null, item.getQuestion(), step.actual(),
+                        List.of("eval", stepType.toLowerCase(java.util.Locale.ROOT))), null, collector.steps());
+        EvalResult result = new EvalResult();
+        result.setTaskId(task.getId());
+        result.setDatasetItemId(item.getId());
+        result.setTraceId(traceId);
+        result.setMetricKey("step_" + stepType.toLowerCase(java.util.Locale.ROOT));
+        result.setStepType(stepType);
+        result.setStepPassed(step.passed() ? 1 : 0);
+        result.setStepDetails(step.details());
+        result.setAnswer(step.actual());
+        result.setScore(BigDecimal.valueOf(step.score()).setScale(4, RoundingMode.HALF_UP));
+        result.setPassed(step.passed() ? 1 : 0);
+        result.setJudgeReason("确定性步骤校验");
+        result.setLatencyMs(latency);
+        result.setTokens(0);
+        result.setTenantId(task.getTenantId());
+        result.setCreatedAt(LocalDateTime.now());
+        resultMapper.insert(result);
+    }
+
     /** 单样本：Agent 执行（发布配置+RAG）→ trace → LLM 裁判 → eval_result。 */
     @SuppressWarnings("unchecked")
     private void evalOne(EvalTask task, EvalDatasetItem item, double passThreshold) {
         long startedAt = System.currentTimeMillis();
         String traceId = UUID.randomUUID().toString().replace("-", "");
+        String stepType = item.getStepType() == null ? "ANSWER"
+                : item.getStepType().trim().toUpperCase(java.util.Locale.ROOT);
+        if (!"ANSWER".equals(stepType)) {
+            evalStep(task, item, stepType, traceId);
+            return;
+        }
 
         // 1) Agent 执行：预发布门禁评「编辑态配置」（即将发布的版本）；
         //    其他类型评「最新发布版本快照」+ 变量默认值 + RAG
@@ -900,5 +975,15 @@ public class EvalService {
 
     private String str(Object o) {
         return o == null ? null : String.valueOf(o);
+    }
+
+    private String jsonString(Object value) {
+        if (value == null) return null;
+        if (value instanceof String text) return text;
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return String.valueOf(value);
+        }
     }
 }
