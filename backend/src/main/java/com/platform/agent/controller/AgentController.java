@@ -103,6 +103,16 @@ public class AgentController {
     public record PublishRequest(Long gateDatasetId, Boolean force) {
     }
 
+    /** 发布失败后复用门禁缓存返回分步明细；不触发实际发布。 */
+    @PostMapping("/{id}/gate-preview")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('agent:publish')")
+    public ApiResponse<Map<String, Object>> gatePreview(@PathVariable Long id,
+                                                        @RequestBody(required = false) PublishRequest req,
+                                                        @AuthenticationPrincipal JwtPrincipal principal) {
+        Long datasetId = req == null ? null : req.gateDatasetId();
+        return ApiResponse.ok(evalService.preReleaseGate(id, datasetId, principal.userId()));
+    }
+
     @GetMapping("/{id}/versions")
     public ApiResponse<List<AgentVersion>> versions(@PathVariable Long id) {
         return ApiResponse.ok(agentService.versions(id));
