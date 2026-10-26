@@ -223,6 +223,33 @@
           {{ t('kbDetail.threshold') }} <el-input-number v-model="search.scoreThreshold" :min="0" :max="1" :step="0.05" size="small" />
           <el-button size="small" type="primary" :loading="searching" @click="doSearch">{{ t('kbDetail.search') }}</el-button>
         </div>
+        <div class="params meta-params">
+          <span class="hint">{{ t('kbDetail.metaFilters') }}</span>
+          <el-select v-model="search.documentType" size="small" clearable
+                     :placeholder="t('kbDetail.docType')" style="width: 130px">
+            <el-option :label="t('kbDetail.docTypeResearch')" value="research_paper" />
+            <el-option :label="t('kbDetail.docTypeRegulatory')" value="regulatory" />
+            <el-option :label="t('kbDetail.docTypeClinical')" value="clinical_trial" />
+            <el-option :label="t('kbDetail.docTypeGeneral')" value="general" />
+          </el-select>
+          <el-select v-model="search.sectionType" size="small" clearable
+                     :placeholder="t('kbDetail.sectionType')" style="width: 130px">
+            <el-option v-for="s in sectionOptions" :key="s" :label="s" :value="s" />
+          </el-select>
+          <el-select v-model="search.regulatoryCategory" size="small" clearable
+                     :placeholder="t('kbDetail.regulatoryCategory')" style="width: 130px">
+            <el-option label="FDA" value="FDA" />
+            <el-option label="EMA" value="EMA" />
+            <el-option label="ICH" value="ICH" />
+          </el-select>
+          <el-select v-model="search.chunkLevel" size="small" clearable
+                     :placeholder="t('kbDetail.chunkLevel')" style="width: 110px">
+            <el-option v-for="n in [1, 2, 3, 4]" :key="n" :label="String(n)" :value="n" />
+          </el-select>
+          {{ t('kbDetail.minRelevance') }}
+          <el-input-number v-model="search.minRelevance" :min="0" :max="1" :step="0.05"
+                           size="small" style="width: 110px" />
+        </div>
         <el-empty v-if="searched && results.length === 0" :description="t('kbDetail.noHits')" :image-size="60" />
         <div v-for="(r, i) in results" :key="i" class="hit">
           <div class="hit-head">
@@ -231,6 +258,24 @@
             <span class="pct">{{ (r.score * 100).toFixed(1) }}%</span>
           </div>
           <div class="hit-text">{{ r.content }}</div>
+          <div v-if="hitMeta(r).document_type || hitMeta(r).section_type || hitMeta(r).regulatory_category"
+               class="hit-meta">
+            <el-tag v-if="hitMeta(r).document_type" size="small" type="info">
+              {{ hitMeta(r).document_type }}
+            </el-tag>
+            <el-tag v-if="hitMeta(r).section_type" size="small">
+              {{ hitMeta(r).section_type }}
+            </el-tag>
+            <el-tag v-if="hitMeta(r).regulatory_category" size="small" type="warning">
+              {{ hitMeta(r).regulatory_category }}
+            </el-tag>
+            <el-tag v-if="hitMeta(r).chunk_level" size="small" type="success">
+              L{{ hitMeta(r).chunk_level }}
+            </el-tag>
+            <span v-if="hitMeta(r).relevance_score != null" class="hint">
+              relevance {{ hitMeta(r).relevance_score }}
+            </span>
+          </div>
           <div v-if="hitEffectiveTime(r)" class="hit-time">
             {{ t('kbDetail.effectiveAt') }}{{ hitEffectiveTime(r) }}
           </div>
@@ -491,7 +536,12 @@ const urlForm = reactive({ url: '', effectiveRange: null as Date[] | null })
 const searching = ref(false)
 const searched = ref(false)
 const results = ref<any[]>([])
-const search = reactive({ query: '', topK: 5, scoreThreshold: 0.5, mode: 'hybrid', range: null as Date[] | null })
+const sectionOptions = ['abstract', 'introduction', 'methods', 'results', 'discussion', 'conclusion', 'references', 'body']
+const search = reactive({
+  query: '', topK: 5, scoreThreshold: 0.5, mode: 'hybrid', range: null as Date[] | null,
+  documentType: '', sectionType: '', regulatoryCategory: '', chunkLevel: undefined as number | undefined,
+  minRelevance: undefined as number | undefined
+})
 const chunks = reactive<{ docId: number | null; docName: string; list: any[]; total: number }>({
   docId: null, docName: '', list: [], total: 0
 })
@@ -1156,6 +1206,14 @@ function hitEffectiveTime(r: any) {
   }
 }
 
+function hitMeta(hit: any): Record<string, any> {
+  try {
+    return hit?.metadata ? JSON.parse(String(hit.metadata)) : {}
+  } catch {
+    return {}
+  }
+}
+
 async function doSearch() {
   if (!search.query.trim()) return
   searching.value = true
@@ -1166,7 +1224,12 @@ async function doSearch() {
     const effectiveBefore = range?.[1] ? new Date(range[1]).toISOString() : undefined
     results.value = await http.post(`/knowledge-base/${kbId}/search`, {
       query: search.query, topK: search.topK, scoreThreshold: search.scoreThreshold,
-      mode: search.mode, effectiveAfter, effectiveBefore
+      mode: search.mode, effectiveAfter, effectiveBefore,
+      documentType: search.documentType || undefined,
+      sectionType: search.sectionType || undefined,
+      regulatoryCategory: search.regulatoryCategory || undefined,
+      chunkLevel: search.chunkLevel,
+      minRelevance: search.minRelevance
     }) as any
   } finally {
     searching.value = false
@@ -1273,6 +1336,8 @@ function statusText(s: string) {
 .validity-range { font-size: 11px; color: #a8abb2; margin-top: 2px; }
 .member-table { width: 100%; }
 .hint { color: #909399; font-size: 12px; margin-left: 8px; }
+.meta-params { margin-top: 6px; }
+.hit-meta { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
 .stale-parse { color: #f56c6c; margin-left: 0; }
 .perm-tip { color: #909399; font-size: 12px; line-height: 20px; padding-left: 90px; }
 
