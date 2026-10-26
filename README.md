@@ -66,8 +66,18 @@ scripts/docker-up.sh
 cp .env.docker.example .env.docker
 # 编辑 .env.docker：至少填写 DEEPSEEK_API_KEY
 docker compose --env-file .env.docker up -d --build
-docker compose --env-file .env.docker exec ollama ollama pull nomic-embed-text
+docker compose --env-file .env.docker exec ollama ollama pull bge-m3
 ```
+
+> 国内网络可在 `.env.docker` 设置 `MAVEN_MIRROR_URL=https://maven.aliyun.com/repository/public` 加速后端构建。
+>
+> 官方 `minio/minio` 镜像已停止匿名分发（Docker Hub 403）。若无法拉取，可先在本机启动 MinIO，然后使用：
+>
+> ```bash
+> docker compose --env-file .env.docker -f docker-compose.yml -f docker-compose.external-minio.yml up -d --build
+> ```
+>
+> 该模式使用宿主机 `host.docker.internal:9000` 的对象存储，其余服务仍由 Compose 启动。首次实跑记录见 `docs/Compose实跑验收.md`。
 
 启动后：
 
