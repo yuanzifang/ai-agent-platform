@@ -363,11 +363,11 @@ final class PdfTableExtractor {
     }
 
     /**
-     * 保守推断纵向合并：非数值列、最多合并 50 行；后续行该列为空且其他列有内容时合并。
+     * 保守推断纵向合并：非数值列、最多合并 200 行；后续行该列为空且其他列有内容时合并。
      * 复杂合并单元格仍需 PDF 网格线/边框分析，避免把大段空单元误判为 rowspan。
      */
     private static int[][] inferRowSpans(List<LogicalRow> rows, int headers) {
-        int maxSpan = 50;
+        int maxSpan = 200;
         int[][] spans = new int[rows.size()][];
         for (int r = 0; r < rows.size(); r++) {
             spans[r] = new int[rows.get(r).values.length];
@@ -749,7 +749,8 @@ final class PdfTableExtractor {
                     || table.lastY - table.firstY <= table.pageHeight * 0.85f;
         }
         if (emptyRatio > 0.40) return false;
-        if (rowSpans > 20) return false;
+        // 医学附录等长表可能整列跨几十行；行数足够多时不再按 20 个 rowspan 截断。
+        if (rowSpans > 20 && rows < 20) return false;
         if (emails >= 2) return false;
         return table.pageHeight <= 0
                 || table.lastY - table.firstY <= table.pageHeight * 0.78f;
