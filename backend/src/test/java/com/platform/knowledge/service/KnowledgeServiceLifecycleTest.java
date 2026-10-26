@@ -314,6 +314,25 @@ class KnowledgeServiceLifecycleTest {
     }
 
     @Test
+    void backfillsSourceHashForLegacyDocument() {
+        KnowledgeDocument doc = new KnowledgeDocument();
+        doc.setId(77L);
+        doc.setKnowledgeBaseId(1L);
+        doc.setObjectName("legacy-obj");
+        doc.setFileName("legacy.pdf");
+        doc.setStatus("DONE");
+        when(docMapper.selectList(any())).thenReturn(List.of(doc));
+        when(storage.get("legacy-obj")).thenReturn("legacy-bytes".getBytes(
+                java.nio.charset.StandardCharsets.UTF_8));
+
+        Map<String, Object> result = service.backfillSourceHashes(1L, 20, viewer);
+
+        assertEquals(1, result.get("updated"));
+        assertEquals(1, result.get("scanned"));
+        verify(docMapper).update(isNull(), any());
+    }
+
+    @Test
     void updateDocumentValiditySyncsDocumentAndVectorRows() {
         KnowledgeDocument doc = new KnowledgeDocument();
         doc.setId(55L);

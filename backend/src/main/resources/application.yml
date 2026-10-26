@@ -138,6 +138,8 @@ knowledge:
     dpi: ${KNOWLEDGE_OCR_DPI:150}
     # 页面/内嵌图片 OCR 并发数；本地 CPU 建议 1-2，远程/多核可 2-4
     concurrency: ${KNOWLEDGE_OCR_CONCURRENCY:1}
+    # 增强后有效字符少于此值时，再用原图跑一次并取更优结果
+    retry-raw-min-chars: ${KNOWLEDGE_OCR_RETRY_RAW_MIN_CHARS:10}
   vision:
     # 可选图片多模态理解（本地 Ollama 视觉模型）；默认关闭
     enabled: ${KNOWLEDGE_VISION_ENABLED:false}

@@ -104,6 +104,8 @@ public class DocumentParser {
     private int ocrMaxPages;
     @Value("${knowledge.ocr.concurrency:1}")
     private int ocrConcurrency = 1;
+    @Value("${knowledge.ocr.retry-raw-min-chars:10}")
+    private int ocrRetryRawMinChars = 10;
 
     /** 解析级覆盖（上传/知识库/租户/平台配置解析产物）；为空时回落上方 @Value 默认。 */
     private final ThreadLocal<ParseOptions> optsHolder = new ThreadLocal<>();
@@ -485,8 +487,19 @@ public class DocumentParser {
             }
             boolean enhanced = direct == null || ocrPreprocess || ocrAutoOrient || ocrDeskew;
             PdfMarkdownConverter.OcrResult result = ocrPageVariant(base, direct == null, true);
-            if (enhanced && result.text().isBlank() && result.tableHtml().isBlank()) {
-                result = ocrPageVariant(base, direct == null, false);
+            if (enhanced) {
+                int textLength = result.text() == null ? 0
+                        : result.text().replaceAll("\\s", "").length();
+                boolean lowQuality = textLength < Math.max(0, ocrRetryRawMinChars)
+                        && (result.tableHtml() == null || result.tableHtml().isBlank());
+                if (lowQuality) {
+                    PdfMarkdownConverter.OcrResult raw = ocrPageVariant(base, direct == null, false);
+                    int rawLength = raw.text() == null ? 0
+                            : raw.text().replaceAll("\\s", "").length();
+                    boolean betterTable = (result.tableHtml() == null || result.tableHtml().isBlank())
+                            && raw.tableHtml() != null && !raw.tableHtml().isBlank();
+                    if (rawLength > textLength || betterTable) result = raw;
+                }
             }
             return result;
         } finally {
