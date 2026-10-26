@@ -108,6 +108,8 @@ config:
   otelEndpoint: "http://otel-collector:4318"
   rateLimitPerMinute: "60"
   skillScriptEnabled: "false"
+  # 容器沙箱需后端容器挂载 /var/run/docker.sock 并安装 docker CLI，未挂载前保持 process
+  skillScriptRuntime: "process"
   asrEnabled: "false"
   asrEndpoint: ""
   smtpHost: ""
