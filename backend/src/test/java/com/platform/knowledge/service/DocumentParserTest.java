@@ -311,6 +311,45 @@ class DocumentParserTest {
     }
 
     @Test
+    void doesNotTreatPrismaFlowAsTable() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 11);
+                String[][] rows = {
+                        {"Identification", "Records identified", "1250"},
+                        {"Screening", "Records screened", "980"},
+                        {"Screening", "Records excluded", "270"},
+                        {"Eligibility", "Full-text assessed", "120"},
+                        {"Eligibility", "Full-text excluded", "80"},
+                        {"Included", "Studies included", "40"},
+                        {"Included", "Participants", "12500"}
+                };
+                float y = 780;
+                for (String[] row : rows) {
+                    float[] xs = {50, 230, 440};
+                    for (int col = 0; col < row.length; col++) {
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 70;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+
+        String text = String.join("\n", parser.parse("prisma-flow.pdf", pdf));
+
+        assertFalse(text.contains("<table"), "PRISMA 流程图不应输出表格，实际=" + text);
+        assertFalse(text.contains("| Identification |"), "流程图不应输出 Markdown 表，实际=" + text);
+    }
+
+    @Test
     void parsesXlsx() throws Exception {
         byte[] bytes;
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {

@@ -789,6 +789,8 @@ final class PdfTableExtractor {
                 if (value != null && value.trim().matches("[-+]?\\d+([.,]\\d+)?%?")) numericCells++;
             }
         }
+        // PRISMA 等流程图常被文本坐标识别成 3–4 列表格；有标题的真表格不走该规则。
+        if (maxColumns <= 4 && looksLikeFlowchart(table)) return false;
         // 无标题、少列、纯文本的长表更像签名名单/流程图，而不是数据表。
         if (rows >= 8 && maxColumns <= 3 && numericCells == 0) return false;
         if (maxColumns > 30) return false;
@@ -818,6 +820,24 @@ final class PdfTableExtractor {
         if (emails >= 2) return false;
         return table.pageHeight <= 0
                 || table.lastY - table.firstY <= table.pageHeight * 0.78f;
+    }
+
+    private static boolean looksLikeFlowchart(Table table) {
+        StringBuilder all = new StringBuilder();
+        for (LogicalRow row : table.rows) {
+            for (String value : row.values) {
+                if (value == null || value.isBlank()) continue;
+                if (!all.isEmpty()) all.append(' ');
+                all.append(value);
+            }
+        }
+        String text = all.toString().toLowerCase(java.util.Locale.ROOT);
+        int hits = 0;
+        for (String signal : new String[]{"identification", "screening", "eligibility",
+                "records identified", "records screened", "full-text", "included", "excluded"}) {
+            if (text.contains(signal)) hits++;
+        }
+        return hits >= 3;
     }
 
     private static int count(String text, String value) {
