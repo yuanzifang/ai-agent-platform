@@ -1550,15 +1550,20 @@ public class DocumentParser {
         pb.environment().put("PATH", System.getenv().getOrDefault("PATH",
                 "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"));
         Process process = pb.start();
-        String output;
-        try (var in = process.getInputStream()) {
-            output = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
-        try (var in = process.getErrorStream()) {
-            in.readAllBytes();
-        }
+        // 同 runOcr：流消费与进程等待必须并行，否则 OSD 进程 hang 时 30s 超时失效
+        var outputFuture = java.util.concurrent.CompletableFuture.supplyAsync(
+                () -> drainStream(process.getInputStream()));
+        var errFuture = java.util.concurrent.CompletableFuture.supplyAsync(
+                () -> drainStream(process.getErrorStream()));
         if (!process.waitFor(30, TimeUnit.SECONDS)) {
             process.destroyForcibly();
+            return 0;
+        }
+        String output;
+        try {
+            output = outputFuture.get(5, TimeUnit.SECONDS);
+            errFuture.get(5, TimeUnit.SECONDS);
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
             return 0;
         }
         java.util.regex.Matcher matcher =
@@ -1625,23 +1630,40 @@ public class DocumentParser {
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.environment().put("PATH", System.getenv().getOrDefault("PATH", "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"));
         Process process = pb.start();
-        String output;
-        try (var in = process.getInputStream()) {
-            output = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
-        String err;
-        try (var in = process.getErrorStream()) {
-            err = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        // 流必须在等待进程结束的同时由后台线程消费：同步 readAllBytes 会阻塞到进程关闭流，
+        // 进程 hang 时下方 waitFor 超时永远走不到；而先 wait 后读又会因 TSV 输出超管道缓冲反向死锁。
+        var outputFuture = java.util.concurrent.CompletableFuture.supplyAsync(
+                () -> drainStream(process.getInputStream()));
+        var errFuture = java.util.concurrent.CompletableFuture.supplyAsync(
+                () -> drainStream(process.getErrorStream()));
         if (!process.waitFor(60, TimeUnit.SECONDS)) {
             process.destroyForcibly();
             throw new BusinessException(504, "OCR 超时（60s）");
+        }
+        String output;
+        String err;
+        try {
+            output = outputFuture.get(5, TimeUnit.SECONDS);
+            err = errFuture.get(5, TimeUnit.SECONDS);
+        } catch (java.util.concurrent.ExecutionException e) {
+            throw new BusinessException(500, "OCR 输出读取失败：" + e.getCause().getMessage());
+        } catch (java.util.concurrent.TimeoutException e) {
+            throw new BusinessException(500, "OCR 输出读取超时");
         }
         if (process.exitValue() != 0) {
             throw new BusinessException(422, "OCR 失败（exit " + process.exitValue() + "）："
                     + (err.isBlank() ? "请确认已安装 tesseract" : err.substring(0, Math.min(err.length(), 200))));
         }
         return output.trim();
+    }
+
+    /** 消费子进程输出流为字符串；流随进程终止必然 EOF，读失败按空处理不放大故障。 */
+    private String drainStream(java.io.InputStream in) {
+        try (var stream = in) {
+            return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private void deleteRecursively(File file) {
