@@ -360,6 +360,23 @@ final class PdfTableExtractor {
         return remapped;
     }
 
+    /** 表头名称交集至少 2 个，用于列新增 + 换序同时出现；具体映射交给 mergeByHeaderName。 */
+    private static boolean compatibleHeaderNames(Table previous, Table current) {
+        if (previous.rows.isEmpty() || current.rows.isEmpty()) return false;
+        java.util.Set<String> left = new java.util.LinkedHashSet<>();
+        for (String value : previous.rows.get(0).values) {
+            if (value != null && !value.isBlank()) {
+                left.add(value.trim().toLowerCase(java.util.Locale.ROOT));
+            }
+        }
+        int common = 0;
+        for (String value : current.rows.get(0).values) {
+            if (value != null && !value.isBlank()
+                    && left.contains(value.trim().toLowerCase(java.util.Locale.ROOT))) common++;
+        }
+        return common >= 2;
+    }
+
     private static boolean compatibleHeader(Table previous, Table current) {
         if (previous.rows.isEmpty() || current.rows.isEmpty()) return false;
         LogicalRow left = previous.rows.get(0);

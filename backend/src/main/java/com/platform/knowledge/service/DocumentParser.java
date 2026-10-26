@@ -98,7 +98,7 @@ import java.util.zip.ZipInputStream;
 public class DocumentParser {
 
     /** 解析器版本：解析行为/结构化输出变化时递增，用于存量升级和复用判断。 */
-    public static final String PARSER_VERSION = "2026-10-26.9";
+    public static final String PARSER_VERSION = "2026-10-26.10";
 
     private static final long MAX_BYTES = 20 * 1024 * 1024;
 
