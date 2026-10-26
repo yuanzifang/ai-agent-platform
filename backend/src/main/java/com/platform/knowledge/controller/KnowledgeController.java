@@ -145,6 +145,14 @@ public class KnowledgeController {
                 req.parseConfig(), req.effectiveFrom(), req.effectiveTo(), viewer(principal)));
     }
 
+    /** 批量重试本知识库失败文档（受单文档重试上限约束）。 */
+    @PostMapping("/{id}/documents/retry-failed")
+    public ApiResponse<Map<String, Object>> retryFailed(@PathVariable Long id,
+                                                        @RequestParam(defaultValue = "20") int limit,
+                                                        @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(knowledgeService.retryFailedDocuments(id, limit, viewer(principal)));
+    }
+
     /** 手动回收本知识库超时 PARSING 的文档（默认 6 小时）。 */
     @PostMapping("/{id}/documents/recover-stale")
     public ApiResponse<Map<String, Object>> recoverStale(@PathVariable Long id,

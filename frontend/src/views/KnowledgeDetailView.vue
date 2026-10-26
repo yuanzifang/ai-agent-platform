@@ -96,12 +96,20 @@
                      :loading="recoveringStale" @click="recoverStale">
             {{ t('kbDetail.recoverStale') }}
           </el-button>
+          <el-button v-if="detail.canEdit && failedDocCount > 0" size="small" text type="primary"
+                     :loading="failedRetrying" @click="retryFailedDocs">
+            {{ t('kbDetail.retryFailed') }}（{{ failedDocCount }}）
+          </el-button>
         </div>
         <el-table :data="visibleDocuments" size="small" @row-click="toggleChunks">
           <el-table-column prop="fileName" :label="t('kbDetail.fileName')" min-width="180" />
-          <el-table-column :label="t('kbDetail.status')" width="100">
+          <el-table-column :label="t('kbDetail.status')" width="120">
             <template #default="{ row }">
               <el-tag size="small" :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag>
+              <div v-if="row.status === 'PARSING' && parseAgeMinutes(row) !== null"
+                   class="hint" :class="{ 'stale-parse': parseIsStale(row) }">
+                {{ parseAgeText(row) }}
+              </div>
             </template>
           </el-table-column>
           <el-table-column prop="chunkCount" :label="t('kbDetail.chunks')" width="70" />
@@ -420,6 +428,8 @@ const validOnly = ref(false)
 const validityRebuilding = ref(false)
 const legacyReparsing = ref(false)
 const recoveringStale = ref(false)
+const failedRetrying = ref(false)
+const failedDocCount = computed(() => documents.value.filter((d: any) => d.status === 'FAILED').length)
 const uploadTasks = ref<any[]>([])
 let uploadSeq = 0
 const visibleDocuments = computed(() => validOnly.value
@@ -665,10 +675,43 @@ async function recoverStale() {
   recoveringStale.value = true
   try {
     const data = await http.post(`/knowledge-base/${kbId}/documents/recover-stale`) as any
-    ElMessage.success(t('kbDetail.recoverStaleDone', { count: data?.recovered || 0 }))
+    ElMessage.success(`${t('kbDetail.recoverStaleDone')} (${data?.recovered || 0})`)
     await loadDocs()
   } finally {
     recoveringStale.value = false
+  }
+}
+
+function parseAgeMinutes(row: any): number | null {
+  if (!row?.parseStartedAt) return null
+  const started = new Date(row.parseStartedAt).getTime()
+  if (!Number.isFinite(started)) return null
+  return Math.max(0, Math.floor((Date.now() - started) / 60000))
+}
+
+function parseIsStale(row: any): boolean {
+  const minutes = parseAgeMinutes(row)
+  return minutes !== null && minutes >= 360
+}
+
+function parseAgeText(row: any): string {
+  const minutes = parseAgeMinutes(row)
+  if (minutes === null) return ''
+  return minutes >= 360
+    ? t('kbDetail.parseStale')
+    : `${t('kbDetail.parsingForPrefix')}${minutes}${t('kbDetail.parsingForSuffix')}`
+}
+
+async function retryFailedDocs() {
+  failedRetrying.value = true
+  try {
+    const data = await http.post(`/knowledge-base/${kbId}/documents/retry-failed`, null,
+      { params: { limit: 20 } }) as any
+    ElMessage.success(`${t('kbDetail.retryFailedSubmitted')} (${data?.triggered || 0}/${data?.scanned || 0})`)
+    await loadDocs()
+    pollDocs()
+  } finally {
+    failedRetrying.value = false
   }
 }
 
@@ -1110,6 +1153,7 @@ function statusText(s: string) {
 .validity-range { font-size: 11px; color: #a8abb2; margin-top: 2px; }
 .member-table { width: 100%; }
 .hint { color: #909399; font-size: 12px; margin-left: 8px; }
+.stale-parse { color: #f56c6c; margin-left: 0; }
 .perm-tip { color: #909399; font-size: 12px; line-height: 20px; padding-left: 90px; }
 
 @media (max-width: 768px) {
