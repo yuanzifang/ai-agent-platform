@@ -91,6 +91,26 @@ class KnowledgeUpgradeServiceTest {
     }
 
     @Test
+    void pausesAndResumesJob() {
+        KnowledgeUpgradeJob job = new KnowledgeUpgradeJob();
+        job.setId(5L);
+        job.setKnowledgeBaseId(1L);
+        job.setStatus("RUNNING");
+        job.setTotalDocuments(2);
+        when(jobMapper.selectById(5L)).thenReturn(job);
+        when(jobMapper.update(isNull(), any())).thenReturn(1);
+        when(docMapper.selectCount(any())).thenReturn(2L, 0L, 0L, 0L, 2L, 0L, 0L, 0L);
+
+        Map<String, Object> paused = service.pause(1L, 5L, viewer);
+        assertEquals("PAUSED", paused.get("status"));
+
+        job.setStatus("PAUSED");
+        Map<String, Object> resumed = service.resume(1L, 5L, viewer);
+        assertEquals("RUNNING", resumed.get("status"));
+        verify(permissionService, org.mockito.Mockito.atLeast(2)).requireEdit(1L, viewer);
+    }
+
+    @Test
     void workerSubmitsPendingDocument() {
         KnowledgeUpgradeJob job = new KnowledgeUpgradeJob();
         job.setId(5L);

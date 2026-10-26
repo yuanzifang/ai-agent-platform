@@ -43,7 +43,7 @@ public class KnowledgeUpgradeService {
         KnowledgeUpgradeJob active = jobMapper.selectOne(
                 new LambdaQueryWrapper<KnowledgeUpgradeJob>()
                         .eq(KnowledgeUpgradeJob::getKnowledgeBaseId, kbId)
-                        .eq(KnowledgeUpgradeJob::getStatus, "RUNNING")
+                        .in(KnowledgeUpgradeJob::getStatus, List.of("RUNNING", "PAUSED"))
                         .orderByDesc(KnowledgeUpgradeJob::getCreatedAt)
                         .last("LIMIT 1"));
         if (active != null) return view(active);
@@ -100,6 +100,37 @@ public class KnowledgeUpgradeService {
         return view(job);
     }
 
+    /** 暂停运行中的任务：已提交文档继续解析，不再提交新的待升级文档。 */
+    public Map<String, Object> pause(Long kbId, Long jobId,
+                                     KnowledgePermissionService.Viewer viewer) {
+        return transition(kbId, jobId, viewer, "PAUSED", "RUNNING", "仅运行中的升级任务可暂停");
+    }
+
+    /** 继续已暂停的任务。 */
+    public Map<String, Object> resume(Long kbId, Long jobId,
+                                      KnowledgePermissionService.Viewer viewer) {
+        return transition(kbId, jobId, viewer, "RUNNING", "PAUSED", "仅暂停中的升级任务可继续");
+    }
+
+    private Map<String, Object> transition(Long kbId, Long jobId,
+                                           KnowledgePermissionService.Viewer viewer,
+                                           String target, String expected, String error) {
+        permissionService.requireEdit(kbId, viewer);
+        KnowledgeUpgradeJob job = jobMapper.selectById(jobId);
+        if (job == null || !kbId.equals(job.getKnowledgeBaseId())) {
+            throw new BusinessException(404, "升级任务不存在");
+        }
+        if (!expected.equals(job.getStatus())) throw new BusinessException(400, error);
+        jobMapper.update(null, new LambdaUpdateWrapper<KnowledgeUpgradeJob>()
+                .eq(KnowledgeUpgradeJob::getId, jobId)
+                .eq(KnowledgeUpgradeJob::getStatus, expected)
+                .set(KnowledgeUpgradeJob::getStatus, target)
+                .set(KnowledgeUpgradeJob::getUpdatedAt, LocalDateTime.now()));
+        job.setStatus(target);
+        log.info("存量升级任务状态变更：kb={} job={} -> {}", kbId, jobId, target);
+        return view(job);
+    }
+
     /** 取消运行中的任务；已提交给解析器的文档不会强行中断。 */
     public Map<String, Object> cancel(Long kbId, Long jobId,
                                       KnowledgePermissionService.Viewer viewer) {
@@ -108,12 +139,12 @@ public class KnowledgeUpgradeService {
         if (job == null || !kbId.equals(job.getKnowledgeBaseId())) {
             throw new BusinessException(404, "升级任务不存在");
         }
-        if (!"RUNNING".equals(job.getStatus())) {
-            throw new BusinessException(400, "仅运行中的升级任务可取消");
+        if (!"RUNNING".equals(job.getStatus()) && !"PAUSED".equals(job.getStatus())) {
+            throw new BusinessException(400, "仅运行中/暂停中的升级任务可取消");
         }
         jobMapper.update(null, new LambdaUpdateWrapper<KnowledgeUpgradeJob>()
                 .eq(KnowledgeUpgradeJob::getId, jobId)
-                .eq(KnowledgeUpgradeJob::getStatus, "RUNNING")
+                .eq(KnowledgeUpgradeJob::getStatus, job.getStatus())
                 .set(KnowledgeUpgradeJob::getStatus, "CANCELLED")
                 .set(KnowledgeUpgradeJob::getUpdatedAt, LocalDateTime.now()));
         job.setStatus("CANCELLED");

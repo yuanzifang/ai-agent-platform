@@ -243,6 +243,24 @@ public class KnowledgeController {
         return ApiResponse.ok(upgradeService.latest(id, viewer(principal)));
     }
 
+    /** 暂停存量升级任务。 */
+    @PostMapping("/{id}/documents/upgrade-jobs/{jobId}/pause")
+    public ApiResponse<Map<String, Object>> pauseUpgradeJob(
+            @PathVariable Long id,
+            @PathVariable Long jobId,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(upgradeService.pause(id, jobId, viewer(principal)));
+    }
+
+    /** 继续已暂停的存量升级任务。 */
+    @PostMapping("/{id}/documents/upgrade-jobs/{jobId}/resume")
+    public ApiResponse<Map<String, Object>> resumeUpgradeJob(
+            @PathVariable Long id,
+            @PathVariable Long jobId,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(upgradeService.resume(id, jobId, viewer(principal)));
+    }
+
     /** 取消运行中的存量升级任务。 */
     @PostMapping("/{id}/documents/upgrade-jobs/{jobId}/cancel")
     public ApiResponse<Map<String, Object>> cancelUpgradeJob(

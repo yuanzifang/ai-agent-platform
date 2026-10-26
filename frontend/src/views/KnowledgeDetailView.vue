@@ -88,13 +88,17 @@
                      :loading="validityRebuilding" @click="rebuildValidity">
             {{ t('kbDetail.rebuildValidity') }}
           </el-button>
-          <el-button v-if="detail.canEdit && (legacyDocCount > 0 || upgradeJob?.status === 'RUNNING')"
-                     size="small" text type="primary" :disabled="upgradeJob?.status === 'RUNNING'"
+          <el-button v-if="detail.canEdit && (legacyDocCount > 0
+              || upgradeJob?.status === 'RUNNING' || upgradeJob?.status === 'PAUSED')"
+                     size="small" text type="primary"
+                     :disabled="upgradeJob?.status === 'RUNNING' || upgradeJob?.status === 'PAUSED'"
                      :loading="legacyReparsing" @click="reparseLegacy">
             {{ upgradeJob?.status === 'RUNNING'
               ? tf('kbDetail.upgradeRunning', { submitted: upgradeJob.submittedDocuments,
                   total: upgradeJob.totalDocuments })
-              : t('kbDetail.reparseLegacy') + '（' + legacyDocCount + '）' }}
+              : upgradeJob?.status === 'PAUSED'
+                ? t('kbDetail.upgradePaused')
+                : t('kbDetail.reparseLegacy') + '（' + legacyDocCount + '）' }}
           </el-button>
           <span v-if="upgradeJob?.status === 'RUNNING'" class="hint">
             {{ tf('kbDetail.upgradeProgress', { succeeded: upgradeJob.succeededDocuments,
@@ -103,10 +107,18 @@
           <span v-else-if="upgradeJob?.status === 'FAILED'" class="hint stale-parse">
             {{ t('kbDetail.upgradeFailed') }}（{{ upgradeJob.failedDocuments }}）
           </span>
+          <span v-else-if="upgradeJob?.status === 'PAUSED'" class="hint">
+            {{ t('kbDetail.upgradePausedHint') }}
+          </span>
           <span v-else-if="upgradeJob?.status === 'CANCELLED'" class="hint">
             {{ t('kbDetail.upgradeCancelled') }}
           </span>
-          <el-button v-if="upgradeJob?.status === 'RUNNING'" size="small" text type="danger"
+          <el-button v-if="upgradeJob?.status === 'RUNNING'" size="small" text type="warning"
+                     @click="pauseUpgrade">{{ t('kbDetail.upgradePause') }}</el-button>
+          <el-button v-if="upgradeJob?.status === 'PAUSED'" size="small" text type="primary"
+                     @click="resumeUpgrade">{{ t('kbDetail.upgradeResume') }}</el-button>
+          <el-button v-if="upgradeJob?.status === 'RUNNING' || upgradeJob?.status === 'PAUSED'"
+                     size="small" text type="danger"
                      @click="cancelUpgrade">{{ t('kbDetail.upgradeCancel') }}</el-button>
           <el-button v-if="detail.canEdit" size="small" text type="warning"
                      :loading="recoveringStale" @click="recoverStale">
@@ -721,6 +733,27 @@ function pollUpgrade() {
       if (data?.status === 'RUNNING') pollUpgrade()
     } catch { /* 轮询失败下一轮页面刷新会恢复 */ }
   }, 3000)
+}
+
+async function pauseUpgrade() {
+  if (!upgradeJob.value?.jobId) return
+  upgradeJob.value = await http.post(
+    `/knowledge-base/${kbId}/documents/upgrade-jobs/${upgradeJob.value.jobId}/pause`) as any
+  if (upgradeTimer) {
+    clearTimeout(upgradeTimer)
+    upgradeTimer = null
+  }
+  ElMessage.success(t('kbDetail.upgradePausedMsg'))
+  await loadDocs()
+}
+
+async function resumeUpgrade() {
+  if (!upgradeJob.value?.jobId) return
+  upgradeJob.value = await http.post(
+    `/knowledge-base/${kbId}/documents/upgrade-jobs/${upgradeJob.value.jobId}/resume`) as any
+  ElMessage.success(t('kbDetail.upgradeResumedMsg'))
+  await loadDocs()
+  pollUpgrade()
 }
 
 async function cancelUpgrade() {
