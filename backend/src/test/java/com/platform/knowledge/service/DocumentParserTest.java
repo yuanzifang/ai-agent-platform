@@ -475,6 +475,61 @@ class DocumentParserTest {
     }
 
     @Test
+    void parsesPdfFourLevelRectangleHeader() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setLineWidth(1f);
+                float[][] cells = {
+                        {50, 540, 100, 160}, {150, 660, 400, 40},
+                        {150, 620, 200, 40}, {350, 620, 200, 40},
+                        {150, 580, 200, 40}, {350, 580, 200, 40},
+                        {150, 540, 100, 40}, {250, 540, 100, 40},
+                        {350, 540, 100, 40}, {450, 540, 100, 40},
+                        {50, 500, 100, 40}, {150, 500, 100, 40},
+                        {250, 500, 100, 40}, {350, 500, 100, 40}, {450, 500, 100, 40}
+                };
+                for (float[] cell : cells) {
+                    content.addRect(cell[0], cell[1], cell[2], cell[3]);
+                    content.stroke();
+                }
+
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 10);
+                String[][] rows = {
+                        {"Product", "Sales", "", "", ""},
+                        {"", "2023", "", "2024", ""},
+                        {"", "H1", "", "H2", ""},
+                        {"", "Q1", "Q2", "Q3", "Q4"},
+                        {"Water", "10", "20", "30", "40"}
+                };
+                float[] xs = {60, 160, 260, 360, 460};
+                float y = 670;
+                for (String[] row : rows) {
+                    for (int col = 0; col < row.length; col++) {
+                        if (row[col].isEmpty()) continue;
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 40;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("four-level-rect.pdf", pdf));
+        assertTrue(text.contains("<thead>"), "矩形四层表头应使用 thead，实际=" + text);
+        assertTrue(text.contains("<th rowspan=\"4\">Product"), "首列应跨四行，实际=" + text);
+        assertTrue(text.contains("<th colspan=\"4\">Sales"), "销售分组应跨四列，实际=" + text);
+        assertTrue(text.contains("<th colspan=\"2\">2023") && text.contains("<th>Q1"),
+                "年份和季度表头应保留，实际=" + text);
+        assertTrue(text.contains("<td>Water"), "数据行不应并入表头，实际=" + text);
+    }
+
+    @Test
     void parsesPdfFourLevelLineHeader() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
