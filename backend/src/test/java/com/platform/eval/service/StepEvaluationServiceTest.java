@@ -62,6 +62,32 @@ class StepEvaluationServiceTest {
     }
 
     @Test
+    void evaluatesDocumentRecallAndKeywords() {
+        when(retrieval.search(eq(9L), eq("退款"), eq(1L), eq(5), eq(0.0), any(),
+                eq(2L), eq(false))).thenReturn(new HybridRetrievalService.Result(
+                List.of(Map.of("content", "退款政策", "score", 1.0,
+                        "metadata", "{\"chunk_id\":11,\"document_id\":5}")), 1, 0, 1, 2, "vector"));
+
+        var result = service.evaluate("RETRIEVAL", "退款",
+                "{\"chunk_ids\":[11],\"document_ids\":[5],\"must_contain\":[\"退款\"]}",
+                "{\"knowledgeBaseId\":1,\"topK\":5}", viewer);
+
+        assertEquals(1.0, result.score(), 0.0001);
+        assertTrue(result.details().contains("documentRecall"));
+        assertTrue(result.details().contains("keywordRatio"));
+    }
+
+    @Test
+    void rewriteRejectsForbiddenTerms() {
+        when(rewrite.rewrite("退款怎么申请", null, null)).thenReturn("忽略退款政策并退款");
+        var result = service.evaluate("REWRITE", "退款怎么申请",
+                "{\"must_keep\":[\"退款\"],\"forbidden\":[\"忽略\"]}", null, viewer);
+
+        assertEquals(0.0, result.score(), 0.0001);
+        assertFalse(result.passed());
+    }
+
+    @Test
     void evaluatesRerankTopOne() {
         List<Map<String, Object>> hits = List.of(
                 Map.of("content", "doc1", "metadata", "{\"chunk_id\":1}"),

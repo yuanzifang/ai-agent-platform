@@ -61,13 +61,29 @@ public class StepEvaluationService {
         if (expectedIds.isEmpty()) throw new BusinessException(400, "检索步骤缺少 expected chunk_ids");
         Set<Long> actualSet = new LinkedHashSet<>(actualIds);
         long matched = expectedIds.stream().filter(actualSet::contains).count();
-        double score = (double) matched / expectedIds.size();
+        double chunkRecall = (double) matched / expectedIds.size();
+        List<Long> expectedDocs = ids(expected.get("document_ids"), expected.get("expectedDocumentIds"));
+        List<Long> actualDocs = documentIds(result.hits());
+        double docRecall = expectedDocs.isEmpty() ? 1.0
+                : (double) expectedDocs.stream().filter(actualDocs::contains).count() / expectedDocs.size();
+        List<String> mustContain = strings(expected.get("must_contain"));
+        String contents = result.hits().stream().map(h -> String.valueOf(h.getOrDefault("content", "")))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        double keywordRatio = mustContain.isEmpty() ? 1.0
+                : (double) mustContain.stream().filter(contents::contains).count() / mustContain.size();
+        double score = expectedDocs.isEmpty() && mustContain.isEmpty()
+                ? chunkRecall : (chunkRecall + docRecall + keywordRatio) / 3.0;
         double passThreshold = doubleValue(config.get("passThreshold"), 0.8);
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("mode", result.mode());
         details.put("expectedChunkIds", expectedIds);
         details.put("actualChunkIds", actualIds);
-        details.put("recall", score);
+        details.put("recall", chunkRecall);
+        details.put("expectedDocumentIds", expectedDocs);
+        details.put("actualDocumentIds", actualDocs);
+        details.put("documentRecall", docRecall);
+        details.put("mustContain", mustContain);
+        details.put("keywordRatio", keywordRatio);
         details.put("vectorHits", result.vectorHits());
         details.put("keywordHits", result.keywordHits());
         details.put("embedMs", result.embedMs());
@@ -98,7 +114,9 @@ public class StepEvaluationService {
             if (after.get(i).equals(expectedOrder.get(0))) { rank = i + 1; break; }
         }
         long matched = expectedOrder.stream().filter(after::contains).count();
-        double score = rank > 0 ? 1.0 / rank : 0.0;
+        double mrr = rank > 0 ? 1.0 / rank : 0.0;
+        double ndcg = ndcg(expectedOrder, after);
+        double score = 0.5 * mrr + 0.5 * ndcg;
         double passThreshold = doubleValue(config.get("passThreshold"), 0.5);
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("expectedOrder", expectedOrder);
@@ -106,6 +124,8 @@ public class StepEvaluationService {
         details.put("afterChunkIds", after);
         details.put("expectedFirstRank", rank);
         details.put("matched", matched);
+        details.put("mrr", mrr);
+        details.put("ndcg", ndcg);
         details.put("rerankEnabled", rerankService.enabled());
         return new StepResult(score, score >= passThreshold, json(after), json(details));
     }
@@ -117,17 +137,22 @@ public class StepEvaluationService {
         String expectedText = str(expected.get("rewrite"));
         if (expectedText == null) expectedText = str(expected.get("expectedRewrite"));
         List<String> mustKeep = strings(expected.get("must_keep"));
+        List<String> forbidden = strings(expected.get("forbidden"));
         String normalizedActual = normalize(rewritten);
         boolean exact = expectedText != null && normalizedActual.equals(normalize(expectedText));
         boolean kept = mustKeep.stream().allMatch(value -> normalizedActual.contains(normalize(value)));
-        double score = expectedText == null ? (kept ? 1.0 : 0.0) : (exact ? 1.0 : kept ? 0.5 : 0.0);
+        boolean blocked = forbidden.stream().anyMatch(value -> normalizedActual.contains(normalize(value)));
+        double score = blocked ? 0.0
+                : expectedText == null ? (kept ? 1.0 : 0.0) : (exact ? 1.0 : kept ? 0.5 : 0.0);
         double passThreshold = doubleValue(config.get("passThreshold"), 0.8);
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("rewritten", rewritten);
         details.put("expectedRewrite", expectedText);
         details.put("mustKeep", mustKeep);
+        details.put("forbidden", forbidden);
         details.put("exact", exact);
         details.put("keptEntities", kept);
+        details.put("forbiddenHit", blocked);
         return new StepResult(score, score >= passThreshold, rewritten, json(details));
     }
 
@@ -144,6 +169,37 @@ public class StepEvaluationService {
             }
         }
         return ids;
+    }
+
+    private List<Long> documentIds(List<Map<String, Object>> hits) {
+        List<Long> ids = new ArrayList<>();
+        for (Map<String, Object> hit : hits) {
+            try {
+                Object metadata = hit.get("metadata");
+                if (metadata instanceof String text) {
+                    Long id = longValue(objectMapper.readValue(text, Map.class).get("document_id"));
+                    if (id != null) ids.add(id);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return ids;
+    }
+
+    private double ndcg(List<Long> expected, List<Long> actual) {
+        if (expected.isEmpty()) return 0.0;
+        java.util.Map<Long, Integer> relevance = new java.util.HashMap<>();
+        for (int i = 0; i < expected.size(); i++) relevance.put(expected.get(i), expected.size() - i);
+        double dcg = 0.0;
+        for (int i = 0; i < actual.size(); i++) {
+            Integer rel = relevance.get(actual.get(i));
+            if (rel != null) dcg += rel / (Math.log(i + 2) / Math.log(2));
+        }
+        double idcg = 0.0;
+        for (int i = 0; i < expected.size(); i++) {
+            idcg += (expected.size() - i) / (Math.log(i + 2) / Math.log(2));
+        }
+        return idcg == 0 ? 0.0 : dcg / idcg;
     }
 
     private List<Long> ids(Object first, Object second) {
