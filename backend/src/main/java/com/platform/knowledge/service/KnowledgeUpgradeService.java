@@ -97,6 +97,27 @@ public class KnowledgeUpgradeService {
         return view(job);
     }
 
+    /** 取消运行中的任务；已提交给解析器的文档不会强行中断。 */
+    public Map<String, Object> cancel(Long kbId, Long jobId,
+                                      KnowledgePermissionService.Viewer viewer) {
+        permissionService.requireEdit(kbId, viewer);
+        KnowledgeUpgradeJob job = jobMapper.selectById(jobId);
+        if (job == null || !kbId.equals(job.getKnowledgeBaseId())) {
+            throw new BusinessException(404, "升级任务不存在");
+        }
+        if (!"RUNNING".equals(job.getStatus())) {
+            throw new BusinessException(400, "仅运行中的升级任务可取消");
+        }
+        jobMapper.update(null, new LambdaUpdateWrapper<KnowledgeUpgradeJob>()
+                .eq(KnowledgeUpgradeJob::getId, jobId)
+                .eq(KnowledgeUpgradeJob::getStatus, "RUNNING")
+                .set(KnowledgeUpgradeJob::getStatus, "CANCELLED")
+                .set(KnowledgeUpgradeJob::getUpdatedAt, LocalDateTime.now()));
+        job.setStatus("CANCELLED");
+        log.info("取消存量升级任务：kb={} job={}", kbId, jobId);
+        return view(job);
+    }
+
     /** 定时任务调用：当前租户下推进若干任务。 */
     public int processTenant(int batch) {
         int max = Math.max(1, Math.min(batch, 50));
@@ -201,7 +222,8 @@ public class KnowledgeUpgradeService {
         docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
                 .eq(KnowledgeDocument::getId, documentId)
                 .eq(KnowledgeDocument::getUpgradeJobId, jobId)
-                .set(KnowledgeDocument::getUpgradeStatus, "FAILED"));
+                .set(KnowledgeDocument::getUpgradeStatus, "FAILED")
+                .set(KnowledgeDocument::getErrorMessage, error));
     }
 
     private Map<String, Object> view(KnowledgeUpgradeJob job) {

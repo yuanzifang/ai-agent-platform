@@ -74,6 +74,23 @@ class KnowledgeUpgradeServiceTest {
     }
 
     @Test
+    void cancelsRunningJob() {
+        KnowledgeUpgradeJob job = new KnowledgeUpgradeJob();
+        job.setId(5L);
+        job.setKnowledgeBaseId(1L);
+        job.setStatus("RUNNING");
+        job.setTotalDocuments(2);
+        when(jobMapper.selectById(5L)).thenReturn(job);
+        when(jobMapper.update(isNull(), any())).thenReturn(1);
+        when(docMapper.selectCount(any())).thenReturn(0L);
+
+        Map<String, Object> result = service.cancel(1L, 5L, viewer);
+
+        assertEquals("CANCELLED", result.get("status"));
+        verify(permissionService).requireEdit(1L, viewer);
+    }
+
+    @Test
     void workerSubmitsPendingDocument() {
         KnowledgeUpgradeJob job = new KnowledgeUpgradeJob();
         job.setId(5L);

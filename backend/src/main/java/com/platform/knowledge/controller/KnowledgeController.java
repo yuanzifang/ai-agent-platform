@@ -243,6 +243,15 @@ public class KnowledgeController {
         return ApiResponse.ok(upgradeService.latest(id, viewer(principal)));
     }
 
+    /** 取消运行中的存量升级任务。 */
+    @PostMapping("/{id}/documents/upgrade-jobs/{jobId}/cancel")
+    public ApiResponse<Map<String, Object>> cancelUpgradeJob(
+            @PathVariable Long id,
+            @PathVariable Long jobId,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(upgradeService.cancel(id, jobId, viewer(principal)));
+    }
+
     /** 指定存量升级任务进度。 */
     @GetMapping("/{id}/documents/upgrade-jobs/{jobId}")
     public ApiResponse<Map<String, Object>> upgradeJob(
