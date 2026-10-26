@@ -148,6 +148,12 @@ knowledge:
     batch: ${KNOWLEDGE_HASH_BACKFILL_BATCH:20}
     interval-ms: ${KNOWLEDGE_HASH_BACKFILL_INTERVAL_MS:600000}
     initial-delay-ms: ${KNOWLEDGE_HASH_BACKFILL_INITIAL_DELAY_MS:60000}
+  vector-audit:
+    # DONE 文档分段数/向量数一致性回查；每批数量、回查周期和重复检查间隔
+    batch: ${KNOWLEDGE_VECTOR_AUDIT_BATCH:20}
+    interval-ms: ${KNOWLEDGE_VECTOR_AUDIT_INTERVAL_MS:3600000}
+    initial-delay-ms: ${KNOWLEDGE_VECTOR_AUDIT_INITIAL_DELAY_MS:120000}
+    recheck-days: ${KNOWLEDGE_VECTOR_AUDIT_RECHECK_DAYS:7}
   outbox:
     # MySQL/PgVector 解析同步 outbox：批大小、扫描间隔、解析租约和重试窗口
     batch: ${KNOWLEDGE_OUTBOX_BATCH:10}

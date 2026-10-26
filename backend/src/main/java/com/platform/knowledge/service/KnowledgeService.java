@@ -1012,6 +1012,7 @@ public class KnowledgeService {
         }
         storeDocumentImages(doc, bytes);
         recordParserVersion(doc);
+        recordEmbeddingInfo(doc, embeddingModel, embeddingDimensions);
         updateStatus(doc, "DONE", chunks.size(), null);
         markOutboxDone(doc);
         storeParseWarning(doc, parseWarnings);
@@ -1841,6 +1842,19 @@ public class KnowledgeService {
         }
     }
 
+    private void recordEmbeddingInfo(KnowledgeDocument doc, String model, int dimensions) {
+        doc.setEmbeddingModel(model);
+        doc.setEmbeddingDimensions(dimensions);
+        try {
+            docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
+                    .eq(KnowledgeDocument::getId, doc.getId())
+                    .set(KnowledgeDocument::getEmbeddingModel, model)
+                    .set(KnowledgeDocument::getEmbeddingDimensions, dimensions));
+        } catch (Exception e) {
+            log.debug("embedding 信息记录失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
+        }
+    }
+
     private void recordParseFingerprint(KnowledgeDocument doc, String fingerprint) {
         if (fingerprint == null) return;
         try {
@@ -1942,6 +1956,7 @@ public class KnowledgeService {
                     : "已复用同租户相同文件的解析结果";
             warnings.add(reuseMessage);
             recordParserVersion(doc);
+            recordEmbeddingInfo(doc, embeddingModel, dimensions);
             updateStatus(doc, "DONE", newChunks.size(), null);
             markOutboxDone(doc);
             storeParseWarning(doc, warnings);
