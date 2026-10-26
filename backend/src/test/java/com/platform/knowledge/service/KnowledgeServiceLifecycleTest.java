@@ -280,6 +280,7 @@ class KnowledgeServiceLifecycleTest {
         source.setFileName("original.pdf");
         source.setStatus("DONE");
         source.setSourceSha256("any");
+        source.setParserVersion(DocumentParser.PARSER_VERSION);
         ParseOptions parseOptions = ParseOptions.defaults(
                 false, "tesseract", "chi_sim+eng", 150, 20, false, "", "", 3);
         source.setParseFingerprint(ReflectionTestUtils.invokeMethod(
