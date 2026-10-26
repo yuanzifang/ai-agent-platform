@@ -111,6 +111,31 @@ class DocumentParserTest {
     }
 
     @Test
+    void ocrCacheReusesSameImageAndOptions() throws Exception {
+        Path counter = tempDir.resolve("ocr-cache-counter.txt");
+        Path script = tempDir.resolve("fake-ocr-cache.sh");
+        Files.writeString(script, "#!/bin/sh\n"
+                + "echo call >> '" + counter.toAbsolutePath() + "'\n"
+                + "printf 'level\\tpage_num\\tblock_num\\tpar_num\\tline_num\\tword_num\\tleft\\ttop\\twidth\\theight\\tconf\\ttext\\n'\n"
+                + "printf '1\\t1\\t1\\t1\\t1\\t1\\t10\\t10\\t100\\t20\\t95\\tCACHED\\n'\n",
+                StandardCharsets.UTF_8);
+        assertTrue(script.toFile().setExecutable(true));
+        ReflectionTestUtils.setField(parser, "ocrEnabled", true);
+        ReflectionTestUtils.setField(parser, "ocrCommand", script.toAbsolutePath().toString());
+        ReflectionTestUtils.setField(parser, "ocrLanguages", "eng");
+        BufferedImage image = new BufferedImage(300, 100, BufferedImage.TYPE_INT_RGB);
+
+        OcrTableExtractor.Result first = ReflectionTestUtils.invokeMethod(
+                parser, "ocrBufferedImage", image, false, false, "test-");
+        OcrTableExtractor.Result second = ReflectionTestUtils.invokeMethod(
+                parser, "ocrBufferedImage", image, false, false, "test-");
+
+        assertTrue(first != null && first.text().contains("CACHED"));
+        assertTrue(second != null && second.text().contains("CACHED"));
+        assertEquals(1, Files.readAllLines(counter).size(), "相同图像应只调用一次 OCR");
+    }
+
+    @Test
     void realTesseractOcrOnRenderedImage() throws Exception {
         Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过真实 OCR");
         BufferedImage image = new BufferedImage(1200, 320, BufferedImage.TYPE_INT_RGB);
