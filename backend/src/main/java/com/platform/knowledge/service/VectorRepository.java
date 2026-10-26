@@ -346,6 +346,15 @@ public class VectorRepository {
         return batch.size();
     }
 
+    /** 某文档实际写入的向量行数，用于 MySQL/PgVector 跨库写入后的数量校验。 */
+    public long countByDocument(Long tenantId, Long documentId, int dimensions) {
+        String table = "%s.%s".formatted(schema(tenantId), table(dimensions));
+        Long count = pgJdbcTemplate.queryForObject(
+                "SELECT count(*) FROM %s WHERE metadata->>'document_id' = ?".formatted(table),
+                Long.class, String.valueOf(documentId));
+        return count == null ? 0 : count;
+    }
+
     public void deleteByDocument(Long tenantId, Long documentId) {
         for (String table : tables()) {
             pgJdbcTemplate.update(

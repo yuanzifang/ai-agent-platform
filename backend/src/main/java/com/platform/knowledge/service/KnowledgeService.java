@@ -129,6 +129,8 @@ public class KnowledgeService {
     /** embedding 缓存保留天数；每小时最多清理一次，避免每次解析都扫表。 */
     @Value("${embedding.cache-ttl-days:30}")
     private int embeddingCacheTtlDays = 30;
+    @Value("${embedding.cache-max-entries:100000}")
+    private int embeddingCacheMaxEntries = 100000;
     private final java.util.concurrent.atomic.AtomicLong lastCacheCleanupAt =
             new java.util.concurrent.atomic.AtomicLong(0);
 
@@ -905,6 +907,14 @@ public class KnowledgeService {
             rows.add(row);
         }
         vectorRepository.saveBatch(doc.getTenantId(), rows, embeddingDimensions);
+        if (mysqlJdbcTemplate != null) {
+            long vectorCount = vectorRepository.countByDocument(doc.getTenantId(), doc.getId(),
+                    embeddingDimensions);
+            if (vectorCount != chunks.size()) {
+                throw new IllegalStateException("向量写入数量不匹配：expected=" + chunks.size()
+                        + " actual=" + vectorCount);
+            }
+        }
         storeDocumentImages(doc, bytes);
         updateStatus(doc, "DONE", chunks.size(), null);
         storeParseWarning(doc, parseWarnings);
@@ -1551,6 +1561,13 @@ public class KnowledgeService {
                 cleanupPartial(doc);
                 return false;
             }
+            if (mysqlJdbcTemplate != null) {
+                long vectorCount = vectorRepository.countByDocument(doc.getTenantId(), doc.getId(), dimensions);
+                if (vectorCount != newChunks.size()) {
+                    cleanupPartial(doc);
+                    return false;
+                }
+            }
             try {
                 storeDocumentImages(doc, bytes);
             } catch (Exception e) {
@@ -1654,6 +1671,10 @@ public class KnowledgeService {
             int days = Math.max(1, embeddingCacheTtlDays);
             mysqlJdbcTemplate.update("DELETE FROM knowledge_embedding_cache WHERE created_at < " +
                     "DATE_SUB(NOW(), INTERVAL " + days + " DAY) LIMIT 10000");
+            int maxEntries = Math.max(1000, embeddingCacheMaxEntries);
+            mysqlJdbcTemplate.update("DELETE FROM knowledge_embedding_cache WHERE id IN (" +
+                    "SELECT id FROM (SELECT id FROM knowledge_embedding_cache " +
+                    "ORDER BY created_at DESC LIMIT " + maxEntries + ", 10000) t)");
         } catch (Exception e) {
             log.debug("embedding 缓存清理失败（忽略）：{}", e.getMessage());
         }
