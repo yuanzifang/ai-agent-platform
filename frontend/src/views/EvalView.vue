@@ -552,7 +552,9 @@ onMounted(async () => {
     http.get('/eval/step-types').catch(() => []) as any
   ])
   agents.value = a.list || []
-  models.value = (m || []).filter((x: any) => !x.purpose || String(x.purpose).toUpperCase() === 'CHAT')
+  // 评测裁判属于平台侧，允许选择 CHAT 或平台专用的本地模型；Agent 模型仍只允许 CHAT。
+  models.value = (m || []).filter((x: any) => !x.purpose
+    || ['CHAT', 'PLATFORM'].includes(String(x.purpose).toUpperCase()))
   datasets.value = ds || []
   if (Array.isArray(st) && st.length) stepTypes.value = st
   if (!taskForm.agentId && agents.value.length) taskForm.agentId = agents.value[0].id
