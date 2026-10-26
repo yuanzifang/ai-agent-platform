@@ -1516,6 +1516,22 @@ public class KnowledgeService {
                         .eq(KnowledgeDocument::getStatus, "DONE")
                         .isNull(KnowledgeDocument::getSourceSha256)
                         .last("LIMIT " + max));
+        return backfillSourceHashRows(docs);
+    }
+
+    /** 定时回填调用：当前租户下所有知识库中缺失 SHA256 的 DONE 文档。 */
+    public Map<String, Object> backfillSourceHashesForTenant(int limit) {
+        int max = Math.max(1, Math.min(limit, 100));
+        List<KnowledgeDocument> docs = docMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeDocument>()
+                        .eq(KnowledgeDocument::getStatus, "DONE")
+                        .isNull(KnowledgeDocument::getSourceSha256)
+                        .orderByAsc(KnowledgeDocument::getId)
+                        .last("LIMIT " + max));
+        return backfillSourceHashRows(docs);
+    }
+
+    private Map<String, Object> backfillSourceHashRows(List<KnowledgeDocument> docs) {
         int updated = 0;
         int failed = 0;
         for (KnowledgeDocument doc : docs) {
