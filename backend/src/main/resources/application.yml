@@ -237,7 +237,14 @@ billing:
 agent:
   # Agent 容器部署（MVP：本机 Docker；发布后可把 Agent 跑成独立容器）
   deploy:
+    # gateway=自研运行时镜像（推荐）；nginx=旧的 nginx 模板方案（保留兼容）
+    runtime: ${AGENT_DEPLOY_RUNTIME:gateway}
     image: ${AGENT_DEPLOY_IMAGE:nginx:alpine}
+    gateway-image: ${AGENT_DEPLOY_GATEWAY_IMAGE:aap/agent-gateway:1}
+    # 主令牌的日调用配额，0=不限
+    caller-quota-daily: ${AGENT_DEPLOY_CALLER_QUOTA_DAILY:0}
+    # 额外调用方 Key：key1:日配额,key2:0（0=不限），注入运行时网关
+    caller-keys: ${AGENT_DEPLOY_CALLER_KEYS:}
     port-start: ${AGENT_DEPLOY_PORT_START:19000}
     port-end: ${AGENT_DEPLOY_PORT_END:19999}
     # 容器端口绑定地址：0.0.0.0 允许局域网/Tailscale 访问，127.0.0.1 仅本机

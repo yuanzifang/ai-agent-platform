@@ -61,8 +61,20 @@ public class AgentDeploymentService {
     private final AuditService auditService;
     private final ContainerRuntime runtime;
 
+    @Value("${agent.deploy.runtime:gateway}")
+    private String deployRuntime;
+
     @Value("${agent.deploy.image:nginx:alpine}")
-    private String image;
+    private String nginxImage;
+
+    @Value("${agent.deploy.gateway-image:aap/agent-gateway:1}")
+    private String gatewayImage;
+
+    @Value("${agent.deploy.caller-quota-daily:0}")
+    private int callerQuotaDaily;
+
+    @Value("${agent.deploy.caller-keys:}")
+    private String callerKeys;
 
     @Value("${agent.deploy.port-start:19000}")
     private int portStart;
@@ -150,7 +162,8 @@ public class AgentDeploymentService {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("agentId", agentId);
         data.put("agentStatus", agent.getStatus());
-        data.put("image", image);
+        data.put("runtime", gatewayRuntime() ? "gateway" : "nginx");
+        data.put("image", gatewayRuntime() ? gatewayImage : nginxImage);
         data.put("dockerAvailable", runtime.available());
         data.put("dockerVersion", runtime.version());
         data.put("deployment", deployment == null ? null : view(deployment));
@@ -200,7 +213,10 @@ public class AgentDeploymentService {
             throw e;
         }
 
-        deployment.setImage(image);
+        boolean gateway = gatewayRuntime();
+        String effectiveImage = gateway ? gatewayImage : nginxImage;
+        int containerPort = gateway ? 8080 : 80;
+        deployment.setImage(effectiveImage);
         deployment.setHostPort(port);
         deployment.setStatus("PENDING");
         deployment.setLastError(null);
@@ -211,28 +227,38 @@ public class AgentDeploymentService {
         save(deployment, existed);
 
         try {
-            Path templates = templateDir();
             Map<String, String> env = new LinkedHashMap<>();
             env.put("PLATFORM_BASE", platformBase.replaceAll("/+$", ""));
             env.put("API_KEY", apiKey);
             env.put("AGENT_SLUG", slug);
             env.put("RUNTIME_TOKEN", ensureRuntimeToken(deployment));
-            env.put("RATE_LIMIT", String.valueOf(Math.max(1, rateLimitPerMin)));
             env.put("RATE_BURST", String.valueOf(Math.max(0, rateLimitBurst)));
             env.put("CORS_ORIGIN", corsOrigins == null || corsOrigins.isBlank() ? "*" : corsOrigins.trim());
-            env.put("NGINX_ENTRYPOINT_QUIET_LOGS", "1");
+            List<String> mounts;
+            if (gateway) {
+                // 自研运行时：镜像内置网关逻辑，不再挂 nginx 模板
+                env.put("PORT", "8080");
+                env.put("RATE_LIMIT_PER_MIN", String.valueOf(Math.max(0, rateLimitPerMin)));
+                env.put("CALLER_QUOTA_DAILY", String.valueOf(Math.max(0, callerQuotaDaily)));
+                if (callerKeys != null && !callerKeys.isBlank()) env.put("CALLER_KEYS", callerKeys.trim());
+                mounts = List.of();
+            } else {
+                env.put("RATE_LIMIT", String.valueOf(Math.max(1, rateLimitPerMin)));
+                env.put("NGINX_ENTRYPOINT_QUIET_LOGS", "1");
+                mounts = List.of(templateDir().toString() + ":/etc/nginx/templates:ro");
+            }
 
             ContainerRuntime.CreateRequest request = new ContainerRuntime.CreateRequest(
                     containerName,
-                    image,
+                    effectiveImage,
                     bind,
                     port,
-                    80,
+                    containerPort,
                     env,
                     Map.of("aap.agent_id", String.valueOf(agentId),
                             "aap.tenant_id", String.valueOf(agent.getTenantId()),
                             "aap.managed_by", "ai-agent-platform"),
-                    List.of(templates.toString() + ":/etc/nginx/templates:ro"),
+                    mounts,
                     List.of());
             String containerId = runtime.create(request);
             runtime.start(containerId);
@@ -522,6 +548,10 @@ public class AgentDeploymentService {
     private String publicEndpoint(int port) {
         String host = (publicBase == null || publicBase.isBlank()) ? primaryHost() : publicBase.replaceAll("/+$", "");
         return host + ":" + port + "/v1";
+    }
+
+    private boolean gatewayRuntime() {
+        return !"nginx".equalsIgnoreCase(deployRuntime == null ? "" : deployRuntime.trim());
     }
 
     /** 选一个外部可访问的地址：优先 Tailscale 100.x，其次内网段，最后 localhost。 */

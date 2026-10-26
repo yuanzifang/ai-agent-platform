@@ -56,7 +56,7 @@ public class DockerCliRuntime implements ContainerRuntime {
         cmd.addAll(List.of("-p", request.hostBind() + ":" + request.hostPort() + ":" + request.containerPort()));
         // 容器内访问宿主平台（Docker Desktop 自带 host.docker.internal；Linux 用 host-gateway 映射）
         cmd.addAll(List.of("--add-host", "host.docker.internal:host-gateway"));
-        cmd.addAll(List.of("--health-cmd", "wget -q -O- http://127.0.0.1/healthz || exit 1",
+        cmd.addAll(List.of("--health-cmd", "wget -q -O- http://127.0.0.1:" + request.containerPort() + "/healthz || exit 1",
                 "--health-interval", "10s", "--health-retries", "3", "--health-timeout", "3s"));
         request.env().forEach((k, v) -> {
             cmd.add("-e");

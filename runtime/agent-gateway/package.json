@@ -1,0 +1,13 @@
+{
+  "name": "agent-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AI Agent 平台运行时网关：OpenAI 兼容接口、令牌鉴权、限流、配额与用量统计",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

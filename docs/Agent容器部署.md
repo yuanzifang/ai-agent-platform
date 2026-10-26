@@ -22,7 +22,7 @@
   ```
 - 当前后端需要能访问 Docker CLI（`agent.deploy.docker-bin`，默认 `docker`）
 
-> 本机已用 colima 0.10.3 / Docker 29.5.2 实跑通过：容器 healthy、`/healthz`、`/v1/models`、非流式与 SSE 对话、停止/启动、日志、Tailscale 地址访问全部验证可用。
+> 本机已用 colima 0.10.3 / Docker 29.5.2 实跑通过：容器 healthy、`/healthz`、`/v1/models`、非流式与 SSE 对话、停止/启动、日志、Tailscale 地址访问、令牌/配额/限流/统计全部验证可用。
 
 ## 使用
 
@@ -48,17 +48,20 @@ curl -s http://100.82.118.40:19000/v1/chat/completions \
 
 ## 实现方式
 
-每个 Agent 一个运行时容器，使用**官方 nginx 镜像 + 模板化配置**，不需要额外构建镜像：
+默认使用**自研运行时镜像** `aap/agent-gateway:1`（见 `docs/Agent运行时镜像.md`），每个 Agent 一个容器：
 
 ```
-client → container:80 /v1/chat/completions
-       → rewrite → 平台 /api/v1/open/chat/completions
-       → 自动带上容器内的 X-Api-Key（该 Agent 的集成 Key）
+client → container:8080 /v1/chat/completions
+       → 校验运行时令牌 / 限流 / 日配额
+       → 平台 /api/v1/open/chat/completions（自动带 X-Api-Key）
+       → 透传响应（含 SSE）
 ```
 
+- 先在仓库构建镜像：`docker build -t aap/agent-gateway:1 runtime/agent-gateway`
 - 部署时自动创建该 Agent 的集成 API Key（`container:aap-agent-<id>`），删除/重新部署时清理
-- 配置模板写到 `agent.deploy.workdir`（默认 `~/.aap-agent-runtime/templates`），以只读目录挂载进容器 `/etc/nginx/templates`
-- 容器带 `--restart unless-stopped` 与基于 `/healthz` 的 healthcheck
+- 镜像内置鉴权、限流、CORS、`/stats` 用量统计，不挂载宿主机目录
+- 兼容旧的 nginx 方案：`agent.deploy.runtime=nginx` 时仍使用 `nginx:alpine` + 模板挂载
+- 容器带 `--restart unless-stopped` 与基于 `/healthz` 的 healthcheck（按容器端口自动生成）
 
 ### 表结构
 
@@ -75,7 +78,7 @@ client → container:80 /v1/chat/completions
 | POST | `/api/v1/agent/{id}/deployment/start` | 启动 |
 | POST | `/api/v1/agent/{id}/deployment/stop` | 停止 |
 | DELETE | `/api/v1/agent/{id}/deployment` | 停止并删除容器 + 清理 Key |
-| GET | `/api/v1/agent/{id}/deployment/logs?tail=200` | 容器日志（nginx 访问日志/错误日志） |
+| GET | `/api/v1/agent/{id}/deployment/logs?tail=200` | 容器日志（网关 JSON 访问日志 / nginx 日志） |
 | GET | `/api/v1/agent/{id}/deployment/history?limit=50` | 部署历史（部署/启动/停止/删除，含版本、端口、结果、错误） |
 | POST | `/api/v1/agent/{id}/versions/{version}/rollback` | 完整回滚 Agent 配置（随后可重新部署） |
 | GET | `/api/v1/agent/{id}/deployment/token` | 读取容器访问令牌（agent:edit） |
@@ -87,7 +90,11 @@ client → container:80 /v1/chat/completions
 
 | 配置 | 环境变量 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| `image` | `AGENT_DEPLOY_IMAGE` | `nginx:alpine` | 运行时镜像 |
+| `runtime` | `AGENT_DEPLOY_RUNTIME` | `gateway` | `gateway`=自研运行时，`nginx`=旧模板方案 |
+| `gateway-image` | `AGENT_DEPLOY_GATEWAY_IMAGE` | `aap/agent-gateway:1` | 自研运行时镜像 |
+| `image` | `AGENT_DEPLOY_IMAGE` | `nginx:alpine` | nginx 回退方案镜像 |
+| `caller-quota-daily` | `AGENT_DEPLOY_CALLER_QUOTA_DAILY` | 0 | 主令牌日配额（0=不限） |
+| `caller-keys` | `AGENT_DEPLOY_CALLER_KEYS` | 空 | 额外调用方 Key：`key1:配额,key2:0` |
 | `port-start/port-end` | `AGENT_DEPLOY_PORT_START/END` | 19000-19999 | 宿主端口池（自动挑空端口） |
 | `bind` | `AGENT_DEPLOY_BIND` | `0.0.0.0` | 端口绑定地址；改 `127.0.0.1` 则只允许本机 |
 | `platform-base-url` | `AGENT_DEPLOY_PLATFORM_BASE` | `http://host.docker.internal:8080` | 容器访问平台的地址 |
@@ -103,19 +110,22 @@ client → container:80 /v1/chat/completions
 ## 安全说明
 
 - 容器接口需要 `Authorization: Bearer <访问令牌>`；令牌随部署生成、加密存储，可一键重置（重置即重建容器）。`/healthz` 不需要令牌，供容器 healthcheck 使用。
-- CORS 默认 `*`，生产建议改成具体前端域名；限流按客户端 IP，超出返回 429（`/v1/models` 与 `/healthz` 走本地直接返回，不计入限流）。
+- 运行时网关支持多调用方 Key（`CALLER_KEYS`）与各自日配额，`/stats` 查看当日用量；限流按 Key 令牌桶，超出返回 429。
+- CORS 默认 `*`，生产建议改成具体前端域名。
 - API Key 与令牌以环境变量形式存在容器里，`docker inspect` 可见；删除部署时会一并删除该 Key。
 - 默认绑定 `0.0.0.0` 是为了 Tailscale/手机访问；仍建议只在内网/网关后面暴露该端口。
 - 每个 Agent 只保留一个部署记录/容器，重新部署 = 删旧建新（短暂不可用）。重新部署优先复用原端口，最多等待 3 秒。
 - 「回滚并部署」= 完整恢复该版本的 Agent 配置（含知识库/工具/技能/子 Agent）+ 重新部署容器，详见 `docs/Agent版本与回滚.md`。
 - 发布自动重新部署是「已部署过才触发」；从未部署过的 Agent 发布后不会自动拉起容器，避免意外占用端口。
-- 暂未实现：自研运行时镜像、K8s 部署、滚动更新、多副本/负载均衡、容器日志采集到平台可观测、资源配额（CPU/内存限制）。
+- 暂未实现：K8s 部署、滚动更新、多副本/负载均衡、容器日志采集到平台可观测、资源配额（CPU/内存限制）；运行时网关为单实例内存统计，多副本需接 Redis。
 
 ## 验证
 
 - 后端：`mvn -q -DskipTests compile` / `test-compile`，思考模式单测 7 + 路由单测 2 通过
 - 部署链路（假 Docker CLI + 真实后端/数据库）：部署→运行态、端口 19000、环境变量/挂载/健康检查参数、停止/启动/日志、未发布拦截、删除并回收 Key，全部通过
-- **真实 Docker（colima + nginx:alpine）**：
+- **真实 Docker（colima + agent-gateway:1）**：
+  - 自研运行时：无令牌 401、正确令牌 200、SSE 对话正常、CORS 预检 204、限流 429、多 Key 配额与 `/stats` 验证通过
+- **nginx 回退方案（colima + nginx:alpine）**：
   - `docker ps` → `aap-agent-1 Up (healthy) 0.0.0.0:19000->80/tcp`
   - `curl localhost:19000/healthz` → `ok`；`/v1/models` → `agent-1`
   - 容器内访问 `host.docker.internal:8080` 正常（模板与环境变量注入生效）
@@ -127,6 +137,6 @@ client → container:80 /v1/chat/completions
 
 ## 下一步（如需）
 
-1. 换自研 `agent-runtime` 镜像：内置限流、鉴权、CORS、OpenAI 兼容层与健康检查，不再依赖 nginx 模板
-2. K8s 实现：`ContainerRuntime` 增加 `KubernetesRuntime`，按租户配额创建 Deployment/Service/Ingress
-3. 部署历史与回滚、副本数、资源限制、日志/指标接入可观测
+1. K8s 实现：`ContainerRuntime` 增加 `KubernetesRuntime`，按租户配额创建 Deployment/Service/Ingress
+2. 运行时多副本：配额/用量改用 Redis 汇总，支持 token 级配额
+3. 资源限制（CPU/内存）、容器日志/指标接入平台可观测
