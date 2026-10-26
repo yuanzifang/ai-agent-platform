@@ -143,7 +143,10 @@ public class EvalService {
         item.setQuestion(question);
         item.setExpectedAnswer(expectedAnswer);
         item.setScoreCriteria(scoreCriteria);
-        item.setStepType(normalizeStepType(stepType));
+        String normalizedStep = normalizeStepType(stepType);
+        String stepError = EvalStepCatalog.validate(normalizedStep, expectedPayload, stepConfig);
+        if (stepError != null) throw new BusinessException(400, stepError);
+        item.setStepType(normalizedStep);
         item.setExpectedPayload(expectedPayload);
         item.setStepConfig(stepConfig);
         item.setTenantId(principal.tenantId());
@@ -223,10 +226,13 @@ public class EvalService {
                     : item.getStepType().toUpperCase(java.util.Locale.ROOT);
             counts.merge(type, 1, Integer::sum);
         }
+        List<String> missing = counts.entrySet().stream()
+                .filter(entry -> entry.getValue() == 0).map(Map.Entry::getKey).toList();
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("datasetId", datasetId);
         result.put("total", items.size());
         result.put("steps", counts);
+        result.put("missing", missing);
         return result;
     }
 

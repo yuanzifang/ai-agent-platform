@@ -35,6 +35,11 @@ public class EvalController {
 
     // ---------- 数据集 ----------
 
+    @GetMapping("/step-types")
+    public ApiResponse<List<Map<String, Object>>> stepTypes() {
+        return ApiResponse.ok(com.platform.eval.service.EvalStepCatalog.definitions());
+    }
+
     @GetMapping("/datasets")
     public ApiResponse<List<Map<String, Object>>> datasets() {
         return ApiResponse.ok(evalService.datasets());
