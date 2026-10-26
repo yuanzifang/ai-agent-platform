@@ -275,7 +275,7 @@ final class PdfGridLineTableExtractor {
         return html.toString();
     }
 
-    /** 识别 1–3 行表头：首行标签、后续年份行或首行存在跨列时的子表头。 */
+    /** 识别 1–5 行表头：首行标签、年份/季度行、分组子表头；数据行不会并入表头。 */
     private static int headerRows(Map<Integer, Component> components, Dsu dsu, int rows, int cols) {
         if (rows < 2) return 0;
         Row first = rowInfo(components, dsu, 0, cols);
@@ -283,37 +283,50 @@ final class PdfGridLineTableExtractor {
         boolean firstSpan = components.values().stream()
                 .anyMatch(c -> c.minY == 0 && (c.maxX > c.minX || c.maxY > c.minY));
         int headers = 1;
-        if (rows > 2) {
-            Row second = rowInfo(components, dsu, 1, cols);
-            if (second.hasText && !second.hasNumber && (second.allYears || firstSpan)) headers = 2;
-            if (headers == 2 && rows > 3) {
-                Row third = rowInfo(components, dsu, 2, cols);
-                if (third.hasText && !third.hasNumber && third.allYears) headers = 3;
-            }
+        int limit = Math.min(5, rows - 1);
+        for (int row = 1; row < limit; row++) {
+            Row info = rowInfo(components, dsu, row, cols);
+            if (!info.hasText || info.hasNumber) break;
+            int current = row;
+            boolean headerSpan = components.values().stream()
+                    .anyMatch(c -> c.minY < current && (c.maxX > c.minX || c.maxY > c.minY));
+            boolean extend = row == 1
+                    ? info.allYears || firstSpan
+                    : headerSpan && (info.allYears || info.allQuarters || info.hasSpan);
+            if (!extend) break;
+            headers = row + 1;
         }
         return Math.min(headers, rows - 1);
     }
 
     private static Row rowInfo(Map<Integer, Component> components, Dsu dsu, int row, int cols) {
-        boolean hasText = false, hasNumber = false, allYears = true;
+        boolean hasText = false, hasNumber = false, allYears = true, allQuarters = true, hasSpan = false;
         for (int x = 0; x < cols; x++) {
             Component c = components.get(dsu.find(row * cols + x));
             if (c == null || c.minY != row) continue;
             String text = c.text.toString().trim();
             if (text.isEmpty()) continue;
             hasText = true;
+            hasSpan |= c.maxX > c.minX || c.maxY > c.minY;
             boolean year = isYear(text);
+            boolean quarter = isQuarter(text);
             if (!year) allYears = false;
-            if (!year && text.matches("[-+]?\\d+([.,]\\d+)?%?")) hasNumber = true;
+            if (!quarter) allQuarters = false;
+            if (!year && !quarter && text.matches("[-+]?\\d+([.,]\\d+)?%?")) hasNumber = true;
         }
-        return new Row(hasText, hasNumber, allYears);
+        return new Row(hasText, hasNumber, allYears, allQuarters, hasSpan);
     }
 
     private static boolean isYear(String text) {
         return text.matches("(19|20)\\d{2}(年)?");
     }
 
-    private record Row(boolean hasText, boolean hasNumber, boolean allYears) {
+    private static boolean isQuarter(String text) {
+        return text.matches("(?i)Q[1-4]|第?[一二三四1-4]季度?");
+    }
+
+    private record Row(boolean hasText, boolean hasNumber, boolean allYears,
+                       boolean allQuarters, boolean hasSpan) {
     }
 
     private static boolean hasVertical(List<Segment> segments, float x, float y0, float y1) {
