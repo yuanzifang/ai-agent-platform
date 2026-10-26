@@ -181,6 +181,19 @@ services:
       start_period: 60s
     logging: *default-logging
 
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./deploy/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    ports:
+      - "${ALERTMANAGER_BIND:-127.0.0.1}:${ALERTMANAGER_PORT:-9093}:9093"
+    logging: *default-logging
+
   prometheus:
     image: prom/prometheus:v2.55.1
     restart: unless-stopped
@@ -197,6 +210,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      alertmanager:
+        condition: service_started
     logging: *default-logging
 
   grafana:
@@ -243,3 +258,4 @@ volumes:
   ollama-data:
   prometheus-data:
   grafana-data:
+  alertmanager-data:

@@ -1,0 +1,18 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: platform-webhook
+  group_by: ["alertname", "severity"]
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 4h
+
+receivers:
+  - name: platform-webhook
+    webhook_configs:
+      # 仅容器内网；后端 /internal/alertmanager 转成钉钉/企微/飞书文本，
+      # 群机器人地址由后端 ALERT_WEBHOOK_URL 配置。
+      - url: http://backend:8080/internal/alertmanager
+        send_resolved: true
+        max_alerts: 20
