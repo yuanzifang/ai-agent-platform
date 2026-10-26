@@ -21,6 +21,7 @@ public class KnowledgeDocument {
     private Long sizeBytes;
     private String sourceSha256;
     private String parseFingerprint;
+    private LocalDateTime parseStartedAt;
     private String errorMessage;
     private Integer retryTimes;
     private Long tenantId;

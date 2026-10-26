@@ -129,6 +129,11 @@ knowledge:
     max-retries: ${KNOWLEDGE_PARSE_MAX_RETRIES:3}
     # 自动重试次数（指数退避 + 残留分段/向量补偿清理）
     auto-retries: ${KNOWLEDGE_PARSE_AUTO_RETRIES:2}
+    # 超时 PARSING 回收：默认 6 小时未完成、每 30 分钟扫描、每次每租户最多 20 篇
+    stale-minutes: ${KNOWLEDGE_PARSE_STALE_MINUTES:360}
+    recovery-interval-ms: ${KNOWLEDGE_PARSE_RECOVERY_INTERVAL_MS:1800000}
+    recovery-initial-delay-ms: ${KNOWLEDGE_PARSE_RECOVERY_INITIAL_DELAY_MS:300000}
+    recovery-batch: ${KNOWLEDGE_PARSE_RECOVERY_BATCH:20}
   ocr:
     # 扫描版 PDF/图片 OCR（需安装 tesseract；chi_sim+eng 需对应语言包）
     enabled: ${KNOWLEDGE_OCR_ENABLED:false}

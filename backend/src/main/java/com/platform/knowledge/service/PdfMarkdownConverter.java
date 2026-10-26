@@ -120,7 +120,7 @@ final class PdfMarkdownConverter {
                 OcrResult result = i < results.size() ? results.get(i) : null;
                 if (result == null) continue;
                 if (result.text() != null && !result.text().isBlank()) {
-                    state.lines = linesFromOcr(result.text());
+                    state.lines = linesFromOcr(result.text(), state.height);
                     ocrPages.add(state.index);
                 } else {
                     warnings.accept("第 " + (state.index + 1) + " 页 OCR 未识别到文本");
@@ -647,9 +647,10 @@ final class PdfMarkdownConverter {
         return length;
     }
 
-    private List<Line> linesFromOcr(String text) {
+    private List<Line> linesFromOcr(String text, float pageHeight) {
         List<Line> lines = new ArrayList<>();
-        float y = 0;
+        // OCR 没有坐标；从正文区域开始，避免统一 y=0 被页眉页脚去重规则误删。
+        float y = Math.max(40f, pageHeight * 0.10f);
         for (String part : text.split("\n")) {
             String value = part.trim();
             if (value.isEmpty()) continue;
