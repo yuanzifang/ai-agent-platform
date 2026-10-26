@@ -115,6 +115,14 @@ public class EvalController {
         return ApiResponse.ok();
     }
 
+    @PutMapping("/datasets/items/{itemId}")
+    @PreAuthorize("hasAuthority('eval:manage')")
+    public ApiResponse<Void> updateItem(@PathVariable Long itemId, @Valid @RequestBody ItemRequest req) {
+        evalService.updateItem(itemId, req.question(), req.expectedAnswer(), req.scoreCriteria(),
+                req.stepType(), req.expectedPayload(), req.stepConfig());
+        return ApiResponse.ok();
+    }
+
     @PostMapping("/datasets/{id}/items/import")
     @PreAuthorize("hasAuthority('eval:manage')")
     public ApiResponse<Map<String, Object>> importItems(@PathVariable Long id,

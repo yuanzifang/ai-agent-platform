@@ -194,7 +194,7 @@
         <div class="step-summary-row">
           <el-tag v-for="(v, k) in current.stepSummary" :key="k" size="small"
                   :type="v.count > 0 && v.passRate >= 0.8 ? 'success' : v.count > 0 ? 'warning' : 'info'">
-            {{ t('evalPage.step' + String(k).charAt(0) + String(k).slice(1).toLowerCase()) }}：
+            {{ stepName(String(k)) }}：
             {{ v.count }} / {{ v.passRate != null ? (v.passRate * 100).toFixed(0) + '%' : '-' }}
           </el-tag>
         </div>
@@ -339,7 +339,10 @@
         <el-input v-model="itemForm.scoreCriteria" :placeholder="t('evalPage.criteriaPh')" size="small" />
         <el-input v-model="itemForm.expectedPayload" :placeholder="t('evalPage.expectedPayloadPh')" size="small" />
         <el-input v-model="itemForm.stepConfig" :placeholder="t('evalPage.stepConfigPh')" size="small" />
-        <el-button size="small" type="primary" @click="addItem">{{ t('evalPage.addSample') }}</el-button>
+        <el-button size="small" type="primary" @click="saveItem">
+          {{ editingItemId ? t('evalPage.saveSample') : t('evalPage.addSample') }}
+        </el-button>
+        <el-button v-if="editingItemId" size="small" @click="cancelEditItem">{{ t('evalPage.cancel') }}</el-button>
       </div>
       <el-table :data="items" size="small" class="mt8">
         <el-table-column :label="t('evalPage.question')" min-width="160">
@@ -354,8 +357,9 @@
         <el-table-column :label="t('evalPage.expectedPayload')" min-width="150">
           <template #default="{ row }">{{ clip(row.expectedPayload, 30) }}</template>
         </el-table-column>
-        <el-table-column width="60">
+        <el-table-column width="120">
           <template #default="{ row }">
+            <el-button size="small" text type="primary" @click="startEditItem(row)">{{ t('evalPage.editSample') }}</el-button>
             <el-button size="small" text type="danger" @click="removeItem(row)">{{ t('evalPage.delete') }}</el-button>
           </template>
         </el-table-column>
@@ -532,6 +536,7 @@ const reviewRow = ref<any>(null)
 const reviewNote = ref('')
 const jsonl = ref('')
 const itemForm = reactive({ question: '', expectedAnswer: '', scoreCriteria: '', stepType: 'ANSWER', expectedPayload: '', stepConfig: '' })
+const editingItemId = ref<number | null>(null)
 const dsDialog = ref(false)
 const dsForm = reactive({ name: '', description: '', agentId: null as number | null })
 
@@ -685,6 +690,7 @@ async function removeDs(row: any) {
 async function openItems(row: any) {
   Object.assign(currentDs, row)
   itemsVisible.value = true
+  resetItemForm()
   stepCoverage.value = null
   const [list, coverage] = await Promise.all([
     http.get(`/eval/datasets/${row.id}/items`) as any,
@@ -694,11 +700,45 @@ async function openItems(row: any) {
   stepCoverage.value = coverage
 }
 
-async function addItem() {
-  if (!itemForm.question.trim()) { ElMessage.warning(t('evalPage.questionRequired')); return }
-  await http.post(`/eval/datasets/${currentDs.id}/items`, { ...itemForm })
-  items.value = await http.get(`/eval/datasets/${currentDs.id}/items`) as any
+function resetItemForm() {
   Object.assign(itemForm, { question: '', expectedAnswer: '', scoreCriteria: '', stepType: 'ANSWER', expectedPayload: '', stepConfig: '' })
+  editingItemId.value = null
+}
+
+function startEditItem(row: any) {
+  editingItemId.value = row.id
+  Object.assign(itemForm, {
+    question: row.question || '',
+    expectedAnswer: row.expectedAnswer || '',
+    scoreCriteria: row.scoreCriteria || '',
+    stepType: row.stepType || 'ANSWER',
+    expectedPayload: row.expectedPayload || '',
+    stepConfig: row.stepConfig || ''
+  })
+}
+
+function cancelEditItem() {
+  resetItemForm()
+}
+
+async function reloadItems() {
+  const [list, coverage] = await Promise.all([
+    http.get(`/eval/datasets/${currentDs.id}/items`) as any,
+    http.get(`/eval/datasets/${currentDs.id}/step-summary`).catch(() => null) as any
+  ])
+  items.value = list
+  stepCoverage.value = coverage
+}
+
+async function saveItem() {
+  if (!itemForm.question.trim()) { ElMessage.warning(t('evalPage.questionRequired')); return }
+  if (editingItemId.value) {
+    await http.put(`/eval/datasets/items/${editingItemId.value}`, { ...itemForm })
+  } else {
+    await http.post(`/eval/datasets/${currentDs.id}/items`, { ...itemForm })
+  }
+  await reloadItems()
+  resetItemForm()
 }
 
 const standaloneStepTypes = computed(() =>
@@ -773,7 +813,8 @@ async function importItems() {
 
 async function removeItem(row: any) {
   await http.delete(`/eval/datasets/items/${row.id}`)
-  items.value = await http.get(`/eval/datasets/${currentDs.id}/items`) as any
+  if (editingItemId.value === row.id) resetItemForm()
+  await reloadItems()
 }
 
 function agentName(id: number | null) {
