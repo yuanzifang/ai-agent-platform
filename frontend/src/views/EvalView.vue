@@ -194,7 +194,7 @@
         <div class="step-summary-row">
           <el-tag v-for="(v, k) in current.stepSummary" :key="k" size="small"
                   :type="v.count > 0 && v.passRate >= 0.8 ? 'success' : v.count > 0 ? 'warning' : 'info'">
-            {{ t('evalPage.step' + k.charAt(0) + k.slice(1).toLowerCase()) }}：
+            {{ t('evalPage.step' + String(k).charAt(0) + String(k).slice(1).toLowerCase()) }}：
             {{ v.count }} / {{ v.passRate != null ? (v.passRate * 100).toFixed(0) + '%' : '-' }}
           </el-tag>
         </div>
