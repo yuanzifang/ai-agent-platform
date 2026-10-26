@@ -199,6 +199,25 @@
           </el-tag>
         </div>
       </div>
+      <div v-if="current.stepGate" class="gate-panel"
+           :class="{ 'gate-panel-failed': current.stepGate.failedSteps && current.stepGate.failedSteps.length }">
+        <div class="gate-head">
+          <el-tag :type="current.stepGate.failedSteps && current.stepGate.failedSteps.length ? 'danger' : 'success'" size="small">
+            {{ current.stepGate.failedSteps && current.stepGate.failedSteps.length
+              ? t('evalPage.gateFailed') : t('evalPage.gatePassed') }}
+          </el-tag>
+          <span>{{ t('evalPage.gateThreshold') }}{{ pct(current.stepGate.threshold) }}</span>
+          <span v-if="current.stepGate.failedSteps && current.stepGate.failedSteps.length">
+            {{ t('evalPage.failedSteps') }}{{ current.stepGate.failedSteps.map(stepName).join(' / ') }}
+          </span>
+        </div>
+        <div v-for="(failure, idx) in (current.stepGate.failures || [])" :key="idx" class="gate-failure">
+          <b>{{ stepName(failure.stepType) }}</b>
+          <span>score {{ failure.score }}</span>
+          <span>{{ failure.reason }}</span>
+          <span class="trace-link">{{ failure.traceId }}</span>
+        </div>
+      </div>
       <div v-if="current.id" class="compare-bar">
         <span class="compare-label">{{ t('evalPage.compare') }}</span>
         <el-select v-model="compareBaselineId" size="small" style="width: 240px"
@@ -812,4 +831,8 @@ function clip(t: string, n: number) { t = t || ''; return t.length > n ? t.slice
 .coverage-totals { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; font-size: 13px; }
 .coverage-total { font-weight: 600; }
 .mr4 { margin-right: 4px; }
+.gate-panel { border: 1px solid #ebeef5; border-radius: 6px; padding: 10px; margin-bottom: 12px; background: #f0f9eb; }
+.gate-panel-failed { background: #fef0f0; border-color: #fde2e2; }
+.gate-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.gate-failure { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: #606266; }
 </style>

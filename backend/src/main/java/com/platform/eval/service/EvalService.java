@@ -385,7 +385,11 @@ public class EvalService {
             rows.add(row);
         }
         detail.put("results", rows);
-        detail.put("stepSummary", StepMetrics.summarize(results));
+        Map<String, Object> stepSummary = StepMetrics.summarize(results);
+        detail.put("stepSummary", stepSummary);
+        if ("PRE_RELEASE".equals(t.getEvalType())) {
+            detail.put("stepGate", stepGate(t.getId(), gateThreshold()));
+        }
         return detail;
     }
 
