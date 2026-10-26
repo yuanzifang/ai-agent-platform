@@ -211,6 +211,7 @@ final class PdfRectangleTableExtractor {
         return table.toString();
     }
 
+    /** 识别 1–5 行表头：首行标签、年份/季度行、分组子表头；数字数据行会终止表头。 */
     private static int headerRows(Map<String, Cell> cells, int rows, int cols) {
         if (rows < 2) return 0;
         Row first = rowInfo(cells, 0, cols);
@@ -218,37 +219,50 @@ final class PdfRectangleTableExtractor {
         boolean firstSpan = cells.values().stream()
                 .anyMatch(c -> c.y0 == 0 && (c.x1 > c.x0 || c.y1 > c.y0));
         int headers = 1;
-        if (rows > 2) {
-            Row second = rowInfo(cells, 1, cols);
-            if (second.hasText && !second.hasNumber && (second.allYears || firstSpan)) headers = 2;
-            if (headers == 2 && rows > 3) {
-                Row third = rowInfo(cells, 2, cols);
-                if (third.hasText && !third.hasNumber && third.allYears) headers = 3;
-            }
+        int limit = Math.min(5, rows - 1);
+        for (int row = 1; row < limit; row++) {
+            Row info = rowInfo(cells, row, cols);
+            if (!info.hasText || info.hasNumber) break;
+            int current = row;
+            boolean headerSpan = cells.values().stream()
+                    .anyMatch(c -> c.y0 < current && (c.x1 > c.x0 || c.y1 > c.y0));
+            boolean extend = row == 1
+                    ? info.allYears || firstSpan
+                    : headerSpan && (info.allYears || info.allQuarters || info.hasSpan);
+            if (!extend) break;
+            headers = row + 1;
         }
         return Math.min(headers, rows - 1);
     }
 
     private static Row rowInfo(Map<String, Cell> cells, int row, int cols) {
-        boolean hasText = false, hasNumber = false, allYears = true;
+        boolean hasText = false, hasNumber = false, allYears = true, allQuarters = true, hasSpan = false;
         for (int x = 0; x < cols; x++) {
             Cell cell = cells.get(x + ":" + row);
             if (cell == null) continue;
             String text = cell.text.toString().trim();
             if (text.isEmpty()) continue;
             hasText = true;
+            hasSpan |= cell.x1 > cell.x0 || cell.y1 > cell.y0;
             boolean year = isYear(text);
+            boolean quarter = isQuarter(text);
             if (!year) allYears = false;
-            if (!year && text.matches("[-+]?\\d+([.,]\\d+)?%?")) hasNumber = true;
+            if (!quarter) allQuarters = false;
+            if (!year && !quarter && text.matches("[-+]?\\d+([.,]\\d+)?%?")) hasNumber = true;
         }
-        return new Row(hasText, hasNumber, allYears);
+        return new Row(hasText, hasNumber, allYears, allQuarters, hasSpan);
     }
 
     private static boolean isYear(String text) {
         return text.matches("(19|20)\\d{2}(年)?");
     }
 
-    private record Row(boolean hasText, boolean hasNumber, boolean allYears) {
+    private static boolean isQuarter(String text) {
+        return text.matches("(?i)Q[1-4]|第?[一二三四1-4]季度?");
+    }
+
+    private record Row(boolean hasText, boolean hasNumber, boolean allYears,
+                       boolean allQuarters, boolean hasSpan) {
     }
 
     private static List<Float> edges(List<Rect> rects, boolean horizontal) {

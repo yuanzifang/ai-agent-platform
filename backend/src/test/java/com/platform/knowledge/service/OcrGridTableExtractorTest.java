@@ -116,6 +116,58 @@ class OcrGridTableExtractorTest {
         assertTrue(table.contains("Water"), "虚线网格文字应保留，实际=" + table);
     }
 
+    @Test
+    void restoresFourLevelYearQuarterHeader() {
+        BufferedImage image = new BufferedImage(560, 340, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, 560, 340);
+            g.setColor(Color.BLACK);
+            g.setStroke(new BasicStroke(2f));
+            g.drawLine(20, 20, 20, 320);
+            g.drawLine(120, 20, 120, 320);
+            g.drawLine(520, 20, 520, 320);
+            g.drawLine(20, 20, 520, 20);
+            g.drawLine(120, 80, 520, 80);
+            g.drawLine(120, 140, 520, 140);
+            g.drawLine(120, 200, 520, 200);
+            g.drawLine(20, 260, 520, 260);
+            g.drawLine(20, 320, 520, 320);
+            g.drawLine(320, 80, 320, 320);
+            g.drawLine(220, 200, 220, 320);
+            g.drawLine(420, 200, 420, 320);
+        } finally {
+            g.dispose();
+        }
+        List<OcrGridTableExtractor.Box> boxes = List.of(
+                new OcrGridTableExtractor.Box("Product", 30, 40, 80, 20),
+                new OcrGridTableExtractor.Box("Sales", 130, 40, 100, 20),
+                new OcrGridTableExtractor.Box("2023", 130, 100, 60, 20),
+                new OcrGridTableExtractor.Box("2024", 330, 100, 60, 20),
+                new OcrGridTableExtractor.Box("H1", 130, 160, 30, 20),
+                new OcrGridTableExtractor.Box("H2", 330, 160, 30, 20),
+                new OcrGridTableExtractor.Box("Q1", 130, 220, 30, 20),
+                new OcrGridTableExtractor.Box("Q2", 230, 220, 30, 20),
+                new OcrGridTableExtractor.Box("Q3", 330, 220, 30, 20),
+                new OcrGridTableExtractor.Box("Q4", 430, 220, 30, 20),
+                new OcrGridTableExtractor.Box("Water", 30, 280, 60, 20),
+                new OcrGridTableExtractor.Box("10", 130, 280, 20, 20),
+                new OcrGridTableExtractor.Box("20", 230, 280, 20, 20),
+                new OcrGridTableExtractor.Box("30", 330, 280, 20, 20),
+                new OcrGridTableExtractor.Box("40", 430, 280, 20, 20));
+
+        String table = OcrGridTableExtractor.extract(image, boxes);
+        assertTrue(table.contains("<thead>") && table.contains("<tbody>"), "四层表头应输出 thead，实际=" + table);
+        assertTrue(table.contains("<th rowspan=\"4\">Product"), "跨四行表头应保留，实际=" + table);
+        assertTrue(table.contains("<th colspan=\"4\">Sales"), "年度分组应跨四列，实际=" + table);
+        assertTrue(table.contains("<th colspan=\"2\">2023") && table.contains("<th colspan=\"2\">2024"),
+                "年份行应保留，实际=" + table);
+        assertTrue(table.contains("<th colspan=\"2\">H1") && table.contains("<th>Q1"),
+                "半年度与季度子表头应保留，实际=" + table);
+        assertTrue(table.contains("<td>Water"), "数据行不应并入表头，实际=" + table);
+    }
+
     private static void drawDashed(Graphics2D g, int x1, int y1, int x2, int y2) {
         double length = Math.hypot(x2 - x1, y2 - y1);
         double dx = (x2 - x1) / length;
