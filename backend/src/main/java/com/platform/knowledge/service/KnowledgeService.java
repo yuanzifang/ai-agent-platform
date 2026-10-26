@@ -737,12 +737,15 @@ public class KnowledgeService {
         int minutes = Math.max(1, staleMinutes);
         int max = Math.max(1, Math.min(limit, 100));
         LocalDateTime cutoff = LocalDateTime.now().minusMinutes(minutes);
+        // 兼容 V86 之前的历史 PARSING 文档：没有 parse_started_at 时用 created_at 判断
         List<KnowledgeDocument> stale = docMapper.selectList(
                 new LambdaQueryWrapper<KnowledgeDocument>()
                         .eq(KnowledgeDocument::getStatus, "PARSING")
-                        .isNotNull(KnowledgeDocument::getParseStartedAt)
-                        .lt(KnowledgeDocument::getParseStartedAt, cutoff)
-                        .orderByAsc(KnowledgeDocument::getParseStartedAt)
+                        .and(w -> w.lt(KnowledgeDocument::getParseStartedAt, cutoff)
+                                .or()
+                                .isNull(KnowledgeDocument::getParseStartedAt)
+                                .lt(KnowledgeDocument::getCreatedAt, cutoff))
+                        .orderByAsc(KnowledgeDocument::getCreatedAt)
                         .last("LIMIT " + max));
         if (stale == null || stale.isEmpty()) return 0;
         int recovered = 0;
@@ -753,6 +756,7 @@ public class KnowledgeService {
                         .eq(KnowledgeDocument::getStatus, "PARSING")
                         .set(KnowledgeDocument::getStatus, "FAILED")
                         .set(KnowledgeDocument::getChunkCount, 0)
+                        .set(KnowledgeDocument::getParseStartedAt, null)
                         .set(KnowledgeDocument::getErrorMessage,
                                 "解析超过 " + minutes + " 分钟未完成，已清理残留；请重试"));
                 if (claimed == 0) continue;
@@ -985,6 +989,44 @@ public class KnowledgeService {
         auditService.record(viewer.userId(), "knowledge.document.reparse", "knowledge_document",
                 String.valueOf(documentId), "SUCCESS", Map.of("kbId", kbId));
         return Map.of("documentId", documentId, "status", "PENDING");
+    }
+
+    /**
+     * 存量文档升级：重新解析本知识库中尚未写入 parse_fingerprint 的 DONE 文档，
+     * 生成结构化 Markdown、页码、父块、source_sha256 和新解析指纹。每次限量，异步执行。
+     */
+    public Map<String, Object> reparseLegacyDocuments(Long kbId, int limit,
+                                                       KnowledgePermissionService.Viewer viewer) {
+        permissionService.requireEdit(kbId, viewer);
+        int max = Math.max(1, Math.min(limit, 50));
+        List<KnowledgeDocument> docs = docMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeDocument>()
+                        .eq(KnowledgeDocument::getKnowledgeBaseId, kbId)
+                        .eq(KnowledgeDocument::getStatus, "DONE")
+                        .isNull(KnowledgeDocument::getParseFingerprint)
+                        .orderByAsc(KnowledgeDocument::getCreatedAt)
+                        .last("LIMIT " + max));
+        int triggered = 0;
+        int failed = 0;
+        if (docs != null) {
+            for (KnowledgeDocument doc : docs) {
+                try {
+                    reparse(kbId, doc.getId(), viewer);
+                    triggered++;
+                } catch (Exception e) {
+                    failed++;
+                    log.warn("存量文档升级提交失败 doc={} err={}", doc.getId(), e.getMessage());
+                }
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("scanned", docs == null ? 0 : docs.size());
+        result.put("triggered", triggered);
+        result.put("failed", failed);
+        result.put("limit", max);
+        log.info("存量文档升级：kb={} scanned={} triggered={} failed={}",
+                kbId, result.get("scanned"), triggered, failed);
+        return result;
     }
 
     /** 编辑文档内容有效期；同步更新向量表有效期，避免要求重新解析。 */

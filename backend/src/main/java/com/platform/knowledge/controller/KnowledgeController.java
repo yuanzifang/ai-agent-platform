@@ -208,6 +208,15 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.backfillSourceHashes(id, limit, viewer(principal)));
     }
 
+    /** 存量文档升级：重新解析本库尚未生成 Markdown/页码/指纹的 DONE 文档（每次最多 50 篇）。 */
+    @PostMapping("/{id}/documents/reparse-legacy")
+    public ApiResponse<Map<String, Object>> reparseLegacyDocuments(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "20") int limit,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(knowledgeService.reparseLegacyDocuments(id, limit, viewer(principal)));
+    }
+
     /** 删除文档（级联 MinIO/PgVector/分段，需编辑权限）。 */
     @DeleteMapping("/{id}/documents/{docId}")
     public ApiResponse<Void> deleteDocument(@PathVariable Long id, @PathVariable Long docId,
