@@ -102,6 +102,9 @@ public class DocumentParser {
 
     private static final long MAX_BYTES = 20 * 1024 * 1024;
 
+    /** OSD 方向纠正的置信度门槛：表格/稀疏文本的误报（如把 6° 倾斜报成 180°）置信度通常远低于此。 */
+    private static final float OSD_MIN_CONFIDENCE = 1.0f;
+
     @Value("${knowledge.ocr.enabled:false}")
     private boolean ocrEnabled;
     @Value("${knowledge.ocr.command:tesseract}")
@@ -1617,6 +1620,15 @@ public class DocumentParser {
             output = outputFuture.get(5, TimeUnit.SECONDS);
             errFuture.get(5, TimeUnit.SECONDS);
         } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+            return 0;
+        }
+        // OSD 对表格/稀疏文本不可靠：不同 tesseract 版本会把小角度倾斜误报成 180°（CI 实测），
+        // 置信度低于门槛时不采纳旋转，小角度交由 deskew 处理。CI 实测两档：6° 倾斜误报 0.05、真 180° 旋转 2.00（门槛 1.0 精确区分）；真实扫描件的 90/270 纠正置信度通常 >5。
+        java.util.regex.Matcher confidence =
+                java.util.regex.Pattern.compile("Orientation confidence:\\s*([\\d.]+)").matcher(output);
+        String confidenceValue = confidence.find() ? confidence.group(1) : null;
+        if (confidenceValue == null || Double.parseDouble(confidenceValue) < OSD_MIN_CONFIDENCE) {
+            log.info("OSD 方向置信度不足（{}），跳过旋转", confidenceValue == null ? "无" : confidenceValue);
             return 0;
         }
         java.util.regex.Matcher matcher =
