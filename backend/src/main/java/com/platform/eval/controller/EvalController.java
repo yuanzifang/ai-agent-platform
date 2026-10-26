@@ -123,6 +123,25 @@ public class EvalController {
         return ApiResponse.ok(evalService.runPreReleaseManual(agentId, datasetId, principal));
     }
 
+    /** 单步即时评测：不创建任务，直接调检索/重排/改写步骤并返回实际结果与明细。 */
+    @PostMapping("/steps/run")
+    @PreAuthorize("hasAuthority('eval:manage')")
+    public ApiResponse<Map<String, Object>> runStep(@Valid @RequestBody StepRunRequest req,
+                                                    @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(evalService.runStep(req.stepType(), req.query(),
+                req.expectedPayload(), req.stepConfig(), principal));
+    }
+
+    /** 数据集步骤类型覆盖统计：用于发现缺少改写/检索/重排/回答集的缺口。 */
+    @GetMapping("/datasets/{id}/step-summary")
+    public ApiResponse<Map<String, Object>> stepSummary(@PathVariable Long id) {
+        return ApiResponse.ok(evalService.stepSummary(id));
+    }
+
+    public record StepRunRequest(@NotBlank String stepType, @NotBlank String query,
+                                 String expectedPayload, String stepConfig) {
+    }
+
     @PostMapping("/tasks")
     @PreAuthorize("hasAuthority('eval:manage')")
     public ApiResponse<Map<String, Object>> createTask(@Valid @RequestBody TaskRequest req,

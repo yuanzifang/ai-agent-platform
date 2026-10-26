@@ -192,6 +192,44 @@ public class EvalService {
         if (item != null) touchDataset(item.getDatasetId());
     }
 
+    /** 单步即时评测：直接返回步骤结果，不落评测任务。 */
+    public Map<String, Object> runStep(String stepType, String query, String expectedPayload,
+                                       String stepConfig, JwtPrincipal principal) {
+        KnowledgePermissionService.Viewer viewer =
+                new KnowledgePermissionService.Viewer(principal.userId(), principal.roles());
+        StepEvaluationService.StepResult result = stepEvaluationService.evaluate(
+                stepType, query, expectedPayload, stepConfig, viewer);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("stepType", stepType == null ? null : stepType.toUpperCase(java.util.Locale.ROOT));
+        response.put("score", result.score());
+        response.put("passed", result.passed());
+        response.put("actual", result.actual());
+        try {
+            response.put("details", objectMapper.readValue(result.details(), Map.class));
+        } catch (Exception e) {
+            response.put("details", result.details());
+        }
+        return response;
+    }
+
+    /** 按步骤类型统计数据集覆盖，便于补齐改写/检索/重排/回答黄金集。 */
+    public Map<String, Object> stepSummary(Long datasetId) {
+        List<EvalDatasetItem> items = itemMapper.selectList(
+                new LambdaQueryWrapper<EvalDatasetItem>().eq(EvalDatasetItem::getDatasetId, datasetId));
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (String type : List.of("ANSWER", "REWRITE", "RETRIEVAL", "RERANK")) counts.put(type, 0);
+        for (EvalDatasetItem item : items) {
+            String type = item.getStepType() == null ? "ANSWER"
+                    : item.getStepType().toUpperCase(java.util.Locale.ROOT);
+            counts.merge(type, 1, Integer::sum);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("datasetId", datasetId);
+        result.put("total", items.size());
+        result.put("steps", counts);
+        return result;
+    }
+
     // ---------- 评测任务 ----------
 
     public Map<String, Object> tasks(Long agentId) {
