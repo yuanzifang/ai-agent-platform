@@ -314,10 +314,7 @@
       <div class="item-form">
         <el-input v-model="itemForm.question" :placeholder="t('evalPage.question')" size="small" />
         <el-select v-model="itemForm.stepType" size="small" style="width: 120px">
-          <el-option label="ANSWER" value="ANSWER" />
-          <el-option label="REWRITE" value="REWRITE" />
-          <el-option label="RETRIEVAL" value="RETRIEVAL" />
-          <el-option label="RERANK" value="RERANK" />
+          <el-option v-for="s in stepTypes" :key="s.stepType" :label="s.stepType" :value="s.stepType" />
         </el-select>
         <el-input v-model="itemForm.expectedAnswer" :placeholder="t('evalPage.expectedAnswer')" size="small" />
         <el-input v-model="itemForm.scoreCriteria" :placeholder="t('evalPage.criteriaPh')" size="small" />
@@ -489,6 +486,7 @@ const currentDs = reactive<any>({})
 const items = ref<any[]>([])
 const stepCoverage = ref<any>(null)
 const stepTypes = ref<any[]>([
+  { stepType: 'ANSWER', name: '最终回答' },
   { stepType: 'REWRITE', name: '查询改写' },
   { stepType: 'RETRIEVAL', name: '知识检索' },
   { stepType: 'RERANK', name: '重排' }
