@@ -271,6 +271,7 @@ class DocumentParserTest {
         String text = String.join("\n", parser.parse("appendix-rowspan.pdf", pdf));
         assertTrue(text.contains("rowspan=\"55\"") && text.contains("Fruit"),
                 "附录长纵向分组不应在 50 行处拆开，实际=" + text);
+        assertTrue(text.contains("Product"), "长表表头应保留，实际=" + text);
     }
 
     @Test
