@@ -103,6 +103,11 @@
           <span v-else-if="upgradeJob?.status === 'FAILED'" class="hint stale-parse">
             {{ t('kbDetail.upgradeFailed') }}（{{ upgradeJob.failedDocuments }}）
           </span>
+          <span v-else-if="upgradeJob?.status === 'CANCELLED'" class="hint">
+            {{ t('kbDetail.upgradeCancelled') }}
+          </span>
+          <el-button v-if="upgradeJob?.status === 'RUNNING'" size="small" text type="danger"
+                     @click="cancelUpgrade">{{ t('kbDetail.upgradeCancel') }}</el-button>
           <el-button v-if="detail.canEdit" size="small" text type="warning"
                      :loading="recoveringStale" @click="recoverStale">
             {{ t('kbDetail.recoverStale') }}
@@ -716,6 +721,20 @@ function pollUpgrade() {
       if (data?.status === 'RUNNING') pollUpgrade()
     } catch { /* 轮询失败下一轮页面刷新会恢复 */ }
   }, 3000)
+}
+
+async function cancelUpgrade() {
+  if (!upgradeJob.value?.jobId) return
+  await ElMessageBox.confirm(t('kbDetail.upgradeCancelConfirm'),
+    t('kbDetail.upgradeCancel'), { type: 'warning' })
+  upgradeJob.value = await http.post(
+    `/knowledge-base/${kbId}/documents/upgrade-jobs/${upgradeJob.value.jobId}/cancel`) as any
+  if (upgradeTimer) {
+    clearTimeout(upgradeTimer)
+    upgradeTimer = null
+  }
+  ElMessage.success(t('kbDetail.upgradeCancelled'))
+  await loadDocs()
 }
 
 async function recoverStale() {
