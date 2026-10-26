@@ -2,7 +2,11 @@ package com.platform.knowledge.service;
 
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
-import org.junit.jupiter.api.Assumptions;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -13,6 +17,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 真实 PDF 样本基准：默认跳过，设置 PDF_BENCH_DIR 目录后运行。
@@ -26,14 +32,20 @@ class PdfBenchmarkTest {
     @Test
     void benchmark() throws Exception {
         String dir = System.getenv("PDF_BENCH_DIR");
-        Assumptions.assumeTrue(dir != null && !dir.isBlank(), "未设置 PDF_BENCH_DIR，跳过真实 PDF 基准");
+        boolean external = dir != null && !dir.isBlank();
         List<Path> files;
-        try (var stream = Files.list(Path.of(dir))) {
-            files = stream.filter(path -> path.toString().toLowerCase(Locale.ROOT).endsWith(".pdf"))
-                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
-                    .toList();
+        if (external) {
+            try (var stream = Files.list(Path.of(dir))) {
+                files = stream.filter(path -> path.toString().toLowerCase(Locale.ROOT).endsWith(".pdf"))
+                        .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                        .toList();
+            }
+        } else {
+            Path fixture = Files.createTempFile("pdf-bench-", ".pdf");
+            Files.write(fixture, fixturePdf());
+            files = List.of(fixture);
         }
-        Assumptions.assumeFalse(files.isEmpty(), "目录内没有 PDF");
+        assertTrue(!files.isEmpty(), "PDF 基准没有可解析样本");
 
         DocumentParser parser = new DocumentParser();
         StringBuilder report = new StringBuilder("# PDF 解析基准报告\n\n");
@@ -78,6 +90,7 @@ class PdfBenchmarkTest {
                     .append(" | ").append(images)
                     .append(" | 1-").append(maxPage)
                     .append(" | ").append(status).append(" |\n");
+            if (!external) assertTrue(error == null, "自包含 PDF 基准解析失败：" + error);
             if (error == null) {
                 samples.add("\n## " + file.getFileName() + "\n\n```text\n"
                         + preview(text, 1200) + "\n```\n");
@@ -87,6 +100,31 @@ class PdfBenchmarkTest {
         Files.createDirectories(Path.of("target"));
         Files.writeString(Path.of("target/pdf-bench-report.md"), report.toString());
         System.out.println(report);
+    }
+
+    private static byte[] fixturePdf() throws Exception {
+        try (PDDocument doc = new PDDocument(); java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 16);
+                content.beginText();
+                content.newLineAtOffset(50, 760);
+                content.showText("Benchmark Report");
+                content.endText();
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 11);
+                content.beginText();
+                content.newLineAtOffset(50, 720);
+                content.showText("Product Price Quantity");
+                content.newLineAtOffset(0, -24);
+                content.showText("Water 1999 2");
+                content.newLineAtOffset(0, -24);
+                content.showText("Filter 99 10");
+                content.endText();
+            }
+            doc.save(out);
+            return out.toByteArray();
+        }
     }
 
     private static int count(Matcher matcher) {
