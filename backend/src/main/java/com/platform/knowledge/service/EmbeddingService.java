@@ -6,13 +6,17 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -49,6 +53,13 @@ public class EmbeddingService {
 
     @org.springframework.beans.factory.annotation.Value("${embedding.query-cache-max-entries:2000}")
     private int queryCacheMaxEntries = 2000;
+
+    @org.springframework.beans.factory.annotation.Value("${embedding.query-cache-redis-enabled:true}")
+    private boolean redisQueryCacheEnabled = true;
+
+    /** 测试/无 Redis 环境可缺省；有 Redis 时跨实例共享 query embedding。 */
+    @Autowired(required = false)
+    private StringRedisTemplate redis;
 
     /** 查询 embedding 进程内缓存：重复 FAQ/检索问句不必反复打 embedding 上游。 */
     private record QueryCacheEntry(float[] vector, long expiresAt) { }
@@ -162,6 +173,13 @@ public class EmbeddingService {
         if (cached != null && cached.expiresAt() > now) {
             return cached.vector();
         }
+        if (redisQueryCacheEnabled && redis != null) {
+            float[] shared = redisGet(key);
+            if (shared != null) {
+                putLocal(key, shared, now);
+                return shared;
+            }
+        }
         CompletableFuture<float[]> mine = new CompletableFuture<>();
         CompletableFuture<float[]> existing = queryInFlight.putIfAbsent(key, mine);
         if (existing != null) {
@@ -181,11 +199,8 @@ public class EmbeddingService {
         try {
             float[] vector = embedOne(text, model);
             if (vector != null) {
-                if (queryCache.size() >= queryCacheMaxEntries) {
-                    queryCache.entrySet().removeIf(e -> e.getValue().expiresAt() <= now);
-                    if (queryCache.size() >= queryCacheMaxEntries) queryCache.clear();
-                }
-                queryCache.put(key, new QueryCacheEntry(vector, now + queryCacheTtlSeconds * 1000L));
+                putLocal(key, vector, now);
+                redisPut(key, vector);
             }
             mine.complete(vector);
             return vector;
@@ -194,6 +209,53 @@ public class EmbeddingService {
             throw e;
         } finally {
             queryInFlight.remove(key, mine);
+        }
+    }
+
+    private void putLocal(String key, float[] vector, long now) {
+        if (queryCache.size() >= queryCacheMaxEntries) {
+            queryCache.entrySet().removeIf(e -> e.getValue().expiresAt() <= now);
+            if (queryCache.size() >= queryCacheMaxEntries) queryCache.clear();
+        }
+        queryCache.put(key, new QueryCacheEntry(vector, now + queryCacheTtlSeconds * 1000L));
+    }
+
+    private float[] redisGet(String key) {
+        try {
+            String value = redis.opsForValue().get("embedding:q:" + key);
+            return value == null ? null : decodeVector(value);
+        } catch (Exception e) {
+            log.debug("读取 Redis query embedding 缓存失败：{}", e.getMessage());
+            return null;
+        }
+    }
+
+    private void redisPut(String key, float[] vector) {
+        if (queryCacheTtlSeconds <= 0) return;
+        try {
+            redis.opsForValue().set("embedding:q:" + key, encodeVector(vector),
+                    Duration.ofSeconds(queryCacheTtlSeconds));
+        } catch (Exception e) {
+            log.debug("写入 Redis query embedding 缓存失败：{}", e.getMessage());
+        }
+    }
+
+    private static String encodeVector(float[] vector) {
+        ByteBuffer buffer = ByteBuffer.allocate(vector.length * Float.BYTES);
+        for (float value : vector) buffer.putFloat(value);
+        return Base64.getEncoder().encodeToString(buffer.array());
+    }
+
+    private static float[] decodeVector(String encoded) {
+        try {
+            byte[] bytes = Base64.getDecoder().decode(encoded);
+            if (bytes.length % Float.BYTES != 0) return null;
+            ByteBuffer buffer = ByteBuffer.wrap(bytes);
+            float[] vector = new float[bytes.length / Float.BYTES];
+            for (int i = 0; i < vector.length; i++) vector[i] = buffer.getFloat();
+            return vector;
+        } catch (Exception e) {
+            return null;
         }
     }
 
