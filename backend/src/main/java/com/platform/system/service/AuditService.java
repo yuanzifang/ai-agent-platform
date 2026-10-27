@@ -74,6 +74,26 @@ public class AuditService {
         }
     }
 
+    /** 强制独立事务：用于业务事务即将回滚、但必须留痕的拒绝/阻断事件。 */
+    public void recordIndependent(Long userId, String opType, String objectType, String objectId,
+                                  String result, Map<String, Object> detail) {
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null) return;
+        try {
+            TransactionTemplate tx = new TransactionTemplate(txManager);
+            tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            tx.executeWithoutResult(status -> {
+                try {
+                    insertAudit(tenantId, userId, opType, objectType, objectId, result, detail);
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+        } catch (Exception e) {
+            log.warn("阻断审计写入失败 op={}: {}", opType, e.getMessage());
+        }
+    }
+
     private void insertAudit(Long tenantId, Long userId, String opType, String objectType,
                              String objectId, String result, Map<String, Object> detail) throws Exception {
         // 先锁租户行，再读链尾（FOR UPDATE 读取最新已提交版本，避免 REPEATABLE READ 快照过期）
