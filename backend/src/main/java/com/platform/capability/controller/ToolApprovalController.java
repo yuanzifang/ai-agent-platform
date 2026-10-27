@@ -29,6 +29,13 @@ public class ToolApprovalController {
         return ApiResponse.ok(approvalService.list(status, page, pageSize));
     }
 
+    /** 手动触发过期扫描（测试/运维）。 */
+    @PostMapping("/expire-scan")
+    @PreAuthorize("hasAuthority('agent:edit')")
+    public ApiResponse<Map<String, Object>> expireScan() {
+        return ApiResponse.ok(Map.of("expired", approvalService.expirePending()));
+    }
+
     public record DecideRequest(boolean approve, String comment) {
     }
 

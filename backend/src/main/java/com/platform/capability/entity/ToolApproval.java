@@ -27,4 +27,5 @@ public class ToolApproval {
     private String result;
     private LocalDateTime createdAt;
     private LocalDateTime decidedAt;
+    private LocalDateTime expireAt;
 }

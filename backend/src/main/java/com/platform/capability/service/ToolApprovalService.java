@@ -23,6 +23,9 @@ public class ToolApprovalService {
 
     private final ToolApprovalMapper mapper;
 
+    @org.springframework.beans.factory.annotation.Value("${tool.approval.timeout-minutes:1440}")
+    private int timeoutMinutes = 1440;
+
     public ToolApproval request(Long agentId, ToolRegistry tool, String input) {
         ToolApproval a = new ToolApproval();
         a.setTenantId(TenantContext.getTenantId());
@@ -34,6 +37,7 @@ public class ToolApprovalService {
         a.setToolInput(input == null ? "" : input.substring(0, Math.min(input.length(), 8000)));
         a.setStatus("PENDING");
         a.setCreatedAt(LocalDateTime.now());
+        a.setExpireAt(LocalDateTime.now().plusMinutes(Math.max(1, timeoutMinutes)));
         mapper.insert(a);
         return a;
     }
@@ -56,6 +60,22 @@ public class ToolApprovalService {
         result.put("page", current);
         result.put("pageSize", size);
         return result;
+    }
+
+    /** 将过期未处理的审批置为 EXPIRED；可由定时任务或管理接口触发。 */
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
+    public void autoExpire() {
+        expirePending();
+    }
+
+    public int expirePending() {
+        return mapper.update(null, new LambdaUpdateWrapper<ToolApproval>()
+                .eq(ToolApproval::getStatus, "PENDING")
+                .isNotNull(ToolApproval::getExpireAt)
+                .lt(ToolApproval::getExpireAt, LocalDateTime.now())
+                .set(ToolApproval::getStatus, "EXPIRED")
+                .set(ToolApproval::getComment, "审批超时自动失效")
+                .set(ToolApproval::getDecidedAt, LocalDateTime.now()));
     }
 
     /** 原子认领：只有 PENDING 能进入审批结果，防并发重复执行。 */
@@ -102,6 +122,7 @@ public class ToolApprovalService {
         m.put("result", a.getResult());
         m.put("createdAt", a.getCreatedAt());
         m.put("decidedAt", a.getDecidedAt());
+        m.put("expireAt", a.getExpireAt());
         return m;
     }
 }
