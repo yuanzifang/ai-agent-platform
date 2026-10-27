@@ -159,6 +159,32 @@
                 topK <el-input-number v-model="kb.topK" :min="1" :max="20" size="small" />
                 {{ t('agentEdit.threshold') }} <el-input-number v-model="kb.scoreThreshold" :min="0" :max="1" :step="0.05" size="small" />
               </div>
+              <div class="kb-params" v-if="kb.enabled">
+                <el-select v-model="kb.documentType" size="small" clearable
+                           :placeholder="t('kbDetail.docType')" style="width: 120px">
+                  <el-option :label="t('kbDetail.docTypeResearch')" value="research_paper" />
+                  <el-option :label="t('kbDetail.docTypeRegulatory')" value="regulatory" />
+                  <el-option :label="t('kbDetail.docTypeClinical')" value="clinical_trial" />
+                  <el-option :label="t('kbDetail.docTypeGeneral')" value="general" />
+                </el-select>
+                <el-select v-model="kb.sectionType" size="small" clearable
+                           :placeholder="t('kbDetail.sectionType')" style="width: 115px">
+                  <el-option v-for="s in sectionOptions" :key="s" :label="s" :value="s" />
+                </el-select>
+                <el-select v-model="kb.regulatoryCategory" size="small" clearable
+                           :placeholder="t('kbDetail.regulatoryCategory')" style="width: 110px">
+                  <el-option label="FDA" value="FDA" />
+                  <el-option label="EMA" value="EMA" />
+                  <el-option label="ICH" value="ICH" />
+                </el-select>
+                <el-select v-model="kb.chunkLevel" size="small" clearable
+                           :placeholder="t('kbDetail.chunkLevel')" style="width: 95px">
+                  <el-option v-for="n in [1, 2, 3, 4]" :key="n" :label="String(n)" :value="n" />
+                </el-select>
+                {{ t('kbDetail.minRelevance') }}
+                <el-input-number v-model="kb.minRelevance" :min="0" :max="1" :step="0.05"
+                                 size="small" style="width: 105px" />
+              </div>
             </div>
           </el-collapse-item>
 
@@ -1301,7 +1327,12 @@ watch([() => form.modelName, () => form.thinking], () => {
   }
 })
 
-interface KbRow { knowledgeBaseId: number; name: string; enabled: boolean; topK: number; scoreThreshold: number; mode: string; missing?: boolean }
+const sectionOptions = ['abstract', 'introduction', 'methods', 'results', 'discussion', 'conclusion', 'references', 'body']
+interface KbRow {
+  knowledgeBaseId: number; name: string; enabled: boolean; topK: number; scoreThreshold: number; mode: string
+  documentType?: string; sectionType?: string; regulatoryCategory?: string
+  chunkLevel?: number; minRelevance?: number; missing?: boolean
+}
 interface RefRow { id: number; name: string; description?: string; type?: string; isBuiltin?: boolean; enabled: boolean; missing?: boolean }
 type RefType = 'skill' | 'tool' | 'sub'
 
@@ -1505,7 +1536,10 @@ onMounted(async () => {
     return {
       knowledgeBaseId: kb.id, name: kb.name,
       enabled: b ? b.enabled !== false : false,
-      topK: rc.topK ?? 5, scoreThreshold: rc.scoreThreshold ?? 0.5, mode: rc.mode || 'hybrid'
+      topK: rc.topK ?? 5, scoreThreshold: rc.scoreThreshold ?? 0.5, mode: rc.mode || 'hybrid',
+      documentType: rc.documentType || undefined, sectionType: rc.sectionType || undefined,
+      regulatoryCategory: rc.regulatoryCategory || undefined, chunkLevel: rc.chunkLevel,
+      minRelevance: rc.minRelevance
     }
   })
   buildRefRows('skill', detail.skills, skillCatalog.value, skillRows)
@@ -3220,7 +3254,12 @@ function buildPayload() {
     visibility: form.visibility,
     knowledgeBases: kbRows.value.filter(k => k.enabled).map(k => ({
       knowledgeBaseId: k.knowledgeBaseId, enabled: true,
-      retrievalConfig: { topK: k.topK, scoreThreshold: k.scoreThreshold, mode: k.mode }
+      retrievalConfig: {
+        topK: k.topK, scoreThreshold: k.scoreThreshold, mode: k.mode,
+        documentType: k.documentType || undefined, sectionType: k.sectionType || undefined,
+        regulatoryCategory: k.regulatoryCategory || undefined, chunkLevel: k.chunkLevel,
+        minRelevance: k.minRelevance
+      }
     })),
     skills: skillRows.value.filter(r => !r.missing).map(r => ({ skillId: r.id, enabled: r.enabled })),
     tools: toolRows.value.filter(r => !r.missing).map(r => ({ toolId: r.id, enabled: r.enabled })),
