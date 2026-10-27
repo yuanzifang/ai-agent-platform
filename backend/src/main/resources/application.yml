@@ -181,6 +181,8 @@ knowledge:
     cache-size: ${KNOWLEDGE_OCR_CACHE_SIZE:256}
     # 低对比度扫描件可选 Otsu 二值化
     binarize: ${KNOWLEDGE_OCR_BINARIZE:false}
+    # 低质量 OCR 是否回退原图；off 可减少双跑，但会写入人工复核告警
+    raw-fallback: ${KNOWLEDGE_OCR_RAW_FALLBACK:auto}
     # 持久化 OCR 缓存保留天数和每日清理时间
     cache-retention-days: ${KNOWLEDGE_OCR_CACHE_RETENTION_DAYS:30}
     cache-cleanup-cron: ${KNOWLEDGE_OCR_CACHE_CLEANUP_CRON:0 45 4 * * *}
