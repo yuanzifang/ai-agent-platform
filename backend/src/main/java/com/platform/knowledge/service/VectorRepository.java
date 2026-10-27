@@ -261,6 +261,41 @@ public class VectorRepository {
         return Map.of("created", created, "dropped", dropped, "desired", desiredCount);
     }
 
+    /** 查询指定知识库的全局/partial HNSW 状态，供运维页面和手动接口使用。 */
+    public Map<String, Object> partialIndexStatus(Long tenantId, Long knowledgeBaseId, int dimensions) {
+        String schema = schema(tenantId);
+        String table = table(dimensions);
+        String global = "idx_" + table + "_hnsw";
+        String partial = partialIndexName(table, String.valueOf(knowledgeBaseId));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("tenantId", tenantId);
+        out.put("knowledgeBaseId", knowledgeBaseId);
+        out.put("table", schema + "." + table);
+        out.put("globalIndexName", global);
+        out.put("partialIndexName", partial);
+        try {
+            List<Map<String, Object>> indexes = pgJdbcTemplate.queryForList("""
+                    SELECT c.relname AS index_name, i.indisvalid AS valid,
+                           pg_relation_size(c.oid) AS size_bytes
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    JOIN pg_index i ON i.indexrelid = c.oid
+                    WHERE n.nspname = ? AND c.relname IN (?, ?)
+                    ORDER BY c.relname
+                    """, schema, global, partial);
+            out.put("indexes", indexes);
+            boolean present = indexes.stream()
+                    .anyMatch(row -> partial.equals(String.valueOf(row.get("index_name")))
+                            && Boolean.TRUE.equals(row.get("valid")));
+            out.put("partialIndexPresent", present);
+        } catch (Exception e) {
+            out.put("indexes", List.of());
+            out.put("partialIndexPresent", false);
+            out.put("error", e.getMessage());
+        }
+        return out;
+    }
+
     private void createPartialIndex(String schema, String table, String index, String kbId) {
         String create = """
                 CREATE INDEX %s IF NOT EXISTS %s ON %s.%s
