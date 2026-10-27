@@ -53,7 +53,7 @@ public class QuotaService {
     private final StringRedisTemplate redis;
     private final MeterRegistry meterRegistry;
 
-    private static final long QUOTA_CACHE_MS = 30_000;
+    private static final long QUOTA_CACHE_MS = 5_000;
     private static final long TOKEN_CACHE_MS = 1_000;
     private final Map<Long, CachedQuota> quotaCache = new ConcurrentHashMap<>();
     private final Map<Long, CachedTokens> tokenCache = new ConcurrentHashMap<>();
