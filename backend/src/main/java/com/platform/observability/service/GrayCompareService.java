@@ -135,7 +135,10 @@ public class GrayCompareService {
                 + "FROM agent_trace WHERE tenant_id = ? AND created_at >= ? "
                 + (agentId == null ? "" : "AND agent_id = ? ")
                 + "AND " + cond + " GROUP BY model_name ORDER BY requests DESC LIMIT 10").strip();
-        return queryRounded(sql, tenantId, start, agentId);
+        Object[] args = agentId == null
+                ? new Object[]{tenantId, start}
+                : new Object[]{tenantId, start, agentId};
+        return queryRounded(sql, args);
     }
 
     private List<Map<String, Object>> byKind(String cond, Long tenantId, LocalDateTime start, Long agentId) {
@@ -144,7 +147,10 @@ public class GrayCompareService {
                 + "FROM agent_trace WHERE tenant_id = ? AND created_at >= ? "
                 + (agentId == null ? "" : "AND agent_id = ? ")
                 + "AND " + cond + " GROUP BY kind ORDER BY requests DESC LIMIT 10").strip();
-        return queryRounded(sql, tenantId, start, agentId);
+        Object[] args = agentId == null
+                ? new Object[]{tenantId, start}
+                : new Object[]{tenantId, start, agentId};
+        return queryRounded(sql, args);
     }
 
     private double toolCallsPerTrace(String cond, Long tenantId, LocalDateTime start, Long agentId) {
