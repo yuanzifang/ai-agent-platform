@@ -39,17 +39,20 @@ trivy fs --format cyclonedx --output ../frontend-sbom.cdx.json package-lock.json
 
 1. 按 Release tag checkout，构建并生成后端 CycloneDX BOM；
 2. 用 Trivy 对 `frontend/package-lock.json` 生成前端 CycloneDX BOM；
-3. 用 `scripts/merge_cyclonedx_sbom.py` 合并后端/前端组件（按 purl/bom-ref 去重，保留依赖与漏洞）；
-4. 校验三个文件的 `bomFormat=CycloneDX` 且 `components` 非空；
-5. 生成 `SHA256SUMS`；
-6. 用 GitHub Actions OIDC 生成 build provenance attestation（`actions/attest-build-provenance`）；
-7. 通过 `gh release upload --clobber` 附加到对应 GitHub Release。
+3. 构建 `agent-gateway` / `alert-relay` 运行时镜像，用 Trivy image 生成两个镜像 BOM；
+4. 用 `scripts/merge_cyclonedx_sbom.py` 合并四份组件（按 purl/bom-ref 去重，保留依赖与漏洞）；
+5. 校验五个文件的 `bomFormat=CycloneDX` 且 `components` 非空；
+6. 生成 `SHA256SUMS`；
+7. 用 GitHub Actions OIDC 生成 build provenance attestation（`actions/attest-build-provenance`）；
+8. 通过 `gh release upload --clobber` 附加到对应 GitHub Release。
 
 资产命名：
 
 ```text
 backend-sbom-<tag>.cdx.json
 frontend-sbom-<tag>.cdx.json
+gateway-image-sbom-<tag>.cdx.json
+alert-relay-image-sbom-<tag>.cdx.json
 merged-sbom-<tag>.cdx.json
 SHA256SUMS
 ```
@@ -63,5 +66,5 @@ gh attestation verify merged-sbom-<tag>.cdx.json \
 
 ## 仍缺
 
-- 独立 Sigstore/cosign 签名/attestation（当前使用 GitHub 内置 build provenance）
-- 运行时镜像 SBOM 未并入 Release 合并清单；镜像 SBOM 也尚未单独做 attestation（当前 Release 合并清单只覆盖后端/前端应用依赖）
+- 独立 Sigstore/cosign 签名/attestation（当前使用 GitHub 内置 build provenance，覆盖应用与镜像 SBOM）
+- 合并清单按 purl/bom-ref 去重，可能合并跨生态同名组件；需要时按 purl 前缀拆分查看
