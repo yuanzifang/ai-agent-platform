@@ -42,6 +42,8 @@ public class VectorRepository {
     private double filteredExactThreshold = 0.25;
     @Value("${pgvector.filtered-exact.min-rows:200000}")
     private long filteredExactMinRows = 200000;
+    @Value("${pgvector.filtered-exact.max-rows:50000}")
+    private long filteredExactMaxRows = 50000;
 
     @Value("${pgvector.hnsw.partial.enabled:true}")
     private boolean partialHnswEnabled = true;
@@ -432,6 +434,9 @@ public class VectorRepository {
                     () -> pgJdbcTemplate.queryForObject(
                             "SELECT count(*) FROM " + table + " WHERE metadata->>'knowledge_base_id' = ?",
                             Long.class, String.valueOf(knowledgeBaseId)));
+            // 命中行数过多时物化过滤集本身就要扫描/排序大量 1024 维向量
+            // （1M/20% 实测秒级），即使占比低也应交给 HNSW；精确回退只用于小知识库。
+            if (filteredExactMaxRows > 0 && kb > filteredExactMaxRows) return false;
             return total >= filteredExactMinRows && kb > 0
                     && (double) kb / total < filteredExactThreshold;
         } catch (Exception e) {

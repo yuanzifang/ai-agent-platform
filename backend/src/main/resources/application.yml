@@ -16,7 +16,7 @@ spring:
       api-key: ${DEEPSEEK_API_KEY:sk-not-configured}
       base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
   datasource:
-    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/ai_agent_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:ai_agent_platform}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048
     username: ${MYSQL_USERNAME:root}
     password: ${MYSQL_PASSWORD:root}
   flyway:
@@ -217,6 +217,8 @@ pgvector:
     # 低选择比（知识库命中占比）且总行数足够时走精确过滤，绕过 HNSW iterative scan 退化
     threshold: ${PGVECTOR_FILTERED_EXACT_THRESHOLD:0.25}
     min-rows: ${PGVECTOR_FILTERED_EXACT_MIN_ROWS:200000}
+    # 小知识库才走物化精确排序；行数过大时精确排序会扫描/排序大量向量，交给 HNSW
+    max-rows: ${PGVECTOR_FILTERED_EXACT_MAX_ROWS:50000}
 
 asr:
   enabled: ${ASR_ENABLED:true}     # 本地 Qwen3-ASR（OpenAI 兼容协议，start-asr.sh 启动）

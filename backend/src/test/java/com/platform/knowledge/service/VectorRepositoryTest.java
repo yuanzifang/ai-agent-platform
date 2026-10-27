@@ -120,6 +120,23 @@ class VectorRepositoryTest {
     }
 
     @Test
+    void largeKnowledgeBaseSkipsMaterializedExactEvenAtLowRatio() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        VectorRepository repo = new VectorRepository(jdbc, properties());
+        ReflectionTestUtils.setField(repo, "partialHnswEnabled", false);
+        when(jdbc.queryForObject(anyString(), eq(Long.class))).thenReturn(1_000_000L);
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(200_000L);
+        when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
+
+        repo.search(1L, new float[]{0.1f, 0.2f}, 2L, 5, 0.5, 768, null, true);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).queryForList(sql.capture(), any(Object[].class));
+        assertTrue(!sql.getValue().contains("MATERIALIZED"), sql.getValue());
+        assertTrue(sql.getValue().contains("ORDER BY embedding <=>"), sql.getValue());
+    }
+
+    @Test
     void reconcilesPartialHnswIndexForLargeKnowledgeBase() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         EmbeddingProperties props = new EmbeddingProperties();
