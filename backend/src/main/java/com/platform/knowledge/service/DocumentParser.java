@@ -101,7 +101,7 @@ import java.util.zip.ZipInputStream;
 public class DocumentParser {
 
     /** 解析器版本：解析行为/结构化输出变化时递增，用于存量升级和复用判断。 */
-    public static final String PARSER_VERSION = "2026-10-27.8";
+    public static final String PARSER_VERSION = "2026-10-27.9";
 
     private static final long MAX_BYTES = 20 * 1024 * 1024;
 
@@ -125,6 +125,8 @@ public class DocumentParser {
     private int ocrCacheSize = 256;
     @Value("${knowledge.ocr.binarize:false}")
     private boolean ocrBinarize;
+    @Value("${knowledge.ocr.raw-fallback:auto}")
+    private String ocrRawFallback = "auto";
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private KnowledgeOcrCacheMapper ocrCacheMapper;
     private final Map<String, OcrTableExtractor.Result> ocrCache = new ConcurrentHashMap<>();
@@ -526,7 +528,7 @@ public class DocumentParser {
                         || (textLength < Math.max(0, ocrRetryRawMinChars) && resultQuality < 0.45)
                         || (result.confidence() > 0 && result.confidence() < 45))
                         && (result.tableHtml() == null || result.tableHtml().isBlank());
-                if (lowQuality) {
+                if (lowQuality && !"off".equalsIgnoreCase(ocrRawFallback)) {
                     PdfMarkdownConverter.OcrResult raw = ocrPageVariant(base, direct == null, false);
                     double rawQuality = ocrQuality(raw.text());
                     boolean betterTable = (result.tableHtml() == null || result.tableHtml().isBlank())
@@ -535,6 +537,9 @@ public class DocumentParser {
                             || (raw.confidence() > 0 && raw.confidence() > result.confidence() + 5)) {
                         result = raw;
                     }
+                } else if (lowQuality) {
+                    warn("人工复核：第 " + (pageIndex + 1)
+                            + " 页 OCR 结果质量偏低，已按配置跳过原图回退，请核对");
                 }
             }
             if (result.confidence() > 0 && result.confidence() < 45) {
