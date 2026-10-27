@@ -16,6 +16,8 @@ concurrency:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   attach-sbom:
@@ -77,6 +79,11 @@ jobs:
           PY
           sha256sum release-assets/*.cdx.json > release-assets/SHA256SUMS
           cat release-assets/SHA256SUMS
+
+      - name: 生成 SBOM 构建来源证明
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release-assets/*
 
       - name: 附加到 GitHub Release
         env:
