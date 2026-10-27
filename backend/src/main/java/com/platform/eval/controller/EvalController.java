@@ -191,8 +191,11 @@ public class EvalController {
     @PreAuthorize("hasAuthority('eval:manage')")
     public ApiResponse<Map<String, Object>> createTask(@Valid @RequestBody TaskRequest req,
                                                        @AuthenticationPrincipal JwtPrincipal principal) {
+        java.util.Map<String, Object> extra = new java.util.LinkedHashMap<>();
+        if (req.evalType() != null && !req.evalType().isBlank()) extra.put("evalType", req.evalType());
+        if (req.grayTag() != null && !req.grayTag().isBlank()) extra.put("grayTag", req.grayTag());
         return ApiResponse.ok(evalService.createTask(req.name(), req.agentId(), req.datasetId(),
-                req.judgeModel(), req.passThreshold(), principal));
+                req.judgeModel(), req.passThreshold(), extra, principal));
     }
 
     public record DatasetRequest(@NotBlank String name, String description, Long agentId) {
@@ -206,6 +209,7 @@ public class EvalController {
     }
 
     public record TaskRequest(String name, @NotNull Long agentId, @NotNull Long datasetId,
-                              String judgeModel, Double passThreshold) {
+                              String judgeModel, Double passThreshold,
+                              String evalType, String grayTag) {
     }
 }
