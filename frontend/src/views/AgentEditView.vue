@@ -3382,6 +3382,18 @@ async function publish(force = false) {
     await autoRedeployAfterPublish()
   } catch (err: any) {
     const msg = String(err?.response?.data?.message || err?.message || err)
+    if (msg.includes('writePolicyGate:')) {
+      loading.close()
+      try {
+        await ElMessageBox.confirm(
+          `${escapeHtml(msg)}<br/><br/>${escapeHtml(t('agentMsg.writePolicyGatePrompt'))}`,
+          t('agentMsg.writePolicyGateTitle'),
+          { type: 'warning', dangerouslyUseHTMLString: true,
+            confirmButtonText: t('agentMsg.forcePublish'), cancelButtonText: t('agentDlg.cancel') })
+        await publish(true)
+      } catch { /* 取消 */ }
+      return
+    }
     if (msg.includes(t('agentMsg.gateFailed'))) {
       loading.close()
       let gateHtml = ''
