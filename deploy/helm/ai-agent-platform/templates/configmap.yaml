@@ -9,6 +9,7 @@ data:
   SERVER_FORWARD_HEADERS_STRATEGY: "framework"
   MYSQL_HOST: {{ .Values.config.mysqlHost | quote }}
   MYSQL_PORT: {{ .Values.config.mysqlPort | quote }}
+  MYSQL_DATABASE: {{ .Values.config.mysqlDatabase | quote }}
   MYSQL_USERNAME: {{ .Values.config.mysqlUsername | quote }}
   REDIS_HOST: {{ .Values.config.redisHost | quote }}
   REDIS_PORT: {{ .Values.config.redisPort | quote }}

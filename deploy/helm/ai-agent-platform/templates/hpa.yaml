@@ -20,6 +20,10 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ .Values.backend.autoscaling.targetCPUUtilizationPercentage }}
+  {{- with .Values.backend.autoscaling.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- end }}
 {{- if .Values.frontend.autoscaling.enabled }}
 ---
