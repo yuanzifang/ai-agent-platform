@@ -496,9 +496,16 @@ public class HybridRetrievalService {
         }
     }
 
+    /** PgVector jsonb 经 JDBC 返回 PGobject，统一转成 JSON 字符串后再解析。 */
+    private String metadataText(Object metadata) {
+        if (metadata == null) return null;
+        return metadata instanceof String text ? text : String.valueOf(metadata);
+    }
+
     /** 语义/规则过滤：文档类型、章节、监管类别、块层级、最低静态相关性。 */
     private double relevance(Object metadata) {
-        if (!(metadata instanceof String text) || text.isBlank()) return 0;
+        String text = metadataText(metadata);
+        if (text == null || text.isBlank()) return 0;
         try {
             Map<?, ?> meta = objectMapper.readValue(text, Map.class);
             return toDouble(meta.get("relevance_score"), 0);
@@ -509,9 +516,10 @@ public class HybridRetrievalService {
 
     private boolean matchesFilters(Object metadata, Map<String, Object> config) {
         if (config == null || config.isEmpty()) return true;
+        String text = metadataText(metadata);
         Map<?, ?> meta;
         try {
-            meta = metadata instanceof String text && !text.isBlank()
+            meta = text != null && !text.isBlank()
                     ? objectMapper.readValue(text, Map.class) : Map.of();
         } catch (Exception e) {
             return false;

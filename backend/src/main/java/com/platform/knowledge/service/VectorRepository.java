@@ -42,7 +42,18 @@ public class VectorRepository {
     private double filteredExactThreshold = 0.25;
     @Value("${pgvector.filtered-exact.min-rows:200000}")
     private long filteredExactMinRows = 200000;
+
+    @Value("${pgvector.hnsw.partial.enabled:true}")
+    private boolean partialHnswEnabled = true;
+    @Value("${pgvector.hnsw.partial.min-rows:50000}")
+    private long partialHnswMinRows = 50000;
+    @Value("${pgvector.hnsw.partial.max-indexes:20}")
+    private int partialHnswMaxIndexes = 20;
+    @Value("${pgvector.hnsw.partial.prune:false}")
+    private boolean partialHnswPrune = false;
+
     private final Map<String, CachedCount> countCache = new ConcurrentHashMap<>();
+    private final Map<String, CachedFlag> partialIndexCache = new ConcurrentHashMap<>();
     private static final long COUNT_CACHE_MS = 300_000;
 
     public void ensureTenantSchema(Long tenantId) {
@@ -140,6 +151,114 @@ public class VectorRepository {
         }
     }
 
+    /**
+     * 为较大的知识库维护 partial HNSW 索引。
+     *
+     * <p>全局 HNSW + metadata 过滤在低选择比下会依赖 iterative scan，可能退化到秒级。
+     * partial 索引让不同知识库各自拥有独立的 HNSW 图，查询只扫描命中的图。
+     * 仅对行数达到阈值的知识库建索引，并限制每张维度表的索引数量，避免小知识库
+     * 造成索引爆炸和写入放大；未覆盖的知识库继续使用全局 HNSW / 精确过滤回退。</p>
+     *
+     * @return created/dropped/desired 统计
+     */
+    public Map<String, Integer> reconcilePartialIndexes(Long tenantId) {
+        if (!hnswEnabled || !partialHnswEnabled || partialHnswMaxIndexes <= 0) {
+            return Map.of("created", 0, "dropped", 0, "desired", 0);
+        }
+        String schema = schema(tenantId);
+        int created = 0;
+        int dropped = 0;
+        int desiredCount = 0;
+        for (int dim : embeddingProperties.models().values().stream().distinct().toList()) {
+            String table = table(dim);
+            String prefix = partialIndexPrefix(table);
+            try {
+                List<Map<String, Object>> rows = pgJdbcTemplate.queryForList("""
+                        SELECT metadata->>'knowledge_base_id' AS kb_id, count(*) AS cnt
+                        FROM %s.%s
+                        WHERE metadata->>'knowledge_base_id' ~ '^[0-9]+$'
+                        GROUP BY 1
+                        HAVING count(*) >= ?
+                        ORDER BY cnt DESC, kb_id
+                        LIMIT ?
+                        """.formatted(schema, table), partialHnswMinRows,
+                        Math.max(1, partialHnswMaxIndexes));
+                LinkedHashMap<String, String> desired = new LinkedHashMap<>();
+                for (Map<String, Object> row : rows) {
+                    Object kb = row.get("kb_id");
+                    if (kb != null) {
+                        String kbId = String.valueOf(kb);
+                        desired.put(kbId, partialIndexName(table, kbId));
+                    }
+                }
+                desiredCount += desired.size();
+                List<String> existing = pgJdbcTemplate.queryForList("""
+                        SELECT indexname FROM pg_indexes
+                        WHERE schemaname = ? AND tablename = ? AND indexname LIKE ?
+                        """, String.class, schema, table, prefix + "%");
+                for (Map.Entry<String, String> entry : desired.entrySet()) {
+                    if (existing.contains(entry.getValue())) continue;
+                    try {
+                        createPartialIndex(schema, table, entry.getValue(), entry.getKey());
+                        created++;
+                    } catch (Exception e) {
+                        log.warn("partial HNSW 索引创建失败 schema={} table={} kb={} err={}",
+                                schema, table, entry.getKey(), e.getMessage());
+                    }
+                }
+                if (partialHnswPrune) {
+                    for (String name : existing) {
+                        if (!desired.containsValue(name)) {
+                            try {
+                                pgJdbcTemplate.execute("DROP INDEX " + (hnswConcurrently ? "CONCURRENTLY " : "")
+                                        + "IF EXISTS " + schema + "." + name);
+                                dropped++;
+                            } catch (Exception e) {
+                                log.warn("partial HNSW 索引删除失败 schema={} index={} err={}",
+                                        schema, name, e.getMessage());
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // 表可能尚未创建，或当前版本没有 partial HNSW 所需权限；检索仍可回退到精确扫描。
+                log.debug("partial HNSW 维护跳过 schema={} table={} err={}",
+                        schema, table, e.getMessage());
+            }
+        }
+        partialIndexCache.clear();
+        return Map.of("created", created, "dropped", dropped, "desired", desiredCount);
+    }
+
+    private void createPartialIndex(String schema, String table, String index, String kbId) {
+        String create = """
+                CREATE INDEX %s IF NOT EXISTS %s ON %s.%s
+                USING hnsw (embedding vector_cosine_ops)
+                WITH (m = 16, ef_construction = 64)
+                WHERE metadata->>'knowledge_base_id' = '%s'
+                """.formatted(hnswConcurrently ? "CONCURRENTLY" : "", index,
+                schema, table, kbId);
+        try {
+            pgJdbcTemplate.execute(create);
+        } catch (Exception e) {
+            if (!hnswConcurrently) throw e;
+            pgJdbcTemplate.execute("""
+                    CREATE INDEX IF NOT EXISTS %s ON %s.%s
+                    USING hnsw (embedding vector_cosine_ops)
+                    WITH (m = 16, ef_construction = 64)
+                    WHERE metadata->>'knowledge_base_id' = '%s'
+                    """.formatted(index, schema, table, kbId));
+        }
+    }
+
+    private String partialIndexPrefix(String table) {
+        return "idx_" + table + "_hnsw_kb_";
+    }
+
+    private String partialIndexName(String table, String kbId) {
+        return partialIndexPrefix(table) + kbId;
+    }
+
     /** 批量写入分段向量（默认维度）。 */
     public void saveBatch(Long tenantId, List<Map<String, Object>> rows) {
         saveBatch(tenantId, rows, embeddingProperties.getDimensions());
@@ -224,6 +343,9 @@ public class VectorRepository {
         String q = vectorLiteral(queryVector);
         Timestamp after = effectiveAfter == null ? null : Timestamp.from(effectiveAfter);
         Timestamp before = effectiveBefore == null ? null : Timestamp.from(effectiveBefore);
+        // 使用字面量而不是绑定参数，PostgreSQL 才能把查询条件匹配到
+        // WHERE metadata->>'knowledge_base_id' = '<id>' 的 partial HNSW 索引。
+        String kbPredicate = "metadata->>'knowledge_base_id' = '" + knowledgeBaseId + "'";
         String base = """
                 SELECT id, content, metadata,
                        to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
@@ -232,12 +354,12 @@ public class VectorRepository {
                        to_char(effective_to AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS effective_to,
                        1 - (embedding <=> ?::vector) AS score
                 FROM %s.%s
-                WHERE metadata->>'knowledge_base_id' = ?
+                WHERE %s
                   AND 1 - (embedding <=> ?::vector) >= ?
                   AND (CAST(? AS timestamptz) IS NULL OR effective_to IS NULL
                        OR effective_to >= CAST(? AS timestamptz))
                   AND (CAST(? AS timestamptz) IS NULL OR effective_from <= CAST(? AS timestamptz))
-                """.formatted(schema(tenantId), table(dimensions));
+                """.formatted(schema(tenantId), table(dimensions), kbPredicate);
         if (shouldUseExact(tenantId, knowledgeBaseId, dimensions)) {
             String exactBase = userId == null ? base : base + """
                       AND (metadata->'allowed_users' IS NULL
@@ -250,16 +372,15 @@ public class VectorRepository {
             String sql = "WITH filtered AS MATERIALIZED (" + exactBase +
                     ") SELECT * FROM filtered ORDER BY score DESC LIMIT ?";
             if (userId == null) {
-                return pgJdbcTemplate.queryForList(sql, q, String.valueOf(knowledgeBaseId), q,
+                return pgJdbcTemplate.queryForList(sql, q, q,
                         threshold, after, after, before, before, topK);
             }
-            return pgJdbcTemplate.queryForList(sql, q, String.valueOf(knowledgeBaseId), q,
+            return pgJdbcTemplate.queryForList(sql, q, q,
                     threshold, after, after, before, before, tenantWide, String.valueOf(userId), topK);
         }
         if (userId == null) {
             return pgJdbcTemplate.queryForList(base + " ORDER BY embedding <=> ?::vector LIMIT ?",
-                    q, String.valueOf(knowledgeBaseId), q, threshold, after, after, before, before,
-                    q, topK);
+                    q, q, threshold, after, after, before, before, q, topK);
         }
         return pgJdbcTemplate.queryForList(base + """
                   AND (metadata->'allowed_users' IS NULL
@@ -270,12 +391,17 @@ public class VectorRepository {
                          WHERE ua = ?))
                 ORDER BY embedding <=> ?::vector
                 LIMIT ?
-                """, q, String.valueOf(knowledgeBaseId), q, threshold, after, after, before, before,
+                """, q, q, threshold, after, after, before, before,
                 tenantWide, String.valueOf(userId), q, topK);
     }
 
     /** 低选择比时物化过滤集再精确排序，避免 HNSW iterative scan 扫描大量不匹配向量。 */
     private boolean shouldUseExact(Long tenantId, Long knowledgeBaseId, int dimensions) {
+        // 已有该知识库的 partial HNSW 时优先使用专用索引；否则仍走原来的精确过滤策略。
+        if (partialHnswEnabled && partialHnswMaxIndexes > 0
+                && hasPartialIndex(tenantId, knowledgeBaseId, dimensions)) {
+            return false;
+        }
         try {
             String table = "%s.%s".formatted(schema(tenantId), table(dimensions));
             long total = cachedCount("total:" + table,
@@ -292,6 +418,31 @@ public class VectorRepository {
         }
     }
 
+    private boolean hasPartialIndex(Long tenantId, Long knowledgeBaseId, int dimensions) {
+        String schema = schema(tenantId);
+        String table = table(dimensions);
+        String index = partialIndexName(table, String.valueOf(knowledgeBaseId));
+        String key = schema + "." + table + ":" + index;
+        long now = System.currentTimeMillis();
+        CachedFlag cached = partialIndexCache.get(key);
+        if (cached != null && now - cached.at() < COUNT_CACHE_MS) return cached.valid();
+        boolean valid = false;
+        try {
+            Long count = pgJdbcTemplate.queryForObject("""
+                    SELECT count(*) FROM pg_index i
+                    JOIN pg_class c ON c.oid = i.indexrelid
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = ? AND c.relname = ? AND i.indisvalid
+                    """, Long.class, schema, index);
+            valid = count != null && count > 0;
+        } catch (Exception e) {
+            log.debug("partial HNSW 索引探测失败 schema={} index={} err={}",
+                    schema, index, e.getMessage());
+        }
+        partialIndexCache.put(key, new CachedFlag(valid, now));
+        return valid;
+    }
+
     private long cachedCount(String key, java.util.function.Supplier<Long> query) {
         CachedCount cached = countCache.get(key);
         long now = System.currentTimeMillis();
@@ -303,6 +454,7 @@ public class VectorRepository {
     }
 
     private record CachedCount(long value, long at) { }
+    private record CachedFlag(boolean valid, long at) { }
 
     /** HNSW 过滤检索配合 iterative scan，避免 metadata 过滤后结果不足。 */
     private void enableIterativeScan() {

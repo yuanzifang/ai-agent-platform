@@ -3,6 +3,7 @@ package com.platform.knowledge.service;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.List;
@@ -104,6 +105,7 @@ class VectorRepositoryTest {
     void usesExactMaterializedScanForLowSelectivityFilter() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         VectorRepository repo = new VectorRepository(jdbc, properties());
+        ReflectionTestUtils.setField(repo, "partialHnswEnabled", false);
         when(jdbc.queryForObject(anyString(), eq(Long.class))).thenReturn(1_000_000L);
         when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(10_000L);
         when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
@@ -114,6 +116,37 @@ class VectorRepositoryTest {
         verify(jdbc).queryForList(sql.capture(), any(Object[].class));
         assertTrue(sql.getValue().contains("MATERIALIZED"), sql.getValue());
         assertTrue(sql.getValue().contains("ORDER BY score DESC"), sql.getValue());
+        assertTrue(sql.getValue().contains("metadata->>'knowledge_base_id' = '2'"), sql.getValue());
+    }
+
+    @Test
+    void reconcilesPartialHnswIndexForLargeKnowledgeBase() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        EmbeddingProperties props = new EmbeddingProperties();
+        props.setModel("nomic-embed-text");
+        props.setDimensions(768);
+        props.setAvailable(Map.of("nomic-embed-text", 768));
+        VectorRepository repo = new VectorRepository(jdbc, props);
+        ReflectionTestUtils.setField(repo, "partialHnswEnabled", true);
+        ReflectionTestUtils.setField(repo, "partialHnswMinRows", 10_000L);
+        ReflectionTestUtils.setField(repo, "partialHnswMaxIndexes", 20);
+        ReflectionTestUtils.setField(repo, "hnswConcurrently", true);
+
+        when(jdbc.queryForList(anyString(), any(Object[].class)))
+                .thenReturn(List.of(Map.of("kb_id", "42", "cnt", 75_000L)));
+        when(jdbc.queryForList(anyString(), eq(String.class), any(Object[].class)))
+                .thenReturn(List.of());
+
+        var stats = repo.reconcilePartialIndexes(1L);
+
+        assertEquals(1, stats.get("created"));
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).execute(sql.capture());
+        assertTrue(sql.getValue().contains(
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_embeddings_hnsw_kb_42"),
+                sql.getValue());
+        assertTrue(sql.getValue().contains(
+                "WHERE metadata->>'knowledge_base_id' = '42'"), sql.getValue());
     }
 
     @Test
