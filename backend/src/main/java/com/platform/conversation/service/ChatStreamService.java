@@ -219,6 +219,8 @@ public class ChatStreamService {
     /** 重新生成：以被替换消息之前的最近 USER 消息重跑，新消息带 parentMessageId。 */
     public Object regenerate(Long conversationId, Long messageId, JwtPrincipal principal) {
         Conversation conv = conversationService.owned(conversationId, principal);
+        // 多实例场景先广播停止旧流，避免旧实例继续写回消息/快照。
+        streamRegistry.stop(conversationId);
         Message target = conversationService.messageOf(messageId);
         if (target == null || !target.getConversationId().equals(conversationId)
                 || !"ASSISTANT".equals(target.getRole())) {
