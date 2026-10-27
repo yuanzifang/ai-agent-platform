@@ -43,6 +43,15 @@ jobs:
           npm ci --ignore-scripts
           npm audit --omit=dev --audit-level=high || true   # 先观察基线
 
+      - name: 前端依赖许可证基线（观察模式）
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: frontend/package-lock.json
+          scanners: license
+          format: table
+          exit-code: '0'
+
   gateway:
     name: 运行时网关/告警中继（Node 单测 + 镜像/容器冒烟）
     runs-on: ubuntu-latest
