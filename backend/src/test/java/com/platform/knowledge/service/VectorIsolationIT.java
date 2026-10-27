@@ -135,6 +135,9 @@ class VectorIsolationIT {
                 "idx_embeddings_4_hnsw_kb_805");
         assertEquals(1, indexes, "partial HNSW 索引应存在");
 
+        var status = repo.partialIndexStatus(TENANT_A, 805L, DIM);
+        assertEquals(true, status.get("partialIndexPresent"));
+
         var hits = repo.search(TENANT_A, new float[]{1, 0, 0, 0}, 805L, 5, 0.1, DIM);
         assertEquals(2, hits.size());
     }

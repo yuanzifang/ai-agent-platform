@@ -1,12 +1,14 @@
 package com.platform.knowledge.controller;
 
 import com.platform.common.response.ApiResponse;
+import com.platform.knowledge.entity.KnowledgeBase;
 import com.platform.knowledge.entity.KnowledgeDocument;
 import com.platform.knowledge.service.EmbeddingService;
 import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.knowledge.service.KnowledgeGraphService;
 import com.platform.knowledge.service.KnowledgeService;
 import com.platform.knowledge.service.KnowledgeUpgradeService;
+import com.platform.knowledge.service.VectorRepository;
 import com.platform.security.JwtPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -35,6 +37,7 @@ public class KnowledgeController {
     private final KnowledgePermissionService permissionService;
     private final EmbeddingService embeddingService;
     private final KnowledgeUpgradeService upgradeService;
+    private final VectorRepository vectorRepository;
 
     private static KnowledgePermissionService.Viewer viewer(JwtPrincipal principal) {
         return KnowledgePermissionService.Viewer.of(principal.userId(), principal.roles());
@@ -85,6 +88,24 @@ public class KnowledgeController {
     @GetMapping("/embedding-models")
     public ApiResponse<List<Map<String, Object>>> embeddingModels() {
         return ApiResponse.ok(embeddingService.availableModels());
+    }
+
+    /** 当前知识库的全局/partial HNSW 状态（可见用户可查看）。 */
+    @GetMapping("/{id}/vector-indexes")
+    public ApiResponse<Map<String, Object>> vectorIndexes(@PathVariable Long id,
+                                                          @AuthenticationPrincipal JwtPrincipal principal) {
+        KnowledgeBase kb = permissionService.requireView(id, viewer(principal));
+        int dimensions = embeddingService.dimension(kb.getEmbeddingModel());
+        return ApiResponse.ok(vectorRepository.partialIndexStatus(kb.getTenantId(), id, dimensions));
+    }
+
+    /** 立即执行一次 partial HNSW 维护，不必等待定时任务；需要编辑权限。 */
+    @PostMapping("/{id}/vector-indexes/reconcile")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('kb:edit')")
+    public ApiResponse<Map<String, Integer>> reconcileVectorIndexes(
+            @PathVariable Long id, @AuthenticationPrincipal JwtPrincipal principal) {
+        KnowledgeBase kb = permissionService.requireEdit(id, viewer(principal));
+        return ApiResponse.ok(vectorRepository.reconcilePartialIndexes(kb.getTenantId()));
     }
 
     /** 删除前查询引用该知识库的 Agent（需求 3.6.3(6)：被引用时需提示）。 */

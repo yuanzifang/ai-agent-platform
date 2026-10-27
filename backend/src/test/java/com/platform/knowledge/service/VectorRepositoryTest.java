@@ -168,6 +168,19 @@ class VectorRepositoryTest {
     }
 
     @Test
+    void reportsPartialIndexStatus() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        VectorRepository repo = new VectorRepository(jdbc, properties());
+        when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of(
+                Map.of("index_name", "idx_embeddings_hnsw_kb_2", "valid", true, "size_bytes", 123L)));
+
+        var status = repo.partialIndexStatus(1L, 2L, 768);
+
+        assertEquals("idx_embeddings_hnsw_kb_2", status.get("partialIndexName"));
+        assertEquals(true, status.get("partialIndexPresent"));
+    }
+
+    @Test
     void skipsPartialIndexWhenKnowledgeBaseRatioIsTooHigh() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         EmbeddingProperties props = new EmbeddingProperties();
