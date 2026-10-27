@@ -5,7 +5,9 @@
 # 用法：
 #   ./scripts/pitr-restore.sh --backup backups/latest --binlog-dir backups/binlog
 #   ./scripts/pitr-restore.sh --backup backups/latest --binlog-dir backups/binlog \
-#     --stop-datetime '2026-10-27 12:00:00' --apply --yes --recreate
+#     --stop-datetime '2026-10-27 12:00:00' --apply --yes --recreate \
+#     --target-db ai_agent_platform_pitr_test
+# 重建默认生产库需要额外 --allow-production
 set -Eeuo pipefail
 umask 077
 
@@ -24,6 +26,7 @@ STOP_DATETIME=""
 APPLY=0
 ASSUME_YES=0
 RECREATE=0
+ALLOW_PRODUCTION=0
 TARGET_DB=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -34,6 +37,7 @@ while [ $# -gt 0 ]; do
     --apply) APPLY=1 ;;
     --yes) ASSUME_YES=1 ;;
     --recreate) RECREATE=1 ;;
+    --allow-production) ALLOW_PRODUCTION=1 ;;
     -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知参数：$1" >&2; exit 2 ;;
   esac
@@ -52,6 +56,11 @@ MYSQL_BACKUP_PASSWORD="${MYSQL_BACKUP_PASSWORD:-${MYSQL_ROOT_PASSWORD:-${MYSQL_P
 MYSQL_BINLOG="${MYSQL_BINLOG:-mysqlbinlog}"
 TARGET_DB="${TARGET_DB:-$MYSQL_DATABASE}"
 export MYSQL_PWD="$MYSQL_BACKUP_PASSWORD"
+
+# 防误删生产库：重建默认库必须显式承认；演练请用 *_drill / *_pitr 临时库。
+if [ "$APPLY" = "1" ] && [ "$RECREATE" = "1" ]     && [ "$TARGET_DB" = "$MYSQL_DATABASE" ] && [ "$ALLOW_PRODUCTION" != "1" ]; then
+  die "拒绝重建生产库 $TARGET_DB；请用 --target-db <临时库>，或显式加 --allow-production"
+fi
 
 BACKUP_ROOT="${BACKUP_ROOT:-$ROOT/backups}"
 if [ -z "$BACKUP_ARG" ]; then
