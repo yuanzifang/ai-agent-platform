@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * PgVector 向量存储（架构 2.4 / 6.5）：每租户独立 Schema（tenant_{id}），embeddings 表 vector(768)。
@@ -36,6 +37,13 @@ public class VectorRepository {
 
     @Value("${pgvector.hnsw.concurrently:true}")
     private boolean hnswConcurrently = true;
+
+    @Value("${pgvector.filtered-exact.threshold:0.25}")
+    private double filteredExactThreshold = 0.25;
+    @Value("${pgvector.filtered-exact.min-rows:200000}")
+    private long filteredExactMinRows = 200000;
+    private final Map<String, CachedCount> countCache = new ConcurrentHashMap<>();
+    private static final long COUNT_CACHE_MS = 300_000;
 
     public void ensureTenantSchema(Long tenantId) {
         String schema = schema(tenantId);
@@ -230,6 +238,24 @@ public class VectorRepository {
                        OR effective_to >= CAST(? AS timestamptz))
                   AND (CAST(? AS timestamptz) IS NULL OR effective_from <= CAST(? AS timestamptz))
                 """.formatted(schema(tenantId), table(dimensions));
+        if (shouldUseExact(tenantId, knowledgeBaseId, dimensions)) {
+            String exactBase = userId == null ? base : base + """
+                      AND (metadata->'allowed_users' IS NULL
+                           OR (? = TRUE AND metadata->>'tenant_visible' = 'true')
+                           OR EXISTS (
+                             SELECT 1 FROM jsonb_array_elements_text(
+                               COALESCE(metadata->'allowed_users', '[]'::jsonb)) ua
+                             WHERE ua = ?))
+                    """;
+            String sql = "WITH filtered AS MATERIALIZED (" + exactBase +
+                    ") SELECT * FROM filtered ORDER BY score DESC LIMIT ?";
+            if (userId == null) {
+                return pgJdbcTemplate.queryForList(sql, q, String.valueOf(knowledgeBaseId), q,
+                        threshold, after, after, before, before, topK);
+            }
+            return pgJdbcTemplate.queryForList(sql, q, String.valueOf(knowledgeBaseId), q,
+                    threshold, after, after, before, before, tenantWide, String.valueOf(userId), topK);
+        }
         if (userId == null) {
             return pgJdbcTemplate.queryForList(base + " ORDER BY embedding <=> ?::vector LIMIT ?",
                     q, String.valueOf(knowledgeBaseId), q, threshold, after, after, before, before,
@@ -247,6 +273,36 @@ public class VectorRepository {
                 """, q, String.valueOf(knowledgeBaseId), q, threshold, after, after, before, before,
                 tenantWide, String.valueOf(userId), q, topK);
     }
+
+    /** 低选择比时物化过滤集再精确排序，避免 HNSW iterative scan 扫描大量不匹配向量。 */
+    private boolean shouldUseExact(Long tenantId, Long knowledgeBaseId, int dimensions) {
+        try {
+            String table = "%s.%s".formatted(schema(tenantId), table(dimensions));
+            long total = cachedCount("total:" + table,
+                    () -> pgJdbcTemplate.queryForObject("SELECT count(*) FROM " + table, Long.class));
+            long kb = cachedCount("kb:" + table + ":" + knowledgeBaseId,
+                    () -> pgJdbcTemplate.queryForObject(
+                            "SELECT count(*) FROM " + table + " WHERE metadata->>'knowledge_base_id' = ?",
+                            Long.class, String.valueOf(knowledgeBaseId)));
+            return total >= filteredExactMinRows && kb > 0
+                    && (double) kb / total < filteredExactThreshold;
+        } catch (Exception e) {
+            log.debug("向量过滤比估算失败，继续 HNSW：{}", e.getMessage());
+            return false;
+        }
+    }
+
+    private long cachedCount(String key, java.util.function.Supplier<Long> query) {
+        CachedCount cached = countCache.get(key);
+        long now = System.currentTimeMillis();
+        if (cached != null && now - cached.at() < COUNT_CACHE_MS) return cached.value();
+        Long value = query.get();
+        long count = value == null ? 0 : value;
+        countCache.put(key, new CachedCount(count, now));
+        return count;
+    }
+
+    private record CachedCount(long value, long at) { }
 
     /** HNSW 过滤检索配合 iterative scan，避免 metadata 过滤后结果不足。 */
     private void enableIterativeScan() {

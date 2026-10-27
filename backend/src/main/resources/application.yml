@@ -204,6 +204,10 @@ pgvector:
     concurrently: ${PGVECTOR_HNSW_CONCURRENTLY:true}
   iterative-scan:
     enabled: ${PGVECTOR_ITERATIVE_SCAN_ENABLED:true}
+  filtered-exact:
+    # 低选择比（知识库命中占比）且总行数足够时走精确过滤，绕过 HNSW iterative scan 退化
+    threshold: ${PGVECTOR_FILTERED_EXACT_THRESHOLD:0.25}
+    min-rows: ${PGVECTOR_FILTERED_EXACT_MIN_ROWS:200000}
 
 asr:
   enabled: ${ASR_ENABLED:true}     # 本地 Qwen3-ASR（OpenAI 兼容协议，start-asr.sh 启动）
