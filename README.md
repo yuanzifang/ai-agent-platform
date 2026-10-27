@@ -6,15 +6,17 @@
 ## 技术决策（v1.2 定稿）
 
 - 框架：Spring AI 1.0.x 基础框架 + Spring AI Alibaba（Graph 多 Agent 编排，M2+ 引入）
-- Chat 模型：DeepSeek（OpenAI 兼容协议），API Key 经 `DEEPSEEK_API_KEY` 注入（占位，后补）
+- Chat 模型：DeepSeek（OpenAI 兼容协议），API Key 经 `DEEPSEEK_API_KEY` 注入（生产在 `.env.docker` 配置）
 - 嵌入模型：默认优先本地 Ollama `bge-m3`（1024 维，中文效果更好）；启动时探测 Ollama，未安装则自动回退 `nomic-embed-text`（768 维）。评测见 `docs/中文Embedding评测.md`
-- 语音转文字：本地 ASR 服务（接口样例后补，当前 `asr.enabled=false`）
+- 语音转文字：本地 ASR 服务（Qwen3-ASR，OpenAI 兼容 `/v1/audio/transcriptions`，`start-asr.sh` 启动）；`ASR_ENABLED` 控制开关（Compose 默认 false）
 - 开发模式：本机直跑（无需 Docker）；Docker Compose 仅服务器部署用
 
 ## 目录
 
-- `backend/` Spring Boot 单体（模块化包：auth / system / agent / knowledge / ...）
+- `backend/` Spring Boot 单体（模块化包：auth / system / agent / knowledge / gateway / observability / deploy / ...）
 - `frontend/` Vue3 + TS + Vite + Element Plus
+- `runtime/` 独立 Node 服务：`agent-gateway`（Agent 部署运行时，OpenAI 兼容代理）与 `alert-relay`（告警中继）
+- `deploy/` Docker Compose / Helm Chart / 可观测配置；`scripts/` 运维脚本；`docs/` 设计与验收文档
 
 ## 本机开发准备（macOS，无 Docker）
 
@@ -41,12 +43,14 @@ ollama pull bge-m3
 | MYSQL_PASSWORD | MySQL 密码 | root |
 | JWT_SECRET | JWT 签名密钥（≥32 字节） | dev 占位（生产必换） |
 | PLATFORM_ADMIN_PASSWORD | 平台管理员初始密码（首次启动重置 seed 账号） | 无则保留占位 |
-| DEEPSEEK_API_KEY | DeepSeek Key（后补） | 空（相关功能提示未配置） |
+| DEEPSEEK_API_KEY | DeepSeek Key（生产在 `.env.docker` 配置） | 空（相关功能提示未配置） |
+
+> 完整变量见 `.env.docker.example` 与 `backend/src/main/resources/application.yml`（ASR/OCR/灰度/告警/国际化等开关均带默认值注释）。
 
 ## 启动
 
 ```bash
-# 后端（M1：认证/多租户/RBAC/审计）
+# 后端
 cd backend && mvn spring-boot:run
 # 平台管理员：admin / $PLATFORM_ADMIN_PASSWORD（未设置时启动日志会提示）
 
@@ -118,7 +122,15 @@ scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 - 前面再加 HTTPS/负载均衡；SSE 需关闭代理缓冲（Nginx 配置已设置）
 - `TOOL_ALLOW_PRIVATE=false`，需要访问内网工具时用 `TOOL_ALLOWED_HOSTS` 白名单
 - 定期备份 MySQL/PgVector/MinIO 数据卷，并定期做恢复演练
-- 当前 Compose 为单机部署；K8s/Helm 多实例部署为后续项
+- 当前 Compose 为单机部署；多副本（1–5）已支持（限流/配额/用量经 Redis 共享），K8s/Helm 见下章（已在 k3d 实跑验收）
+
+## 测试与 CI
+
+- 后端单元测试：`cd backend && mvn test`（当前 370+，截至 2026-10-27）
+- E2E：Playwright 双浏览器（chromium + msedge），`cd frontend && npm run test:e2e`
+- CI（GitHub Actions，push/PR 常驻门禁）：gitleaks 秘密扫描 → trivy 依赖漏洞门禁（HIGH/CRITICAL）→ npm audit → 后端构建+前端类型检查+单测 → 运行时网关镜像构建/冒烟+Node 单测 → 双浏览器 E2E
+- 安全与供应链：`security.yml`（gitleaks/trivy 观察/npm audit）、CodeQL、CycloneDX SBOM（backend/frontend/agent-gateway/alert-relay）、Apache-2.0 许可证门禁
+- 架构边界守卫：ArchUnit（`ArchitectureTest`）钉住网关薄层与模块可摘除性
 
 ## 备份与恢复
 
@@ -161,12 +173,14 @@ helm upgrade --install ai-agent deploy/helm/ai-agent-platform \
 - 支持 HPA/PDB/NetworkPolicy/ServiceAccount
 - 生产建议 `secrets.existingSecret` 引用 Secret，不把密码写进 values
 - 多副本 SSE 停止/重生成依赖 ClientIP 会话保持；如不生效请先将 backend 副本设为 1
+- Helm 已在 k3d 完成首次实跑验收（install / helm test / 登录验证），见 `docs/Helm实跑验收.md`
 - 详见 `deploy/helm/ai-agent-platform/README.md`
 
 ## 里程碑
 
-M1 平台基座（当前）→ M2 模型与 Agent → M3 知识库 → M4 会话对话 → M5 可观测 → M6 安全合规验收。
-每个里程碑对应一批 Flyway 迁移脚本（V1 为 M1 表结构，后续里程碑递增）。
+M1–M6 已全部完成（平台基座 / 模型与 Agent / 知识库 / 会话对话 / 可观测 / 安全合规验收）。
+Flyway 迁移 V1–V101 按里程碑递增（近期：灰度标记、评测灰度打标、国际化映射表、工具审批等）。
+当前阶段：内测准备——全栈压测基线、灰度路由消费、渗透测试与用户文档。
 
 ## License
 
