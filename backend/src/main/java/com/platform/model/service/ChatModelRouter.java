@@ -28,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 多 Provider 模型路由：按模型记录找到 Provider，用其 Base URL / 加密密钥构建 OpenAI 兼容 ChatModel。
  * 支持 OpenAI / DeepSeek / Ollama / DashScope 兼容模式 / 智谱 v4 / 火山 Ark / 自定义 OpenAI 兼容端点，
- * 以及 Anthropic 原生协议（/v1/messages，支持 tools / thinking 参数透传）。Gemini 原生暂未接入。
+ * 以及 Anthropic 原生协议（/v1/messages，支持 tools / thinking 参数透传）。Gemini 走 OpenAI 兼容端点（/v1beta/openai）。
  */
 @Slf4j
 @Service
@@ -309,6 +309,8 @@ public class ChatModelRouter {
             case "ZHIPU", "GLM" -> "/chat/completions";
             // 火山 Ark base 形如 https://ark.cn-beijing.volces.com/api/v3
             case "VOLC" -> "/chat/completions";
+            // Gemini OpenAI 兼容 base 形如 https://generativelanguage.googleapis.com/v1beta/openai
+            case "GEMINI" -> "/chat/completions";
             default -> "/v1/chat/completions";
         };
     }

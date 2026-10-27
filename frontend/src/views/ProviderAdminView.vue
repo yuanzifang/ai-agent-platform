@@ -105,7 +105,7 @@
         <el-form-item :label="t('providerPage.name')" required><el-input v-model="form.name" :placeholder="t('providerPage.namePh')" /></el-form-item>
         <el-form-item :label="t('providerPage.type')" required>
           <el-select v-model="form.providerType" style="width: 100%">
-            <el-option v-for="t in ['OPENAI_COMPATIBLE','DEEPSEEK','ANTHROPIC','DASHSCOPE','OLLAMA','VOLC']" :key="t" :value="t" :label="t" />
+            <el-option v-for="t in ['OPENAI_COMPATIBLE','DEEPSEEK','ANTHROPIC','DASHSCOPE','OLLAMA','VOLC','GEMINI']" :key="t" :value="t" :label="t" />
           </el-select>
         </el-form-item>
         <el-form-item label="Base URL" required>
