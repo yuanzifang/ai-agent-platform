@@ -66,3 +66,26 @@ class MarkdownChunkerTest {
                 && c.content().endsWith("```")), "代码块应保持原子");
     }
 }
+
+class MarkdownTextTableSplitTest {
+
+    @org.junit.jupiter.api.Test
+    void splitsLargeHtmlTableAtSafeRowspanBoundaries() {
+        StringBuilder html = new StringBuilder("<table border=\"1\"><thead><tr><th>Group</th><th>Item</th></tr></thead><tbody>");
+        for (int g = 0; g < 8; g++) {
+            html.append("<tr><td rowspan=\"5\">G").append(g).append("</td><td>first</td></tr>");
+            for (int i = 1; i < 5; i++) {
+                html.append("<tr><td>").append(g).append("-").append(i).append("</td></tr>");
+            }
+        }
+        html.append("</tbody></table>");
+
+        java.util.List<String> parts = MarkdownText.splitTable(html.toString(), 500);
+
+        org.junit.jupiter.api.Assertions.assertTrue(parts.size() > 1, "超大 HTML 表应拆分");
+        for (String part : parts) {
+            org.junit.jupiter.api.Assertions.assertTrue(part.contains("<thead>"), "每段应重复表头");
+            org.junit.jupiter.api.Assertions.assertTrue(part.contains("rowspan=\"5\""), "rowspan 组内不应被切断");
+        }
+    }
+}
