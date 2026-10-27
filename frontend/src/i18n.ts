@@ -8,7 +8,7 @@ const messages = {
       templates: '模板库', knowledge: '知识库', skills: '技能管理', tools: '工具管理',
       mcp: 'MCP Server', approvals: '审批箱', prompts: 'Prompt 模板', provider: '模型接入',
       usage: '用量看板', billing: '计费管理', users: '成员管理', tenant: '租户设置',
-      metrics: '监控统计', observability: '可观测', audit: '审计日志', eval: '评测中心', platform: '平台管理', settings: '系统设置', gateway: '开放平台网关', i18n: '国际化字段'
+      metrics: '监控统计', observability: '可观测', audit: '审计日志', eval: '评测中心', platform: '平台管理', settings: '系统设置', infra: '基础设施', gateway: '开放平台网关', i18n: '国际化字段'
     },
     agentList: {
       search: '搜索 Agent 名称', fromTemplate: '从模板创建', create: '新建 Agent',
@@ -273,6 +273,16 @@ const messages = {
       rechargeSuccess: '充值成功', selectPeriod: '请选择账期', generatedBill: '已生成 ',
       generatedBillMid: ' 账单：¥', quotaUpdated: '配额已更新', rulesLabel: '计费规则',
       agentQuota: 'Agent 数量', kbQuota: '知识库数量', todayQuota: '今日 Tokens', storageQuota: '存储'
+    },
+    infraPage: {
+      title: '基础设施配置', sub: '仅平台管理员维护；Agent 只选择资源 Profile，不接触连接地址和密码。',
+      profileTitle: '资源 Profile', addProfile: '新建 Profile', editProfile: '编辑 Profile', profileName: '名称',
+      profileNameRequired: 'Profile 名称必填', description: '描述', status: '状态', actions: '操作',
+      edit: '编辑', delete: '删除', deleteProfile: '删除 Profile ', deleted: '已删除', cancel: '取消',
+      reload: '重新加载', save: '保存配置', restartHint: '配置保存到本地文件，重启后端后生效。',
+      configFile: '配置文件', keepSecret: '已配置，留空保持不变',
+      mysql: 'MySQL 主数据库', redis: 'Redis', pg: 'PostgreSQL / pgvector', minio: 'MinIO',
+      es: 'Elasticsearch', qdrant: 'Qdrant', saved: '配置已保存', savedRestart: '配置已保存，请重启后端生效'
     },
     platformPage: {
       createTenant: '开通租户', tenantKey: '租户标识', name: '名称', status: '状态', members: '成员数',
@@ -655,6 +665,7 @@ const messages = {
       statuses: { RUNNING: '运行中', STOPPED: '已停止', FAILED: '失败', PENDING: '部署中' }
     },
     agentEdit: {
+      resourceProfile: '资源 Profile', resourceProfilePh: '选择平台维护的检索资源组合', resourceProfileHint: '只引用平台 Profile，不包含数据库地址或密码',
       back: '返回列表', published: '已发布', draft: '草稿', versions: '版本', integration: '集成',
       channels: '渠道', schedules: '定时', credentials: '凭证', eval: '评测', publish: '发布', save: '保存',
       basic: '基本信息', name: '名称', desc: '描述', category: '分类', categoryPh: '如：客服', tags: '标签',
@@ -960,7 +971,7 @@ const messages = {
       mcp: 'MCP Server', approvals: 'Approvals', prompts: 'Prompt Templates', provider: 'Model Providers',
       usage: 'Usage', billing: 'Billing', users: 'Members', tenant: 'Tenant Settings',
       gateway: 'API Gateway',
-      metrics: 'Metrics', observability: 'Observability', audit: 'Audit Log', eval: 'Evaluation', platform: 'Platform Admin', settings: 'System Settings', i18n: 'I18n Fields'
+      metrics: 'Metrics', observability: 'Observability', audit: 'Audit Log', eval: 'Evaluation', platform: 'Platform Admin', settings: 'System Settings', infra: 'Infrastructure', i18n: 'I18n Fields'
     },
     agentList: {
       search: 'Search agents', fromTemplate: 'From template', create: 'New Agent',
@@ -1226,6 +1237,16 @@ const messages = {
       rechargeSuccess: 'Recharge successful', selectPeriod: 'Please select a period', generatedBill: 'Generated ',
       generatedBillMid: ' bill: ¥', quotaUpdated: 'Quota updated', rulesLabel: 'Billing rules',
       agentQuota: 'Agents', kbQuota: 'Knowledge bases', todayQuota: 'Tokens today', storageQuota: 'Storage'
+    },
+    infraPage: {
+      title: 'Infrastructure', sub: 'Platform admins only. Agents select resource profiles, never raw endpoints or passwords.',
+      profileTitle: 'Resource profiles', addProfile: 'New profile', editProfile: 'Edit profile', profileName: 'Name',
+      profileNameRequired: 'Profile name is required', description: 'Description', status: 'Status', actions: 'Actions',
+      edit: 'Edit', delete: 'Delete', deleteProfile: 'Delete profile ', deleted: 'Deleted', cancel: 'Cancel',
+      reload: 'Reload', save: 'Save', restartHint: 'Saved to a local file; restart the backend to apply.',
+      configFile: 'Config file', keepSecret: 'Configured; leave blank to keep',
+      mysql: 'MySQL primary database', redis: 'Redis', pg: 'PostgreSQL / pgvector', minio: 'MinIO',
+      es: 'Elasticsearch', qdrant: 'Qdrant', saved: 'Configuration saved', savedRestart: 'Configuration saved; restart the backend to apply'
     },
     platformPage: {
       createTenant: 'Create tenant', tenantKey: 'Tenant key', name: 'Name', status: 'Status', members: 'Members',
@@ -1609,6 +1630,7 @@ const messages = {
       statuses: { RUNNING: 'Running', STOPPED: 'Stopped', FAILED: 'Failed', PENDING: 'Deploying' }
     },
     agentEdit: {
+      resourceProfile: 'Resource profile', resourceProfilePh: 'Select a platform-maintained retrieval resource profile', resourceProfileHint: 'References a platform profile; no database endpoint or password is stored here',
       back: 'Back to list', published: 'Published', draft: 'Draft', versions: 'Versions', integration: 'Integration',
       channels: 'Channels', schedules: 'Schedules', credentials: 'Credentials', eval: 'Evaluation', publish: 'Publish', save: 'Save',
       basic: 'Basic info', name: 'Name', desc: 'Description', category: 'Category', categoryPh: 'e.g. Support', tags: 'Tags',
