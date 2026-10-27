@@ -2,9 +2,16 @@ package com.platform.capability.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.platform.capability.entity.ToolRegistry;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.ai.tool.ToolCallback;
 
+import java.lang.reflect.Method;
+import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -55,5 +62,45 @@ class ToolRuntimeServiceValidationTest {
         ToolCallCollector collector = new ToolCallCollector();
         assertNull(service.validateToolInput("t", "T", "API", collector, "{\"amount\":1}",
                 SCHEMA, Map.of("amount", 1)));
+    }
+
+    @Test
+    void apiCallbackReturnsRetryableThenExecutesCorrectedInput() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/echo", exchange -> {
+            byte[] body = "{\"ok\":true}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            ToolRuntimeService service = service();
+            ReflectionTestUtils.setField(service, "httpClient", HttpClient.newHttpClient());
+            ToolRegistry tool = new ToolRegistry();
+            tool.setId(1L);
+            tool.setToolKey("echo");
+            tool.setName("Echo");
+            tool.setToolType("API");
+            tool.setApiConfig("""
+                    {"url":"http://127.0.0.1:%d/echo","method":"GET",
+                     "params":[{"name":"amount","type":"integer","in":"query","required":true}],
+                     "responsePath":"ok"}
+                    """.formatted(server.getAddress().getPort()));
+            ToolCallCollector collector = new ToolCallCollector();
+            Method factory = ToolRuntimeService.class.getDeclaredMethod("apiCallback",
+                    ToolRegistry.class, ToolCallCollector.class, Long.class, boolean.class);
+            factory.setAccessible(true);
+            ToolCallback callback = (ToolCallback) factory.invoke(service, tool, collector, null, false);
+
+            String first = callback.call("{\"amount\":\"x\"}");
+            assertTrue(new ObjectMapper().readTree(first).path("retryable").asBoolean());
+
+            String second = callback.call("{\"amount\":2}");
+            assertTrue(second.contains("true"), second);
+        } finally {
+            server.stop(0);
+        }
     }
 }
