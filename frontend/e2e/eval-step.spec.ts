@@ -142,7 +142,7 @@ test('ANSWER 单步：选择 Agent 后执行回答与裁判', async ({ page, req
       agentId: 1,
       query: '只回答OK',
       expectedPayload: '{"expectedAnswer":"OK"}',
-      stepConfig: '{"judgeModel":"deepseek-flash"}'
+      stepConfig: '{"judgeModel":"qwen2.5:7b"}'
     }
   })
   expect(res.ok()).toBeTruthy()
@@ -150,7 +150,7 @@ test('ANSWER 单步：选择 Agent 后执行回答与裁判', async ({ page, req
   expect(body.stepType).toBe('ANSWER')
   expect(body.actual).toBeTruthy()
   expect(body.details.model).toBeTruthy()
-  expect(body.details.judgeModel).toBe('deepseek-flash')
+  expect(body.details.judgeModel).toBe('qwen2.5:7b')
   expect(body.score).toBeGreaterThanOrEqual(0)
-  console.log(`ANSWER-STEP model=${body.details.model} score=${body.score} actual=${body.actual}`)
+  console.log(`ANSWER-STEP model=${body.details.model} judge=${body.details.judgeModel} score=${body.score} reason=${body.details.reason} actual=${body.actual}`)
 })
