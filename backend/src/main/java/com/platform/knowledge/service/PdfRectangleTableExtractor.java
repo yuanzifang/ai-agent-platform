@@ -211,7 +211,7 @@ final class PdfRectangleTableExtractor {
         return table.toString();
     }
 
-    /** 识别 1–5 行表头：首行标签、年份/季度行、分组子表头；数字数据行会终止表头。 */
+    /** 识别 1–8 行表头：首行标签、年份/季度行、分组子表头；数字数据行会终止表头。 */
     private static int headerRows(Map<String, Cell> cells, int rows, int cols) {
         if (rows < 2) return 0;
         Row first = rowInfo(cells, 0, cols);
@@ -219,7 +219,7 @@ final class PdfRectangleTableExtractor {
         boolean firstSpan = cells.values().stream()
                 .anyMatch(c -> c.y0 == 0 && (c.x1 > c.x0 || c.y1 > c.y0));
         int headers = 1;
-        int limit = Math.min(5, rows - 1);
+        int limit = Math.min(8, rows - 1);
         for (int row = 1; row < limit; row++) {
             Row info = rowInfo(cells, row, cols);
             if (!info.hasText || info.hasNumber) break;
