@@ -130,6 +130,12 @@ public class AgentDeploymentService {
     @Value("${agent.deploy.pids-limit:256}")
     private int pidsLimit;
 
+    @Value("${agent.deploy.log-max-size:10m}")
+    private String logMaxSize;
+
+    @Value("${agent.deploy.log-max-file:3}")
+    private int logMaxFile;
+
     private static final String LB_SUFFIX = "-lb";
 
     private static final String NGINX_TEMPLATE = """
@@ -880,6 +886,11 @@ public class AgentDeploymentService {
         if (memoryLimit != null && !memoryLimit.isBlank()) args.addAll(List.of("--memory", memoryLimit.trim()));
         if (pidsLimit > 0) args.addAll(List.of("--pids-limit", String.valueOf(pidsLimit)));
         args.addAll(List.of("--security-opt", "no-new-privileges"));
+        if (logMaxSize != null && !logMaxSize.isBlank()) {
+            args.addAll(List.of("--log-driver", "json-file",
+                    "--log-opt", "max-size=" + logMaxSize.trim()));
+            if (logMaxFile > 0) args.addAll(List.of("--log-opt", "max-file=" + logMaxFile));
+        }
         return args;
     }
 

@@ -324,6 +324,9 @@ agent:
     cpu-limit: ${AGENT_DEPLOY_CPU_LIMIT:1}
     memory-limit: ${AGENT_DEPLOY_MEMORY_LIMIT:512m}
     pids-limit: ${AGENT_DEPLOY_PIDS_LIMIT:256}
+    # Docker json-file 日志轮转，避免容器长期运行占满磁盘
+    log-max-size: ${AGENT_DEPLOY_LOG_MAX_SIZE:10m}
+    log-max-file: ${AGENT_DEPLOY_LOG_MAX_FILE:3}
     # 容器内访问平台的地址（Docker Desktop 用 host.docker.internal；Linux 可换成宿主内网 IP）
     platform-base-url: ${AGENT_DEPLOY_PLATFORM_BASE:http://host.docker.internal:8080}
     # 对外地址前缀（如 https://agents.example.com），留空自动取本机 Tailscale/内网 IP

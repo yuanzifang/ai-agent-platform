@@ -154,14 +154,19 @@ class AgentDeploymentServiceLifecycleTest {
         ReflectionTestUtils.setField(service, "cpuLimit", "1.5");
         ReflectionTestUtils.setField(service, "memoryLimit", "256m");
         ReflectionTestUtils.setField(service, "pidsLimit", 128);
+        ReflectionTestUtils.setField(service, "logMaxSize", "10m");
+        ReflectionTestUtils.setField(service, "logMaxFile", 3);
 
         assertEquals(List.of("--cpus", "1.5", "--memory", "256m",
-                "--pids-limit", "128", "--security-opt", "no-new-privileges"),
+                "--pids-limit", "128", "--security-opt", "no-new-privileges",
+                "--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=3"),
                 service.containerLimits());
 
         ReflectionTestUtils.setField(service, "cpuLimit", "");
         ReflectionTestUtils.setField(service, "memoryLimit", "");
         ReflectionTestUtils.setField(service, "pidsLimit", 0);
+        ReflectionTestUtils.setField(service, "logMaxSize", "");
+        ReflectionTestUtils.setField(service, "logMaxFile", 0);
         assertEquals(List.of("--security-opt", "no-new-privileges"), service.containerLimits());
     }
 
