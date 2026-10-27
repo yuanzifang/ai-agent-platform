@@ -37,7 +37,7 @@ final class PdfGridLineTableExtractor {
     static List<PdfTableBlock> extractBlocks(PDDocument doc) {
         List<PdfTableBlock> blocks = new ArrayList<>();
         try {
-            for (int p = 0; p < Math.min(doc.getNumberOfPages(), 50); p++) {
+            for (int p = 0; p < Math.min(doc.getNumberOfPages(), 1000); p++) {
                 PDPage page = doc.getPage(p);
                 List<TextPosition> glyphs = new ArrayList<>();
                 PDFTextStripper stripper = new PDFTextStripper() {

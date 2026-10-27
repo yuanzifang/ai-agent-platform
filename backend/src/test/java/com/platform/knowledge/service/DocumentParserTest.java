@@ -230,6 +230,39 @@ class DocumentParserTest {
     }
 
     @Test
+    void extractsTableAfterPageFifty() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            for (int pageNo = 1; pageNo <= 51; pageNo++) {
+                PDPage page = new PDPage(PDRectangle.A4);
+                doc.addPage(page);
+                try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                    content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 10);
+                    content.beginText();
+                    content.newLineAtOffset(50, 760);
+                    content.showText("Page " + pageNo);
+                    content.endText();
+                    if (pageNo == 51) {
+                        content.beginText();
+                        content.newLineAtOffset(50, 700);
+                        content.showText("Product Price Qty");
+                        content.endText();
+                        content.beginText();
+                        content.newLineAtOffset(50, 670);
+                        content.showText("Row51 151 51");
+                        content.endText();
+                    }
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("large-pdf-with-late-table.pdf", pdf));
+        assertTrue(text.contains("Row51") && text.contains("151"),
+                "第 51 页表格应被提取，实际=" + text.substring(Math.max(0, text.length() - 500)));
+    }
+
+    @Test
     void keepsDenseUntitledWideTable() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
