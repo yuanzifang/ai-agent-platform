@@ -18,7 +18,8 @@ Chart：`deploy/helm/ai-agent-platform` 0.1.0
 | `helm test` | `aap-test-connection` Phase Succeeded |
 | 前端 `/healthz`、`/api/actuator/health` | 200 |
 | `dev / Dev@123456` 登录 | 成功 |
-| 真实 Ingress/TLS | **未验证**（本地关闭 Ingress，使用 port-forward） |
+| 真实 Ingress/TLS | 2026-10-27 补充验证：Traefik Ingress + 自签 TLS 通过 |
+| 多副本 | 2026-10-27 补充验证：backend 2/2、frontend 2/2 Ready |
 
 ## 依赖与镜像
 
@@ -64,9 +65,28 @@ helm test aap -n aap-helm
 3. **Ingress 未启用**：本地无 ingress-nginx，使用 Service + port-forward；生产需单独验证 Ingress/TLS 与 SSE 会话保持。
 4. Chart 默认 `backend.replicaCount=2`，本次降为 1；多副本会话保持仍未在 K8s 环境验证。
 
+## 补充：Traefik Ingress + TLS + 2 副本（2026-10-27）
+
+在 k3d/k3s 上额外安装了 Traefik（chart 42.1.3 / image 3.7.16），关闭 Chart 的 nginx 注解依赖：
+
+- `ingress.className=traefik`，host `aap.local`
+- 自签证书 `aap-tls`（CN/SAN=aap.local）
+- backend **2/2**、frontend **2/2** Ready
+- 通过 `kubectl port-forward -n traefik svc/traefik 18443:443` 访问
+- `https://aap.local:18443/healthz` → 200
+- `https://aap.local:18443/api/v1/auth/login` → 200，dev 登录成功
+- 证书 subject/issuer 均为 `CN=aap.local`
+
+限制：
+
+- 测试使用 `appEnv=development`，因为宿主机 MinIO 使用开发凭据、DeepSeek 仍是 placeholder；生产 `ProductionGuard` 会拒绝。
+- Traefik 多副本会话保持未做压力验证；Chart 的 backend Service ClientIP affinity 仍保留。
+- `/api/actuator/health` 经 Ingress 前缀路径转发后不是 actuator 原路径，返回 401；健康检查应走 frontend `/healthz` 或后端 Service 直连。
+- 真实域名/TLS 证书、托管依赖仍未验收。
+
 ## 仍缺
 
-- 真实域名/TLS/Ingress Controller 验收
+- 真实域名/TLS 证书、生产 Ingress Controller 参数（本地 Traefik 自签已通过）
 - 托管 MySQL/Redis/PgVector/MinIO/Ollama 连接验收
-- 多副本（2+）滚动更新、PDB、HPA、Service 会话保持
+- 多副本滚动更新、PDB、HPA、Traefik 下会话保持压力验证
 - 完全离线环境的镜像清单/预载脚本
