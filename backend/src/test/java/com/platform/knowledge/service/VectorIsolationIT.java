@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -85,6 +86,29 @@ class VectorIsolationIT {
         assertEquals(1, hitsA.size(), "租户A 库内应能检索到自己");
         assertTrue(String.valueOf(hitsA.get(0).get("content")).contains("租户A"), "内容归属校验");
         assertEquals(0, hitsB.size(), "租户B 不得检索到租户A 的向量（schema 边界）");
+    }
+
+    @Test
+    void createsAndUsesPartialHnswIndexForKnowledgeBase() {
+        ReflectionTestUtils.setField(repo, "partialHnswMinRows", 2L);
+        ReflectionTestUtils.setField(repo, "partialHnswMaxIndexes", 10);
+        ReflectionTestUtils.setField(repo, "hnswConcurrently", false);
+        repo.saveBatch(TENANT_A, List.of(
+                row("partial one", new float[]{1, 0, 0, 0}, 803, 1),
+                row("partial two", new float[]{0.9f, 0.1f, 0, 0}, 803, 2)));
+
+        var stats = repo.reconcilePartialIndexes(TENANT_A);
+
+        assertTrue(stats.get("created") >= 1, "应至少创建当前知识库的 partial HNSW");
+        Integer indexes = jdbc.queryForObject("""
+                SELECT count(*) FROM pg_indexes
+                WHERE schemaname = ? AND indexname = ?
+                """, Integer.class, "tenant_" + TENANT_A,
+                "idx_embeddings_4_hnsw_kb_803");
+        assertEquals(1, indexes, "partial HNSW 索引应存在");
+
+        var hits = repo.search(TENANT_A, new float[]{1, 0, 0, 0}, 803L, 5, 0.1, DIM);
+        assertEquals(2, hits.size());
     }
 
     @Test

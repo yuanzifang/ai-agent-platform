@@ -192,10 +192,28 @@ public class VectorRepository {
                     }
                 }
                 desiredCount += desired.size();
-                List<String> existing = pgJdbcTemplate.queryForList("""
+                List<String> existing = new java.util.ArrayList<>(pgJdbcTemplate.queryForList("""
                         SELECT indexname FROM pg_indexes
                         WHERE schemaname = ? AND tablename = ? AND indexname LIKE ?
-                        """, String.class, schema, table, prefix + "%");
+                        """, String.class, schema, table, prefix + "%"));
+                // CREATE INDEX CONCURRENTLY 被中断时会留下 invalid index；它不能参与查询，
+                // 但名字已存在，必须先删掉，否则后续 IF NOT EXISTS 会一直跳过。
+                List<String> invalid = pgJdbcTemplate.queryForList("""
+                        SELECT c.relname FROM pg_class c
+                        JOIN pg_namespace n ON n.oid = c.relnamespace
+                        JOIN pg_index i ON i.indexrelid = c.oid
+                        WHERE n.nspname = ? AND c.relname LIKE ? AND NOT i.indisvalid
+                        """, String.class, schema, prefix + "%");
+                for (String name : invalid) {
+                    try {
+                        dropPartialIndex(schema, name);
+                        existing.remove(name);
+                        dropped++;
+                    } catch (Exception e) {
+                        log.warn("invalid partial HNSW 索引删除失败 schema={} index={} err={}",
+                                schema, name, e.getMessage());
+                    }
+                }
                 for (Map.Entry<String, String> entry : desired.entrySet()) {
                     if (existing.contains(entry.getValue())) continue;
                     try {
@@ -210,8 +228,7 @@ public class VectorRepository {
                     for (String name : existing) {
                         if (!desired.containsValue(name)) {
                             try {
-                                pgJdbcTemplate.execute("DROP INDEX " + (hnswConcurrently ? "CONCURRENTLY " : "")
-                                        + "IF EXISTS " + schema + "." + name);
+                                dropPartialIndex(schema, name);
                                 dropped++;
                             } catch (Exception e) {
                                 log.warn("partial HNSW 索引删除失败 schema={} index={} err={}",
@@ -249,6 +266,11 @@ public class VectorRepository {
                     WHERE metadata->>'knowledge_base_id' = '%s'
                     """.formatted(index, schema, table, kbId));
         }
+    }
+
+    private void dropPartialIndex(String schema, String index) {
+        pgJdbcTemplate.execute("DROP INDEX " + (hnswConcurrently ? "CONCURRENTLY " : "")
+                + "IF EXISTS " + schema + "." + index);
     }
 
     private String partialIndexPrefix(String table) {
