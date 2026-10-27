@@ -446,12 +446,33 @@ if [ "$SKIP_OFFSITE" = "0" ] && { [ -n "${BACKUP_OFFSITE_ENDPOINT:-}" ] || [ -n 
   command -v openssl >/dev/null 2>&1 || die "备份加密需要 openssl"
 
   BACKUP_OFFSITE_PREFIX="${BACKUP_OFFSITE_PREFIX:-ai-agent-platform}"
+  BACKUP_OFFSITE_VERSIONING="${BACKUP_OFFSITE_VERSIONING:-0}"
+  BACKUP_OFFSITE_LOCK_DAYS="${BACKUP_OFFSITE_LOCK_DAYS:-0}"
+  [[ "$BACKUP_OFFSITE_LOCK_DAYS" =~ ^[0-9]+$ ]] || die "BACKUP_OFFSITE_LOCK_DAYS 必须是数字"
   MC_OFFSITE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/aiagent-mc-offsite.XXXXXX")"
   export MC_CONFIG_DIR="$MC_OFFSITE_TMP"
-  mc alias set offsite "$BACKUP_OFFSITE_ENDPOINT" "$BACKUP_OFFSITE_ACCESS_KEY"     "$BACKUP_OFFSITE_SECRET_KEY" >/dev/null 2>&1 \
+  mc alias set offsite "$BACKUP_OFFSITE_ENDPOINT" "$BACKUP_OFFSITE_ACCESS_KEY" \
+    "$BACKUP_OFFSITE_SECRET_KEY" >/dev/null 2>&1 \
     || die "异地 mc alias 配置失败：$BACKUP_OFFSITE_ENDPOINT"
-  mc mb --ignore-existing "offsite/$BACKUP_OFFSITE_BUCKET" >/dev/null 2>&1 \
-    || die "异地 bucket 不可用：$BACKUP_OFFSITE_BUCKET"
+  BUCKET_TARGET="offsite/$BACKUP_OFFSITE_BUCKET"
+  if ! mc ls "$BUCKET_TARGET" >/dev/null 2>&1; then
+    if [ "$BACKUP_OFFSITE_LOCK_DAYS" -gt 0 ]; then
+      mc mb --with-lock "$BUCKET_TARGET" >/dev/null 2>&1 \
+        || die "异地 bucket 创建失败（object lock）：$BACKUP_OFFSITE_BUCKET"
+    else
+      mc mb "$BUCKET_TARGET" >/dev/null 2>&1 \
+        || die "异地 bucket 创建失败：$BACKUP_OFFSITE_BUCKET"
+    fi
+  fi
+  if [ "$BACKUP_OFFSITE_VERSIONING" = "1" ] || [ "$BACKUP_OFFSITE_LOCK_DAYS" -gt 0 ]; then
+    mc version enable "$BUCKET_TARGET" >/dev/null 2>&1 \
+      || die "异地 bucket 无法启用版本化"
+  fi
+  if [ "$BACKUP_OFFSITE_LOCK_DAYS" -gt 0 ]; then
+    mc retention set --default governance "${BACKUP_OFFSITE_LOCK_DAYS}d" "$BUCKET_TARGET" >/dev/null 2>&1 \
+      || die "异地 bucket 未启用 object lock；请用 --with-lock 新建 bucket 后重试"
+    log "异地 bucket object lock：GOVERNANCE ${BACKUP_OFFSITE_LOCK_DAYS} 天（版本化已启用）"
+  fi
 
   log "异地备份：打包并加密 $OUT"
   OFFSITE_ARCHIVE="$BACKUP_ROOT/backup-$TS.tar.gz"
