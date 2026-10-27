@@ -550,11 +550,12 @@ public class EvalService {
         return createTask(name, agentId, datasetId, judgeModel, passThreshold, Map.of(), principal);
     }
 
-    Map<String, Object> createTask(String name, Long agentId, Long datasetId, String judgeModel,
-                                   Double passThreshold, Map<String, Object> extra, JwtPrincipal principal) {
+    public Map<String, Object> createTask(String name, Long agentId, Long datasetId, String judgeModel,
+                                          Double passThreshold, Map<String, Object> extra, JwtPrincipal principal) {
         quotaService.checkTokensToday(1000);
         EvalTask t = createTaskRow(name, agentId, datasetId, judgeModel, passThreshold,
-                extra.get("evalType") instanceof String et && !et.isBlank() ? et : "ONCE", principal);
+                extra.get("evalType") instanceof String et && !et.isBlank() ? et : "ONCE",
+                extra.get("grayTag") instanceof String gt && !gt.isBlank() ? gt : null, principal);
         final double threshold = passThreshold;
         final Long tenantId = t.getTenantId();
         // 注意不能用 @Async 自调用（不走代理），直接提交线程池；租户上下文由 execute 内部还原
@@ -575,8 +576,21 @@ public class EvalService {
     }
 
     /** 仅创建任务行（校验 + INSERT），执行策略由调用方决定。 */
-    private EvalTask createTaskRow(String name, Long agentId, Long datasetId, String judgeModel,
-                                   Double passThreshold, String evalType, JwtPrincipal principal) {
+
+    /** 评测轨迹 tags：eval + 类型 + 灰度标记（gray:<tag>，供 GrayCompareService 按任务分组对比）。 */
+    static List<String> evalTraceTags(EvalTask task, String... extraTags) {
+        List<String> tags = new ArrayList<>(List.of("eval"));
+        for (String extraTag : extraTags) {
+            if (extraTag != null && !extraTag.isBlank()) tags.add(extraTag);
+        }
+        if (task.getGrayTag() != null && !task.getGrayTag().isBlank()) {
+            tags.add("gray:" + task.getGrayTag().trim());
+        }
+        return tags;
+    }
+    private EvalTask createTaskRow(String name, Long agentId, Long datasetId,
+                                   String judgeModel, Double passThreshold, String evalType,
+                                   String grayTag, JwtPrincipal principal) {
         AgentRegistry agent = agentMapper.selectById(agentId);
         if (agent == null) throw new BusinessException(404, "Agent 不存在");
         AgentVersion latest = versionMapper.selectList(new LambdaQueryWrapper<AgentVersion>()
@@ -593,6 +607,7 @@ public class EvalService {
         t.setAgentVersion(latest == null ? null : latest.getVersion());
         t.setTargetType("AGENT");
         t.setEvalType(evalType);
+        t.setGrayTag(grayTag == null || grayTag.isBlank() ? null : grayTag.trim());
         t.setJudgeModel(judgeModel == null || judgeModel.isBlank() ? "deepseek-flash" : judgeModel);
         t.setMetrics(toJson(List.of(Map.of("metricKey", "correctness", "name", "答案正确性",
                 "passThreshold", passThreshold == null ? 0.6 : passThreshold))));
@@ -1021,7 +1036,7 @@ public class EvalService {
     public TaskOutcome createAndExecuteExclusive(String name, Long agentId, Long datasetId,
                                                  String judgeModel, Double passThreshold,
                                                  String evalType, JwtPrincipal principal) {
-        EvalTask t = createTaskRow(name, agentId, datasetId, judgeModel, passThreshold, evalType, principal);
+        EvalTask t = createTaskRow(name, agentId, datasetId, judgeModel, passThreshold, evalType, null, principal);
         return execute(t.getId(), t.getTenantId(), passThreshold == null ? 0.6 : passThreshold);
     }
 
@@ -1112,7 +1127,7 @@ public class EvalService {
         traceService.record(task.getTenantId(), traceId, null, null, task.getAgentId(),
                 task.getCreatedBy(), agent.getName(), "SUCCESS", "deterministic", 0, 0, latency, 0,
                 TraceService.TraceExtra.eval(null, item.getQuestion(), step.actual(),
-                        List.of("eval", stepType.toLowerCase(java.util.Locale.ROOT))), null, collector.steps());
+                        evalTraceTags(task, stepType.toLowerCase(java.util.Locale.ROOT))), null, collector.steps());
         EvalResult result = new EvalResult();
         result.setTaskId(task.getId());
         result.setDatasetItemId(item.getId());
@@ -1187,7 +1202,7 @@ public class EvalService {
                 modelName, agentUsage == null ? 0 : agentUsage.getPromptTokens(),
                 agentUsage == null ? 0 : agentUsage.getCompletionTokens(), latency, citations.size(),
                 TraceService.TraceExtra.eval(traceVersion, item.getQuestion(), answer,
-                        List.of(task.getEvalType() == null ? "once" : task.getEvalType().toLowerCase())));
+                        evalTraceTags(task, task.getEvalType() == null ? "once" : task.getEvalType().toLowerCase())));
 
         // 3) LLM 裁判
         long judgeStart = System.currentTimeMillis();
