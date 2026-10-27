@@ -31,10 +31,29 @@ trivy fs --format cyclonedx --output ../frontend-sbom.cdx.json package-lock.json
 
 - 漏洞响应：知道某个 CVE 影响哪些组件/版本
 - 许可证核对：与 `backend/target/licenses/THIRD-PARTY.txt` 和 `docs/依赖许可证.md` 对照
-- 发布归档：建议把两个 SBOM 与 release 资产一起附加
+- 发布归档：GitHub Release 自动附加应用 SBOM 与 SHA256 校验和
+
+## Release 自动附加
+
+`.github/workflows/release.yml` 在 **Release published** 时触发，也支持手动传入已存在的 tag：
+
+1. 按 Release tag checkout，构建并生成后端 CycloneDX BOM；
+2. 用 Trivy 对 `frontend/package-lock.json` 生成前端 CycloneDX BOM；
+3. 校验两个文件的 `bomFormat=CycloneDX` 且 `components` 非空；
+4. 生成 `SHA256SUMS`；
+5. 通过 `gh release upload --clobber` 附加到对应 GitHub Release。
+
+资产命名：
+
+```text
+backend-sbom-<tag>.cdx.json
+frontend-sbom-<tag>.cdx.json
+SHA256SUMS
+```
+
+手动验证时可在 Actions 中运行 `Release SBOM`，输入已存在的 release tag。
 
 ## 仍缺
 
-- 发布流程自动把 SBOM 附加到 GitHub Release
 - SBOM 签名/attestation（Sigstore/cosign）
 - 后端/前端/镜像 SBOM 的统一合并清单

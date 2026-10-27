@@ -1,0 +1,83 @@
+name: Release SBOM
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已存在的 Release tag
+        required: true
+        type: string
+
+concurrency:
+  group: release-sbom-${{ github.event.release.tag_name || github.event.inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  attach-sbom:
+    name: 生成并附加 SBOM
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: 后端打包并生成 CycloneDX SBOM
+        working-directory: backend
+        run: |
+          mvn -q package -DskipTests
+          mvn -q org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom \
+            -DoutputFormat=json -DoutputName=bom
+
+      - name: 前端 SBOM（CycloneDX）
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: frontend/package-lock.json
+          format: cyclonedx
+          output: frontend-sbom.cdx.json
+          exit-code: '0'
+
+      - name: 归档、校验并生成校验和
+        run: |
+          set -euo pipefail
+          SAFE_TAG="${RELEASE_TAG//\//-}"
+          mkdir -p release-assets
+          cp backend/target/bom.json "release-assets/backend-sbom-${SAFE_TAG}.cdx.json"
+          cp frontend-sbom.cdx.json "release-assets/frontend-sbom-${SAFE_TAG}.cdx.json"
+          python3 - <<'PY'
+          import glob, json, sys
+          files = glob.glob('release-assets/*.cdx.json')
+          if len(files) != 2:
+              sys.exit(f'expected 2 SBOM files, got {files}')
+          for path in files:
+              with open(path, encoding='utf-8') as fh:
+                  bom = json.load(fh)
+              components = bom.get('components') or []
+              print(f'{path}: bomFormat={bom.get("bomFormat")} specVersion={bom.get("specVersion")} components={len(components)}')
+              if bom.get('bomFormat') != 'CycloneDX' or not components:
+                  sys.exit(f'invalid SBOM: {path}')
+          PY
+          sha256sum release-assets/*.cdx.json > release-assets/SHA256SUMS
+          cat release-assets/SHA256SUMS
+
+      - name: 附加到 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          gh release view "$RELEASE_TAG" --json assets \
+            --jq '.assets[].name' | grep 'sbom.*\.cdx\.json'
