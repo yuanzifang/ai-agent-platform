@@ -8,7 +8,7 @@ const messages = {
       templates: '模板库', knowledge: '知识库', skills: '技能管理', tools: '工具管理',
       mcp: 'MCP Server', approvals: '审批箱', prompts: 'Prompt 模板', provider: '模型接入',
       usage: '用量看板', billing: '计费管理', users: '成员管理', tenant: '租户设置',
-      metrics: '监控统计', observability: '可观测', audit: '审计日志', eval: '评测中心', platform: '平台管理', settings: '系统设置', gateway: '开放平台网关'
+      metrics: '监控统计', observability: '可观测', audit: '审计日志', eval: '评测中心', platform: '平台管理', settings: '系统设置', gateway: '开放平台网关', i18n: '国际化字段'
     },
     agentList: {
       search: '搜索 Agent 名称', fromTemplate: '从模板创建', create: '新建 Agent',
@@ -327,6 +327,12 @@ const messages = {
       reviewNote: '复核备注：', reviewNotePh: '记录核对依据、缺口原因或是否接受',
       reviewHint: '只记录人工确认，不修改确定性分数。', markReviewed: '确认已复核',
       reviewSaved: '复核状态已更新'
+    },
+    i18nAdmin: {
+      title: '国际化字段映射', desc: '前端静态语言包打底，此处条目覆盖/扩展；新语言入库即生效（刷新页面）。',
+      searchPh: '搜索 key / 译文 / 说明', add: '新增条目', editTitle: '编辑条目',
+      value: '译文', description: '说明', updatedAt: '更新时间', save: '保存', saved: '已保存',
+      importBtn: '导入', imported: '导入完成：新增 {inserted} 更新 {updated} 跳过 {skipped}'
     },
     sysConfig: {
       header: '全局配置项（sys_config，实时生效于新请求）', key: '配置项', value: '值', desc: '说明',
@@ -942,7 +948,7 @@ const messages = {
       mcp: 'MCP Server', approvals: 'Approvals', prompts: 'Prompt Templates', provider: 'Model Providers',
       usage: 'Usage', billing: 'Billing', users: 'Members', tenant: 'Tenant Settings',
       gateway: 'API Gateway',
-      metrics: 'Metrics', observability: 'Observability', audit: 'Audit Log', eval: 'Evaluation', platform: 'Platform Admin', settings: 'System Settings'
+      metrics: 'Metrics', observability: 'Observability', audit: 'Audit Log', eval: 'Evaluation', platform: 'Platform Admin', settings: 'System Settings', i18n: 'I18n Fields'
     },
     agentList: {
       search: 'Search agents', fromTemplate: 'From template', create: 'New Agent',
@@ -1262,6 +1268,12 @@ const messages = {
       reviewNote: 'Review note: ', reviewNotePh: 'Record evidence, gap reason, or acceptance',
       reviewHint: 'Records manual confirmation only; deterministic scores are unchanged.',
       markReviewed: 'Mark reviewed', reviewSaved: 'Review status updated'
+    },
+    i18nAdmin: {
+      title: 'I18n Field Mapping', desc: 'Static bundles as base; entries here override/extend. New languages take effect after refresh.',
+      searchPh: 'Search key / value / description', add: 'Add entry', editTitle: 'Edit entry',
+      value: 'Value', description: 'Description', updatedAt: 'Updated at', save: 'Save', saved: 'Saved',
+      importBtn: 'Import', imported: 'Imported: {inserted} new, {updated} updated, {skipped} skipped'
     },
     sysConfig: {
       header: 'Global config (sys_config, applies to new requests immediately)', key: 'Key', value: 'Value', desc: 'Description',
@@ -1903,4 +1915,48 @@ export function setLocale(next: Locale) {
   i18n.global.locale.value = next
   localStorage.setItem('locale', next)
   document.documentElement.lang = next
+  // 拉取后端覆盖层（失败静默——静态包兜底，管理端配错不影响可用性）
+  applyRemoteMessages(next)
 }
+
+/**
+ * 后端 i18n 覆盖层：GET /api/v1/i18n/messages/{lang} 返回扁平 {key: value}，
+ * 按点号分层写回当前 locale（浅层 merge，已有键覆盖、新键新增）。
+ * 静态语言包打底 → DB 条目覆盖/扩展；新语言经管理端入库并在 /locales 出现。
+ */
+export async function applyRemoteMessages(lang: string) {
+  try {
+    const res = await fetch(`/api/v1/i18n/messages/${encodeURIComponent(lang)}`)
+    const body = await res.json()
+    if (!res.ok || body?.code !== 0 || !body.data) return
+    const flat: Record<string, string> = body.data
+    // 深合并到当前消息树；类型上借道 any 绕过 vue-i18n 对联合字面量的严格推断
+    const merged: any = JSON.parse(JSON.stringify(i18n.global.getLocaleMessage(lang)))
+    for (const [key, value] of Object.entries(flat)) {
+      const parts = key.split('.')
+      let node = merged
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (!node[parts[i]] || typeof node[parts[i]] !== 'object') node[parts[i]] = {}
+        node = node[parts[i]]
+      }
+      node[parts[parts.length - 1]] = escapeMessageBraces(value)
+    }
+    i18n.global.setLocaleMessage(lang, merged)
+  } catch {
+    // 网络失败保持静态包
+  }
+}
+
+/** 数据库配置的语言列表（含静态包自带），供语言选择器。 */
+export async function remoteLocales(): Promise<string[]> {
+  try {
+    const res = await fetch('/api/v1/i18n/locales')
+    const body = await res.json()
+    return res.ok && body?.code === 0 && Array.isArray(body.data) ? body.data : []
+  } catch {
+    return []
+  }
+}
+
+// 启动时合并当前语言的远端覆盖（登录页在挂载前即生效）
+applyRemoteMessages(locale)
