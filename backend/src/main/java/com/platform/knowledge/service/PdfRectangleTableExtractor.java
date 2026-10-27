@@ -36,7 +36,7 @@ final class PdfRectangleTableExtractor {
     static List<PdfTableBlock> extractBlocks(PDDocument doc) {
         List<PdfTableBlock> blocks = new ArrayList<>();
         try {
-            int pages = Math.min(doc.getNumberOfPages(), 50);
+            int pages = Math.min(doc.getNumberOfPages(), 1000);
             for (int p = 0; p < pages; p++) {
                 PDPage page = doc.getPage(p);
                 List<TextPosition> glyphs = new ArrayList<>();

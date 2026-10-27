@@ -22,7 +22,7 @@ final class PdfTableExtractor {
     private static final float CELL_GAP = 7f;
     private static final float ROW_TOLERANCE = 3f;
     private static final float ALIGN_TOLERANCE = 10f;
-    private static final int MAX_PAGES = 50;
+    private static final int MAX_PAGES = 1000;
     private static final int MAX_CELL_LENGTH = 120;
 
     private PdfTableExtractor() {

@@ -100,7 +100,7 @@ import java.util.zip.ZipInputStream;
 public class DocumentParser {
 
     /** 解析器版本：解析行为/结构化输出变化时递增，用于存量升级和复用判断。 */
-    public static final String PARSER_VERSION = "2026-10-27.4";
+    public static final String PARSER_VERSION = "2026-10-27.5";
 
     private static final long MAX_BYTES = 20 * 1024 * 1024;
 
@@ -929,7 +929,10 @@ public class DocumentParser {
                 if (acroForm.hasXFA()) {
                     try {
                         byte[] xfa = acroForm.getXFA().getBytes();
-                        if (xfa != null && xfa.length > 0) sb.append(parseXfa(xfa));
+                        if (xfa != null && xfa.length > 0) {
+                            sb.append(parseXfa(xfa));
+                            warn("PDF 含 XFA 表单：已提取数据/字段，未渲染 Adobe 动态布局");
+                        }
                     } catch (Exception e) {
                         log.debug("PDF XFA 读取失败（忽略）：{}", e.getMessage());
                     }

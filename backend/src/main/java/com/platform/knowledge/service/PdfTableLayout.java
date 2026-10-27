@@ -17,7 +17,7 @@ import java.util.Map;
  */
 final class PdfTableLayout {
 
-    private static final int MAX_PAGES = 50;
+    private static final int MAX_PAGES = 1000;
 
     private PdfTableLayout() {
     }
