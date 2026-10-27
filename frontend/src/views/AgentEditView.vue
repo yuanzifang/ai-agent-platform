@@ -123,6 +123,14 @@
               <el-form-item :label="t('agentEdit.writeToolMaxArgs')">
                 <el-input-number v-model="form.capabilities.writeToolMaxArgs" :min="1024" :max="100000" :step="1024" />
               </el-form-item>
+              <el-form-item :label="t('agentEdit.writeToolPatterns')">
+                <el-input v-model="writeToolPatternsText" type="textarea" :rows="2"
+                          placeholder='{"12":{"orderId":"^[A-Z0-9-]{6,32}$"}}' />
+              </el-form-item>
+              <el-form-item :label="t('agentEdit.writeToolAmountLimits')">
+                <el-input v-model="writeToolAmountLimitsText" type="textarea" :rows="2"
+                          placeholder='{"12":{"amount":1000}}' />
+              </el-form-item>
             </el-form>
           </el-collapse-item>
 
@@ -1296,6 +1304,8 @@ const form = reactive({
   variables: [] as VariableRow[]
 })
 const tagsStr = ref('')
+const writeToolPatternsText = ref('')
+const writeToolAmountLimitsText = ref('')
 const enabledKbCount = computed(() => kbRows.value.filter(k => k.enabled).length)
 
 /** 模型能力（capabilities 可能是 JSON 字符串）：决定是否允许开启思考、以及可选思考级别 */
@@ -1519,6 +1529,8 @@ onMounted(async () => {
     writeToolPolicy: caps.writeToolPolicy || 'ALLOW_ALL',
     allowedWriteToolIds: Array.isArray(caps.allowedWriteToolIds) ? caps.allowedWriteToolIds : [],
     writeToolMaxArgs: caps.writeToolMaxArgs ?? 16384 }
+  writeToolPatternsText.value = JSON.stringify(caps.writeToolArgPatterns || {}, null, 2)
+  writeToolAmountLimitsText.value = JSON.stringify(caps.writeToolAmountLimits || {}, null, 2)
   const mem = detail.memoryConfig || {}
   form.memory = { enabled: mem.enabled !== false, windowSize: mem.windowSize ?? 10,
     autoExtract: mem.autoExtract !== false }
@@ -3237,6 +3249,20 @@ function removeRow(rows: any, row: RefRow) {
   if (i >= 0) rows.value.splice(i, 1)
 }
 
+function parsePolicyJson(text: string) {
+  if (!text || !text.trim()) return {}
+  let value: any
+  try {
+    value = JSON.parse(text)
+  } catch {
+    throw new Error('write policy JSON invalid')
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('write policy JSON must be an object')
+  }
+  return value
+}
+
 function buildPayload() {
   return {
     name: form.name,
@@ -3245,7 +3271,11 @@ function buildPayload() {
     tags: tagsStr.value.split(/[,，]/).map(t => t.trim()).filter(Boolean),
     systemPrompt: form.systemPrompt,
     openingStatement: form.openingStatement,
-    agentCapabilities: { ...form.capabilities },
+    agentCapabilities: {
+      ...form.capabilities,
+      writeToolArgPatterns: parsePolicyJson(writeToolPatternsText.value),
+      writeToolAmountLimits: parsePolicyJson(writeToolAmountLimitsText.value)
+    },
     memoryConfig: { ...form.memory },
     modelConfig: { modelName: form.modelName, fallbackModelName: form.fallbackModelName || null,
       temperature: form.temperature,
@@ -3267,14 +3297,21 @@ function buildPayload() {
   }
 }
 
-async function save() {
+async function save(): Promise<boolean> {
   if (!form.name.trim() || !form.modelName || !form.systemPrompt.trim()) {
     ElMessage.warning(t('agentMsg.fieldsRequired'))
-    return
+    return false
   }
   saving.value = true
   try {
-    const res = await http.put(`/agent/${agentId}`, buildPayload(), {
+    let payload: any
+    try {
+      payload = buildPayload()
+    } catch {
+      ElMessage.error(t('agentEdit.writeToolPolicyJsonInvalid'))
+      return false
+    }
+    const res = await http.put(`/agent/${agentId}`, payload, {
       headers: form.updatedAt ? { 'If-Match': form.updatedAt } : {}
     }) as any
     form.updatedAt = res.updatedAt
@@ -3282,6 +3319,7 @@ async function save() {
       await http.put(`/agent/${agentId}/grants`, { userIds: grantedIds.value }).catch(() => {})
     }
     ElMessage.success(t('agentDlg.saved'))
+    return true
   } finally {
     saving.value = false
   }
@@ -3330,7 +3368,7 @@ async function publish(force = false) {
     const go = await publishCheckSummary()
     if (!go) return
   }
-  await save()
+  if (!await save()) return
   // 发布可能先执行预发布门禁评测（每样本约 5-30s），超时放宽至 10 分钟
   const loading = ElLoading.service({
     text: force ? t('agentMsg.forcePublishing') : t('agentMsg.publishing'),
