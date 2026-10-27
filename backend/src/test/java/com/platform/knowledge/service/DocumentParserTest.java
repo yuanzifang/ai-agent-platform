@@ -230,6 +230,37 @@ class DocumentParserTest {
     }
 
     @Test
+    void ordersThreeColumnBodyLeftToRight() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 10);
+                String[] cols = {"L", "M", "R"};
+                float[] xs = {40, 240, 440};
+                float y = 760;
+                for (int line = 1; line <= 4; line++) {
+                    for (int c = 0; c < cols.length; c++) {
+                        content.beginText();
+                        content.newLineAtOffset(xs[c], y);
+                        content.showText(cols[c] + line + " text content");
+                        content.endText();
+                    }
+                    y -= 20;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("three-column.pdf", pdf));
+        int l = text.indexOf("L1");
+        int m = text.indexOf("M1");
+        int r = text.indexOf("R1");
+        assertTrue(l >= 0 && m > l && r > m, "三栏应按左中右排序，实际=" + text);
+    }
+
+    @Test
     void extractsTableAfterPageFifty() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {

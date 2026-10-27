@@ -261,40 +261,53 @@ final class PdfMarkdownConverter {
      * 检测到左右各至少 3 行、且跨中缝的行较少时，以跨栏整行作为分段边界。
      */
     private List<Line> orderForReading(List<Line> lines, float pageWidth) {
-        int left = 0, right = 0;
+        int left = 0, middle = 0, right = 0;
         for (Line line : lines) {
             if (isFullWidth(line, pageWidth)) continue;
-            else if (line.endX <= pageWidth * 0.55f) left++;
-            else if (line.x >= pageWidth * 0.45f) right++;
+            float center = (line.x + line.endX) / 2f;
+            if (center < pageWidth * 0.33f) left++;
+            else if (center <= pageWidth * 0.67f) middle++;
+            else right++;
         }
         lines.sort(Comparator.comparingDouble(line -> line.y));
-        if (left < 3 || right < 3) return lines;
+        boolean threeColumns = left >= 3 && middle >= 3 && right >= 3;
+        if (!threeColumns && (left < 3 || right < 3)) return lines;
 
         List<Line> ordered = new ArrayList<>();
         List<Line> segment = new ArrayList<>();
         for (Line line : lines) {
             if (isFullWidth(line, pageWidth)) {
-                flushSegment(ordered, segment, pageWidth);
+                flushSegment(ordered, segment, pageWidth, threeColumns);
                 ordered.add(line);
             } else {
                 segment.add(line);
             }
         }
-        flushSegment(ordered, segment, pageWidth);
+        flushSegment(ordered, segment, pageWidth, threeColumns);
         return ordered;
     }
 
-    private void flushSegment(List<Line> ordered, List<Line> segment, float pageWidth) {
+    private void flushSegment(List<Line> ordered, List<Line> segment, float pageWidth,
+                              boolean threeColumns) {
         if (segment.isEmpty()) return;
         List<Line> left = new ArrayList<>();
+        List<Line> middle = new ArrayList<>();
         List<Line> right = new ArrayList<>();
         List<Line> other = new ArrayList<>();
         for (Line line : segment) {
-            if (line.endX <= pageWidth * 0.55f) left.add(line);
-            else if (line.x >= pageWidth * 0.45f) right.add(line);
-            else other.add(line);
+            float center = (line.x + line.endX) / 2f;
+            if (center < pageWidth * 0.33f) left.add(line);
+            else if (center <= pageWidth * 0.67f) middle.add(line);
+            else right.add(line);
         }
-        if (left.size() >= 2 && right.size() >= 2) {
+        if (threeColumns && left.size() >= 2 && middle.size() >= 2 && right.size() >= 2) {
+            left.sort(Comparator.comparingDouble(line -> line.y));
+            middle.sort(Comparator.comparingDouble(line -> line.y));
+            right.sort(Comparator.comparingDouble(line -> line.y));
+            ordered.addAll(left);
+            ordered.addAll(middle);
+            ordered.addAll(right);
+        } else if (!threeColumns && left.size() >= 2 && right.size() >= 2) {
             left.sort(Comparator.comparingDouble(line -> line.y));
             right.sort(Comparator.comparingDouble(line -> line.y));
             ordered.addAll(left);
