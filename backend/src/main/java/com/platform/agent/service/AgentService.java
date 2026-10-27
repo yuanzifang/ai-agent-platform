@@ -290,6 +290,8 @@ public class AgentService {
         if (previous == null) return false;
         Map<String, Object> oldCaps = asMap(asMap(fromJson(previous.getSnapshot())).get("agentCapabilities"));
         Map<String, Object> newCaps = asMap(fromJson(agent.getAgentCapabilities()));
+        if (oldCaps == null) oldCaps = Map.of();
+        if (newCaps == null) newCaps = Map.of();
         int oldRank = policyRank(str(oldCaps.get("writeToolPolicy")));
         int newRank = policyRank(str(newCaps.get("writeToolPolicy")));
         if (newRank <= oldRank) return false;
