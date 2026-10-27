@@ -23,7 +23,7 @@ http.interceptors.response.use(
   (resp) => {
     const body = resp.data
     if (body && body.code !== undefined && body.code !== 0) {
-      ElMessage.error(body.message || '请求失败')
+      if (!(resp.config as any)._silent) ElMessage.error(body.message || '请求失败')
       return Promise.reject(body)
     }
     return body?.data !== undefined ? body.data : body
@@ -46,7 +46,7 @@ http.interceptors.response.use(
         user.clear()
         router.push('/login')
       }
-    } else {
+    } else if (!(error.config as any)._silent) {
       ElMessage.error(error.response?.data?.message || '网络异常，请重试')
     }
     return Promise.reject(error)

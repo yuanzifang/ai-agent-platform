@@ -537,8 +537,8 @@ const detail = reactive<Record<string, any>>({
   name: '', visibility: 'TENANT', creatorId: null, creatorName: '', documentCount: 0, chunkCount: 0,
   canEdit: false, graphEnabled: false
 })
-const searchBackends = ref<any[]>([])
-const vectorBackends = ref<any[]>([])
+const searchBackends = ref<any[]>([{ value: 'MYSQL', label: 'MySQL', available: true }])
+const vectorBackends = ref<any[]>([{ value: 'PGVECTOR', label: 'pgvector', available: true }])
 const documents = ref<any[]>([])
 const validOnly = ref(false)
 const reviewOnly = ref(false)
@@ -624,7 +624,7 @@ const grantableMembers = computed(() =>
 
 onMounted(async () => {
   try {
-    const b = await http.get('/knowledge-base/retrieval-backends') as any
+    const b = await http.get('/knowledge-base/retrieval-backends', { _silent: true } as any) as any
     searchBackends.value = b.search || []
     vectorBackends.value = b.vector || []
   } catch { /* 使用默认选项 */ }
