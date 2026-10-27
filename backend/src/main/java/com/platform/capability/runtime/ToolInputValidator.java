@@ -6,6 +6,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -100,10 +103,47 @@ public class ToolInputValidator {
             out.add(new Violation(path, "const", constValue.toString(), typeOf(value)));
         }
 
+        validateCombinators(schema, value, path, out);
+
         if (value.isObject()) validateObject(schema, value, path, out);
         else if (value.isArray()) validateArray(schema, value, path, out);
         else if (value.isTextual()) validateString(schema, value, path, out);
         else if (value.isNumber()) validateNumber(schema, value, path, out);
+    }
+
+    private void validateCombinators(JsonNode schema, JsonNode value, String path, List<Violation> out) {
+        JsonNode allOf = schema.get("allOf");
+        if (allOf != null && allOf.isArray()) {
+            for (JsonNode sub : allOf) validateNode(sub, value, path, out);
+        }
+        JsonNode anyOf = schema.get("anyOf");
+        if (anyOf != null && anyOf.isArray() && !matchesAny(anyOf, value, path)) {
+            out.add(new Violation(path, "anyOf", "至少匹配一个子 schema", typeOf(value)));
+        }
+        JsonNode oneOf = schema.get("oneOf");
+        if (oneOf != null && oneOf.isArray()) {
+            int matched = 0;
+            for (JsonNode sub : oneOf) {
+                if (validAgainst(sub, value, path)) matched++;
+            }
+            if (matched != 1) {
+                out.add(new Violation(path, "oneOf", "必须且只能匹配一个子 schema",
+                        "匹配数量=" + matched));
+            }
+        }
+    }
+
+    private boolean matchesAny(JsonNode schemas, JsonNode value, String path) {
+        for (JsonNode sub : schemas) {
+            if (validAgainst(sub, value, path)) return true;
+        }
+        return false;
+    }
+
+    private boolean validAgainst(JsonNode schema, JsonNode value, String path) {
+        List<Violation> tmp = new ArrayList<>();
+        validateNode(schema, value, path, tmp);
+        return tmp.isEmpty();
     }
 
     private void validateObject(JsonNode schema, JsonNode value, String path, List<Violation> out) {
@@ -169,6 +209,25 @@ public class ToolInputValidator {
             } catch (Exception e) {
                 log.warn("工具 inputSchema pattern 非法，跳过：{}", e.getMessage());
             }
+        }
+        JsonNode format = schema.get("format");
+        if (format != null && format.isTextual()) {
+            String text = value.asText();
+            boolean valid = switch (format.asText()) {
+                case "email" -> text.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+                case "uuid" -> text.matches("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+                case "date" -> {
+                    try { LocalDate.parse(text); yield true; } catch (Exception e) { yield false; }
+                }
+                case "date-time" -> {
+                    try { OffsetDateTime.parse(text); yield true; } catch (Exception e) { yield false; }
+                }
+                case "uri" -> {
+                    try { yield URI.create(text).getScheme() != null; } catch (Exception e) { yield false; }
+                }
+                default -> true;
+            };
+            if (!valid) out.add(new Violation(path, "format", format.asText(), "格式不匹配"));
         }
     }
 

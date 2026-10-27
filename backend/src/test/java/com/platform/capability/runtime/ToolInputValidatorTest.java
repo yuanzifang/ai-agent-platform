@@ -84,4 +84,29 @@ class ToolInputValidatorTest {
     void acceptsMapWithDefaults() {
         assertTrue(validator.validate(SCHEMA, Map.of("amount", 1, "currency", "CNY")).valid());
     }
+
+    @Test
+    void validatesOneOfAnyOfAndFormat() {
+        String schema = """
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
+                    "email": {"type": "string", "format": "email"}
+                  },
+                  "required": ["id", "email"]
+                }
+                """;
+        assertTrue(validator.validate(schema, """
+                {"id": "abc", "email": "a@example.com"}
+                """).valid());
+        assertFalse(validator.validate(schema, """
+                {"id": true, "email": "not-an-email"}
+                """).valid());
+        ToolInputValidator.Result result = validator.validate(schema, """
+                {"id": true, "email": "bad"}
+                """);
+        assertTrue(result.violations().stream().anyMatch(v -> v.rule().equals("oneOf")));
+        assertTrue(result.violations().stream().anyMatch(v -> v.rule().equals("format")));
+    }
 }
