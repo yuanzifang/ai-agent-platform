@@ -151,7 +151,7 @@ public class HybridRetrievalService {
                                 validityAfter, validityBefore, userId, tenantWide)
                         : userId == null
                         ? chunkMapper.searchFulltext(kbId, keywordQuery, candidates)
-                        : chunkMapper.searchFulltextAcl(kbId, keywordQuery, candidates, userId, tenantWide);
+                        : searchFulltextAclHydrated(kbId, keywordQuery, candidates, userId, tenantWide);
             } catch (Exception e) {
                 log.debug("全文检索不可用，尝试 LIKE 兜底 kb={}：{}", kbId, e.getMessage());
                 try {
@@ -240,6 +240,54 @@ public class HybridRetrievalService {
         log.debug("混合检索 kb={} mode={} vector={} keyword={} merged={} rerank={}",
                 kbId, mode, vectorHits.size(), keywordHits.size(), result.size(), rerank);
         return new Result(result, vectorHits.size(), keywordHits.size(), embedMs, searchMs, mode);
+    }
+
+    /** 先由 MySQL 只取命中 ID/score，再按 ID 回表取详情，避免全文查询搬运大量 content。 */
+    private List<Map<String, Object>> searchFulltextAclHydrated(Long kbId, String query, int limit,
+                                                                 Long userId, boolean tenantWide) {
+        List<Map<String, Object>> scored = chunkMapper.searchFulltextAclIds(
+                kbId, query, limit, userId, tenantWide);
+        if (scored == null) {
+            // 兼容旧 mapper/测试替身；生产路径返回列表，即使是空列表。
+            return chunkMapper.searchFulltextAcl(kbId, query, limit, userId, tenantWide);
+        }
+        if (scored.isEmpty()) return List.of();
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        for (Map<String, Object> row : scored) {
+            Long id = longValue(row.get("id"));
+            if (id != null) ids.add(id);
+        }
+        if (ids.isEmpty()) return List.of();
+        List<KnowledgeChunk> chunks = chunkMapper.selectBatchIds(ids);
+        if (chunks == null || chunks.isEmpty()) return List.of();
+        Map<Long, KnowledgeChunk> byId = new HashMap<>();
+        for (KnowledgeChunk chunk : chunks) {
+            if (chunk != null && chunk.getId() != null) byId.put(chunk.getId(), chunk);
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> row : scored) {
+            Long id = longValue(row.get("id"));
+            KnowledgeChunk chunk = id == null ? null : byId.get(id);
+            if (chunk == null) continue;
+            Map<String, Object> hit = new LinkedHashMap<>();
+            hit.put("id", chunk.getId());
+            hit.put("document_id", chunk.getDocumentId());
+            hit.put("chunk_index", chunk.getChunkIndex());
+            hit.put("parent_index", chunk.getParentIndex());
+            hit.put("document_type", chunk.getDocumentType());
+            hit.put("section_type", chunk.getSectionType());
+            hit.put("chunk_level", chunk.getChunkLevel());
+            hit.put("parent_key", chunk.getParentKey());
+            hit.put("domain_keywords", chunk.getDomainKeywords());
+            hit.put("relevance_score", chunk.getRelevanceScore());
+            hit.put("regulatory_category", chunk.getRegulatoryCategory());
+            hit.put("content", chunk.getContent());
+            hit.put("page_from", chunk.getPageFrom());
+            hit.put("page_to", chunk.getPageTo());
+            hit.put("score", row.get("score"));
+            result.add(hit);
+        }
+        return result;
     }
 
     /** 同一父块下的多个子块命中合并为一条，保留多个分数，减少重复父块注入。 */
