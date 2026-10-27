@@ -156,7 +156,21 @@ client → container:8080 /v1/chat/completions
 - 每个 Agent 只保留一个部署记录（1–5 个运行时副本 + 可选 LB 容器），重新部署 = 删旧建新（短暂不可用）。重新部署优先复用原端口，最多等待 3 秒。
 - 「回滚并部署」= 完整恢复该版本的 Agent 配置（含知识库/工具/技能/子 Agent）+ 重新部署容器，详见 `docs/Agent版本与回滚.md`。
 - 发布自动重新部署是「已部署过才触发」；从未部署过的 Agent 发布后不会自动拉起容器，避免意外占用端口。
-- 暂未实现：K8s 部署、滚动更新、集中式日志存储（Loki 等）与动态指标采集；平台已支持按部署聚合副本/LB 日志，多副本已有内置 nginx LB（依赖 Redis 共享状态），资源限制已落地。
+- 暂未实现：K8s 部署、滚动更新、集中式日志存储（Loki 等）；平台已支持按部署聚合副本/LB 日志、资源限制与动态 Prometheus 指标。
+
+## 指标
+
+后端 `/actuator/prometheus` 暴露每个 Agent 部署的状态指标（标签 `agent_id`、`tenant_id`）：
+
+| 指标 | 含义 |
+| --- | --- |
+| `agent_deployment_running` | 部署整体是否 RUNNING（1/0） |
+| `agent_deployment_replicas` | 副本数 |
+| `agent_deployment_ready_replicas` | 状态为 RUNNING 的副本数 |
+| `agent_deployment_lb_running` | LB 容器是否 RUNNING（1/0） |
+| `agent_deployment_events_total` | 部署事件计数（action/status 标签） |
+
+指标随部署、启停、删除和状态刷新更新；删除部署时移除对应时间序列。
 
 ## 验证
 
@@ -172,6 +186,7 @@ client → container:8080 /v1/chat/completions
   - **内置 LB（2026-10-27 真实 Docker）**：2 副本自动创建 nginx 统一入口 19003；`/healthz`、`/v1/models` 经 LB 均 200；两个副本直连 19000/19002 均 200；停止/启动后 LB 状态同步为 STOPPED/RUNNING；删除部署后 LB 与副本容器全部清理
   - **资源边界（2026-10-27 真实 Docker）**：2 副本 + LB 的 `docker inspect` 均为 `NanoCpus=1000000000`（1 CPU）、`Memory=536870912`（512MiB）、`PidsLimit=256`、`SecurityOpt=[no-new-privileges]`
   - **聚合日志（2026-10-27 真实 Docker）**：`logs?all=true` 返回两个副本和 LB 三段日志；网关启动日志、`/healthz`、`/v1/models` 访问日志均可见
+  - **Prometheus 指标（2026-10-27 真实部署）**：2 副本 + LB 时 `agent_deployment_running=1`、`replicas=2`、`ready_replicas=2`、`lb_running=1`；停止后 running/ready/lb 均为 0；删除后时间序列清理
 - **nginx 回退方案（colima + nginx:alpine）**：
   - `docker ps` → `aap-agent-1 Up (healthy) 0.0.0.0:19000->80/tcp`
   - `curl localhost:19000/healthz` → `ok`；`/v1/models` → `agent-1`
@@ -186,4 +201,4 @@ client → container:8080 /v1/chat/completions
 
 1. K8s 实现：`ContainerRuntime` 增加 `KubernetesRuntime`，按租户配额创建 Deployment/Service/Ingress
 2. 运行时多副本：token 级配额（限流/日配额/统计已 Redis 共享）
-3. 容器日志集中存储（Loki）与动态指标采集
+3. 容器日志集中存储（Loki）
