@@ -1,0 +1,299 @@
+# Third-Party Notices
+
+This project is licensed under the Apache License 2.0.
+It includes the following third-party components. Full license texts are
+available from the component project/package metadata and the links below.
+
+## Backend (Maven)
+
+- (EPL-2.0) (LGPL-2.1-only) Logback Classic Module (ch.qos.logback:logback-classic:1.5.34 - http://logback.qos.ch/logback-classic)
+- (EPL-2.0) (LGPL-2.1-only) Logback Core Module (ch.qos.logback:logback-core:1.5.34 - http://logback.qos.ch/logback-core)
+- (Apache 2) TransmittableThreadLocal(TTL) (com.alibaba:transmittable-thread-local:2.14.5 - https://github.com/alibaba/transmittable-thread-local)
+- (The Apache License, Version 2.0) mybatis-plus (com.baomidou:mybatis-plus:3.5.7 - https://github.com/baomidou/mybatis-plus)
+- (The Apache License, Version 2.0) mybatis-plus (com.baomidou:mybatis-plus-annotation:3.5.7 - https://github.com/baomidou/mybatis-plus)
+- (The Apache License, Version 2.0) mybatis-plus (com.baomidou:mybatis-plus-core:3.5.7 - https://github.com/baomidou/mybatis-plus)
+- (The Apache License, Version 2.0) mybatis-plus (com.baomidou:mybatis-plus-extension:3.5.7 - https://github.com/baomidou/mybatis-plus)
+- (The Apache License, Version 2.0) mybatis-plus (com.baomidou:mybatis-plus-spring-boot-autoconfigure:3.5.7 - https://github.com/baomidou/mybatis-plus)
+- (The Apache License, Version 2.0) mybatis-plus (com.baomidou:mybatis-plus-spring-boot3-starter:3.5.7 - https://github.com/baomidou/mybatis-plus)
+- (The Apache Software License, Version 2.0) Simple XML (safe) (com.carrotsearch.thirdparty:simple-xml-safe:2.7.1 - https://github.com/dweiss/simplexml)
+- (Apache License, Version 2.0) ClassMate (com.fasterxml:classmate:1.7.3 - https://github.com/FasterXML/java-classmate)
+- (The Apache Software License, Version 2.0) Jackson-annotations (com.fasterxml.jackson.core:jackson-annotations:2.21 - https://github.com/FasterXML/jackson)
+- (The Apache Software License, Version 2.0) Jackson-core (com.fasterxml.jackson.core:jackson-core:2.21.4 - https://github.com/FasterXML/jackson-core)
+- (The Apache Software License, Version 2.0) jackson-databind (com.fasterxml.jackson.core:jackson-databind:2.21.4 - https://github.com/FasterXML/jackson)
+- (The Apache Software License, Version 2.0) Jackson-dataformat-TOML (com.fasterxml.jackson.dataformat:jackson-dataformat-toml:2.21.4 - https://github.com/FasterXML/jackson-dataformats-text)
+- (The Apache Software License, Version 2.0) Jackson-dataformat-YAML (com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.21.4 - https://github.com/FasterXML/jackson-dataformats-text)
+- (The Apache Software License, Version 2.0) Jackson datatype: jdk8 (com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.21.4 - https://github.com/FasterXML/jackson-modules-java8/jackson-datatype-jdk8)
+- (The Apache Software License, Version 2.0) Jackson datatype: JSR310 (com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.21.4 - https://github.com/FasterXML/jackson-modules-java8/jackson-datatype-jsr310)
+- (The Apache Software License, Version 2.0) jackson-module-jsonSchema (com.fasterxml.jackson.module:jackson-module-jsonSchema:2.21.4 - https://github.com/FasterXML/jackson-module-jsonSchema)
+- (The Apache Software License, Version 2.0) Jackson-module-parameter-names (com.fasterxml.jackson.module:jackson-module-parameter-names:2.21.4 - https://github.com/FasterXML/jackson-modules-java8/jackson-module-parameter-names)
+- (GNU Library or Lesser General Public License (LGPL) V2.1) (The Apache Software License, Version 2.0) JSQLParser library (com.github.jsqlparser:jsqlparser:4.9 - https://github.com/JSQLParser/JSqlParser)
+- (The Apache License, Version 2.0) Java JSON Schema Generator (com.github.victools:jsonschema-generator:4.37.0 - https://github.com/victools/jsonschema-generator)
+- (The Apache License, Version 2.0) Java JSON Schema Generator Module – jackson (com.github.victools:jsonschema-module-jackson:4.37.0 - https://github.com/victools/jsonschema-generator)
+- (The Apache License, Version 2.0) Java JSON Schema Generator Module – swagger (2.x) (com.github.victools:jsonschema-module-swagger-2:4.37.0 - https://github.com/victools/jsonschema-generator/jsonschema-module-swagger-2)
+- (BSD License) curvesapi (com.github.virtuald:curvesapi:1.08 - https://github.com/virtuald/curvesapi)
+- (Apache 2.0) error-prone annotations (com.google.errorprone:error_prone_annotations:2.36.0 - https://errorprone.info/error_prone_annotations)
+- (Apache License, Version 2.0) Guava InternalFutureFailureAccess and InternalFutures (com.google.guava:failureaccess:1.0.3 - https://github.com/google/guava/failureaccess)
+- (Apache License, Version 2.0) Guava: Google Core Libraries for Java (com.google.guava:guava:33.4.8-jre - https://github.com/google/guava)
+- (The Apache Software License, Version 2.0) Guava ListenableFuture only (com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava - https://github.com/google/guava/listenablefuture)
+- (Apache License, Version 2.0) J2ObjC Annotations (com.google.j2objc:j2objc-annotations:3.0.0 - https://github.com/google/j2objc/)
+- (MIT License) JTokkit (com.knuddels:jtokkit:1.1.0 - https://github.com/knuddelsgmbh/jtokkit)
+- (The GNU General Public License, v2 with Universal FOSS Exception, v1.0) MySQL Connector/J (com.mysql:mysql-connector-j:9.7.0 - http://dev.mysql.com/doc/connector-j/en/)
+- (The Apache Software License, Version 2.0) okhttp (com.squareup.okhttp3:okhttp:5.1.0 - https://square.github.io/okhttp/)
+- (The Apache Software License, Version 2.0) okhttp (com.squareup.okhttp3:okhttp-jvm:5.1.0 - https://square.github.io/okhttp/)
+- (The Apache Software License, Version 2.0) okio (com.squareup.okio:okio:3.15.0 - https://github.com/square/okio/)
+- (The Apache Software License, Version 2.0) okio (com.squareup.okio:okio-jvm:3.15.0 - https://github.com/square/okio/)
+- (The Apache Software License, Version 2.0) HikariCP (com.zaxxer:HikariCP:6.3.3 - https://github.com/brettwooldridge/HikariCP)
+- (The Apache Software License, Version 2.0) SparseBitSet (com.zaxxer:SparseBitSet:1.3 - https://github.com/brettwooldridge/SparseBitSet)
+- (Apache-2.0) Apache Commons Codec (commons-codec:commons-codec:1.18.0 - https://commons.apache.org/proper/commons-codec/)
+- (Apache-2.0) Apache Commons IO (commons-io:commons-io:2.16.1 - https://commons.apache.org/proper/commons-io/)
+- (Apache-2.0) Apache Commons Logging (commons-logging:commons-logging:1.3.3 - https://commons.apache.org/proper/commons-logging/)
+- (Apache License, Version 2.0) JJWT :: API (io.jsonwebtoken:jjwt-api:0.12.6 - https://github.com/jwtk/jjwt/jjwt-api)
+- (Apache License, Version 2.0) JJWT :: Impl (io.jsonwebtoken:jjwt-impl:0.12.6 - https://github.com/jwtk/jjwt/jjwt-impl)
+- (Apache License, Version 2.0) JJWT :: Extensions :: Jackson (io.jsonwebtoken:jjwt-jackson:0.12.6 - https://github.com/jwtk/jjwt/jjwt-jackson)
+- (MIT) Lettuce (io.lettuce:lettuce-core:6.6.0.RELEASE - https://github.com/redis/lettuce)
+- (The Apache Software License, Version 2.0) context-propagation (io.micrometer:context-propagation:1.1.4 - https://github.com/micrometer-metrics/context-propagation)
+- (The Apache Software License, Version 2.0) micrometer-commons (io.micrometer:micrometer-commons:1.15.12 - https://github.com/micrometer-metrics/micrometer)
+- (The Apache Software License, Version 2.0) micrometer-core (io.micrometer:micrometer-core:1.15.12 - https://github.com/micrometer-metrics/micrometer)
+- (The Apache Software License, Version 2.0) micrometer-jakarta9 (io.micrometer:micrometer-jakarta9:1.15.12 - https://github.com/micrometer-metrics/micrometer)
+- (The Apache Software License, Version 2.0) micrometer-observation (io.micrometer:micrometer-observation:1.15.12 - https://github.com/micrometer-metrics/micrometer)
+- (The Apache Software License, Version 2.0) micrometer-registry-prometheus (io.micrometer:micrometer-registry-prometheus:1.15.12 - https://github.com/micrometer-metrics/micrometer)
+- (The Apache License, Version 2.0) minio (io.minio:minio:8.6.0 - https://github.com/minio/minio-java)
+- (Apache License, Version 2.0) Netty/Buffer (io.netty:netty-buffer:4.1.135.Final - https://netty.io/netty-buffer/)
+- (Apache License, Version 2.0) Netty/Codec (io.netty:netty-codec:4.1.135.Final - https://netty.io/netty-codec/)
+- (Apache License, Version 2.0) Netty/Common (io.netty:netty-common:4.1.135.Final - https://netty.io/netty-common/)
+- (Apache License, Version 2.0) Netty/Handler (io.netty:netty-handler:4.1.135.Final - https://netty.io/netty-handler/)
+- (Apache License, Version 2.0) Netty/Resolver (io.netty:netty-resolver:4.1.135.Final - https://netty.io/netty-resolver/)
+- (Apache License, Version 2.0) Netty/Transport (io.netty:netty-transport:4.1.135.Final - https://netty.io/netty-transport/)
+- (Apache License, Version 2.0) Netty/Transport/Native/Unix/Common (io.netty:netty-transport-native-unix-common:4.1.135.Final - https://netty.io/netty-transport-native-unix-common/)
+- (The Apache License, Version 2.0) OpenTelemetry Java (io.opentelemetry:opentelemetry-api:1.49.0 - https://github.com/open-telemetry/opentelemetry-java)
+- (The Apache License, Version 2.0) OpenTelemetry Java (io.opentelemetry:opentelemetry-context:1.49.0 - https://github.com/open-telemetry/opentelemetry-java)
+- (The Apache License, Version 2.0) OpenTelemetry Java (io.opentelemetry:opentelemetry-exporter-common:1.49.0 - https://github.com/open-telemetry/opentelemetry-java)
+- (The Apache License, Version 2.0) OpenTelemetry Java (io.opentelemetry:opentelemetry-exporter-otlp:1.37.0 - https://github.com/open-telemetry/opentelemetry-java)
+- (The Apache License, Version 2.0) OpenTelemetry Java (io.opentelemetry:opentelemetry-exporter-otlp-common:1.49.0 - https://github.com/open-telemetry/opentelemetry-java)
+- (The Apache License, Version 2.0) OpenTelemetry Java (io.opentelemetry:opentelemetry-exporter-sender-okhttp:1.49.0 - https://github.com/open-telemetry/opentelemetry-java)
+- (The Apache License, Version 2.0) OpenTelemetry Java (io.opentelemetry:opentelemetry-sdk:1.37.0 - https://github.com/open-telemetry/opentelemetry-java)
+- (The Apache License, Version 2.0) OpenTelemetry Java (io.opentelemetry:opentelemetry-sdk-common:1.49.0 - https://github.com/open-telemetry/opentelemetry-java)
+- (The Apache License, Version 2.0) OpenTelemetry Java (io.opentelemetry:opentelemetry-sdk-extension-autoconfigure-spi:1.49.0 - https://github.com/open-telemetry/opentelemetry-java)
+- (The Apache License, Version 2.0) OpenTelemetry Java (io.opentelemetry:opentelemetry-sdk-logs:1.49.0 - https://github.com/open-telemetry/opentelemetry-java)
+- (The Apache License, Version 2.0) OpenTelemetry Java (io.opentelemetry:opentelemetry-sdk-metrics:1.49.0 - https://github.com/open-telemetry/opentelemetry-java)
+- (The Apache License, Version 2.0) OpenTelemetry Java (io.opentelemetry:opentelemetry-sdk-trace:1.49.0 - https://github.com/open-telemetry/opentelemetry-java)
+- (Apache License, Version 2.0) Non-Blocking Reactive Foundation for the JVM (io.projectreactor:reactor-core:3.7.19 - https://github.com/reactor/reactor-core)
+- (The Apache Software License, Version 2.0) Prometheus Metrics Config (io.prometheus:prometheus-metrics-config:1.3.10 - http://github.com/prometheus/client_java/client_java/prometheus-metrics-config)
+- (The Apache Software License, Version 2.0) Prometheus Metrics Core (io.prometheus:prometheus-metrics-core:1.3.10 - http://github.com/prometheus/client_java/client_java/prometheus-metrics-core)
+- (The Apache Software License, Version 2.0) Prometheus Metrics Exposition Formats (io.prometheus:prometheus-metrics-exposition-formats:1.3.10 - http://github.com/prometheus/client_java/client_java/prometheus-metrics-exposition-formats)
+- (The Apache Software License, Version 2.0) Prometheus Metrics Exposition Text Formats (io.prometheus:prometheus-metrics-exposition-textformats:1.3.10 - http://github.com/prometheus/client_java/client_java/prometheus-metrics-exposition-textformats)
+- (The Apache Software License, Version 2.0) Prometheus Metrics Model (io.prometheus:prometheus-metrics-model:1.3.10 - http://github.com/prometheus/client_java/client_java/prometheus-metrics-model)
+- (The Apache Software License, Version 2.0) Prometheus Metrics Tracer Common (io.prometheus:prometheus-metrics-tracer-common:1.3.10 - http://github.com/prometheus/client_java/client_java/prometheus-metrics-tracer/prometheus-metrics-tracer-common)
+- (Apache 2.0) json-path (io.rest-assured:json-path:5.5.7 - https://rest-assured.io/)
+- (Apache 2.0) rest-assured-common (io.rest-assured:rest-assured-common:5.5.7 - https://rest-assured.io/)
+- (Apache License 2.0) swagger-annotations (io.swagger.core.v3:swagger-annotations:2.2.25 - https://github.com/swagger-api/swagger-core/modules/swagger-annotations)
+- (Apache License 2.0) swagger-annotations-jakarta (io.swagger.core.v3:swagger-annotations-jakarta:2.2.47 - https://github.com/swagger-api/swagger-core/modules/swagger-annotations-jakarta)
+- (Apache License 2.0) swagger-core-jakarta (io.swagger.core.v3:swagger-core-jakarta:2.2.47 - https://github.com/swagger-api/swagger-core/modules/swagger-core-jakarta)
+- (Apache License 2.0) swagger-models-jakarta (io.swagger.core.v3:swagger-models-jakarta:2.2.47 - https://github.com/swagger-api/swagger-core/modules/swagger-models-jakarta)
+- (EDL 1.0) Jakarta Activation API (jakarta.activation:jakarta.activation-api:2.1.4 - https://github.com/jakartaee/jaf-api)
+- (EPL 2.0) (GPL2 w/ CPE) Jakarta Annotations API (jakarta.annotation:jakarta.annotation-api:2.1.1 - https://projects.eclipse.org/projects/ee4j.ca)
+- (Apache License 2.0) Jakarta Bean Validation API (jakarta.validation:jakarta.validation-api:3.0.2 - https://beanvalidation.org)
+- (Eclipse Distribution License - v 1.0) Jakarta XML Binding API (jakarta.xml.bind:jakarta.xml.bind-api:4.0.5 - https://github.com/jakartaee/jaxb-api/jakarta.xml.bind-api)
+- (The Apache Software License, Version 2.0) Bean Validation API (javax.validation:validation-api:1.1.0.Final - http://beanvalidation.org)
+- (The BSD License) StringTemplate 4 (org.antlr:ST4:4.3.4 - http://nexus.sonatype.org/oss-repository-hosting.html/ST4)
+- (BSD licence) ANTLR 3 Runtime (org.antlr:antlr-runtime:3.5.3 - http://www.antlr.org)
+- (BSD-3-Clause) ANTLR 4 Runtime (org.antlr:antlr4-runtime:4.13.1 - https://www.antlr.org/antlr4-runtime/)
+- (Apache License, Version 2.0) Apache Commons Collections (org.apache.commons:commons-collections4:4.4 - https://commons.apache.org/proper/commons-collections/)
+- (Apache-2.0) Apache Commons Compress (org.apache.commons:commons-compress:1.28.0 - https://commons.apache.org/proper/commons-compress/)
+- (Apache-2.0) Apache Commons Lang (org.apache.commons:commons-lang3:3.17.0 - https://commons.apache.org/proper/commons-lang/)
+- (Apache License, Version 2.0) Apache Commons Math (org.apache.commons:commons-math3:3.6.1 - http://commons.apache.org/proper/commons-math/)
+- (The Apache Software License, Version 2.0) Apache Groovy (org.apache.groovy:groovy:4.0.32 - https://groovy-lang.org)
+- (The Apache Software License, Version 2.0) Apache Groovy (org.apache.groovy:groovy-json:4.0.32 - https://groovy-lang.org)
+- (Apache-2.0) Apache Log4j API (org.apache.logging.log4j:log4j-api:2.24.3 - https://logging.apache.org/log4j/2.x/log4j/log4j-api/)
+- (Apache-2.0) Log4j API to SLF4J Adapter (org.apache.logging.log4j:log4j-to-slf4j:2.24.3 - https://logging.apache.org/log4j/2.x/log4j/log4j-to-slf4j/)
+- (Apache-2.0) Apache FontBox (org.apache.pdfbox:fontbox:3.0.3 - http://pdfbox.apache.org/)
+- (Apache-2.0) Apache PDFBox (org.apache.pdfbox:pdfbox:3.0.3 - https://www.apache.org/pdfbox-parent/pdfbox/)
+- (Apache-2.0) Apache PDFBox io (org.apache.pdfbox:pdfbox-io:3.0.3 - https://www.apache.org/pdfbox-parent/pdfbox-io/)
+- (Apache License, Version 2.0) Apache POI - Common (org.apache.poi:poi:5.3.0 - https://poi.apache.org/)
+- (Apache License, Version 2.0) Apache POI - API based on OPC and OOXML schemas (org.apache.poi:poi-ooxml:5.3.0 - https://poi.apache.org/)
+- (Apache License, Version 2.0) Apache POI (org.apache.poi:poi-ooxml-lite:5.3.0 - https://poi.apache.org/)
+- (Apache License, Version 2.0) Apache POI (org.apache.poi:poi-scratchpad:5.3.0 - https://poi.apache.org/)
+- (Apache License, Version 2.0) tomcat-embed-core (org.apache.tomcat.embed:tomcat-embed-core:10.1.55 - https://tomcat.apache.org/)
+- (Apache License, Version 2.0) tomcat-embed-el (org.apache.tomcat.embed:tomcat-embed-el:10.1.55 - https://tomcat.apache.org/)
+- (Apache License, Version 2.0) tomcat-embed-websocket (org.apache.tomcat.embed:tomcat-embed-websocket:10.1.55 - https://tomcat.apache.org/)
+- (The Apache Software License, Version 2.0) XmlBeans (org.apache.xmlbeans:xmlbeans:5.2.1 - https://xmlbeans.apache.org/)
+- (Bouncy Castle Licence) Bouncy Castle Provider (org.bouncycastle:bcprov-jdk18on:1.81 - https://www.bouncycastle.org/download/bouncy-castle-java/)
+- (The MIT License) Checker Qual (org.checkerframework:checker-qual:3.55.1 - https://checkerframework.org/)
+- (EDL 1.0) Angus Activation Registries (org.eclipse.angus:angus-activation:2.0.3 - https://github.com/eclipse-ee4j/angus-activation/angus-activation)
+- (EDL 1.0) (EPL 2.0) (GPL2 w/ CPE) Angus Mail default provider (org.eclipse.angus:jakarta.mail:2.0.5 - http://eclipse-ee4j.github.io/angus-mail/jakarta.mail)
+- (Apache License, Version 2.0) flyway-core (org.flywaydb:flyway-core:11.7.2 - https://flywaydb.org/flyway-core)
+- (Apache License, Version 2.0) flyway-mysql (org.flywaydb:flyway-mysql:11.7.2 - https://flywaydb.org/flyway-mysql)
+- (BSD-2-Clause) (Public Domain, per Creative Commons CC0) HdrHistogram (org.hdrhistogram:HdrHistogram:2.2.2 - http://hdrhistogram.github.io/HdrHistogram/)
+- (Apache License 2.0) Hibernate Validator Engine (org.hibernate.validator:hibernate-validator:8.0.3.Final - https://hibernate.org/validator)
+- (Apache License 2.0) JBoss Logging 3 (org.jboss.logging:jboss-logging:3.6.3.Final - https://www.jboss.org)
+- (The Apache Software License, Version 2.0) IntelliJ IDEA Annotations (org.jetbrains:annotations:13.0 - http://www.jetbrains.org)
+- (The Apache License, Version 2.0) Kotlin Stdlib (org.jetbrains.kotlin:kotlin-stdlib:1.9.25 - https://kotlinlang.org/)
+- (The MIT License) jsoup Java HTML Parser (org.jsoup:jsoup:1.23.2 - https://jsoup.org/)
+- (The Apache License, Version 2.0) JSpecify annotations (org.jspecify:jspecify:1.0.0 - http://jspecify.org/)
+- (Public Domain, per Creative Commons CC0) LatencyUtils (org.latencyutils:LatencyUtils:2.0.3 - http://latencyutils.github.io/LatencyUtils/)
+- (The Apache Software License, Version 2.0) mybatis (org.mybatis:mybatis:3.5.16 - https://www.mybatis.org/mybatis-3/)
+- (The Apache Software License, Version 2.0) mybatis-spring (org.mybatis:mybatis-spring:3.0.3 - http://www.mybatis.org/spring/)
+- (BSD-2-Clause) PostgreSQL JDBC Driver (org.postgresql:postgresql:42.7.14 - https://jdbc.postgresql.org)
+- (The MIT License) Project Lombok (org.projectlombok:lombok:1.18.42 - https://projectlombok.org)
+- (MIT-0) reactive-streams (org.reactivestreams:reactive-streams:1.0.4 - http://www.reactive-streams.org/)
+- (MIT) JUL to SLF4J bridge (org.slf4j:jul-to-slf4j:2.0.18 - http://www.slf4j.org)
+- (MIT) SLF4J API Module (org.slf4j:slf4j-api:2.0.18 - http://www.slf4j.org)
+- (The Apache License, Version 2.0) springdoc-openapi-starter-common (org.springdoc:springdoc-openapi-starter-common:2.8.17 - https://springdoc.org/springdoc-openapi-starter-common/)
+- (The Apache License, Version 2.0) springdoc-openapi-starter-webmvc-api (org.springdoc:springdoc-openapi-starter-webmvc-api:2.8.17 - https://springdoc.org/springdoc-openapi-starter-webmvc-api/)
+- (The Apache License, Version 2.0) springdoc-openapi-starter-webmvc-ui (org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.17 - https://springdoc.org/springdoc-openapi-starter-webmvc-ui/)
+- (Apache License, Version 2.0) Spring AOP (org.springframework:spring-aop:6.2.19 - https://github.com/spring-projects/spring-framework)
+- (Apache License, Version 2.0) Spring Beans (org.springframework:spring-beans:6.2.19 - https://github.com/spring-projects/spring-framework)
+- (Apache License, Version 2.0) Spring Context (org.springframework:spring-context:6.2.19 - https://github.com/spring-projects/spring-framework)
+- (Apache License, Version 2.0) Spring Context Support (org.springframework:spring-context-support:6.2.19 - https://github.com/spring-projects/spring-framework)
+- (Apache License, Version 2.0) Spring Core (org.springframework:spring-core:6.2.19 - https://github.com/spring-projects/spring-framework)
+- (Apache License, Version 2.0) Spring Expression Language (SpEL) (org.springframework:spring-expression:6.2.19 - https://github.com/spring-projects/spring-framework)
+- (Apache License, Version 2.0) Spring Commons Logging Bridge (org.springframework:spring-jcl:6.2.19 - https://github.com/spring-projects/spring-framework)
+- (Apache License, Version 2.0) Spring JDBC (org.springframework:spring-jdbc:6.2.19 - https://github.com/spring-projects/spring-framework)
+- (Apache License, Version 2.0) Spring Messaging (org.springframework:spring-messaging:6.2.19 - https://github.com/spring-projects/spring-framework)
+- (Apache License, Version 2.0) Spring Object/XML Marshalling (org.springframework:spring-oxm:6.2.19 - https://github.com/spring-projects/spring-framework)
+- (Apache License, Version 2.0) Spring Transaction (org.springframework:spring-tx:6.2.19 - https://github.com/spring-projects/spring-framework)
+- (Apache License, Version 2.0) Spring Web (org.springframework:spring-web:6.2.19 - https://github.com/spring-projects/spring-framework)
+- (Apache License, Version 2.0) Spring WebFlux (org.springframework:spring-webflux:6.2.19 - https://github.com/spring-projects/spring-framework)
+- (Apache License, Version 2.0) Spring Web MVC (org.springframework:spring-webmvc:6.2.19 - https://github.com/spring-projects/spring-framework)
+- (Apache 2.0) Spring AI Model - Anthropic (org.springframework.ai:spring-ai-anthropic:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI Chat Client Auto Configuration (org.springframework.ai:spring-ai-autoconfigure-model-chat-client:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI Chat Memory Auto Configuration (org.springframework.ai:spring-ai-autoconfigure-model-chat-memory:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI Chat Observation Auto Configuration (org.springframework.ai:spring-ai-autoconfigure-model-chat-observation:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI Embedding Observation Auto Configuration (org.springframework.ai:spring-ai-autoconfigure-model-embedding-observation:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI Image Observation Auto Configuration (org.springframework.ai:spring-ai-autoconfigure-model-image-observation:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI OpenAI Auto Configuration (org.springframework.ai:spring-ai-autoconfigure-model-openai:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI Chat Model Auto Configuration (org.springframework.ai:spring-ai-autoconfigure-model-tool:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI Retry Auto Configuration (org.springframework.ai:spring-ai-autoconfigure-retry:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI Chat Client (org.springframework.ai:spring-ai-client-chat:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI Commons (org.springframework.ai:spring-ai-commons:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI Model (org.springframework.ai:spring-ai-model:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI Model - OpenAI (org.springframework.ai:spring-ai-openai:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI Retry (org.springframework.ai:spring-ai-retry:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI Starter - OpenAI (org.springframework.ai:spring-ai-starter-model-openai:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache 2.0) Spring AI Template StringTemplate (org.springframework.ai:spring-ai-template-st:1.0.0 - https://github.com/spring-projects/spring-ai)
+- (Apache License, Version 2.0) spring-boot (org.springframework.boot:spring-boot:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) spring-boot-actuator (org.springframework.boot:spring-boot-actuator:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) spring-boot-actuator-autoconfigure (org.springframework.boot:spring-boot-actuator-autoconfigure:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) spring-boot-autoconfigure (org.springframework.boot:spring-boot-autoconfigure:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) spring-boot-starter (org.springframework.boot:spring-boot-starter:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) spring-boot-starter-actuator (org.springframework.boot:spring-boot-starter-actuator:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) spring-boot-starter-data-redis (org.springframework.boot:spring-boot-starter-data-redis:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) spring-boot-starter-jdbc (org.springframework.boot:spring-boot-starter-jdbc:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) spring-boot-starter-json (org.springframework.boot:spring-boot-starter-json:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) spring-boot-starter-logging (org.springframework.boot:spring-boot-starter-logging:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) spring-boot-starter-mail (org.springframework.boot:spring-boot-starter-mail:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) spring-boot-starter-security (org.springframework.boot:spring-boot-starter-security:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) spring-boot-starter-tomcat (org.springframework.boot:spring-boot-starter-tomcat:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) spring-boot-starter-validation (org.springframework.boot:spring-boot-starter-validation:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) spring-boot-starter-web (org.springframework.boot:spring-boot-starter-web:3.5.16 - https://spring.io/projects/spring-boot)
+- (Apache License, Version 2.0) Spring Data Core (org.springframework.data:spring-data-commons:3.5.13 - https://spring.io/projects/spring-data)
+- (Apache License, Version 2.0) Spring Data KeyValue (org.springframework.data:spring-data-keyvalue:3.5.13 - https://www.spring.io/spring-data/spring-data-keyvalue)
+- (Apache License, Version 2.0) Spring Data Redis (org.springframework.data:spring-data-redis:3.5.13 - https://spring.io/projects/spring-data-redis)
+- (Apache 2.0) Spring Retry (org.springframework.retry:spring-retry:2.0.13 - https://github.com/spring-projects/spring-retry)
+- (Apache License, Version 2.0) spring-security-config (org.springframework.security:spring-security-config:6.5.11 - https://spring.io/projects/spring-security)
+- (Apache License, Version 2.0) spring-security-core (org.springframework.security:spring-security-core:6.5.11 - https://spring.io/projects/spring-security)
+- (Apache License, Version 2.0) spring-security-crypto (org.springframework.security:spring-security-crypto:6.5.11 - https://spring.io/projects/spring-security)
+- (Apache License, Version 2.0) spring-security-web (org.springframework.security:spring-security-web:6.5.11 - https://spring.io/projects/spring-security)
+- (Apache-2.0) Swagger UI (org.webjars:swagger-ui:5.32.2 - https://www.webjars.org)
+- (MIT) webjars-locator-lite (org.webjars:webjars-locator-lite:1.1.3 - https://webjars.org)
+- (Apache-2.0) snappy-java (org.xerial.snappy:snappy-java:1.1.10.7 - https://github.com/xerial/snappy-java)
+- (Apache License, Version 2.0) SnakeYAML (org.yaml:snakeyaml:2.4 - https://bitbucket.org/snakeyaml/snakeyaml)
+- (MIT) redis-authx-core (redis.clients.authentication:redis-authx-core:0.1.1-beta2 - https://github.com/redis/redis-authx-core)
+
+## Frontend (npm package-lock)
+
+- axios — MIT
+- dompurify — (MPL-2.0 OR Apache-2.0)
+- echarts — Apache-2.0
+- element-plus — MIT
+- highlight.js — BSD-3-Clause
+- marked — MIT
+- pinia — MIT
+- typescript — Apache-2.0
+- vue — MIT
+- vue-i18n — MIT
+- vue-router — MIT
+- @babel/helper-string-parser — MIT
+- @babel/helper-validator-identifier — MIT
+- @babel/parser — MIT
+- @babel/types — MIT
+- @ctrl/tinycolor — MIT
+- @element-plus/icons-vue — MIT
+- @floating-ui/core — MIT
+- @floating-ui/dom — MIT
+- @floating-ui/utils — MIT
+- @intlify/core-base — MIT
+- @intlify/message-compiler — MIT
+- @intlify/shared — MIT
+- @jridgewell/sourcemap-codec — MIT
+- @sxzz/popperjs-es — MIT
+- @types/lodash — MIT
+- @types/lodash-es — MIT
+- @types/trusted-types — MIT
+- @types/web-bluetooth — MIT
+- @vue/compiler-core — MIT
+- @vue/compiler-dom — MIT
+- @vue/compiler-sfc — MIT
+- @vue/compiler-ssr — MIT
+- @vue/devtools-api — MIT
+- @vue/reactivity — MIT
+- @vue/runtime-core — MIT
+- @vue/runtime-dom — MIT
+- @vue/server-renderer — MIT
+- @vue/shared — MIT
+- @vueuse/core — MIT
+- @vueuse/metadata — MIT
+- @vueuse/shared — MIT
+- agent-base — MIT
+- async-validator — MIT
+- asynckit — MIT
+- call-bind-apply-helpers — MIT
+- combined-stream — MIT
+- csstype — MIT
+- dayjs — MIT
+- debug — MIT
+- delayed-stream — MIT
+- dunder-proto — MIT
+- entities — BSD-2-Clause
+- es-define-property — MIT
+- es-errors — MIT
+- es-object-atoms — MIT
+- es-set-tostringtag — MIT
+- estree-walker — MIT
+- follow-redirects — MIT
+- form-data — MIT
+- function-bind — MIT
+- get-intrinsic — MIT
+- get-proto — MIT
+- gopd — MIT
+- has-symbols — MIT
+- has-tostringtag — MIT
+- hasown — MIT
+- https-proxy-agent — MIT
+- lodash — MIT
+- lodash-es — MIT
+- lodash-unified — MIT
+- magic-string — MIT
+- math-intrinsics — MIT
+- memoize-one — MIT
+- mime-db — MIT
+- mime-types — MIT
+- ms — MIT
+- nanoid — MIT
+- normalize-wheel-es — BSD-3-Clause
+- picocolors — ISC
+- postcss — MIT
+- proxy-from-env — MIT
+- source-map-js — BSD-3-Clause
+- tslib — 0BSD
+- vue-component-type-helpers — MIT
+- vue-demi — MIT
+- zrender — BSD-3-Clause
+
+## Notes
+
+Weak-copyleft/dual-license components (Logback EPL/LGPL, JSqlParser
+LGPL/Apache, Jakarta/Angus EPL/GPL+CPE) are used unmodified as
+libraries. If you modify these components, review their license
+obligations before redistribution.
+
