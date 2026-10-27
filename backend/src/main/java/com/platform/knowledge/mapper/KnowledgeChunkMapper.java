@@ -38,7 +38,7 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
               <if test="userId != null">
                 AND (allowed_users IS NULL
                      OR (tenant_visible = 1 AND #{tenantWide} = TRUE)
-                     OR JSON_CONTAINS(allowed_users, JSON_QUOTE(#{userId})))
+                     OR JSON_CONTAINS(allowed_users, JSON_QUOTE(CAST(#{userId} AS CHAR))))
               </if>
             ORDER BY score DESC
             LIMIT #{limit}
@@ -69,7 +69,7 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
               <if test="userId != null">
                 AND (kc.allowed_users IS NULL
                      OR (kc.tenant_visible = 1 AND #{tenantWide} = TRUE)
-                     OR JSON_CONTAINS(kc.allowed_users, JSON_QUOTE(#{userId})))
+                     OR JSON_CONTAINS(kc.allowed_users, JSON_QUOTE(CAST(#{userId} AS CHAR))))
               </if>
             ORDER BY score DESC
             LIMIT #{limit}
@@ -101,7 +101,7 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
               <if test="userId != null">
                 AND (kc.allowed_users IS NULL
                      OR (kc.tenant_visible = 1 AND #{tenantWide} = TRUE)
-                     OR JSON_CONTAINS(kc.allowed_users, JSON_QUOTE(#{userId})))
+                     OR JSON_CONTAINS(kc.allowed_users, JSON_QUOTE(CAST(#{userId} AS CHAR))))
               </if>
             ORDER BY kc.id DESC
             LIMIT #{limit}
@@ -137,7 +137,7 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
               <if test="userId != null">
                 AND (allowed_users IS NULL
                      OR (tenant_visible = 1 AND #{tenantWide} = TRUE)
-                     OR JSON_CONTAINS(allowed_users, JSON_QUOTE(#{userId})))
+                     OR JSON_CONTAINS(allowed_users, JSON_QUOTE(CAST(#{userId} AS CHAR))))
               </if>
             ORDER BY id DESC
             LIMIT #{limit}
