@@ -76,3 +76,57 @@ test('发布弹窗：门禁失败直接展示失败步骤与样本明细', async
   await expect(gateDialog).toContainText('回答与期望不一致')
   await gateDialog.getByRole('button', { name: '取消' }).click()
 })
+
+test('写工具策略变更：普通发布阻断后可强制发布', async ({ page }) => {
+  await login(page)
+  let forceRequested = false
+  await page.route(`**/api/v1/agent/${AGENT_ID}**`, async (route) => {
+    const path = new URL(route.request().url()).pathname
+    const method = route.request().method()
+    if (method === 'PUT' && path === `/api/v1/agent/${AGENT_ID}`) {
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, data: { updatedAt: new Date().toISOString() } })
+      })
+    }
+    if (method === 'GET' && path === `/api/v1/agent/${AGENT_ID}/deployment`) {
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, data: { deployment: null } })
+      })
+    }
+    if (method === 'POST' && path === `/api/v1/agent/${AGENT_ID}/publish`) {
+      const body = route.request().postDataJSON() as { force?: boolean }
+      if (body?.force) {
+        forceRequested = true
+        return route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ code: 0, data: { version: 'V2' } })
+        })
+      }
+      return route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 400,
+          message: 'writePolicyGate: 写工具策略比上一发布版本更宽松，需 OWNER/ADMIN 确认后强制发布'
+        })
+      })
+    }
+    return route.continue()
+  })
+
+  await page.goto(`/agent/edit/${AGENT_ID}`)
+  await page.locator('.topbar .actions').getByRole('button', { name: '发布', exact: true }).click()
+  const checklist = page.getByRole('dialog', { name: '发布前配置检查' })
+  if (await checklist.isVisible().catch(() => false)) {
+    await checklist.getByRole('button', { name: '仍要发布' }).click()
+  }
+
+  const dialog = page.getByRole('dialog', { name: '写工具策略变更需确认' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('写工具策略比上一发布版本更宽松')
+  await dialog.getByRole('button', { name: '强制发布' }).click()
+  await expect.poll(() => forceRequested).toBe(true)
+  await expect(page.getByText('已发布 V2')).toBeVisible()
+})
