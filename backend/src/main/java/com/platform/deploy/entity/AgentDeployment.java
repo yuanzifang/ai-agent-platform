@@ -21,6 +21,12 @@ public class AgentDeployment {
     private Integer hostPort;
     private Integer replicaCount;
     private String replicasJson;
+    private String lbContainerName;
+    private String lbContainerId;
+    private Integer lbHostPort;
+    private String lbStatus;
+    private String lbEndpoint;
+    private String lbLocalEndpoint;
     private String endpoint;
     private String localEndpoint;
     private String status;

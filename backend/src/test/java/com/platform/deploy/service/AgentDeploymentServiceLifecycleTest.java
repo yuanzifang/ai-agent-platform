@@ -65,6 +65,12 @@ class AgentDeploymentServiceLifecycleTest {
         deployment.setContainerName("aap-agent-1");
         deployment.setContainerId("cid-1");
         deployment.setHostPort(19001);
+        deployment.setLbContainerName("aap-agent-1-lb");
+        deployment.setLbContainerId("cid-lb");
+        deployment.setLbHostPort(19003);
+        deployment.setLbStatus("RUNNING");
+        deployment.setLbEndpoint("http://test:19003/v1");
+        deployment.setLbLocalEndpoint("http://localhost:19003/v1");
         deployment.setStatus("RUNNING");
         deployment.setReplicasJson("""
                 [{"name":"aap-agent-1","containerId":"cid-1","hostPort":19001,"status":"RUNNING","endpoint":"http://test:19001/v1"},
@@ -78,14 +84,18 @@ class AgentDeploymentServiceLifecycleTest {
     void startsAndStopsAllReplicas() {
         Map<String, Object> started = service.start(1L, principal);
         assertEquals("RUNNING", started.get("status"));
+        assertEquals("http://test:19003/v1", started.get("lbEndpoint"));
+        assertEquals(2, started.get("replicaCount"));
         verify(runtime).start("aap-agent-1");
         verify(runtime).start("aap-agent-1-r2");
+        verify(runtime).start("aap-agent-1-lb");
         verify(eventMapper).insert(argThat((AgentDeploymentEvent e) -> "START".equals(e.getAction())));
 
         Map<String, Object> stopped = service.stop(1L, principal);
         assertEquals("STOPPED", stopped.get("status"));
         verify(runtime).stop("aap-agent-1");
         verify(runtime).stop("aap-agent-1-r2");
+        verify(runtime).stop("aap-agent-1-lb");
         verify(eventMapper).insert(argThat((AgentDeploymentEvent e) -> "STOP".equals(e.getAction())));
     }
 
@@ -97,6 +107,7 @@ class AgentDeploymentServiceLifecycleTest {
 
         verify(runtime, org.mockito.Mockito.atLeastOnce()).remove("aap-agent-1");
         verify(runtime).remove("aap-agent-1-r2");
+        verify(runtime).remove("aap-agent-1-lb");
         verify(apiKeyService).delete(1L, 9L, principal);
         verify(eventMapper).insert(argThat((AgentDeploymentEvent e) -> "REMOVE".equals(e.getAction())));
         verify(deploymentMapper).deleteById(5L);
