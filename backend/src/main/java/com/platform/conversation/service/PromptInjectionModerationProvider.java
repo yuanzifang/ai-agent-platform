@@ -36,6 +36,13 @@ public class PromptInjectionModerationProvider implements ContentModerationProvi
                     + "|(system|developer|hidden)\\s*(prompt|message|instruction)\\s*(is|:|：)"
                     + "|(这是|我的)?(系统|开发者|隐藏)(提示词|消息|指令)(是|为|：|:)",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern CONTEXT_LEAK = Pattern.compile(
+            "(repeat|show|print|output|reveal|tell).{0,40}(text|instructions?|messages?|context|prompt)"
+                    + ".{0,20}(above|before|previous|initial|original)"
+                    + "|(what|which|how).{0,30}(instructions?|prompt|context).{0,30}(before|above|earlier|initial)"
+                    + "|(重复|输出|告诉我|泄露).{0,30}(上面|之前|初始|原始).{0,30}(内容|指令|提示词|设定|上下文)"
+                    + "|(系统|开发者|初始|原始).{0,20}(指令|提示词|设定|上下文).{0,20}(是什么|内容|重复|输出)",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern SAFETY_BYPASS = Pattern.compile(
             "bypass.{0,20}(safety|policy|guardrail|filter)"
                     + "|ignore.{0,20}(safety|policy|guardrail)"
@@ -58,6 +65,12 @@ public class PromptInjectionModerationProvider implements ContentModerationProvi
                     + "|(system|developer|hidden)(prompt|message|instruction).{0,30}(reveal|show|print|output)"
                     + "|(输出|显示|打印|泄露|告诉我).{0,30}(系统|开发者|隐藏)(提示词|消息|指令)"
                     + "|(系统|开发者|隐藏)(提示词|消息|指令).{0,30}(输出|显示|打印|泄露)");
+    private static final Pattern COMPACT_CONTEXT_LEAK = Pattern.compile(
+            "(repeat|show|print|output|reveal|tell).{0,40}(text|instructions?|messages?|context|prompt)"
+                    + ".{0,20}(above|before|previous|initial|original)"
+                    + "|(what|which|how).{0,30}(instructions?|prompt|context).{0,30}(before|above|earlier|initial)"
+                    + "|(重复|输出|告诉我|泄露).{0,30}(上面|之前|初始|原始).{0,30}(内容|指令|提示词|设定|上下文)"
+                    + "|(系统|开发者|初始|原始).{0,20}(指令|提示词|设定|上下文).{0,20}(是什么|内容|重复|输出)");
     private static final Pattern COMPACT_SAFETY_BYPASS = Pattern.compile(
             "bypass.{0,20}(safety|policy|guardrail|filter)"
                     + "|ignore.{0,20}(safety|policy|guardrail)"
@@ -98,6 +111,9 @@ public class PromptInjectionModerationProvider implements ContentModerationProvi
             }
             if (PROMPT_LEAK.matcher(text).find() || COMPACT_PROMPT_LEAK.matcher(compact).find()) {
                 score += addRule(matched, "prompt-leak", 1);
+            }
+            if (CONTEXT_LEAK.matcher(text).find() || COMPACT_CONTEXT_LEAK.matcher(compact).find()) {
+                score += addRule(matched, "context-leak", 1);
             }
             if (SAFETY_BYPASS.matcher(text).find() || COMPACT_SAFETY_BYPASS.matcher(compact).find()) {
                 score += addRule(matched, "safety-bypass", 2);
