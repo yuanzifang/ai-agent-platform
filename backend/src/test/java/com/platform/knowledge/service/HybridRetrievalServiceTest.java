@@ -53,6 +53,8 @@ class HybridRetrievalServiceTest {
         kbMapper = mock(KnowledgeBaseMapper.class);
         when(embedding.model()).thenReturn("nomic-embed-text");
         when(embedding.dimension(anyString())).thenReturn(768);
+        when(embedding.embedQuery(anyString(), anyString())).thenAnswer(inv ->
+                embedding.embedOne(inv.getArgument(0, String.class), inv.getArgument(1, String.class)));
         service = new HybridRetrievalService(embedding, vectorRepository, chunkMapper, kbMapper,
                 new ObjectMapper());
         ReflectionTestUtils.setField(service, "hybridEnabled", true);

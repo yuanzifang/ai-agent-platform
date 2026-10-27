@@ -163,4 +163,38 @@ class EmbeddingServiceTest {
             server.stop(0);
         }
     }
+
+    @Test
+    void cachesRepeatedQueryEmbeddings() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/v1/embeddings", exchange -> {
+            requests.incrementAndGet();
+            byte[] response = "{\"data\":[{\"index\":0,\"embedding\":[0.5,0.25]}]}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            EmbeddingProperties props = new EmbeddingProperties();
+            props.setProvider("openai");
+            props.setModel("hosted-embed");
+            props.setDimensions(2);
+            props.setAvailable(Map.of("hosted-embed", 2));
+            props.setEndpoint("http://127.0.0.1:" + server.getAddress().getPort());
+            EmbeddingService service = new EmbeddingService(props, mock(QuotaService.class));
+
+            float[] first = service.embedQuery("退款政策是什么", "hosted-embed");
+            float[] second = service.embedQuery("退款政策是什么", "hosted-embed");
+
+            assertEquals(2, first.length);
+            assertEquals(0.5f, second[0]);
+            assertEquals(1, requests.get(), "重复查询应命中进程内缓存");
+        } finally {
+            server.stop(0);
+        }
+    }
 }

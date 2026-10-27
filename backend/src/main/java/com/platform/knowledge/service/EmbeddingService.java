@@ -10,12 +10,15 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -37,6 +40,16 @@ public class EmbeddingService {
 
     @org.springframework.beans.factory.annotation.Value("${embedding.batch-concurrency:1}")
     private int batchConcurrency = 1;
+
+    @org.springframework.beans.factory.annotation.Value("${embedding.query-cache-ttl-seconds:300}")
+    private long queryCacheTtlSeconds = 300;
+
+    @org.springframework.beans.factory.annotation.Value("${embedding.query-cache-max-entries:2000}")
+    private int queryCacheMaxEntries = 2000;
+
+    /** 查询 embedding 进程内缓存：重复 FAQ/检索问句不必反复打 embedding 上游。 */
+    private record QueryCacheEntry(float[] vector, long expiresAt) { }
+    private final Map<String, QueryCacheEntry> queryCache = new ConcurrentHashMap<>();
 
     private volatile RestClient client;
     private volatile ExecutorService embedExecutor;
@@ -130,6 +143,38 @@ public class EmbeddingService {
 
     public float[] embedOne(String text, String modelName) {
         return embedBatch(List.of(text), modelName)[0];
+    }
+
+    /** 检索问句 embedding 缓存；只缓存单条查询，不缓存文档批量入库。 */
+    public float[] embedQuery(String text, String modelName) {
+        if (text == null || text.isBlank() || queryCacheTtlSeconds <= 0 || queryCacheMaxEntries <= 0) {
+            return embedOne(text, modelName);
+        }
+        String model = modelName == null || modelName.isBlank() ? model() : modelName;
+        String key = model + ":" + sha256(text);
+        long now = System.currentTimeMillis();
+        QueryCacheEntry cached = queryCache.get(key);
+        if (cached != null && cached.expiresAt() > now) {
+            return cached.vector();
+        }
+        float[] vector = embedOne(text, model);
+        if (vector != null) {
+            if (queryCache.size() >= queryCacheMaxEntries) {
+                queryCache.entrySet().removeIf(e -> e.getValue().expiresAt() <= now);
+                if (queryCache.size() >= queryCacheMaxEntries) queryCache.clear();
+            }
+            queryCache.put(key, new QueryCacheEntry(vector, now + queryCacheTtlSeconds * 1000L));
+        }
+        return vector;
+    }
+
+    private static String sha256(String text) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            return Integer.toHexString(text.hashCode());
+        }
     }
 
     public float[][] embedBatch(List<String> texts) {
