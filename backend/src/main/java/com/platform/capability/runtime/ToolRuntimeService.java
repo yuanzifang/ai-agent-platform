@@ -456,23 +456,69 @@ public class ToolRuntimeService {
             Object max = caps.get("writeToolMaxArgs");
             if (max instanceof Number n && n.intValue() > 0) maxArgs = Math.min(n.intValue(), 100000);
             if (toolInput != null && toolInput.length() > maxArgs) return false;
-            Object rawRules = caps.get("writeToolArgRules");
-            if (rawRules instanceof Map<?, ?> rules) {
-                Object allowed = rules.get(String.valueOf(tool.getId()));
-                if (allowed instanceof List<?> allowList && !allowList.isEmpty()) {
-                    Set<String> allowedKeys = new HashSet<>();
-                    for (Object k : allowList) allowedKeys.add(String.valueOf(k));
-                    Map<String, Object> args = args(toolInput);
-                    for (String key : args.keySet()) {
-                        if (!allowedKeys.contains(key)) return false;
-                    }
-                }
-            }
+            if (!argPolicyAllows(caps, tool.getId(), args(toolInput))) return false;
             return true;
         } catch (Exception e) {
             log.warn("写工具策略解析失败，按阻断处理 agent={} tool={}：{}", agentId, tool.getId(), e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * 参数级写工具策略（包内可见，便于单测）：
+     * writeToolArgRules = {"toolId":["param1"]} 只允许这些参数；
+     * writeToolArgPatterns = {"toolId":{"param":"regex"}} 参数值必须匹配；
+     * writeToolAmountLimits = {"toolId":{"amount":1000}} 数值参数上限。
+     * 非法配置/无法解析的数值按阻断处理（fail closed）。
+     */
+    static boolean argPolicyAllows(Map<String, Object> caps, Long toolId, Map<String, Object> args) {
+        if (caps == null || toolId == null) return true;
+        String id = String.valueOf(toolId);
+        Object rawRules = caps.get("writeToolArgRules");
+        if (rawRules instanceof Map<?, ?> rules) {
+            Object allowed = rules.get(id);
+            if (allowed instanceof List<?> allowList && !allowList.isEmpty()) {
+                Set<String> allowedKeys = new HashSet<>();
+                for (Object k : allowList) allowedKeys.add(String.valueOf(k));
+                for (String key : args.keySet()) {
+                    if (!allowedKeys.contains(key)) return false;
+                }
+            }
+        }
+        Object rawPatterns = caps.get("writeToolArgPatterns");
+        if (rawPatterns instanceof Map<?, ?> patterns) {
+            Object toolPatterns = patterns.get(id);
+            if (toolPatterns instanceof Map<?, ?> pm) {
+                for (Map.Entry<?, ?> entry : pm.entrySet()) {
+                    Object value = args.get(String.valueOf(entry.getKey()));
+                    if (value == null) continue;
+                    try {
+                        if (!java.util.regex.Pattern.compile(String.valueOf(entry.getValue()))
+                                .matcher(String.valueOf(value)).matches()) return false;
+                    } catch (Exception e) {
+                        return false;
+                    }
+                }
+            }
+        }
+        Object rawLimits = caps.get("writeToolAmountLimits");
+        if (rawLimits instanceof Map<?, ?> limits) {
+            Object toolLimits = limits.get(id);
+            if (toolLimits instanceof Map<?, ?> lm) {
+                for (Map.Entry<?, ?> entry : lm.entrySet()) {
+                    Object value = args.get(String.valueOf(entry.getKey()));
+                    if (value == null) continue;
+                    try {
+                        double actual = Double.parseDouble(String.valueOf(value));
+                        double limit = Double.parseDouble(String.valueOf(entry.getValue()));
+                        if (actual > limit) return false;
+                    } catch (Exception e) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
 
     private String deniedTool(String toolKey, String displayName, String type,
