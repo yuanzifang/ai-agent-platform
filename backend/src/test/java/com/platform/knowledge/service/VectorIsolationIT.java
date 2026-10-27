@@ -92,10 +92,11 @@ class VectorIsolationIT {
     void createsAndUsesPartialHnswIndexForKnowledgeBase() {
         ReflectionTestUtils.setField(repo, "partialHnswMinRows", 2L);
         ReflectionTestUtils.setField(repo, "partialHnswMaxIndexes", 10);
+        ReflectionTestUtils.setField(repo, "partialHnswMaxRatio", 1.0);
         ReflectionTestUtils.setField(repo, "hnswConcurrently", false);
         repo.saveBatch(TENANT_A, List.of(
-                row("partial one", new float[]{1, 0, 0, 0}, 803, 1),
-                row("partial two", new float[]{0.9f, 0.1f, 0, 0}, 803, 2)));
+                row("partial one", new float[]{1, 0, 0, 0}, 805, 1),
+                row("partial two", new float[]{0.9f, 0.1f, 0, 0}, 805, 2)));
 
         var stats = repo.reconcilePartialIndexes(TENANT_A);
 
@@ -104,11 +105,39 @@ class VectorIsolationIT {
                 SELECT count(*) FROM pg_indexes
                 WHERE schemaname = ? AND indexname = ?
                 """, Integer.class, "tenant_" + TENANT_A,
-                "idx_embeddings_4_hnsw_kb_803");
+                "idx_embeddings_4_hnsw_kb_805");
         assertEquals(1, indexes, "partial HNSW 索引应存在");
 
-        var hits = repo.search(TENANT_A, new float[]{1, 0, 0, 0}, 803L, 5, 0.1, DIM);
+        var hits = repo.search(TENANT_A, new float[]{1, 0, 0, 0}, 805L, 5, 0.1, DIM);
         assertEquals(2, hits.size());
+    }
+
+    @Test
+    void prunesPartialIndexAfterKnowledgeBaseDisappears() {
+        ReflectionTestUtils.setField(repo, "partialHnswMinRows", 2L);
+        ReflectionTestUtils.setField(repo, "partialHnswMaxIndexes", 10);
+        ReflectionTestUtils.setField(repo, "partialHnswMaxRatio", 1.0);
+        ReflectionTestUtils.setField(repo, "partialHnswPrune", true);
+        ReflectionTestUtils.setField(repo, "hnswConcurrently", false);
+        repo.saveBatch(TENANT_A, List.of(
+                row("prune one", new float[]{1, 0, 0, 0}, 804, 1),
+                row("prune two", new float[]{0, 1, 0, 0}, 804, 2)));
+        repo.reconcilePartialIndexes(TENANT_A);
+        assertEquals(1, indexCount("idx_embeddings_4_hnsw_kb_804"), "索引应先创建");
+
+        repo.deleteByKnowledgeBase(TENANT_A, 804L);
+        var stats = repo.reconcilePartialIndexes(TENANT_A);
+
+        assertTrue(stats.get("dropped") >= 1, "删除知识库后应 prune 索引");
+        assertEquals(0, indexCount("idx_embeddings_4_hnsw_kb_804"), "索引应被删除");
+    }
+
+    private int indexCount(String indexName) {
+        Integer count = jdbc.queryForObject("""
+                SELECT count(*) FROM pg_indexes
+                WHERE schemaname = ? AND indexname = ?
+                """, Integer.class, "tenant_" + TENANT_A, indexName);
+        return count == null ? 0 : count;
     }
 
     @Test
