@@ -37,6 +37,14 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           trivyignores: .trivyignore
+      - name: 后端依赖许可证清单（观察模式）
+        working-directory: backend
+        run: |
+          mvn -q org.codehaus.mojo:license-maven-plugin:2.5.0:add-third-party \
+            -Dlicense.outputDirectory=target/licenses \
+            -Dlicense.excludedScopes=test \
+            -Dlicense.includeTransitiveDependencies=true
+
       - name: 前端依赖审计
         working-directory: frontend
         run: |
