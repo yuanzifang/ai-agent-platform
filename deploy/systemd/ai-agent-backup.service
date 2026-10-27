@@ -1,0 +1,20 @@
+[Unit]
+Description=AI Agent Platform local + offsite backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=aiagent
+Group=aiagent
+WorkingDirectory=/opt/ai-agent-platform
+EnvironmentFile=-/opt/ai-agent-platform/.env
+ExecStart=/opt/ai-agent-platform/scripts/backup.sh --prune --retention-days 14
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/ai-agent-platform/backups
+TimeoutStartSec=6h

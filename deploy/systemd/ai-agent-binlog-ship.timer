@@ -1,0 +1,12 @@
+[Unit]
+Description=Ship MySQL binlog every minute
+Requires=ai-agent-binlog-ship.service
+
+[Timer]
+OnCalendar=*:0/1
+Persistent=true
+AccuracySec=10s
+Unit=ai-agent-binlog-ship.service
+
+[Install]
+WantedBy=timers.target

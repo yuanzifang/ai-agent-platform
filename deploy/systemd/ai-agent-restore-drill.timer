@@ -1,0 +1,12 @@
+[Unit]
+Description=Run AI Agent Platform restore drill weekly
+Requires=ai-agent-restore-drill.service
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=30m
+Unit=ai-agent-restore-drill.service
+
+[Install]
+WantedBy=timers.target
