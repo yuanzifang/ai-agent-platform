@@ -108,6 +108,16 @@ jobs:
           sha256sum release-assets/*.cdx.json > release-assets/SHA256SUMS
           cat release-assets/SHA256SUMS
 
+      - name: 安装 cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: 生成 Sigstore 签名
+        run: |
+          set -euo pipefail
+          for f in release-assets/*.cdx.json release-assets/SHA256SUMS; do
+            cosign sign-blob --yes --bundle "${f}.sigstore.json" "$f"
+          done
+
       - name: 生成 SBOM 构建来源证明
         uses: actions/attest-build-provenance@v2
         with:
