@@ -66,8 +66,9 @@ public class AgentController {
     @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('agent:edit')")
     public ApiResponse<Map<String, Object>> update(@PathVariable Long id,
                                                    @RequestBody Map<String, Object> req,
-                                                   @RequestHeader(value = "If-Match", required = false) String ifMatch) {
-        return ApiResponse.ok(agentService.update(id, req, ifMatch));
+                                                   @RequestHeader(value = "If-Match", required = false) String ifMatch,
+                                                   @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(agentService.update(id, req, ifMatch, principal));
     }
 
     @DeleteMapping("/{id}")
