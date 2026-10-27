@@ -35,7 +35,7 @@
           </div>
         </template>
         <el-empty v-if="emptySeries" :description="t('obsPage.noSpans')" :image-size="50" />
-        <EChart v-else :option="spanChartOption" height="240px" />
+        <EChart v-else :option="spanChartOption" height="280px" />
       </el-card>
       <el-card shadow="never">
         <template #header>Top Tools</template>
@@ -580,17 +580,25 @@ const spanChartOption = computed(() => {
       }]
     }
   }
+  const series = overview.spanSeries || []
   return {
-    tooltip: { trigger: 'axis' },
-    legend: { data: ['agent', 'chain', 'llm', 'tool'] },
-    grid: { left: 40, right: 12, top: 30, bottom: 26 },
-    xAxis: { type: 'category', data: (overview.spanSeries || []).map((b: any) => b.bucket) },
-    yAxis: { type: 'value', minInterval: 1 },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'line' } },
+    legend: { data: ['agent', 'chain', 'llm', 'tool'], top: 0, itemWidth: 12, itemHeight: 8,
+      textStyle: { fontSize: 11 } },
+    grid: { left: 38, right: 18, top: 36, bottom: 58 },
+    dataZoom: [{ type: 'inside', xAxisIndex: 0 }],
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: series.map((b: any) => b.bucket),
+      axisLabel: { interval: 'auto', rotate: 35, hideOverlap: true, fontSize: 10 }
+    },
+    yAxis: { type: 'value', minInterval: 1, axisLabel: { fontSize: 10 } },
     series: [
-      { name: 'agent', type: 'bar', stack: 'spans', itemStyle: { color: '#3B82F6' }, data: (overview.spanSeries || []).map((b: any) => b.agent) },
-      { name: 'chain', type: 'bar', stack: 'spans', itemStyle: { color: '#10B981' }, data: (overview.spanSeries || []).map((b: any) => b.chain) },
-      { name: 'llm', type: 'bar', stack: 'spans', itemStyle: { color: '#F59E0B' }, data: (overview.spanSeries || []).map((b: any) => b.llm) },
-      { name: 'tool', type: 'bar', stack: 'spans', itemStyle: { color: '#6B7280' }, data: (overview.spanSeries || []).map((b: any) => b.tool) }
+      { name: 'agent', type: 'line', showSymbol: false, lineStyle: { width: 2 }, itemStyle: { color: '#3B82F6' }, data: series.map((b: any) => b.agent) },
+      { name: 'chain', type: 'line', showSymbol: false, lineStyle: { width: 2 }, itemStyle: { color: '#10B981' }, data: series.map((b: any) => b.chain) },
+      { name: 'llm', type: 'line', showSymbol: false, lineStyle: { width: 2 }, itemStyle: { color: '#F59E0B' }, data: series.map((b: any) => b.llm) },
+      { name: 'tool', type: 'line', showSymbol: false, lineStyle: { width: 2 }, itemStyle: { color: '#6B7280' }, data: series.map((b: any) => b.tool) }
     ]
   }
 })
