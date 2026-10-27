@@ -140,6 +140,25 @@ class VectorIsolationIT {
     }
 
     @Test
+    void skipsPartialIndexWhenKnowledgeBaseRatioExceedsLimit() {
+        ReflectionTestUtils.setField(repo, "partialHnswMinRows", 2L);
+        ReflectionTestUtils.setField(repo, "partialHnswMaxIndexes", 10);
+        ReflectionTestUtils.setField(repo, "partialHnswMaxRatio", 0.01);
+        ReflectionTestUtils.setField(repo, "partialHnswPrune", false);
+        ReflectionTestUtils.setField(repo, "hnswConcurrently", false);
+        repo.saveBatch(TENANT_A, List.of(
+                row("ratio one", new float[]{1, 0, 0, 0}, 807, 1),
+                row("ratio two", new float[]{0, 1, 0, 0}, 807, 2)));
+
+        repo.reconcilePartialIndexes(TENANT_A);
+        assertEquals(0, indexCount("idx_embeddings_4_hnsw_kb_807"), "高占比知识库不应建 partial 索引");
+
+        ReflectionTestUtils.setField(repo, "partialHnswMaxRatio", 1.0);
+        repo.reconcilePartialIndexes(TENANT_A);
+        assertEquals(1, indexCount("idx_embeddings_4_hnsw_kb_807"), "降低占比约束后应建索引");
+    }
+
+    @Test
     void prunesPartialIndexAfterKnowledgeBaseDisappears() {
         ReflectionTestUtils.setField(repo, "partialHnswMinRows", 2L);
         ReflectionTestUtils.setField(repo, "partialHnswMaxIndexes", 10);
