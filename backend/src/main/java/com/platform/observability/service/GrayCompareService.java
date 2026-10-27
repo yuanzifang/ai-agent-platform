@@ -154,7 +154,7 @@ public class GrayCompareService {
     }
 
     private double toolCallsPerTrace(String cond, Long tenantId, LocalDateTime start, Long agentId) {
-        String sql = ("SELECT COALESCE(SUM(tool_spans), 0) tools, COALESCE(COUNT(DISTINCT t.trace_id), 0) traces "
+        String sql = ("SELECT COALESCE(COUNT(s.id), 0) tools, COALESCE(COUNT(DISTINCT t.trace_id), 0) traces "
                 + "FROM agent_trace t LEFT JOIN agent_span s "
                 + "ON s.trace_id = t.trace_id AND s.tenant_id = t.tenant_id AND s.span_type = 'tool' "
                 + "WHERE t.tenant_id = ? AND t.created_at >= ? "
