@@ -23,7 +23,7 @@ public interface AgentSpanMapper extends BaseMapper<AgentSpan> {
             <script>
             SELECT s.span_type AS spanType, COUNT(*) AS cnt
             FROM agent_span s JOIN agent_trace t ON t.trace_id = s.trace_id
-            WHERE t.created_at <![CDATA[>=]]> #{startTime} AND t.created_at <![CDATA[<=]]> #{endTime}
+            WHERE s.start_time <![CDATA[>=]]> #{startTime} AND s.start_time <![CDATA[<=]]> #{endTime}
               <if test="agentId != null">AND t.agent_id = #{agentId}</if>
             GROUP BY s.span_type
             </script>
@@ -35,9 +35,9 @@ public interface AgentSpanMapper extends BaseMapper<AgentSpan> {
     /** Span 结构图：按时间桶 × span_type 统计（需求 3.4.3(3)）。 */
     @Select("""
             <script>
-            SELECT DATE_FORMAT(t.created_at, #{fmt}) AS bucket, s.span_type AS spanType, COUNT(*) AS cnt
+            SELECT DATE_FORMAT(s.start_time, #{fmt}) AS bucket, s.span_type AS spanType, COUNT(*) AS cnt
             FROM agent_span s JOIN agent_trace t ON t.trace_id = s.trace_id
-            WHERE t.created_at <![CDATA[>=]]> #{startTime} AND t.created_at <![CDATA[<=]]> #{endTime}
+            WHERE s.start_time <![CDATA[>=]]> #{startTime} AND s.start_time <![CDATA[<=]]> #{endTime}
               <if test="agentId != null">AND t.agent_id = #{agentId}</if>
             GROUP BY bucket, s.span_type
             </script>
@@ -54,7 +54,7 @@ public interface AgentSpanMapper extends BaseMapper<AgentSpan> {
                    COALESCE(SUM(s.input_tokens + s.output_tokens), 0) AS tokens
             FROM agent_span s JOIN agent_trace t ON t.trace_id = s.trace_id
             WHERE s.span_type = 'llm'
-              AND t.created_at <![CDATA[>=]]> #{startTime} AND t.created_at <![CDATA[<=]]> #{endTime}
+              AND s.start_time <![CDATA[>=]]> #{startTime} AND s.start_time <![CDATA[<=]]> #{endTime}
               <if test="agentId != null">AND t.agent_id = #{agentId}</if>
             GROUP BY modelName
             ORDER BY calls DESC
@@ -70,7 +70,7 @@ public interface AgentSpanMapper extends BaseMapper<AgentSpan> {
             SELECT COALESCE(s.tool_name, s.name) AS toolName, s.duration_ms AS durationMs
             FROM agent_span s JOIN agent_trace t ON t.trace_id = s.trace_id
             WHERE s.span_type = 'tool'
-              AND t.created_at <![CDATA[>=]]> #{startTime} AND t.created_at <![CDATA[<=]]> #{endTime}
+              AND s.start_time <![CDATA[>=]]> #{startTime} AND s.start_time <![CDATA[<=]]> #{endTime}
               <if test="agentId != null">AND t.agent_id = #{agentId}</if>
             </script>
             """)
