@@ -1,13 +1,13 @@
 // k6 首 Token / SSE 压测（本机开发基线，非上线验收）。
-// 需要后端已启动、模型可走 mock 或真实 Provider、租户限流足够高。
+// 需要后端已启动、租户限流足够高；只允许 mock 或本地模型，生产/云模型硬拒绝。
 // 运行（mock/本地模型）：PERF_MODEL=perf-k6-mock k6 run scripts/perf-k6.js
-// 真实模型必须显式 PERF_ALLOW_REAL=1，脚本默认拒绝，避免误用真实账号额度。
+// 本地模型示例：PERF_MODEL=/Users/.../Qwen3-4B... k6 run scripts/perf-k6.js
 // 可用环境变量：PERF_BASE_URL / PERF_USERNAME / PERF_PASSWORD / PERF_TENANT /
 //               PERF_RATE / PERF_DURATION / PERF_PRE_VUS / PERF_MAX_VUS /
 //               PERF_VUS / PERF_THINK_SECONDS / PERF_MODEL / PERF_KB_ID /
 //               PERF_MESSAGE / PERF_WARN_WORD / PERF_RECYCLE_EVERY /
-//               PERF_TOKEN_REFRESH_SECONDS / PERF_ALLOW_REAL
-// 注意：真实模型默认拒绝运行；必须显式设置 PERF_ALLOW_REAL=1，避免误用真实账号额度。
+//               PERF_TOKEN_REFRESH_SECONDS
+// 注意：真实模型（deepseek/gpt/claude 等）会被直接拒绝；验证只用 mock/本地模型。
 import http from 'k6/http'
 import { check, sleep } from 'k6'
 import { Trend, Rate } from 'k6/metrics'
@@ -28,10 +28,10 @@ const VUS = Number(__ENV.PERF_VUS || 0)
 const THINK_SECONDS = Number(__ENV.PERF_THINK_SECONDS || 1)
 const RECYCLE_EVERY = Number(__ENV.PERF_RECYCLE_EVERY || 0)
 const TOKEN_REFRESH_MS = Math.max(60, Number(__ENV.PERF_TOKEN_REFRESH_SECONDS || 600)) * 1000
-const ALLOW_REAL = __ENV.PERF_ALLOW_REAL === '1'
-const REAL_MODEL = !String(MODEL).startsWith('/') && !/(mock|test|perf|local)/i.test(String(MODEL))
-if (REAL_MODEL && !ALLOW_REAL) {
-  throw new Error(`拒绝压测真实模型 ${MODEL}：如确认会消耗真实账号额度，请设置 PERF_ALLOW_REAL=1`)
+const LOCAL_MODEL = String(MODEL).startsWith('/')
+  || /(mock|test|perf|local|qwen2\.5|qwen3|llama|ollama)/i.test(String(MODEL))
+if (!LOCAL_MODEL) {
+  throw new Error(`拒绝压测生产/云模型 ${MODEL}：验证只允许 mock 或本地模型`)
 }
 
 const chatTtfb = new Trend('chat_ttfb_ms', true)
