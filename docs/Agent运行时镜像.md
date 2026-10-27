@@ -11,7 +11,7 @@ cd runtime/agent-gateway
 docker build -t aap/agent-gateway:1 .
 ```
 
-- 基础镜像 `node:22-alpine`（国内可用 daocloud 镜像站拉取）
+- 基础镜像 `node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914`（digest 固定，避免 tag 漂移；升级需重新校验并更新 digest）
 - 镜像无 npm 依赖，构建即用
 - 自带 `HEALTHCHECK`，部署服务也会按宿主端口再探一次 `/healthz`
 
