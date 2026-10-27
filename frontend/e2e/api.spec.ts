@@ -1623,6 +1623,37 @@ test('长期记忆注入与编辑', async ({ request }) => {
 })
 
 
+test('知识库向量索引状态与手动维护', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const suffix = Date.now()
+  let kbId: number | null = null
+  try {
+    const created = await (await request.post(`${P}/knowledge-base`, {
+      headers: auth(token!),
+      data: { name: `E2E vector-index-${suffix}`, visibility: 'PRIVATE', embeddingModel: 'nomic-embed-text' }
+    })).json()
+    expect(created.code, JSON.stringify(created)).toBe(0)
+    kbId = created.data.id
+
+    const status = await (await request.get(`${P}/knowledge-base/${kbId}/vector-indexes`, {
+      headers: auth(token!)
+    })).json()
+    expect(status.code, JSON.stringify(status)).toBe(0)
+    expect(status.data.globalIndexName).toBe('idx_embeddings_hnsw')
+    expect(Array.isArray(status.data.indexes)).toBe(true)
+
+    const reconciled = await (await request.post(`${P}/knowledge-base/${kbId}/vector-indexes/reconcile`, {
+      headers: auth(token!)
+    })).json()
+    expect(reconciled.code, JSON.stringify(reconciled)).toBe(0)
+    expect(reconciled.data).toHaveProperty('created')
+    expect(reconciled.data).toHaveProperty('desired')
+  } finally {
+    if (kbId) await request.delete(`${P}/knowledge-base/${kbId}?force=true`, { headers: auth(token!) })
+  }
+})
+
 test('知识库上传→分段ACL→检索权限', async ({ request }) => {
   let ollamaReady = false
   try {
