@@ -13,6 +13,7 @@ import com.platform.deploy.mapper.AgentDeploymentMapper;
 import com.platform.deploy.runtime.ContainerRuntime;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.service.AuditService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -41,6 +42,7 @@ class AgentDeploymentServiceLifecycleTest {
     private ApiKeyService apiKeyService;
     private AuditService auditService;
     private ContainerRuntime runtime;
+    private SimpleMeterRegistry meterRegistry;
     private AgentDeploymentService service;
     private AgentDeployment deployment;
     private final JwtPrincipal principal = new JwtPrincipal(7L, 1L, false, List.of("OWNER"), List.of());
@@ -56,8 +58,9 @@ class AgentDeploymentServiceLifecycleTest {
         apiKeyService = mock(ApiKeyService.class);
         auditService = mock(AuditService.class);
         runtime = mock(ContainerRuntime.class);
+        meterRegistry = new SimpleMeterRegistry();
         service = new AgentDeploymentService(deploymentMapper, runtimeKeyService, cryptoService, eventMapper,
-                agentMapper, versionMapper, apiKeyService, auditService, runtime);
+                agentMapper, versionMapper, apiKeyService, auditService, runtime, meterRegistry);
 
         deployment = new AgentDeployment();
         deployment.setId(5L);
@@ -113,6 +116,25 @@ class AgentDeploymentServiceLifecycleTest {
         verify(eventMapper).insert(argThat((AgentDeploymentEvent e) -> "REMOVE".equals(e.getAction())));
         verify(deploymentMapper).deleteById(5L);
         verify(auditService).record(7L, "agent.undeploy", "agent", "1", "SUCCESS", Map.of("containers", 2));
+    }
+
+    @Test
+    void deploymentMetricsFollowLifecycle() {
+        service.start(1L, principal);
+        assertGauge("agent.deployment.running", 1.0);
+        assertGauge("agent.deployment.replicas", 2.0);
+        assertGauge("agent.deployment.ready_replicas", 2.0);
+        assertGauge("agent.deployment.lb_running", 1.0);
+
+        service.stop(1L, principal);
+        assertGauge("agent.deployment.running", 0.0);
+        assertGauge("agent.deployment.ready_replicas", 0.0);
+        assertGauge("agent.deployment.lb_running", 0.0);
+    }
+
+    private void assertGauge(String name, double expected) {
+        var gauge = meterRegistry.get(name).tags("agent_id", "1", "tenant_id", "1").gauge();
+        assertEquals(expected, gauge.value());
     }
 
     @Test
