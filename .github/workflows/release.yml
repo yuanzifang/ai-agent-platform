@@ -58,11 +58,15 @@ jobs:
           mkdir -p release-assets
           cp backend/target/bom.json "release-assets/backend-sbom-${SAFE_TAG}.cdx.json"
           cp frontend-sbom.cdx.json "release-assets/frontend-sbom-${SAFE_TAG}.cdx.json"
+          python3 scripts/merge_cyclonedx_sbom.py \
+            "release-assets/backend-sbom-${SAFE_TAG}.cdx.json" \
+            "release-assets/frontend-sbom-${SAFE_TAG}.cdx.json" \
+            --output "release-assets/merged-sbom-${SAFE_TAG}.cdx.json"
           python3 - <<'PY'
           import glob, json, sys
           files = glob.glob('release-assets/*.cdx.json')
-          if len(files) != 2:
-              sys.exit(f'expected 2 SBOM files, got {files}')
+          if len(files) != 3:
+              sys.exit(f'expected 3 SBOM files, got {files}')
           for path in files:
               with open(path, encoding='utf-8') as fh:
                   bom = json.load(fh)
