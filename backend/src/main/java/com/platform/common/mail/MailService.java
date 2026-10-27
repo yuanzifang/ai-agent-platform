@@ -39,7 +39,7 @@ public class MailService {
         String subject = en && subjectEn != null && !subjectEn.isBlank() ? subjectEn : subjectZh;
         String text = en && textEn != null && !textEn.isBlank() ? textEn : textZh;
         if (!enabled()) {
-            log.info("[MAIL-DISABLED] to={} subject={} body={}", to, subject, text);
+            log.info("[MAIL-DISABLED] to={} subject={}", maskEmail(to), subject);
             return false;
         }
         try {
@@ -49,12 +49,19 @@ public class MailService {
             message.setSubject(subject);
             message.setText(text);
             mailSender.send(message);
-            log.info("邮件已发送 to={} subject={}", to, subject);
+            log.info("邮件已发送 to={} subject={}", maskEmail(to), subject);
             return true;
         } catch (Exception e) {
-            log.warn("邮件发送失败 to={} subject={}：{}", to, subject, e.getMessage());
-            log.info("[MAIL-FALLBACK] to={} subject={} body={}", to, subject, text);
+            log.warn("邮件发送失败 to={} subject={}：{}", maskEmail(to), subject, e.getMessage());
+            log.info("[MAIL-FALLBACK] to={} subject={}", maskEmail(to), subject);
             return false;
         }
+    }
+
+    private String maskEmail(String email) {
+        if (email == null || email.isBlank()) return "-";
+        int at = email.indexOf('@');
+        if (at <= 0) return "***";
+        return email.substring(0, Math.min(2, at)) + "***" + email.substring(at);
     }
 }

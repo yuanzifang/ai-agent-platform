@@ -75,10 +75,11 @@ public class PartitionMaintenanceService {
 
     private int ensure(String table, LocalDate target) {
         // table 来自白名单，不接受外部输入
+        // table 来自白名单，仍用参数绑定，避免任何拼接注入面
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "SELECT partition_name, partition_description FROM information_schema.partitions " +
-                        "WHERE table_schema = DATABASE() AND table_name = '" + table + "' " +
-                        "AND partition_name IS NOT NULL ORDER BY partition_ordinal_position");
+                        "WHERE table_schema = DATABASE() AND table_name = ? " +
+                        "AND partition_name IS NOT NULL ORDER BY partition_ordinal_position", table);
         LocalDate lastBoundary = null;
         boolean hasMax = false;
         for (Map<String, Object> row : rows) {

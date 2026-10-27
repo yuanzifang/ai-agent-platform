@@ -280,6 +280,8 @@ public class GatewayService {
                 }
                 String target = upstream + suffix
                         + (query == null || query.isBlank() ? "" : "?" + query);
+                // 存储的旧配置可能绕过创建时的校验；发送前按当前网络策略再校验一次
+                networkPolicy.validateHttpUrl(target, "上游地址");
                 try {
                     HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(target))
                             .timeout(Duration.ofMillis(route.getTimeoutMs() == null ? 15000 : route.getTimeoutMs()));
@@ -364,6 +366,7 @@ public class GatewayService {
             }
             String target = upstreamBase + suffix
                     + (query == null || query.isBlank() ? "" : "?" + query);
+            networkPolicy.validateHttpUrl(target, "上游地址");
             try {
                 HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(target))
                         .timeout(Duration.ofSeconds(300));

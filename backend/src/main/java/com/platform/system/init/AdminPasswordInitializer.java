@@ -32,7 +32,7 @@ public class AdminPasswordInitializer implements ApplicationRunner {
 
         String devPassword = env.getProperty("DEV_PASSWORD", "Dev@123456");
         if (userMapper.resetDevPassword(passwordEncoder.encode(devPassword)) > 0) {
-            log.info("开发账号 dev 初始密码已设置（dev / {}）", devPassword);
+            log.info("开发账号 dev 初始密码已按 DEV_PASSWORD 设置");
         }
     }
 }
