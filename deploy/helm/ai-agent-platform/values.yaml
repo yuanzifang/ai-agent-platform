@@ -118,6 +118,8 @@ config:
   alertWebhookEnabled: "false"
   alertWebhookUrl: ""
   alertWebhookSecret: ""
+  # 入站 /internal/alertmanager 共享 token；生产建议设置
+  alertWebhookInternalToken: ""
   alertWebhookEnv: "prod"
   apiDocsEnabled: "false"
   toolAllowedHosts: ""

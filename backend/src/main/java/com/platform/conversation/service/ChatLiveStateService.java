@@ -21,6 +21,7 @@ import java.util.Map;
 public class ChatLiveStateService {
 
     private static final String PREFIX = "chat:live:";
+    private static final String HEARTBEAT_PREFIX = "chat:live:hb:";
     private static final Duration TTL = Duration.ofMinutes(10);
 
     private final StringRedisTemplate redis;
@@ -34,6 +35,7 @@ public class ChatLiveStateService {
     public void start(Long conversationId, String traceId) {
         save(conversationId, new LiveState(traceId, "", "RUNNING", null, 0, 0, null,
                 System.currentTimeMillis()));
+        touch(conversationId, traceId);
     }
 
     public void running(Long conversationId, String traceId, String content,
@@ -47,6 +49,30 @@ public class ChatLiveStateService {
                        List<Map<String, Object>> citations) {
         save(conversationId, new LiveState(traceId, content == null ? "" : content, status, messageId,
                 inputTokens, outputTokens, citations, System.currentTimeMillis()));
+        clearHeartbeat(conversationId, traceId);
+    }
+
+    /** 独立心跳 key（按 trace 隔离），不读写内容快照，避免与增量写入互相覆盖。 */
+    public void touch(Long conversationId, String traceId) {
+        if (traceId == null) return;
+        try {
+            redis.opsForValue().set(heartbeatKey(conversationId, traceId),
+                    String.valueOf(System.currentTimeMillis()), TTL);
+        } catch (Exception e) {
+            log.debug("流式心跳写入失败 conversation={}：{}", conversationId, e.getMessage());
+        }
+    }
+
+    /** 当前 trace 的心跳是否在 maxAgeMs 内；用于 resume 判断生产实例是否还活着。 */
+    public boolean heartbeatFresh(Long conversationId, String traceId, long maxAgeMs) {
+        if (traceId == null) return false;
+        try {
+            String raw = redis.opsForValue().get(heartbeatKey(conversationId, traceId));
+            if (raw == null || raw.isBlank()) return false;
+            return System.currentTimeMillis() - Long.parseLong(raw) <= Math.max(maxAgeMs, 1);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public LiveState get(Long conversationId) {
@@ -65,6 +91,19 @@ public class ChatLiveStateService {
             redis.delete(PREFIX + conversationId);
         } catch (Exception e) {
             log.debug("流式快照清理失败：{}", e.getMessage());
+        }
+    }
+
+    private String heartbeatKey(Long conversationId, String traceId) {
+        return HEARTBEAT_PREFIX + conversationId + ":" + traceId;
+    }
+
+    private void clearHeartbeat(Long conversationId, String traceId) {
+        if (traceId == null) return;
+        try {
+            redis.delete(heartbeatKey(conversationId, traceId));
+        } catch (Exception e) {
+            log.debug("流式心跳清理失败 conversation={}：{}", conversationId, e.getMessage());
         }
     }
 

@@ -8,6 +8,9 @@
 #     --stop-datetime '2026-10-27 12:00:00' --apply --yes --recreate \
 #     --target-db ai_agent_platform_pitr_test
 # 重建默认生产库需要额外 --allow-production
+#
+# 恢复完成后默认执行 scripts/pitr-verify.sh 业务级只读校验；
+# 可用 --skip-verify 跳过（不推荐）。
 set -Eeuo pipefail
 umask 077
 
@@ -27,6 +30,7 @@ APPLY=0
 ASSUME_YES=0
 RECREATE=0
 ALLOW_PRODUCTION=0
+SKIP_VERIFY=0
 TARGET_DB=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -38,6 +42,7 @@ while [ $# -gt 0 ]; do
     --yes) ASSUME_YES=1 ;;
     --recreate) RECREATE=1 ;;
     --allow-production) ALLOW_PRODUCTION=1 ;;
+    --skip-verify) SKIP_VERIFY=1 ;;
     -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知参数：$1" >&2; exit 2 ;;
   esac
@@ -179,6 +184,14 @@ if [ "$AUDIT_EXISTS" = "1" ]; then
 fi
 FLYWAY_VERSION="$("${MYSQL[@]}" -N -B -e "SELECT MAX(version) FROM \`${TARGET_DB}\`.flyway_schema_history" 2>/dev/null || true)"
 [ -n "$FLYWAY_VERSION" ] && log "校验：Flyway 版本 ${FLYWAY_VERSION}"
+# 业务级校验：核心表、Flyway、审计、引用完整性；PITR_API_BASE/PITR_API_TOKEN 可选。
+if [ "$SKIP_VERIFY" != "1" ]; then
+  log "执行 PITR 业务级校验（只读）"
+  bash "$ROOT/scripts/pitr-verify.sh" --target-db "$TARGET_DB" --backup "$BACKUP" \
+    || die "PITR 业务级校验失败：${TARGET_DB}"
+else
+  log "已跳过 PITR 业务级校验（--skip-verify）"
+fi
 ELAPSED=$(( $(date +%s) - START_EPOCH ))
 log "PITR 完成：${TARGET_DB}；本地恢复耗时约 ${ELAPSED}s（不含应用切换/业务验证）"
 log "检查：SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${TARGET_DB}';"

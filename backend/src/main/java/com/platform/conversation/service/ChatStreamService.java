@@ -30,6 +30,7 @@ import com.platform.conversation.mapper.ChatAttachmentMapper;
 import com.platform.conversation.mapper.ConversationMapper;
 import com.platform.conversation.mapper.MessageMapper;
 import com.platform.security.JwtPrincipal;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -40,6 +41,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.Disposable;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import reactor.core.publisher.Flux;
@@ -91,6 +96,21 @@ public class ChatStreamService {
     private int streamModerateChars;
     @org.springframework.beans.factory.annotation.Qualifier("llmTaskExecutor")
     private final org.springframework.core.task.TaskExecutor resumeExecutor;
+
+    /** 流级心跳：只刷新 Redis 快照的 updatedAt，不改变内容；用于实例宕机后的 resume 判定。 */
+    private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "chat-stream-heartbeat");
+        t.setDaemon(true);
+        return t;
+    });
+
+    @Value("${chat.stream.stale-ms:30000}")
+    private long streamStaleMs;
+
+    @PreDestroy
+    void shutdownHeartbeatScheduler() {
+        heartbeatScheduler.shutdownNow();
+    }
 
     private static final int MEMORY_WINDOW = 10;
 
@@ -347,6 +367,14 @@ public class ChatStreamService {
         String[] selfCorrectionOriginal = {null};
         String[] selfCorrectionIssues = {null};
         liveState.start(conv.getId(), traceId);
+        ScheduledFuture<?> heartbeat = heartbeatScheduler.scheduleAtFixedRate(() -> {
+            try {
+                liveState.touch(conv.getId(), traceId);
+                streamRegistry.refresh(conv.getId());
+            } catch (Exception e) {
+                log.debug("流式心跳失败 conversation={}：{}", conv.getId(), e.getMessage());
+            }
+        }, 5, 5, TimeUnit.SECONDS);
 
         // 轻量熔断：主模型冷却期内直接走备用（避免每请求都撞一次超时）
         String activeModel = modelName;
@@ -449,6 +477,7 @@ public class ChatStreamService {
                     usageExtras[0], usageExtras[1], usageExtras[2], source);
             liveState.finish(conv.getId(), traceId, ai.getContent(), ai.getStatus(), ai.getId(),
                     tokens[0], tokens[1], citations);
+            heartbeat.cancel(false);
             if (!outputBlocked[0]) {
                 moderationService.moderate("OUT", acc.toString(), conv.getId(), ai.getId());
             }
@@ -506,6 +535,7 @@ public class ChatStreamService {
                 err -> {
                     if (isClientAbort(err)) {
                         // 客户端主动断开（关页面/网络中断）：不是生成失败，按 STOPPED 落库，避免污染错误率
+                        heartbeat.cancel(false);
                         collector.cancel();
                         log.info("客户端断开，按 STOPPED 处理 conversation={}：{}", conv.getId(), err.getMessage());
                         if (streamRegistry.unregister(conv.getId())) {
@@ -539,6 +569,7 @@ public class ChatStreamService {
                         }
                         return;
                     }
+                    heartbeat.cancel(false);
                     log.error("对话流式失败 conversation={}：{}", conv.getId(), err.getMessage());
                     streamRegistry.unregister(conv.getId());
                     TenantContext.run(tenantId, () -> {
@@ -588,6 +619,7 @@ public class ChatStreamService {
 
         // 停止/断开：取消上游与进行中的工具，落 STOPPED（幂等保护）
         Runnable cancel = () -> {
+            heartbeat.cancel(false);
             collector.cancel();
             if (streamRegistry.unregister(conv.getId())) {
                 if (tokens[0] == 0 && tokens[1] == 0) {
@@ -849,6 +881,23 @@ public class ChatStreamService {
                         }
                         Thread.sleep(250);
                         continue;
+                    }
+                    // 生产者实例宕机后心跳停止；超过阈值仍为 RUNNING 说明无人继续写入。
+                    if ("RUNNING".equals(state.status())
+                            && !liveState.heartbeatFresh(conversationId, state.traceId(), streamStaleMs)
+                            && System.currentTimeMillis() - state.updatedAt() > streamStaleMs) {
+                        streamRegistry.clearStale(conversationId);
+                        liveState.finish(conversationId, state.traceId(), state.content(), "UNKNOWN",
+                                state.messageId(), state.inputTokens(), state.outputTokens(), state.citations());
+                        Map<String, Object> done = new LinkedHashMap<>();
+                        done.put("traceId", state.traceId());
+                        done.put("status", "UNKNOWN");
+                        done.put("messageId", state.messageId());
+                        done.put("usage", Map.of("inputTokens", state.inputTokens(),
+                                "outputTokens", state.outputTokens()));
+                        sendOrThrow(emitter, "done", done);
+                        emitter.complete();
+                        return;
                     }
                     if (!metaSent) {
                         Map<String, Object> meta = new LinkedHashMap<>();

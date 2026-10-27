@@ -80,15 +80,40 @@ public class StreamRegistryService {
         }
     }
 
-    /** 取消注册；返回此前本实例是否持有该流。 */
+    /** 刷新本实例仍持有的 active 流 TTL；实例宕机后不再续期，但 resume 以 chat:live.updatedAt 判定。 */
+    public void refresh(Long conversationId) {
+        try {
+            String key = KEY_PREFIX + conversationId;
+            String owner = redis.opsForValue().get(key);
+            if (instanceId.equals(owner)) {
+                redis.expire(key, Duration.ofMinutes(30));
+            }
+        } catch (Exception e) {
+            log.debug("流式会话续期 Redis 失败：{}", e.getMessage());
+        }
+    }
+
+    /** 取消注册；返回此前本实例是否持有该流。只删除本实例持有的 Redis key，避免旧实例清理掉新实例的流。 */
     public boolean unregister(Long conversationId) {
         boolean existed = local.remove(conversationId) != null;
         try {
-            redis.delete(KEY_PREFIX + conversationId);
+            String key = KEY_PREFIX + conversationId;
+            if (instanceId.equals(redis.opsForValue().get(key))) {
+                redis.delete(key);
+            }
         } catch (Exception e) {
             log.debug("流式会话移除 Redis 失败：{}", e.getMessage());
         }
         return existed;
+    }
+
+    /** 清理确认已无生产者的 stale active key；仅用于 resume 已判定实例宕机的场景。 */
+    public void clearStale(Long conversationId) {
+        try {
+            redis.delete(KEY_PREFIX + conversationId);
+        } catch (Exception e) {
+            log.debug("流式 stale 注册清理失败：{}", e.getMessage());
+        }
     }
 
     /** 停止：本实例直接 dispose；否则广播停止信号由持有实例处理。 */
