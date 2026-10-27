@@ -78,7 +78,7 @@ client → container:8080 /v1/chat/completions
 | POST | `/api/v1/agent/{id}/deployment/start` | 启动 |
 | POST | `/api/v1/agent/{id}/deployment/stop` | 停止 |
 | DELETE | `/api/v1/agent/{id}/deployment` | 停止并删除容器 + 清理 Key |
-| GET | `/api/v1/agent/{id}/deployment/logs?tail=200` | 容器日志（网关 JSON 访问日志 / nginx 日志） |
+| GET | `/api/v1/agent/{id}/deployment/logs?tail=200&all=true` | 容器日志；`all=true` 聚合所有副本与 LB，默认只取第一个运行副本 |
 | GET | `/api/v1/agent/{id}/deployment/history?limit=50` | 部署历史（部署/启动/停止/删除，含版本、端口、结果、错误） |
 | POST | `/api/v1/agent/{id}/versions/{version}/rollback` | 完整回滚 Agent 配置（随后可重新部署） |
 | GET | `/api/v1/agent/{id}/deployment/token` | 读取容器访问令牌（agent:edit） |
@@ -156,7 +156,7 @@ client → container:8080 /v1/chat/completions
 - 每个 Agent 只保留一个部署记录（1–5 个运行时副本 + 可选 LB 容器），重新部署 = 删旧建新（短暂不可用）。重新部署优先复用原端口，最多等待 3 秒。
 - 「回滚并部署」= 完整恢复该版本的 Agent 配置（含知识库/工具/技能/子 Agent）+ 重新部署容器，详见 `docs/Agent版本与回滚.md`。
 - 发布自动重新部署是「已部署过才触发」；从未部署过的 Agent 发布后不会自动拉起容器，避免意外占用端口。
-- 暂未实现：K8s 部署、滚动更新、容器日志采集到平台可观测。多副本已有内置 nginx LB（依赖 Redis 共享状态），资源限制已落地。
+- 暂未实现：K8s 部署、滚动更新、集中式日志存储（Loki 等）与动态指标采集；平台已支持按部署聚合副本/LB 日志，多副本已有内置 nginx LB（依赖 Redis 共享状态），资源限制已落地。
 
 ## 验证
 
@@ -171,6 +171,7 @@ client → container:8080 /v1/chat/completions
   - 多副本：部署 2 副本（19001/19000）均 healthy；Key 配额 4 跨副本 4 次 200、第 5 次 429；`/stats` 返回 `store:"redis"` 且计数共享；UI 显示副本输入 2、副本表 2 行、Key 用量 4
   - **内置 LB（2026-10-27 真实 Docker）**：2 副本自动创建 nginx 统一入口 19003；`/healthz`、`/v1/models` 经 LB 均 200；两个副本直连 19000/19002 均 200；停止/启动后 LB 状态同步为 STOPPED/RUNNING；删除部署后 LB 与副本容器全部清理
   - **资源边界（2026-10-27 真实 Docker）**：2 副本 + LB 的 `docker inspect` 均为 `NanoCpus=1000000000`（1 CPU）、`Memory=536870912`（512MiB）、`PidsLimit=256`、`SecurityOpt=[no-new-privileges]`
+  - **聚合日志（2026-10-27 真实 Docker）**：`logs?all=true` 返回两个副本和 LB 三段日志；网关启动日志、`/healthz`、`/v1/models` 访问日志均可见
 - **nginx 回退方案（colima + nginx:alpine）**：
   - `docker ps` → `aap-agent-1 Up (healthy) 0.0.0.0:19000->80/tcp`
   - `curl localhost:19000/healthz` → `ok`；`/v1/models` → `agent-1`
@@ -185,4 +186,4 @@ client → container:8080 /v1/chat/completions
 
 1. K8s 实现：`ContainerRuntime` 增加 `KubernetesRuntime`，按租户配额创建 Deployment/Service/Ingress
 2. 运行时多副本：token 级配额（限流/日配额/统计已 Redis 共享）
-3. 容器日志/指标接入平台可观测
+3. 容器日志集中存储（Loki）与动态指标采集
