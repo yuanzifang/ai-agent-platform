@@ -109,4 +109,18 @@ class ToolInputValidatorTest {
         assertTrue(result.violations().stream().anyMatch(v -> v.rule().equals("oneOf")));
         assertTrue(result.violations().stream().anyMatch(v -> v.rule().equals("format")));
     }
+
+    @Test
+    void resolvesLocalRef() {
+        String schema = """
+                {
+                  "type": "object",
+                  "properties": {"amount": {"$ref": "#/$defs/amount"}},
+                  "required": ["amount"],
+                  "$defs": {"amount": {"type": "integer", "minimum": 1}}
+                }
+                """;
+        assertTrue(validator.validate(schema, "{\"amount\": 2}").valid());
+        assertFalse(validator.validate(schema, "{\"amount\": \"x\"}").valid());
+    }
 }

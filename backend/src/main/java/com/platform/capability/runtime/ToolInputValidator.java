@@ -73,13 +73,22 @@ public class ToolInputValidator {
             return new Result(false, List.of(new Violation("$", "type", "object", typeOf(input))));
         }
         List<Violation> violations = new ArrayList<>();
-        validateNode(schema, input, "$", violations);
+        validateNode(schema, input, "$", violations, schema);
         return new Result(violations.isEmpty(), List.copyOf(violations));
     }
 
-    private void validateNode(JsonNode schema, JsonNode value, String path, List<Violation> out) {
+    private void validateNode(JsonNode schema, JsonNode value, String path, List<Violation> out, JsonNode root) {
         if (schema == null || !schema.isObject() || value == null) return;
-
+        JsonNode ref = schema.get("$ref");
+        if (ref != null && ref.isTextual()) {
+            JsonNode resolved = resolveRef(root, ref.asText());
+            if (resolved != null) {
+                validateNode(resolved, value, path, out, root);
+            } else {
+                out.add(new Violation(path, "$ref", ref.asText(), "无法解析"));
+            }
+            return;
+        }
         JsonNode type = schema.get("type");
         if (type != null && !matchesType(value, type)) {
             out.add(new Violation(path, "type", String.valueOf(type), typeOf(value)));
@@ -103,28 +112,28 @@ public class ToolInputValidator {
             out.add(new Violation(path, "const", constValue.toString(), typeOf(value)));
         }
 
-        validateCombinators(schema, value, path, out);
+        validateCombinators(schema, value, path, out, root);
 
-        if (value.isObject()) validateObject(schema, value, path, out);
-        else if (value.isArray()) validateArray(schema, value, path, out);
+        if (value.isObject()) validateObject(schema, value, path, out, root);
+        else if (value.isArray()) validateArray(schema, value, path, out, root);
         else if (value.isTextual()) validateString(schema, value, path, out);
         else if (value.isNumber()) validateNumber(schema, value, path, out);
     }
 
-    private void validateCombinators(JsonNode schema, JsonNode value, String path, List<Violation> out) {
+    private void validateCombinators(JsonNode schema, JsonNode value, String path, List<Violation> out, JsonNode root) {
         JsonNode allOf = schema.get("allOf");
         if (allOf != null && allOf.isArray()) {
-            for (JsonNode sub : allOf) validateNode(sub, value, path, out);
+            for (JsonNode sub : allOf) validateNode(sub, value, path, out, root);
         }
         JsonNode anyOf = schema.get("anyOf");
-        if (anyOf != null && anyOf.isArray() && !matchesAny(anyOf, value, path)) {
+        if (anyOf != null && anyOf.isArray() && !matchesAny(anyOf, value, path, root)) {
             out.add(new Violation(path, "anyOf", "至少匹配一个子 schema", typeOf(value)));
         }
         JsonNode oneOf = schema.get("oneOf");
         if (oneOf != null && oneOf.isArray()) {
             int matched = 0;
             for (JsonNode sub : oneOf) {
-                if (validAgainst(sub, value, path)) matched++;
+                if (validAgainst(sub, value, path, root)) matched++;
             }
             if (matched != 1) {
                 out.add(new Violation(path, "oneOf", "必须且只能匹配一个子 schema",
@@ -133,20 +142,20 @@ public class ToolInputValidator {
         }
     }
 
-    private boolean matchesAny(JsonNode schemas, JsonNode value, String path) {
+    private boolean matchesAny(JsonNode schemas, JsonNode value, String path, JsonNode root) {
         for (JsonNode sub : schemas) {
-            if (validAgainst(sub, value, path)) return true;
+            if (validAgainst(sub, value, path, root)) return true;
         }
         return false;
     }
 
-    private boolean validAgainst(JsonNode schema, JsonNode value, String path) {
+    private boolean validAgainst(JsonNode schema, JsonNode value, String path, JsonNode root) {
         List<Violation> tmp = new ArrayList<>();
-        validateNode(schema, value, path, tmp);
+        validateNode(schema, value, path, tmp, root);
         return tmp.isEmpty();
     }
 
-    private void validateObject(JsonNode schema, JsonNode value, String path, List<Violation> out) {
+    private void validateObject(JsonNode schema, JsonNode value, String path, List<Violation> out, JsonNode root) {
         JsonNode required = schema.get("required");
         if (required != null && required.isArray()) {
             for (JsonNode name : required) {
@@ -161,7 +170,7 @@ public class ToolInputValidator {
             while (it.hasNext()) {
                 Map.Entry<String, JsonNode> entry = it.next();
                 JsonNode child = value.get(entry.getKey());
-                if (child != null) validateNode(entry.getValue(), child, path + "." + entry.getKey(), out);
+                if (child != null) validateNode(entry.getValue(), child, path + "." + entry.getKey(), out, root);
             }
         }
         JsonNode additional = schema.get("additionalProperties");
@@ -181,7 +190,7 @@ public class ToolInputValidator {
         if (max >= 0 && size > max) out.add(new Violation(path, "maxProperties", "<=" + max, String.valueOf(size)));
     }
 
-    private void validateArray(JsonNode schema, JsonNode value, String path, List<Violation> out) {
+    private void validateArray(JsonNode schema, JsonNode value, String path, List<Violation> out, JsonNode root) {
         int min = schema.path("minItems").asInt(-1);
         int max = schema.path("maxItems").asInt(-1);
         if (min >= 0 && value.size() < min) out.add(new Violation(path, "minItems", ">=" + min, String.valueOf(value.size())));
@@ -189,7 +198,7 @@ public class ToolInputValidator {
         JsonNode items = schema.get("items");
         if (items != null) {
             for (int i = 0; i < value.size(); i++) {
-                validateNode(items, value.get(i), path + "[" + i + "]", out);
+                validateNode(items, value.get(i), path + "[" + i + "]", out, root);
             }
         }
     }
@@ -244,6 +253,17 @@ public class ToolInputValidator {
         if (schema.has("exclusiveMaximum") && value.asDouble() >= schema.get("exclusiveMaximum").asDouble()) {
             out.add(new Violation(path, "exclusiveMaximum", "<" + schema.get("exclusiveMaximum").asText(), value.asText()));
         }
+    }
+
+    private JsonNode resolveRef(JsonNode root, String ref) {
+        if (root == null || ref == null || !ref.startsWith("#/")) return null;
+        JsonNode node = root;
+        for (String raw : ref.substring(2).split("/")) {
+            String segment = raw.replace("~1", "/").replace("~0", "~");
+            if (node == null) return null;
+            node = node.get(segment);
+        }
+        return node;
     }
 
     private static boolean matchesType(JsonNode value, JsonNode type) {
