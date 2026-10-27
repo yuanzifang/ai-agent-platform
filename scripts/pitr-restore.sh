@@ -104,13 +104,13 @@ print(f'backup checksum OK ({len((root / "SHA256SUMS").read_text().splitlines())
 PYV
 
 FILES=()
-for f in "$BINLOG_DIR"/mysql-bin.*; do
+for f in "$BINLOG_DIR"/mysql-bin.* "$BINLOG_DIR"/binlog.*; do
   [ -f "$f" ] || continue
   name="$(basename "$f")"
   case "$name" in
     "$START_FILE"|"${START_FILE%.*}".*) ;;
   esac
-  # 只回放从起点文件开始的文件（按字典序），跳过更早文件
+  # 只回放从起点文件开始的文件（兼容 mysql-bin.* 与 binlog.* 命名），跳过更早文件
   if [[ ! "$name" < "$START_FILE" ]]; then FILES+=("$f"); fi
 done
 [ "${#FILES[@]}" -gt 0 ] || die "没有找到起点文件及之后的 binlog：$START_FILE"
