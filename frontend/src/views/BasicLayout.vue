@@ -267,30 +267,17 @@ async function runSearch() {
   if (kw.length < 2) return
   searchLoading.value = true
   try {
-    const [agents, kbs, cases, tools] = await Promise.all([
-      http.get('/agent', { params: { keyword: kw, page: 1, pageSize: 5 } }).catch(() => ({ list: [] })),
-      http.get('/knowledge-base', { params: { keyword: kw, page: 1, pageSize: 5 } }).catch(() => ({ list: [] })),
-      http.get('/cases', { params: { keyword: kw, page: 1, pageSize: 5 } }).catch(() => ({ list: [] })),
-      http.get('/tools', { params: { keyword: kw } }).catch(() => ({ list: [] }))
-    ]) as any[]
-    const rows: any[] = []
-    for (const a of (agents?.list || []).slice(0, 5)) {
-      rows.push({ group: t('layout.searchAgent'), tagType: 'success', name: a.name, desc: a.description || '',
-        path: `/agent/edit/${a.id}` })
+    const data = await http.get('/search', { params: { q: kw } }) as any
+    const meta: Record<string, { group: string; tagType: string }> = {
+      AGENT: { group: t('layout.searchAgent'), tagType: 'success' },
+      KB: { group: t('layout.searchKb'), tagType: 'primary' },
+      CASE: { group: t('layout.searchCase'), tagType: 'warning' },
+      TOOL: { group: t('layout.searchTool'), tagType: 'info' }
     }
-    for (const k of (kbs?.list || []).slice(0, 5)) {
-      rows.push({ group: t('layout.searchKb'), tagType: 'primary', name: k.name, desc: k.description || '',
-        path: `/knowledge/${k.knowledgeBaseId || k.id}` })
-    }
-    for (const c of (cases?.list || []).slice(0, 5)) {
-      rows.push({ group: t('layout.searchCase'), tagType: 'warning', name: c.question,
-        desc: String(c.expectedAnswer || '').slice(0, 60), path: '/cases' })
-    }
-    for (const tool of (tools?.list || []).slice(0, 5)) {
-      rows.push({ group: t('layout.searchTool'), tagType: 'info', name: tool.name, desc: tool.description || '',
-        path: '/tools' })
-    }
-    searchResults.value = rows.slice(0, 20)
+    searchResults.value = (data?.list || []).map((r: any) => {
+      const m = meta[r.type] || { group: r.type, tagType: 'info' }
+      return { group: m.group, tagType: m.tagType, name: r.name, desc: r.desc || '', path: r.path }
+    })
     searchVisible.value = true
   } finally {
     searchLoading.value = false
