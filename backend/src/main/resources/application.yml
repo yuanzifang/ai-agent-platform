@@ -181,6 +181,9 @@ knowledge:
     cache-size: ${KNOWLEDGE_OCR_CACHE_SIZE:256}
     # 低对比度扫描件可选 Otsu 二值化
     binarize: ${KNOWLEDGE_OCR_BINARIZE:false}
+    # 持久化 OCR 缓存保留天数和每日清理时间
+    cache-retention-days: ${KNOWLEDGE_OCR_CACHE_RETENTION_DAYS:30}
+    cache-cleanup-cron: ${KNOWLEDGE_OCR_CACHE_CLEANUP_CRON:0 45 4 * * *}
   vision:
     # 可选图片多模态理解（本地 Ollama 视觉模型）；默认关闭
     enabled: ${KNOWLEDGE_VISION_ENABLED:false}
