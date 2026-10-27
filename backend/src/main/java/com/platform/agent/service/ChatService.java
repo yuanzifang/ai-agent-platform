@@ -7,6 +7,8 @@ import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.capability.runtime.ToolCallCollector;
 import com.platform.capability.runtime.ToolRuntimeService;
 import com.platform.common.context.TenantContext;
+import com.platform.conversation.service.ModerationService;
+import com.platform.conversation.service.PromptInjectionModerationProvider;
 import com.platform.knowledge.service.HybridRetrievalService;
 import com.platform.knowledge.service.KnowledgeGraphService;
 import com.platform.knowledge.service.KnowledgePermissionService;
@@ -49,6 +51,7 @@ public class ChatService {
     private final ContextWindowService contextWindow;
     private final com.platform.knowledge.mapper.KnowledgeDocumentMapper documentMapper;
     private final com.platform.knowledge.mapper.KnowledgeBaseMapper knowledgeBaseMapper;
+    private final PromptInjectionModerationProvider promptInjection;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     @SuppressWarnings("unchecked")
@@ -266,8 +269,20 @@ public class ChatService {
             }
             for (int hitIndex = 0; hitIndex < hits.size(); hitIndex++) {
                 Map<String, Object> hit = hits.get(hitIndex);
+                Map<String, Object> meta = hitMetas.get(hitIndex);
+                Long docId = toLong(meta.get("document_id"));
+                Long chunkId = toLong(meta.get("chunk_id"));
                 Object contextText = hit.get("parentContent") != null
                         ? hit.get("parentContent") : hit.get("content");
+                // 间接提示注入防护：知识库内容也可能被投毒，高置信注入分段不进入系统提示/引用。
+                List<ModerationService.Hit> injectionHits =
+                        promptInjection.check("IN", String.valueOf(contextText));
+                if (injectionHits.stream().anyMatch(h -> "BLOCK".equals(h.action()))) {
+                    log.warn("知识库检索分段疑似提示注入，已隔离 kb={} doc={} chunk={} rules={}",
+                            kbId, docId, chunkId,
+                            injectionHits.stream().map(ModerationService.Hit::ruleId).toList());
+                    continue;
+                }
                 context.append("\n---\n").append(contextText);
                 Map<String, Object> citation = new LinkedHashMap<>();
                 citation.put("content", hit.get("content"));
@@ -276,14 +291,12 @@ public class ChatService {
                 citation.put("mergedHitCount", hit.get("mergedHitCount"));
                 citation.put("metadata", hit.get("metadata"));
                 // 引用下钻：文档名 + 知识库 + 分段位置
-                Map<String, Object> meta = hitMetas.get(hitIndex);
-                Long docId = toLong(meta.get("document_id"));
                 var doc = docId == null ? null : docs.get(docId);
                 citation.put("knowledgeBaseId", kbId);
                 citation.put("knowledgeBaseName", kb == null ? null : kb.getName());
                 citation.put("documentId", docId);
                 citation.put("documentName", doc == null ? null : doc.getFileName());
-                citation.put("chunkId", toLong(meta.get("chunk_id")));
+                citation.put("chunkId", chunkId);
                 citation.put("chunkIndex", toLong(meta.get("chunk_index")));
                 citations.add(citation);
             }
