@@ -94,6 +94,22 @@ class HybridRetrievalServiceTest {
     }
 
     @Test
+    void relevanceScoreBreaksTieWithoutChangingScores() {
+        when(embedding.embedOne(eq("q"), anyString())).thenReturn(new float[]{0.1f});
+        when(vectorRepository.search(anyLong(), any(float[].class), anyLong(), anyInt(),
+                anyDouble(), anyInt())).thenReturn(List.of(
+                Map.of("content", "low", "score", 0.9,
+                        "metadata", "{\"chunk_id\":1,\"relevance_score\":0.2}"),
+                Map.of("content", "high", "score", 0.9,
+                        "metadata", "{\"chunk_id\":2,\"relevance_score\":0.95}")));
+
+        var result = service.search(1L, "q", 1L, 5, 0.5, Map.of("mode", "vector"));
+
+        assertEquals("high", result.hits().get(0).get("content"));
+        assertEquals(0.9, (double) result.hits().get(0).get("score"), 0.0001);
+    }
+
+    @Test
     void filtersVectorHitsByChunkMetadata() {
         when(embedding.embedOne(eq("q"), anyString())).thenReturn(new float[]{0.1f});
         when(vectorRepository.search(anyLong(), any(float[].class), anyLong(), anyInt(),

@@ -61,6 +61,7 @@ public class HybridRetrievalService {
         private String metadata;
         private Double vectorScore;
         private Double keywordScore;
+        private double relevanceScore;
         private double score;
     }
 
@@ -179,6 +180,7 @@ public class HybridRetrievalService {
             c.content = content;
             c.metadata = str(hit.get("metadata"));
             c.vectorScore = toDouble(hit.get("score"), 0);
+            c.relevanceScore = relevance(hit.get("metadata"));
             vectorRank.put(key, i + 1);
         }
         for (int i = 0; i < keywordHits.size(); i++) {
@@ -189,6 +191,7 @@ public class HybridRetrievalService {
             if (c.content == null || c.content.isBlank()) c.content = str(hit.get("content"));
             if (c.metadata == null) c.metadata = keywordMetadata(kbId, hit);
             c.keywordScore = toDouble(hit.get("score"), 0);
+            c.relevanceScore = relevance(c.metadata);
             keywordRank.put(key, i + 1);
         }
 
@@ -216,7 +219,9 @@ public class HybridRetrievalService {
 
         List<Map<String, Object>> result = new ArrayList<>(merged.values().stream()
                 .filter(c -> c.content != null && !c.content.isBlank())
-                .sorted(Comparator.comparingDouble((Candidate c) -> c.score).reversed())
+                .sorted(Comparator.comparingDouble((Candidate c) -> c.score).reversed()
+                        .thenComparing(Comparator.comparingDouble(
+                                (Candidate c) -> c.relevanceScore).reversed()))
                 .limit(limit)
                 .map(c -> {
                     Map<String, Object> m = new LinkedHashMap<>();
@@ -492,6 +497,16 @@ public class HybridRetrievalService {
     }
 
     /** 语义/规则过滤：文档类型、章节、监管类别、块层级、最低静态相关性。 */
+    private double relevance(Object metadata) {
+        if (!(metadata instanceof String text) || text.isBlank()) return 0;
+        try {
+            Map<?, ?> meta = objectMapper.readValue(text, Map.class);
+            return toDouble(meta.get("relevance_score"), 0);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     private boolean matchesFilters(Object metadata, Map<String, Object> config) {
         if (config == null || config.isEmpty()) return true;
         Map<?, ?> meta;
