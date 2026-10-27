@@ -218,6 +218,17 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.documents(id, viewer(principal)));
     }
 
+    /** 人工确认 PDF 解析告警已核对。 */
+    @PostMapping("/{id}/documents/{docId}/manual-review")
+    public ApiResponse<Map<String, Object>> resolveManualReview(
+            @PathVariable Long id,
+            @PathVariable Long docId,
+            @RequestBody(required = false) Map<String, String> body,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        String note = body == null ? null : body.get("note");
+        return ApiResponse.ok(knowledgeService.resolveManualReview(id, docId, note, viewer(principal)));
+    }
+
     /** 存量文档回填 source_sha256（每次最多 100 份；需编辑权限）。 */
     @PostMapping("/{id}/documents/backfill-hashes")
     public ApiResponse<Map<String, Object>> backfillHashes(

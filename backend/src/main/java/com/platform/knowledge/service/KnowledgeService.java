@@ -1242,6 +1242,26 @@ public class KnowledgeService {
         return result;
     }
 
+    /** 人工确认 PDF 解析告警已核对。 */
+    public Map<String, Object> resolveManualReview(Long kbId, Long documentId, String note,
+                                                   KnowledgePermissionService.Viewer viewer) {
+        permissionService.requireEdit(kbId, viewer);
+        KnowledgeDocument doc = docMapper.selectById(documentId);
+        if (doc == null || !Objects.equals(doc.getKnowledgeBaseId(), kbId)) {
+            throw new BusinessException(404, "文档不存在");
+        }
+        String reviewNote = note == null ? null : note.substring(0, Math.min(500, note.length()));
+        docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
+                .eq(KnowledgeDocument::getId, documentId)
+                .set(KnowledgeDocument::getManualReviewStatus, "RESOLVED")
+                .set(KnowledgeDocument::getManualReviewedAt, LocalDateTime.now())
+                .set(KnowledgeDocument::getManualReviewedBy, viewer.userId())
+                .set(KnowledgeDocument::getManualReviewNote, reviewNote));
+        auditService.record(viewer.userId(), "knowledge.document.manual_review", "knowledge_document",
+                String.valueOf(documentId), "SUCCESS", Map.of("kbId", kbId, "note", reviewNote == null ? "" : reviewNote));
+        return Map.of("documentId", documentId, "manualReviewStatus", "RESOLVED");
+    }
+
     /** 编辑文档内容有效期；同步更新向量表有效期，避免要求重新解析。 */
     public Map<String, Object> updateDocumentValidity(Long kbId, Long documentId,
                                                        Instant effectiveFrom, Instant effectiveTo,
@@ -1691,8 +1711,8 @@ public class KnowledgeService {
                     && (doc.getParseFingerprint() == null
                     || doc.getParserVersion() == null
                     || !DocumentParser.PARSER_VERSION.equals(doc.getParserVersion())));
-            doc.setManualReviewRequired(doc.getParseWarning() != null
-                    && doc.getParseWarning().contains("人工复核"));
+            doc.setManualReviewRequired("PENDING".equals(doc.getManualReviewStatus())
+                    || (doc.getParseWarning() != null && doc.getParseWarning().contains("人工复核")));
         }
         return docs;
     }
@@ -2350,16 +2370,22 @@ public class KnowledgeService {
         return text.substring(0, cut).trim() + "…";
     }
 
-    private void storeParseWarning(KnowledgeDocument doc, List<String> warnings) {        String text = warnings == null ? "" : warnings.stream()
+    private void storeParseWarning(KnowledgeDocument doc, List<String> warnings) {
+        String text = warnings == null ? "" : warnings.stream()
                 .filter(message -> message != null && !message.isBlank())
                 .distinct()
                 .collect(java.util.stream.Collectors.joining("；"));
         if (text.length() > 1000) text = text.substring(0, 1000);
-        KnowledgeDocument patch = new KnowledgeDocument();
-        patch.setId(doc.getId());
-        patch.setParseWarning(text);
         try {
-            docMapper.updateById(patch);
+            LambdaUpdateWrapper<KnowledgeDocument> update = new LambdaUpdateWrapper<KnowledgeDocument>()
+                    .eq(KnowledgeDocument::getId, doc.getId())
+                    .set(KnowledgeDocument::getParseWarning, text);
+            if (text.contains("人工复核")) {
+                update.set(KnowledgeDocument::getManualReviewStatus, "PENDING");
+            } else {
+                update.set(KnowledgeDocument::getManualReviewStatus, null);
+            }
+            docMapper.update(null, update);
         } catch (Exception e) {
             log.warn("解析告警写入失败（不影响文档状态）doc={} err={}", doc.getId(), e.getMessage());
         }
