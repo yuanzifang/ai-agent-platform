@@ -127,6 +127,23 @@ class HybridRetrievalServiceTest {
     }
 
     @Test
+    void filtersVectorHitsWhenMetadataIsPgJsonbObject() throws Exception {
+        org.postgresql.util.PGobject metadata = new org.postgresql.util.PGobject();
+        metadata.setType("jsonb");
+        metadata.setValue("{\"chunk_id\":1,\"document_type\":\"clinical_trial\",\"relevance_score\":1.0}");
+        when(embedding.embedOne(eq("q"), anyString())).thenReturn(new float[]{0.1f});
+        when(vectorRepository.search(anyLong(), any(float[].class), anyLong(), anyInt(),
+                anyDouble(), anyInt())).thenReturn(List.of(
+                Map.of("content", "clinical", "score", 0.9, "metadata", metadata)));
+
+        var result = service.search(1L, "q", 1L, 5, 0.5,
+                Map.of("mode", "vector", "documentType", "clinical_trial", "minRelevance", 0.9));
+
+        assertEquals(1, result.hits().size());
+        assertEquals("clinical", result.hits().get(0).get("content"));
+    }
+
+    @Test
     void hybridFallsBackToKeywordWhenEmbeddingFails() {
         when(embedding.embedOne(eq("q"), anyString())).thenThrow(new BusinessException(502, "ollama down"));
         when(chunkMapper.searchFulltext(eq(1L), anyString(), anyInt())).thenReturn(List.of(
