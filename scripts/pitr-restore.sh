@@ -104,7 +104,7 @@ print(f'backup checksum OK ({len((root / "SHA256SUMS").read_text().splitlines())
 PYV
 
 FILES=()
-for f in "$BINLOG_DIR"/mysql-bin.* "$BINLOG_DIR"/binlog.*; do
+for f in "$BINLOG_DIR"/mysql-bin.[0-9]* "$BINLOG_DIR"/binlog.[0-9]*; do
   [ -f "$f" ] || continue
   name="$(basename "$f")"
   case "$name" in
@@ -154,7 +154,13 @@ gunzip -c "$BACKUP/mysql/$MYSQL_DATABASE.sql.gz" | "${MYSQL[@]}" "$TARGET_DB"
 first=1
 for f in "${FILES[@]}"; do
   log "回放 $(basename "$f")"
-  args=(--database="$TARGET_DB" --skip-gtids)
+  args=(--skip-gtids)
+  if [ "$TARGET_DB" = "$MYSQL_DATABASE" ]; then
+    args+=(--database="$MYSQL_DATABASE")
+  else
+    # 跨库演练：把行事件的目标库改写到临时库，避免误写生产库
+    args+=(--rewrite-db="$MYSQL_DATABASE->$TARGET_DB")
+  fi
   [ "$first" = "1" ] && args+=(--start-position="$START_POS")
   [ -n "$STOP_DATETIME" ] && args+=(--stop-datetime="$STOP_DATETIME")
   "$MYSQL_BINLOG" "${args[@]}" "$f" | "${MYSQL[@]}" "$TARGET_DB"
