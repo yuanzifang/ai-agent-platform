@@ -103,6 +103,9 @@ embedding:
   dimensions: ${EMBEDDING_DIMENSIONS:1024}
   # 远程 embedding API 可设 2-4 并发；本地 Ollama 单卡建议保持 1
   batch-concurrency: ${EMBEDDING_BATCH_CONCURRENCY:1}
+  # 单条检索问句 embedding 进程内缓存；0 关闭
+  query-cache-ttl-seconds: ${EMBEDDING_QUERY_CACHE_TTL_SECONDS:300}
+  query-cache-max-entries: ${EMBEDDING_QUERY_CACHE_MAX_ENTRIES:2000}
   # embedding 向量缓存保留天数/最大条目数；每小时最多清理一次
   cache-ttl-days: ${EMBEDDING_CACHE_TTL_DAYS:30}
   cache-max-entries: ${EMBEDDING_CACHE_MAX_ENTRIES:100000}

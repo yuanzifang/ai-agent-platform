@@ -117,7 +117,7 @@ public class HybridRetrievalService {
                         || kb.getEmbeddingModel().isBlank()
                         ? embeddingService.model() : kb.getEmbeddingModel();
                 int dimensions = embeddingService.dimension(embeddingModel);
-                float[] vector = embeddingService.embedOne(q, embeddingModel);
+                float[] vector = embeddingService.embedQuery(q, embeddingModel);
                 embedMs = System.currentTimeMillis() - start;
                 long searchStart = System.currentTimeMillis();
                 if (userId == null) {
