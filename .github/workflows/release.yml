@@ -53,6 +53,30 @@ jobs:
           output: frontend-sbom.cdx.json
           exit-code: '0'
 
+      - name: 构建运行时镜像
+        run: |
+          set -euo pipefail
+          docker build -t agent-gateway:release runtime/agent-gateway
+          docker build -t alert-relay:release runtime/alert-relay
+
+      - name: Gateway 镜像 SBOM（CycloneDX）
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: agent-gateway:release
+          format: cyclonedx
+          output: gateway-sbom.cdx.json
+          exit-code: '0'
+
+      - name: Alert-relay 镜像 SBOM（CycloneDX）
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: alert-relay:release
+          format: cyclonedx
+          output: alert-relay-sbom.cdx.json
+          exit-code: '0'
+
       - name: 归档、校验并生成校验和
         run: |
           set -euo pipefail
@@ -60,15 +84,19 @@ jobs:
           mkdir -p release-assets
           cp backend/target/bom.json "release-assets/backend-sbom-${SAFE_TAG}.cdx.json"
           cp frontend-sbom.cdx.json "release-assets/frontend-sbom-${SAFE_TAG}.cdx.json"
+          cp gateway-sbom.cdx.json "release-assets/gateway-image-sbom-${SAFE_TAG}.cdx.json"
+          cp alert-relay-sbom.cdx.json "release-assets/alert-relay-image-sbom-${SAFE_TAG}.cdx.json"
           python3 scripts/merge_cyclonedx_sbom.py \
             "release-assets/backend-sbom-${SAFE_TAG}.cdx.json" \
             "release-assets/frontend-sbom-${SAFE_TAG}.cdx.json" \
+            "release-assets/gateway-image-sbom-${SAFE_TAG}.cdx.json" \
+            "release-assets/alert-relay-image-sbom-${SAFE_TAG}.cdx.json" \
             --output "release-assets/merged-sbom-${SAFE_TAG}.cdx.json"
           python3 - <<'PY'
           import glob, json, sys
           files = glob.glob('release-assets/*.cdx.json')
-          if len(files) != 3:
-              sys.exit(f'expected 3 SBOM files, got {files}')
+          if len(files) != 5:
+              sys.exit(f'expected 5 SBOM files, got {files}')
           for path in files:
               with open(path, encoding='utf-8') as fh:
                   bom = json.load(fh)
