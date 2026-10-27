@@ -83,6 +83,9 @@ final class PdfMarkdownConverter {
     String convert(PDDocument doc) throws Exception {
         ocrPages.clear();
         int pageCount = doc.getNumberOfPages();
+        if (pageCount > 1000) {
+            warnings.accept("人工复核：PDF 共 " + pageCount + " 页，表格提取仅覆盖前 1000 页，后续页面请人工核对");
+        }
         Map<Integer, List<PdfTableBlock>> tablesByPage = new HashMap<>();
         for (PdfTableBlock block : PdfTableLayout.extract(doc)) {
             for (PdfTableBlock.PageSpan span : block.spans()) {
