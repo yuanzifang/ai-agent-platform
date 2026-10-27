@@ -1460,6 +1460,13 @@ public class KnowledgeService {
             m.put("pageFrom", c.getPageFrom());
             m.put("pageTo", c.getPageTo());
             m.put("content", c.getContent());
+            m.put("documentType", c.getDocumentType());
+            m.put("sectionType", c.getSectionType());
+            m.put("chunkLevel", c.getChunkLevel());
+            m.put("parentKey", c.getParentKey());
+            m.put("domainKeywords", parseJson(c.getDomainKeywords()));
+            m.put("relevanceScore", c.getRelevanceScore());
+            m.put("regulatoryCategory", c.getRegulatoryCategory());
             m.put("allowedUsers", parseJson(c.getAllowedUsers()));
             m.put("tenantVisible", c.getTenantVisible() == null || c.getTenantVisible() == 1);
             m.put("reviewStatus", c.getReviewStatus());
