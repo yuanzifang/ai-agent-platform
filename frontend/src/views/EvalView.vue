@@ -422,6 +422,11 @@
                        :label="`${s.stepType} · ${s.name}`" />
           </el-select>
         </el-form-item>
+        <el-form-item v-if="stepRunForm.stepType === 'ANSWER'" :label="t('evalPage.selectAgent')" required>
+          <el-select v-model="stepRunForm.agentId" style="width: 100%">
+            <el-option v-for="a in agents" :key="a.id" :value="a.id" :label="a.name" />
+          </el-select>
+        </el-form-item>
         <el-form-item :label="t('evalPage.question')" required>
           <el-input v-model="stepRunForm.query" :placeholder="t('evalPage.stepRunQueryPh')" />
         </el-form-item>
@@ -522,7 +527,7 @@ const stepRunVisible = ref(false)
 const stepRunSaving = ref(false)
 const stepRunError = ref('')
 const stepRunResult = ref<any>(null)
-const stepRunForm = reactive({ stepType: 'REWRITE', query: '', expectedPayload: '', stepConfig: '', localOnly: false })
+const stepRunForm = reactive({ stepType: 'REWRITE', agentId: null as number | null, query: '', expectedPayload: '', stepConfig: '', localOnly: false })
 const stepKeys = ['ANSWER', 'REWRITE', 'RETRIEVAL', 'RERANK']
 const trendVisible = ref(false)
 const trendLoading = ref(false)
@@ -747,8 +752,7 @@ async function saveItem() {
   resetItemForm()
 }
 
-const standaloneStepTypes = computed(() =>
-  stepTypes.value.filter((s: any) => s.stepType !== 'ANSWER'))
+const standaloneStepTypes = computed(() => stepTypes.value)
 
 const baselineCandidates = computed(() =>
   tasks.value.filter((t: any) => t.id !== current.id && t.datasetId === current.datasetId
@@ -768,11 +772,16 @@ function openStepRun() {
   stepRunVisible.value = true
   stepRunError.value = ''
   stepRunResult.value = null
+  if (!stepRunForm.agentId) stepRunForm.agentId = agentId.value || agents.value[0]?.id || null
 }
 
 async function runStep() {
   if (!stepRunForm.query.trim()) {
     ElMessage.warning(t('evalPage.stepRunQueryRequired'))
+    return
+  }
+  if (stepRunForm.stepType === 'ANSWER' && !stepRunForm.agentId) {
+    ElMessage.warning(t('evalPage.selectAgentWarn'))
     return
   }
   stepRunSaving.value = true
@@ -792,7 +801,8 @@ async function runStep() {
     }
     stepRunResult.value = await http.post('/eval/steps/run', {
       stepType: stepRunForm.stepType, query: stepRunForm.query,
-      expectedPayload: stepRunForm.expectedPayload, stepConfig
+      expectedPayload: stepRunForm.expectedPayload, stepConfig,
+      agentId: stepRunForm.agentId
     }) as any
   } catch (e: any) {
     stepRunError.value = e?.response?.data?.message || e?.message || t('evalPage.stepRunFailed')

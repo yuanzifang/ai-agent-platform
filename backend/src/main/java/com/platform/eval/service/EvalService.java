@@ -222,15 +222,23 @@ public class EvalService {
         if (item != null) touchDataset(item.getDatasetId());
     }
 
-    /** 单步即时评测：直接返回步骤结果，不落评测任务。 */
+    /** 兼容旧调用：无 Agent 上下文。 */
     public Map<String, Object> runStep(String stepType, String query, String expectedPayload,
                                        String stepConfig, JwtPrincipal principal) {
+        return runStep(stepType, query, expectedPayload, stepConfig, null, principal);
+    }
+
+    /** 单步即时评测：直接返回步骤结果，不落评测任务。 */
+    public Map<String, Object> runStep(String stepType, String query, String expectedPayload,
+                                       String stepConfig, Long agentId, JwtPrincipal principal) {
+        String type = stepType == null ? "ANSWER" : stepType.toUpperCase(java.util.Locale.ROOT);
         KnowledgePermissionService.Viewer viewer =
                 new KnowledgePermissionService.Viewer(principal.userId(), principal.roles());
-        StepEvaluationService.StepResult result = stepEvaluationService.evaluate(
-                stepType, query, expectedPayload, stepConfig, viewer);
+        StepEvaluationService.StepResult result = "ANSWER".equals(type)
+                ? answerStep(agentId, query, expectedPayload, stepConfig, principal)
+                : stepEvaluationService.evaluate(type, query, expectedPayload, stepConfig, viewer);
         Map<String, Object> response = new LinkedHashMap<>();
-        response.put("stepType", stepType == null ? null : stepType.toUpperCase(java.util.Locale.ROOT));
+        response.put("stepType", type);
         response.put("score", result.score());
         response.put("passed", result.passed());
         response.put("actual", result.actual());
@@ -240,6 +248,102 @@ public class EvalService {
             response.put("details", result.details());
         }
         return response;
+    }
+
+    /** ANSWER 单步：使用 Agent 已发布配置执行回答，再用平台裁判评分；不创建任务。 */
+    private StepEvaluationService.StepResult answerStep(Long agentId, String query,
+                                                        String expectedPayload, String stepConfig,
+                                                        JwtPrincipal principal) {
+        if (agentId == null) throw new BusinessException(400, "ANSWER 单步评测需要 agentId");
+        AgentRegistry agent = agentMapper.selectById(agentId);
+        if (agent == null || "DELETED".equals(agent.getStatus())) {
+            throw new BusinessException(404, "Agent 不存在");
+        }
+        Map<String, Object> config;
+        try {
+            config = publishedConfig(agentId);
+        } catch (BusinessException e) {
+            config = editStateConfig(agentId);
+        }
+        Map<String, Object> expected = parseMap(expectedPayload);
+        Map<String, Object> stepCfg = parseMap(stepConfig);
+        String question = query == null ? "" : query;
+        String systemPrompt = str(config.get("systemPrompt"));
+        systemPrompt = applyVarDefaults(systemPrompt, config.get("variables"));
+        List<Map<String, Object>> citations = new ArrayList<>();
+        List<Map<String, Object>> kbBindings = knowledgeBindings(agentId);
+        if (!kbBindings.isEmpty()) {
+            systemPrompt = chatService.augmentWithKnowledge(systemPrompt, question, kbBindings, citations,
+                    KnowledgePermissionService.Viewer.of(agent.getOwnerId(), null));
+        }
+        Map<String, Object> modelConfig = config.get("modelConfig") instanceof Map<?, ?> mc
+                ? castStringMap(mc) : Map.of();
+        String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-flash"));
+        long startedAt = System.currentTimeMillis();
+        var spec = ChatClient.create(chatModelRouter.resolve(modelName)).prompt()
+                .options(chatModelRouter.options(modelName, null, List.of()));
+        if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
+        var agentResp = spec.user(question).call().chatResponse();
+        String answer = agentResp.getResult() == null ? "" : agentResp.getResult().getOutput().getText();
+        long agentLatency = System.currentTimeMillis() - startedAt;
+
+        String expectedAnswer = str(expected.getOrDefault("expectedAnswer",
+                expected.getOrDefault("answer", "")));
+        String scoreCriteria = str(stepCfg.getOrDefault("scoreCriteria",
+                expected.getOrDefault("scoreCriteria", "")));
+        String judgeModel = str(stepCfg.getOrDefault("judgeModel", "deepseek-flash"));
+        String judgePrompt = """
+                你是严格的评测裁判。根据评分标准对 AI 回答打分。
+                【问题】%s
+                【期望答案】%s
+                【评分标准】%s
+                【AI 回答】%s
+                只输出严格 JSON：{"score": 0到1的小数, "reason": "30字内理由"}
+                """.formatted(question, expectedAnswer == null || expectedAnswer.isBlank() ? "（无）" : expectedAnswer,
+                scoreCriteria == null || scoreCriteria.isBlank() ? "回答须与期望答案事实一致、完整、不编造" : scoreCriteria,
+                answer == null ? "" : answer);
+        var judgeResp = ChatClient.create(chatModelRouter.resolve(judgeModel)).prompt()
+                .options(OpenAiChatOptions.builder().model(judgeModel).build())
+                .system("你是评测裁判，只输出 JSON，不要任何其他文字。")
+                .user(judgePrompt).call().chatResponse();
+        String judgeText = judgeResp.getResult() == null ? "" : judgeResp.getResult().getOutput().getText();
+        double score = 0;
+        String reason = "解析失败";
+        Matcher matcher = JSON_BLOCK.matcher(judgeText == null ? "" : judgeText);
+        if (matcher.find()) {
+            try {
+                Map<?, ?> parsed = objectMapper.readValue(matcher.group(), Map.class);
+                score = Double.parseDouble(String.valueOf(parsed.get("score") == null ? "0" : parsed.get("score")));
+                reason = str(parsed.get("reason"));
+            } catch (Exception ignored) {
+            }
+        }
+        score = Math.max(0, Math.min(1, score));
+        double threshold = stepCfg.get("passThreshold") instanceof Number n ? n.doubleValue() : 0.6;
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("model", modelName);
+        details.put("judgeModel", judgeModel);
+        details.put("reason", reason);
+        details.put("expectedAnswer", expectedAnswer);
+        details.put("scoreCriteria", scoreCriteria);
+        details.put("latencyMs", agentLatency);
+        details.put("citations", citations.size());
+        return new StepEvaluationService.StepResult(score, score >= threshold, answer, jsonString(details));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> castStringMap(Map<?, ?> value) {
+        return (Map<String, Object>) value;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseMap(String json) {
+        if (json == null || json.isBlank()) return Map.of();
+        try {
+            return objectMapper.readValue(json, Map.class);
+        } catch (Exception e) {
+            throw new BusinessException(400, "expectedPayload/stepConfig 必须是合法 JSON");
+        }
     }
 
     /** 人工复核步骤/回答评测结果；仅记录人工确认，不覆盖确定性分数。 */

@@ -174,7 +174,7 @@ public class EvalController {
     public ApiResponse<Map<String, Object>> runStep(@Valid @RequestBody StepRunRequest req,
                                                     @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(evalService.runStep(req.stepType(), req.query(),
-                req.expectedPayload(), req.stepConfig(), principal));
+                req.expectedPayload(), req.stepConfig(), req.agentId(), principal));
     }
 
     /** 数据集步骤类型覆盖统计：用于发现缺少改写/检索/重排/回答集的缺口。 */
@@ -184,7 +184,7 @@ public class EvalController {
     }
 
     public record StepRunRequest(@NotBlank String stepType, @NotBlank String query,
-                                 String expectedPayload, String stepConfig) {
+                                 String expectedPayload, String stepConfig, Long agentId) {
     }
 
     @PostMapping("/tasks")

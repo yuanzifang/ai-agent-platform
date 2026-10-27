@@ -87,8 +87,9 @@ test('步骤级评测样本：步骤类型/期望 JSON 可见并可编辑', asyn
     await expect(stepDialog.locator('.el-switch')).toHaveClass(/is-checked/)
     await stepDialog.locator('.el-select').click()
     await expect(page.getByRole('option', { name: /RETRIEVAL/ })).toBeVisible()
-    await expect(page.getByRole('option', { name: /ANSWER/ })).toHaveCount(0)
-    await page.keyboard.press('Escape')
+    await expect(page.getByRole('option', { name: /ANSWER/ })).toBeVisible()
+    await page.getByRole('option', { name: /ANSWER/ }).click()
+    await expect(stepDialog).toContainText('选择 Agent')
     await stepDialog.getByRole('button', { name: '取消' }).click()
   } finally {
     if (datasetId != null) {
@@ -127,4 +128,29 @@ test('本地模型 REWRITE：真实 Ollama 返回可用改写', async ({ page, r
   expect(body.passed).toBe(true)
   expect(body.details.localOnly).toBe(false)
   console.log(`LOCAL-REWRITE model=${model} score=${body.score} actual=${body.actual}`)
+})
+
+test('ANSWER 单步：选择 Agent 后执行回答与裁判', async ({ page, request }) => {
+  test.skip(!process.env.E2E_ANSWER_STEP, '设置 E2E_ANSWER_STEP=1 后运行 ANSWER 单步链路')
+  await login(page)
+  const token = await page.evaluate(() => localStorage.getItem('accessToken'))
+  const res = await request.post('/api/v1/eval/steps/run', {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 180_000,
+    data: {
+      stepType: 'ANSWER',
+      agentId: 1,
+      query: '只回答OK',
+      expectedPayload: '{"expectedAnswer":"OK"}',
+      stepConfig: '{"judgeModel":"deepseek-flash"}'
+    }
+  })
+  expect(res.ok()).toBeTruthy()
+  const body = (await res.json()).data
+  expect(body.stepType).toBe('ANSWER')
+  expect(body.actual).toBeTruthy()
+  expect(body.details.model).toBeTruthy()
+  expect(body.details.judgeModel).toBe('deepseek-flash')
+  expect(body.score).toBeGreaterThanOrEqual(0)
+  console.log(`ANSWER-STEP model=${body.details.model} score=${body.score} actual=${body.actual}`)
 })
