@@ -1,5 +1,11 @@
 package com.platform.knowledge.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.platform.knowledge.entity.KnowledgeOcrCache;
+import com.platform.knowledge.mapper.KnowledgeOcrCacheMapper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
 import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xslf.usermodel.XSLFTextBox;
@@ -79,6 +85,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class DocumentParserTest {
 
@@ -134,6 +144,25 @@ class DocumentParserTest {
         assertTrue(first != null && first.text().contains("CACHED"));
         assertTrue(second != null && second.text().contains("CACHED"));
         assertEquals(1, Files.readAllLines(counter).size(), "相同图像应只调用一次 OCR");
+    }
+
+    @Test
+    void usesPersistentOcrCacheWithoutInvokingTesseract() throws Exception {
+        MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
+        TableInfoHelper.initTableInfo(assistant, KnowledgeOcrCache.class);
+        KnowledgeOcrCacheMapper cacheMapper = mock(KnowledgeOcrCacheMapper.class);
+        KnowledgeOcrCache cache = new KnowledgeOcrCache();
+        cache.setText("PERSISTED-OCR");
+        cache.setTableHtml("");
+        when(cacheMapper.selectOne(any())).thenReturn(cache);
+        ReflectionTestUtils.setField(parser, "ocrCacheMapper", cacheMapper);
+        BufferedImage image = new BufferedImage(20, 10, BufferedImage.TYPE_INT_RGB);
+
+        OcrTableExtractor.Result result = ReflectionTestUtils.invokeMethod(
+                parser, "ocrBufferedImage", image, false, false, "test-");
+
+        assertTrue(result != null && result.text().contains("PERSISTED-OCR"));
+        verify(cacheMapper).selectOne(any());
     }
 
     @Test
