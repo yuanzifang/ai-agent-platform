@@ -42,6 +42,7 @@ done
 
 log() { printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
 die() { log "ERROR: $*" >&2; exit 1; }
+START_EPOCH="$(date +%s)"
 
 MYSQL_HOST="${MYSQL_HOST:-127.0.0.1}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
@@ -123,6 +124,15 @@ fi
 
 MYSQL=(mysql --protocol=TCP -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_BACKUP_USER")
 "${MYSQL[@]}" -e "SELECT 1" >/dev/null 2>&1 || die "MySQL 连接失败"
+read -r MANIFEST_TABLES MANIFEST_AUDIT < <(python3 - "$BACKUP/manifest.json" <<'PYM'
+import json, sys
+m = json.load(open(sys.argv[1]))
+mysql = m.get('backends', {}).get('mysql', {})
+print(int(mysql.get('tables') or 0), int(mysql.get('auditRows') or 0))
+PYM
+)
+[ -n "${MANIFEST_TABLES:-}" ] || MANIFEST_TABLES=0
+[ -n "${MANIFEST_AUDIT:-}" ] || MANIFEST_AUDIT=0
 if [ "$RECREATE" = "1" ]; then
   log "重建目标库（DROP/CREATE）"
   "${MYSQL[@]}" -e "DROP DATABASE IF EXISTS \`$TARGET_DB\`; CREATE DATABASE \`$TARGET_DB\`"
@@ -142,5 +152,18 @@ for f in "${FILES[@]}"; do
   first=0
 done
 
-log "PITR 完成：$TARGET_DB"
-log "检查：SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$TARGET_DB';"
+# 恢复后基础校验：表数、审计行数、Flyway 版本
+TABLE_COUNT="$("${MYSQL[@]}" -N -B -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${TARGET_DB}'")"
+log "校验：表数 ${TABLE_COUNT}（备份基线 ${MANIFEST_TABLES}）"
+[ "$TABLE_COUNT" -ge "$MANIFEST_TABLES" ] || die "PITR 后表数少于备份基线（${TABLE_COUNT} < ${MANIFEST_TABLES}）"
+AUDIT_EXISTS="$("${MYSQL[@]}" -N -B -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${TARGET_DB}' AND table_name='audit_operation'")"
+if [ "$AUDIT_EXISTS" = "1" ]; then
+  AUDIT_COUNT="$("${MYSQL[@]}" -N -B -e "SELECT COUNT(*) FROM \`${TARGET_DB}\`.audit_operation")"
+  log "校验：审计行数 ${AUDIT_COUNT}（备份基线 ${MANIFEST_AUDIT}）"
+  [ "$AUDIT_COUNT" -ge "$MANIFEST_AUDIT" ] || die "PITR 后审计行数少于备份基线（${AUDIT_COUNT} < ${MANIFEST_AUDIT}）"
+fi
+FLYWAY_VERSION="$("${MYSQL[@]}" -N -B -e "SELECT MAX(version) FROM \`${TARGET_DB}\`.flyway_schema_history" 2>/dev/null || true)"
+[ -n "$FLYWAY_VERSION" ] && log "校验：Flyway 版本 ${FLYWAY_VERSION}"
+ELAPSED=$(( $(date +%s) - START_EPOCH ))
+log "PITR 完成：${TARGET_DB}；本地恢复耗时约 ${ELAPSED}s（不含应用切换/业务验证）"
+log "检查：SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${TARGET_DB}';"
