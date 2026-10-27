@@ -148,6 +148,7 @@ class VectorRepositoryTest {
         ReflectionTestUtils.setField(repo, "partialHnswMinRows", 10_000L);
         ReflectionTestUtils.setField(repo, "partialHnswMaxIndexes", 20);
         ReflectionTestUtils.setField(repo, "hnswConcurrently", true);
+        when(jdbc.queryForObject(anyString(), eq(Long.class))).thenReturn(1_000_000L);
 
         when(jdbc.queryForList(anyString(), any(Object[].class)))
                 .thenReturn(List.of(Map.of("kb_id", "42", "cnt", 75_000L)));
@@ -164,6 +165,31 @@ class VectorRepositoryTest {
                 sql.getValue());
         assertTrue(sql.getValue().contains(
                 "WHERE metadata->>'knowledge_base_id' = '42'"), sql.getValue());
+    }
+
+    @Test
+    void skipsPartialIndexWhenKnowledgeBaseRatioIsTooHigh() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        EmbeddingProperties props = new EmbeddingProperties();
+        props.setModel("nomic-embed-text");
+        props.setDimensions(768);
+        props.setAvailable(Map.of("nomic-embed-text", 768));
+        VectorRepository repo = new VectorRepository(jdbc, props);
+        ReflectionTestUtils.setField(repo, "partialHnswEnabled", true);
+        ReflectionTestUtils.setField(repo, "partialHnswMinRows", 10_000L);
+        ReflectionTestUtils.setField(repo, "partialHnswMaxIndexes", 20);
+        ReflectionTestUtils.setField(repo, "partialHnswMaxRatio", 0.4);
+        ReflectionTestUtils.setField(repo, "hnswConcurrently", false);
+        when(jdbc.queryForObject(anyString(), eq(Long.class))).thenReturn(1_000_000L);
+        when(jdbc.queryForList(anyString(), any(Object[].class)))
+                .thenReturn(List.of(Map.of("kb_id", "42", "cnt", 500_000L)));
+        when(jdbc.queryForList(anyString(), eq(String.class), any(Object[].class)))
+                .thenReturn(List.of());
+
+        var stats = repo.reconcilePartialIndexes(1L);
+
+        assertEquals(0, stats.get("desired"));
+        assertEquals(0, stats.get("created"));
     }
 
     @Test
