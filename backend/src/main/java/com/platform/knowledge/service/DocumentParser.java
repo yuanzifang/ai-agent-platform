@@ -1,6 +1,8 @@
 package com.platform.knowledge.service;
 
 import com.platform.common.context.TenantContext;
+import com.platform.knowledge.entity.KnowledgeOcrCache;
+import com.platform.knowledge.mapper.KnowledgeOcrCacheMapper;
 import com.platform.common.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.contentstream.operator.Operator;
@@ -122,6 +124,8 @@ public class DocumentParser {
     private int ocrCacheSize = 256;
     @Value("${knowledge.ocr.binarize:false}")
     private boolean ocrBinarize;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private KnowledgeOcrCacheMapper ocrCacheMapper;
     private final Map<String, OcrTableExtractor.Result> ocrCache = new ConcurrentHashMap<>();
 
     /** 解析级覆盖（上传/知识库/租户/平台配置解析产物）；为空时回落上方 @Value 默认。 */
@@ -584,15 +588,62 @@ public class DocumentParser {
                 OcrTableExtractor.Result cached = ocrCache.get(cacheKey);
                 if (cached != null) return cached;
             }
+            OcrTableExtractor.Result persistent = loadPersistentCache(cacheKey);
+            if (persistent != null) {
+                if (ocrCacheSize > 0) {
+                    if (ocrCache.size() >= ocrCacheSize) ocrCache.clear();
+                    ocrCache.put(cacheKey, persistent);
+                }
+                return persistent;
+            }
             Files.write(imagePath, png);
             OcrTableExtractor.Result result = OcrTableExtractor.extract(runOcrTsv(imagePath), image);
             if (ocrCacheSize > 0 && result != null) {
                 if (ocrCache.size() >= ocrCacheSize) ocrCache.clear();
                 ocrCache.put(cacheKey, result);
             }
+            storePersistentCache(cacheKey, result);
             return result;
         } finally {
             Files.deleteIfExists(imagePath);
+        }
+    }
+
+    private OcrTableExtractor.Result loadPersistentCache(String cacheKey) {
+        if (ocrCacheMapper == null) return null;
+        try {
+            KnowledgeOcrCache cached = ocrCacheMapper.selectOne(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeOcrCache>()
+                            .eq(KnowledgeOcrCache::getCacheKey, cacheKey)
+                            .eq(TenantContext.getTenantId() != null,
+                                    KnowledgeOcrCache::getTenantId, TenantContext.getTenantId())
+                            .last("LIMIT 1"));
+            if (cached == null) return null;
+            return new OcrTableExtractor.Result(
+                    cached.getText() == null ? "" : cached.getText(),
+                    cached.getTableHtml() == null ? "" : cached.getTableHtml());
+        } catch (Exception e) {
+            log.debug("OCR 持久缓存读取失败：{}", e.getMessage());
+            return null;
+        }
+    }
+
+    private void storePersistentCache(String cacheKey, OcrTableExtractor.Result result) {
+        if (ocrCacheMapper == null || result == null) return;
+        if ((result.text() == null || result.text().isBlank())
+                && (result.table() == null || result.table().isBlank())) return;
+        try {
+            java.time.LocalDateTime now = java.time.LocalDateTime.now();
+            KnowledgeOcrCache cached = new KnowledgeOcrCache();
+            cached.setTenantId(TenantContext.getTenantId());
+            cached.setCacheKey(cacheKey);
+            cached.setText(result.text());
+            cached.setTableHtml(result.table());
+            cached.setCreatedAt(now);
+            cached.setLastUsedAt(now);
+            ocrCacheMapper.insert(cached);
+        } catch (Exception e) {
+            log.debug("OCR 持久缓存写入失败（忽略）：{}", e.getMessage());
         }
     }
 
