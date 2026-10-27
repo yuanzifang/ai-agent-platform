@@ -10,6 +10,11 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -194,6 +199,49 @@ class EmbeddingServiceTest {
             assertEquals(0.5f, second[0]);
             assertEquals(1, requests.get(), "重复查询应命中进程内缓存");
         } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void coalescesConcurrentColdQueryEmbeddings() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/v1/embeddings", exchange -> {
+            requests.incrementAndGet();
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            byte[] response = "{\"data\":[{\"index\":0,\"embedding\":[0.5,0.25]}]}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        ExecutorService pool = Executors.newFixedThreadPool(8);
+        try {
+            EmbeddingProperties props = new EmbeddingProperties();
+            props.setProvider("openai");
+            props.setModel("hosted-embed");
+            props.setDimensions(2);
+            props.setAvailable(Map.of("hosted-embed", 2));
+            props.setEndpoint("http://127.0.0.1:" + server.getAddress().getPort());
+            EmbeddingService service = new EmbeddingService(props, mock(QuotaService.class));
+
+            List<Future<float[]>> futures = new ArrayList<>();
+            for (int i = 0; i < 8; i++) {
+                futures.add(pool.submit(() -> service.embedQuery("cold-query", "hosted-embed")));
+            }
+            for (Future<float[]> future : futures) {
+                assertEquals(2, future.get().length);
+            }
+            assertEquals(1, requests.get(), "并发冷查询应只打一次 embedding 上游");
+        } finally {
+            pool.shutdownNow();
             server.stop(0);
         }
     }
