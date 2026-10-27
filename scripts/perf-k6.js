@@ -4,7 +4,8 @@
 // 可用环境变量：PERF_BASE_URL / PERF_USERNAME / PERF_PASSWORD / PERF_TENANT /
 //               PERF_RATE / PERF_DURATION / PERF_PRE_VUS / PERF_MAX_VUS /
 //               PERF_VUS / PERF_THINK_SECONDS / PERF_MODEL / PERF_KB_ID /
-//               PERF_MESSAGE / PERF_WARN_WORD
+//               PERF_MESSAGE / PERF_WARN_WORD / PERF_RECYCLE_EVERY /
+//               PERF_TOKEN_REFRESH_SECONDS
 import http from 'k6/http'
 import { check, sleep } from 'k6'
 import { Trend, Rate } from 'k6/metrics'
@@ -23,6 +24,8 @@ const MESSAGE = __ENV.PERF_MESSAGE || '请简短回答：压测消息'
 const WARN_WORD = __ENV.PERF_WARN_WORD || ''
 const VUS = Number(__ENV.PERF_VUS || 0)
 const THINK_SECONDS = Number(__ENV.PERF_THINK_SECONDS || 1)
+const RECYCLE_EVERY = Number(__ENV.PERF_RECYCLE_EVERY || 0)
+const TOKEN_REFRESH_MS = Math.max(60, Number(__ENV.PERF_TOKEN_REFRESH_SECONDS || 600)) * 1000
 
 const chatTtfb = new Trend('chat_ttfb_ms', true)
 const chatTotal = new Trend('chat_total_ms', true)
@@ -57,13 +60,18 @@ function authHeaders(token) {
   }
 }
 
-export function setup() {
+function loginToken(tag = 'login') {
   const login = http.post(`${BASE}/api/v1/auth/login`, JSON.stringify({
     username: USERNAME, password: PASSWORD, tenantKey: TENANT,
-  }), { headers: { 'Content-Type': 'application/json' }, tags: { endpoint: 'login' } })
+  }), { headers: { 'Content-Type': 'application/json' }, tags: { endpoint: tag } })
   if (login.status !== 200) throw new Error(`login failed: ${login.status} ${login.body}`)
   const token = login.json('data.accessToken')
   if (!token) throw new Error(`login token missing: ${login.body}`)
+  return token
+}
+
+export function setup() {
+  const token = loginToken()
 
   const name = `PERF K6 ${Date.now()}`
   const created = http.post(`${BASE}/api/v1/agent`, JSON.stringify({
@@ -85,27 +93,40 @@ export function setup() {
   if (published.status !== 200 || published.json('code') !== 0) {
     throw new Error(`publish agent failed: ${published.status} ${published.body}`)
   }
-  return { token, agentId, name }
+  return { token, agentId, name, lastLogin: Date.now() }
 }
 
 const conversations = {}
+const conversationUse = {}
+
+function ensureToken(data) {
+  if (!data.lastLogin || Date.now() - data.lastLogin >= TOKEN_REFRESH_MS) {
+    data.token = loginToken('login_refresh')
+    data.lastLogin = Date.now()
+  }
+}
 
 function conversationId(data) {
-  if (conversations[__VU]) return conversations[__VU]
-  const res = http.post(`${BASE}/api/v1/conversations`, JSON.stringify({
-    agentId: data.agentId,
-    title: `k6-${data.name}-${__VU}`,
-  }), { headers: authHeaders(data.token), tags: { endpoint: 'conversation_create' } })
-  if (res.status !== 200 || res.json('code') !== 0) {
-    throw new Error(`create conversation failed: ${res.status} ${res.body}`)
+  const used = conversationUse[__VU] || 0
+  if (!conversations[__VU] || (RECYCLE_EVERY > 0 && used >= RECYCLE_EVERY)) {
+    const res = http.post(`${BASE}/api/v1/conversations`, JSON.stringify({
+      agentId: data.agentId,
+      title: `k6-${data.name}-${__VU}-${Date.now()}`,
+    }), { headers: authHeaders(data.token), tags: { endpoint: 'conversation_create' } })
+    if (res.status !== 200 || res.json('code') !== 0) {
+      throw new Error(`create conversation failed: ${res.status} ${res.body}`)
+    }
+    conversations[__VU] = res.json('data.id')
+    conversationUse[__VU] = 0
   }
-  conversations[__VU] = res.json('data.id')
+  conversationUse[__VU] = (conversationUse[__VU] || 0) + 1
   return conversations[__VU]
 }
 
 export function chat(data) {
+  ensureToken(data)
   const convId = conversationId(data)
-  const res = http.post(`${BASE}/api/v1/conversations/${convId}/messages`, JSON.stringify({
+  let res = http.post(`${BASE}/api/v1/conversations/${convId}/messages`, JSON.stringify({
     message: MESSAGE,
     stream: true,
   }), {
@@ -113,6 +134,18 @@ export function chat(data) {
     timeout: '60s',
     tags: { endpoint: 'chat_stream' },
   })
+  if (res.status === 401) {
+    data.token = loginToken('login_retry')
+    data.lastLogin = Date.now()
+    res = http.post(`${BASE}/api/v1/conversations/${convId}/messages`, JSON.stringify({
+      message: MESSAGE,
+      stream: true,
+    }), {
+      headers: { ...authHeaders(data.token), Accept: 'text/event-stream' },
+      timeout: '60s',
+      tags: { endpoint: 'chat_stream' },
+    })
+  }
 
   const body = String(res.body || '')
   const done = /event:\s*done/.test(body)
