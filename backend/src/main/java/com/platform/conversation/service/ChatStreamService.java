@@ -21,6 +21,7 @@ import com.platform.capability.runtime.ToolRuntimeService;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.observability.service.TraceService;
 import com.platform.common.context.TenantContext;
+import com.platform.common.context.GrayTagContext;
 import com.platform.common.exception.BusinessException;
 import com.platform.conversation.entity.ChatAttachment;
 import com.platform.conversation.entity.Conversation;
@@ -94,11 +95,27 @@ public class ChatStreamService {
     private static final int MEMORY_WINDOW = 10;
 
     public record SendRequest(String message, Boolean stream, Map<String, Object> variables,
-                              List<Long> attachmentIds, Boolean allowWriteTools) {
+                              List<Long> attachmentIds, Boolean allowWriteTools, String grayTag) {
         public SendRequest(String message, Boolean stream, Map<String, Object> variables,
                            List<Long> attachmentIds) {
-            this(message, stream, variables, attachmentIds, false);
+            this(message, stream, variables, attachmentIds, false, null);
         }
+
+        public SendRequest(String message, Boolean stream, Map<String, Object> variables,
+                           List<Long> attachmentIds, Boolean allowWriteTools) {
+            this(message, stream, variables, attachmentIds, allowWriteTools, null);
+        }
+    }
+
+    /**
+     * 灰度标记清洗：仅保留 [A-Za-z0-9._:-]，截断 64 字符；空/全剥离返回 null。
+     * 标记经 X-Gray-Tag 头从网关入口进入，全链路 Trace tags 可见（gray:&lt;tag&gt;）。
+     */
+    public static String sanitizeGrayTag(String raw) {
+        if (raw == null) return null;
+        String stripped = raw.trim().replaceAll("[^A-Za-z0-9._:-]", "");
+        if (stripped.isEmpty()) return null;
+        return stripped.length() > 64 ? stripped.substring(0, 64) : stripped;
     }
 
     /** 流式输出接收端：Web 端写平台 SSE，Open API 端转换为 OpenAI chunk。 */
@@ -115,14 +132,25 @@ public class ChatStreamService {
 
     /** 带来源的发送（chat / scheduled 等，影响 billing_usage.source 与 Trace tags）。 */
     public Object sendWithSource(Long conversationId, SendRequest req, JwtPrincipal principal, String source) {
-        return sendInternal(conversationId, req, principal, source, null);
+        GrayTagContext.set(sanitizeGrayTag(req.grayTag()));
+        try {
+            return sendInternal(conversationId, req, principal, source, null);
+        } finally {
+            GrayTagContext.clear();
+        }
     }
 
     /** Open API 真流式：复用对话主链路，增量通过 sink 转发为 OpenAI chunk。 */
     public Object sendStreaming(Long conversationId, SendRequest req, JwtPrincipal principal,
                                 String source, StreamSink sink) {
-        SendRequest streaming = new SendRequest(req.message(), true, req.variables(), req.attachmentIds());
-        return sendInternal(conversationId, streaming, principal, source, sink);
+        SendRequest streaming = new SendRequest(req.message(), true, req.variables(),
+                req.attachmentIds(), req.allowWriteTools(), req.grayTag());
+        GrayTagContext.set(sanitizeGrayTag(req.grayTag()));
+        try {
+            return sendInternal(conversationId, streaming, principal, source, sink);
+        } finally {
+            GrayTagContext.clear();
+        }
     }
 
     private Object sendInternal(Long conversationId, SendRequest req, JwtPrincipal principal,
@@ -956,13 +984,25 @@ public class ChatStreamService {
     /** 来源标记：scheduled 写入 tags=scheduled（需求 3.2(5)），其余沿用 internal。 */
     private TraceService.TraceExtra traceExtra(String source, String version, String input,
                                                String output, String error) {
+        TraceService.TraceExtra extra;
         if ("scheduled".equals(source)) {
-            TraceService.TraceExtra extra = TraceService.TraceExtra.scheduled(version, input, output);
-            return error == null ? extra : new TraceService.TraceExtra(extra.kind(), extra.version(),
-                    extra.inputText(), extra.outputText(), error, extra.tags());
+            TraceService.TraceExtra scheduled = TraceService.TraceExtra.scheduled(version, input, output);
+            extra = error == null ? scheduled : new TraceService.TraceExtra(scheduled.kind(), scheduled.version(),
+                    scheduled.inputText(), scheduled.outputText(), error, scheduled.tags());
+        } else {
+            extra = error == null ? TraceService.TraceExtra.internal(version, input, output)
+                    : TraceService.TraceExtra.internalError(version, input, output, error);
         }
-        return error == null ? TraceService.TraceExtra.internal(version, input, output)
-                : TraceService.TraceExtra.internalError(version, input, output, error);
+        return applyGrayTag(extra, GrayTagContext.get());
+    }
+
+    /** 灰度标记追加进 Trace tags（gray:<tag>）；未标记时原样返回。 */
+    static TraceService.TraceExtra applyGrayTag(TraceService.TraceExtra extra, String grayTag) {
+        if (grayTag == null || grayTag.isBlank()) return extra;
+        List<String> tags = new ArrayList<>(extra.tags() == null ? List.of() : extra.tags());
+        tags.add("gray:" + grayTag);
+        return new TraceService.TraceExtra(extra.kind(), extra.version(), extra.inputText(),
+                extra.outputText(), extra.errorMessage(), tags);
     }
 
     /** 工具事件（前端在对话气泡内展示调用状态）。 */

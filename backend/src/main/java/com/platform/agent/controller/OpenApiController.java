@@ -77,6 +77,7 @@ public class OpenApiController {
     public Object chatCompletions(
             @RequestHeader(value = "X-Api-Key", required = false) String xApiKey,
             @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "X-Gray-Tag", required = false) String grayTagHeader,
             @RequestBody Map<String, Object> body,
             jakarta.servlet.http.HttpServletResponse httpResponse) {
         String rawKey = extractKey(xApiKey, authorization);
@@ -92,11 +93,14 @@ public class OpenApiController {
         if (agent == null || !"PUBLISHED".equals(agent.getStatus())) {
             throw new BusinessException(403, "Agent 未发布，无法调用");
         }
-        return TenantContext.runWith(key.getTenantId(), () -> handle(key, agent, body, httpResponse));
+        String grayTag = ChatStreamService.sanitizeGrayTag(grayTagHeader);
+        String finalGrayTag = grayTag;
+        if (grayTag != null) httpResponse.setHeader("X-Gray-Tag", grayTag);   // 回显便于客户端确认命中
+        return TenantContext.runWith(key.getTenantId(), () -> handle(key, agent, body, finalGrayTag, httpResponse));
     }
 
     private Object handle(IntegrationApiKey key, AgentRegistry agent, Map<String, Object> body,
-                          jakarta.servlet.http.HttpServletResponse httpResponse) {
+                          String grayTag, jakarta.servlet.http.HttpServletResponse httpResponse) {
         String message = extractUserMessage(body.get("messages"));
         if (message == null || message.isBlank()) {
             throw new BusinessException(400, "messages 中缺少 user 消息");
@@ -121,17 +125,19 @@ public class OpenApiController {
             OpenAiSseSink sink = new OpenAiSseSink(completionId, created, model,
                     conversation.getSessionId(), objectMapper);
             chatStreamService.sendStreaming(conversation.getId(),
-                    new ChatStreamService.SendRequest(message, true, Map.of(), null),
+                    new ChatStreamService.SendRequest(message, true, Map.of(), null, null, grayTag),
                     principal, "api", sink);
             auditService.record(key.getServiceUserId(), "api_key.chat", "agent",
                     String.valueOf(agent.getId()), "SUCCESS",
                     Map.of("keyId", key.getId(), "sessionId", conversation.getSessionId(),
-                            "endUserId", endUserId == null ? "" : endUserId));
+                            "endUserId", endUserId == null ? "" : endUserId,
+                            "grayTag", grayTag == null ? "" : grayTag));
             return sink.emitter();
         }
 
         Object result = chatStreamService.sendWithSource(conversation.getId(),
-                new ChatStreamService.SendRequest(message, false, Map.of(), null), principal, "api");
+                new ChatStreamService.SendRequest(message, false, Map.of(), null, null, grayTag),
+                principal, "api");
         if (!(result instanceof Map<?, ?> map)) {
             throw new BusinessException(500, "对话执行失败");
         }
@@ -146,7 +152,8 @@ public class OpenApiController {
         auditService.record(key.getServiceUserId(), "api_key.chat", "agent",
                 String.valueOf(agent.getId()), "SUCCESS",
                 Map.of("keyId", key.getId(), "sessionId", conversation.getSessionId(),
-                        "endUserId", endUserId == null ? "" : endUserId));
+                        "endUserId", endUserId == null ? "" : endUserId,
+                        "grayTag", grayTag == null ? "" : grayTag));
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("id", completionId);
@@ -164,6 +171,7 @@ public class OpenApiController {
         response.put("session_id", conversation.getSessionId());
         response.put("conversation_id", conversation.getId());
         response.put("trace_id", traceId);
+        if (grayTag != null) response.put("gray_tag", grayTag);
         return ResponseEntity.ok(response);
     }
 

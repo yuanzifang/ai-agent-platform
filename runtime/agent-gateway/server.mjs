@@ -330,15 +330,18 @@ async function proxyChat(req, res, cors, context, sendJson) {
     chunks.push(chunk)
   }
   const requestId = String(req.headers['x-request-id'] || crypto.randomUUID())
+  const forwardHeaders = {
+    'Content-Type': req.headers['content-type'] || 'application/json',
+    'X-Api-Key': API_KEY,
+    'X-Request-Id': requestId
+  }
+  // 灰度标记全链路透传：调用方 → 网关 → 平台（平台侧写 Trace tags 与响应回显）
+  if (req.headers['x-gray-tag']) forwardHeaders['X-Gray-Tag'] = String(req.headers['x-gray-tag'])
   let upstream
   try {
     upstream = await fetch(`${PLATFORM}/api/v1/open/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Content-Type': req.headers['content-type'] || 'application/json',
-        'X-Api-Key': API_KEY,
-        'X-Request-Id': requestId
-      },
+      headers: forwardHeaders,
       body: Buffer.concat(chunks)
     })
   } catch (error) {

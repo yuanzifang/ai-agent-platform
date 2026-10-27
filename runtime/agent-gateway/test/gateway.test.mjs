@@ -212,3 +212,40 @@ test('请求体超过 2MB 返回 413', async (t) => {
   assert.equal(res.status, 413)
   assert.match(res.text, /request body too large/)
 })
+
+test('灰度标记 X-Gray-Tag 透传到平台；未标记时不伪造头', async (t) => {
+  const received = []
+  const upstream = http.createServer((req, res) => {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      received.push({ headers: req.headers })
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end('{"id":"upstream"}')
+    })
+  })
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve))
+  const upstreamPort = upstream.address().port
+  t.after(() => upstream.close())
+
+  const gateway = await startGateway(t, {
+    PLATFORM_BASE: `http://127.0.0.1:${upstreamPort}`,
+    API_KEY: 'upstream-key',
+    RUNTIME_TOKEN: 'proxy-token'
+  })
+
+  const base = {
+    method: 'POST',
+    headers: { Authorization: 'Bearer proxy-token', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'unit-agent', messages: [{ role: 'user', content: 'hi' }] })
+  }
+
+  const withTag = await request(gateway.port, '/v1/chat/completions', {
+    ...base, headers: { ...base.headers, 'X-Gray-Tag': 'canary-v2' }
+  })
+  assert.equal(withTag.status, 200)
+  assert.equal(received.at(-1).headers['x-gray-tag'], 'canary-v2')
+
+  await request(gateway.port, '/v1/chat/completions', base)
+  assert.equal(received.at(-1).headers['x-gray-tag'], undefined, '未标记时不得伪造头')
+})
