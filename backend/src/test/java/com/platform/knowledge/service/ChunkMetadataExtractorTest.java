@@ -47,6 +47,19 @@ class ChunkMetadataExtractorTest {
     }
 
     @Test
+    void extractsChineseDomainKeywords() {
+        ChunkMetadataExtractor.Profile profile = ChunkMetadataExtractor.profile(
+                "be-study.pdf", "生物等效性 药代动力学");
+        DocumentParser.ParsedChunk chunk = new DocumentParser.ParsedChunk(
+                "方法\n开展生物等效性研究，检测药代动力学参数。", 1, "方法\n生物等效性",
+                null, 1, 1, List.of("方法"));
+        ChunkMetadataExtractor.Metadata meta = ChunkMetadataExtractor.extract(9L, chunk, profile);
+
+        assertTrue(meta.domainKeywords().contains("生物等效性"));
+        assertTrue(meta.domainKeywords().contains("药代动力学"));
+    }
+
+    @Test
     void extractsClinicalTrialAndAbstractMetadata() {
         String text = "A randomized placebo-controlled clinical trial (NCT01234567).";
         ChunkMetadataExtractor.Profile profile = ChunkMetadataExtractor.profile("trial.pdf", text);

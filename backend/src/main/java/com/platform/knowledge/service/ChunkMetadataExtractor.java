@@ -35,7 +35,10 @@ final class ChunkMetadataExtractor {
             "treatment", "therapy", "mortality", "incidence", "fda", "ema", "ich",
             "regulation", "guideline", "compliance", "validation", "pharmacokinetics",
             "适应症", "临床试验", "不良反应", "有效性", "安全性", "监管", "指南", "剂量",
-            "随机", "安慰剂", "患者", "疗效", "终点", "诊断", "治疗", "药代动力学"));
+            "随机", "安慰剂", "患者", "疗效", "终点", "诊断", "治疗", "药代动力学",
+            "生物等效性", "主要终点", "次要终点", "不良事件", "受试者", "知情同意",
+            "多中心", "双盲", "安慰剂对照", "禁忌症", "药物相互作用", "上市许可",
+            "质量标准", "稳定性", "随机对照", "置信区间", "药品注册", "指导原则"));
     private static final Map<String, Double> SECTION_WEIGHTS = Map.ofEntries(
             Map.entry("abstract", 1.0), Map.entry("summary", 0.95),
             Map.entry("results", 0.9), Map.entry("conclusion", 0.9),
