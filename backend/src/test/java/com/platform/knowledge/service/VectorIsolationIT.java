@@ -73,6 +73,33 @@ class VectorIsolationIT {
         return Map.of("content", content, "embedding", vector, "metadata", metadata);
     }
 
+    private static Map<String, Object> rowAcl(String content, float[] vector, long kb, long chunk,
+                                              String allowedUsers, boolean tenantVisible) {
+        String acl = allowedUsers == null ? "" : ",\"allowed_users\":" + allowedUsers;
+        String metadata = "{\"knowledge_base_id\":\"" + kb + "\",\"chunk_id\":\"" + chunk
+                + "\",\"chunk_index\":0" + acl + ",\"tenant_visible\":" + tenantVisible + "}";
+        return Map.of("content", content, "embedding", vector, "metadata", metadata);
+    }
+
+    @Test
+    void appliesChunkAclAndTenantVisibility() {
+        repo.saveBatch(TENANT_A, List.of(
+                rowAcl("user seven", new float[]{1, 0, 0, 0}, 806, 1, "[\"7\"]", false),
+                rowAcl("user eight", new float[]{0.9f, 0.1f, 0, 0}, 806, 2, "[\"8\"]", false),
+                rowAcl("tenant visible", new float[]{0.8f, 0.2f, 0, 0}, 806, 3, "[]", true)));
+
+        var user7 = repo.search(TENANT_A, new float[]{1, 0, 0, 0}, 806L, 5, 0.1,
+                DIM, 7L, false);
+        var other = repo.search(TENANT_A, new float[]{1, 0, 0, 0}, 806L, 5, 0.1,
+                DIM, 9L, false);
+        var tenant7 = repo.search(TENANT_A, new float[]{1, 0, 0, 0}, 806L, 5, 0.1,
+                DIM, 7L, true);
+
+        assertEquals(1, user7.size(), "用户 7 只能看到自己的 chunk");
+        assertEquals(0, other.size(), "其他用户不能看到私有 chunk");
+        assertEquals(2, tenant7.size(), "租户可见时应包含自己的 chunk 和租户可见 chunk");
+    }
+
     @Test
     void crossTenantWritesAreInvisibleToEachOther() {
         repo.saveBatch(TENANT_A, List.of(row("租户A机密内容", new float[]{1, 0, 0, 0}, 801, 1)));
