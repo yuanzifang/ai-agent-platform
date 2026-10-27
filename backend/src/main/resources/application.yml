@@ -238,6 +238,10 @@ storage:
 moderation:
   block-words: ${MODERATION_BLOCK_WORDS:赌博,毒品,代开发票}
   warn-words: ${MODERATION_WARN_WORDS:转账,汇款,银行卡号}
+  # 启发式提示注入检测：单项 WARN，组合/绕过安全 BLOCK
+  prompt-injection:
+    enabled: ${MODERATION_PROMPT_INJECTION_ENABLED:true}
+    block-score: ${MODERATION_PROMPT_INJECTION_BLOCK_SCORE:2}
   # 流式输出按块前置审核（字符），命中 BLOCK 立即停止下发
   stream:
     buffer-chars: ${MODERATION_STREAM_BUFFER_CHARS:40}
