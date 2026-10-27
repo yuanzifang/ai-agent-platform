@@ -16,7 +16,7 @@ spring:
       api-key: ${DEEPSEEK_API_KEY:sk-not-configured}
       base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
   datasource:
-    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/ai_agent_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/ai_agent_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048
     username: ${MYSQL_USERNAME:root}
     password: ${MYSQL_PASSWORD:root}
   flyway:
