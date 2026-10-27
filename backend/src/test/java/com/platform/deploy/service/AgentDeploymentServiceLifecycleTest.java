@@ -115,6 +115,22 @@ class AgentDeploymentServiceLifecycleTest {
     }
 
     @Test
+    void containerResourceLimitsAreApplied() {
+        ReflectionTestUtils.setField(service, "cpuLimit", "1.5");
+        ReflectionTestUtils.setField(service, "memoryLimit", "256m");
+        ReflectionTestUtils.setField(service, "pidsLimit", 128);
+
+        assertEquals(List.of("--cpus", "1.5", "--memory", "256m",
+                "--pids-limit", "128", "--security-opt", "no-new-privileges"),
+                service.containerLimits());
+
+        ReflectionTestUtils.setField(service, "cpuLimit", "");
+        ReflectionTestUtils.setField(service, "memoryLimit", "");
+        ReflectionTestUtils.setField(service, "pidsLimit", 0);
+        assertEquals(List.of("--security-opt", "no-new-privileges"), service.containerLimits());
+    }
+
+    @Test
     void deployRequiresPublishedAgent() {
         when(runtime.available()).thenReturn(true);
         AgentRegistry agent = new AgentRegistry();
