@@ -16,6 +16,8 @@ data:
   PG_USERNAME: {{ .Values.config.pgUsername | quote }}
   MINIO_ENDPOINT: {{ .Values.config.minioEndpoint | quote }}
   OLLAMA_ENDPOINT: {{ .Values.config.ollamaEndpoint | quote }}
+  EMBEDDING_PROVIDER: {{ .Values.config.embeddingProvider | quote }}
+  EMBEDDING_ENDPOINT: {{ .Values.config.embeddingEndpoint | quote }}
   DEEPSEEK_BASE_URL: {{ .Values.config.deepseekBaseUrl | quote }}
   TOOL_ALLOW_PRIVATE: {{ .Values.config.toolAllowPrivate | quote }}
   TOOL_ALLOWED_HOSTS: {{ .Values.config.toolAllowedHosts | quote }}

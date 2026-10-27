@@ -111,10 +111,17 @@ public class EmbeddingService {
             SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
             factory.setConnectTimeout(Duration.ofSeconds(5));
             factory.setReadTimeout(Duration.ofSeconds(120));
-            client = RestClient.builder().baseUrl(properties.getEndpoint())
+            client = RestClient.builder()
+                    .baseUrl(properties.getEndpoint() == null ? "" : properties.getEndpoint().replaceAll("/+$", ""))
                     .requestFactory(factory).build();
         }
         return client;
+    }
+
+    /** OpenAI 兼容基址可能已带 /v1；避免拼成 /v1/v1/embeddings。 */
+    private String embeddingsPath() {
+        String endpoint = properties.getEndpoint() == null ? "" : properties.getEndpoint().replaceAll("/+$", "");
+        return endpoint.endsWith("/v1") ? "/embeddings" : "/v1/embeddings";
     }
 
     public float[] embedOne(String text) {
@@ -177,7 +184,7 @@ public class EmbeddingService {
         int expectedDim = properties.dimensionOf(effectiveModel);
         try {
             Map<String, Object> resp = client().post()
-                    .uri("/v1/embeddings")
+                    .uri(embeddingsPath())
                     .body(Map.of("model", effectiveModel, "input", texts))
                     .retrieve()
                     .body(Map.class);

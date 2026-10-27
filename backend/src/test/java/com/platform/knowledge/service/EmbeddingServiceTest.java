@@ -133,4 +133,34 @@ class EmbeddingServiceTest {
                 && Integer.valueOf(1024).equals(m.get("dimensions"))));
         assertEquals(1024, service.dimension("bge-m3"));
     }
+
+    @Test
+    void supportsHostedOpenAiCompatibleEndpointWithV1Base() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/v1/embeddings", exchange -> {
+            byte[] response = "{\"data\":[{\"index\":0,\"embedding\":[0.5,0.25]}]}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            EmbeddingProperties props = new EmbeddingProperties();
+            props.setProvider("openai");
+            props.setModel("hosted-embed");
+            props.setDimensions(2);
+            props.setAvailable(Map.of("hosted-embed", 2));
+            props.setEndpoint("http://127.0.0.1:" + server.getAddress().getPort() + "/v1");
+            EmbeddingService service = new EmbeddingService(props, mock(QuotaService.class));
+
+            float[] vector = service.embedOne("cloud", "hosted-embed");
+
+            assertEquals(2, vector.length);
+            assertEquals(0.5f, vector[0]);
+        } finally {
+            server.stop(0);
+        }
+    }
 }

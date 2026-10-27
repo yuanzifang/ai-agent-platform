@@ -19,7 +19,7 @@ docker push registry.example.com/ai-agent/frontend:0.1.0
 - Redis 7.x（建议设置密码）
 - PostgreSQL 16 + pgvector 扩展，库 `vector`
 - MinIO 或 S3 兼容对象存储，bucket `ai-agent-platform`（后端启动时会自动创建）
-- Ollama（或兼容的 Embedding 服务），默认优先 `bge-m3`；未安装时自动回退 `nomic-embed-text`，建议两者都拉取
+- Embedding 服务：默认本地 Ollama（优先 `bge-m3`，回退 `nomic-embed-text`）；云端可直接使用任意 OpenAI 兼容 `/v1/embeddings` 服务，设置 `config.embeddingProvider=openai` + `config.embeddingEndpoint`，无需部署 Ollama。
 
 如果使用集群内 Bitnami 等 Chart，请把 `config.mysqlHost/redisHost/pgUrl/minioEndpoint/ollamaEndpoint` 改成对应 Service 名称。
 

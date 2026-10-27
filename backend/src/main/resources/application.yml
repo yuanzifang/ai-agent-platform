@@ -85,8 +85,9 @@ llm:
     api-key: ${DEEPSEEK_API_KEY:}   # 后补；为空时模型相关功能返回「未配置」
 
 embedding:
-  provider: ollama
-  endpoint: ${OLLAMA_ENDPOINT:http://localhost:11434}
+  # 本地默认 Ollama；云端可改为任意 OpenAI 兼容 embeddings 服务（provider 非 ollama 时跳过 /api/tags 探测）
+  provider: ${EMBEDDING_PROVIDER:ollama}
+  endpoint: ${EMBEDDING_ENDPOINT:http://localhost:11434}
   # 默认偏好 bge-m3（中文效果更好）；启动时探测 Ollama，未安装则自动回退 nomic-embed-text
   model: ${EMBEDDING_MODEL:bge-m3}
   dimensions: ${EMBEDDING_DIMENSIONS:1024}
