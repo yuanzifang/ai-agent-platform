@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -78,10 +79,12 @@ public class ConversationController {
     @PostMapping("/{id}/messages")
     public Object send(@PathVariable Long id,
                        @RequestBody SendRequest req,
+                       @RequestHeader(value = "X-Gray-Tag", required = false) String grayTagHeader,
                        @AuthenticationPrincipal JwtPrincipal principal) {
+        // 灰度标记约定走请求头（与网关/开放 API 一致），不进请求体
         Object result = chatStreamService.send(id, new ChatStreamService.SendRequest(
                 req.message(), req.stream(), req.variables(), req.attachmentIds(),
-                req.allowWriteTools(), req.grayTag()), principal);
+                req.allowWriteTools(), ChatStreamService.sanitizeGrayTag(grayTagHeader)), principal);
         return result instanceof SseEmitter ? result : ApiResponse.ok(result);
     }
 
@@ -149,7 +152,7 @@ public class ConversationController {
 
     public record SendRequest(@NotBlank String message, Boolean stream,
                               Map<String, Object> variables, List<Long> attachmentIds,
-                              Boolean allowWriteTools, String grayTag) {
+                              Boolean allowWriteTools) {
     }
 
     public record FeedbackRequest(@NotBlank String type, String comment) {
