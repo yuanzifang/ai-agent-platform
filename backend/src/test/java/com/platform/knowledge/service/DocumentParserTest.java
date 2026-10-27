@@ -166,6 +166,12 @@ class DocumentParserTest {
     }
 
     @Test
+    void computesOcrTextQualityForFallback() {
+        assertEquals(1.0, (double) ReflectionTestUtils.invokeMethod(parser, "ocrQuality", "ABC123中文"));
+        assertEquals(0.0, (double) ReflectionTestUtils.invokeMethod(parser, "ocrQuality", "###"));
+    }
+
+    @Test
     void appliesOtsuBinarizationWhenEnabled() throws Exception {
         BufferedImage image = new BufferedImage(20, 10, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = image.createGraphics();

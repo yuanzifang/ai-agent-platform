@@ -100,7 +100,7 @@ import java.util.zip.ZipInputStream;
 public class DocumentParser {
 
     /** 解析器版本：解析行为/结构化输出变化时递增，用于存量升级和复用判断。 */
-    public static final String PARSER_VERSION = "2026-10-27.1";
+    public static final String PARSER_VERSION = "2026-10-27.2";
 
     private static final long MAX_BYTES = 20 * 1024 * 1024;
 
@@ -518,8 +518,11 @@ public class DocumentParser {
                 int textLength = result.text() == null ? 0
                         : result.text().replaceAll("\\s", "").length();
                 double resultQuality = ocrQuality(result.text());
-                boolean lowQuality = (textLength < Math.max(0, ocrRetryRawMinChars)
-                        || resultQuality < 0.45)
+                // 短但有意义的文本（页码/标题/单位）不再因为长度不足而重跑；
+                // 只有空白或质量差且没有表格时才回退原图。
+                boolean lowQuality = (textLength == 0
+                        || resultQuality < 0.30
+                        || (textLength < Math.max(0, ocrRetryRawMinChars) && resultQuality < 0.45))
                         && (result.tableHtml() == null || result.tableHtml().isBlank());
                 if (lowQuality) {
                     PdfMarkdownConverter.OcrResult raw = ocrPageVariant(base, direct == null, false);
