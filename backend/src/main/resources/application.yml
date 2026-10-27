@@ -219,7 +219,7 @@ pgvector:
     partial:
       # 为达到阈值的知识库维护专用 partial HNSW，避免全局索引 + metadata 过滤退化
       enabled: ${PGVECTOR_HNSW_PARTIAL_ENABLED:true}
-      min-rows: ${PGVECTOR_HNSW_PARTIAL_MIN_ROWS:50000}
+      min-rows: ${PGVECTOR_HNSW_PARTIAL_MIN_ROWS:10000}
       max-indexes: ${PGVECTOR_HNSW_PARTIAL_MAX_INDEXES:20}
       # 命中占比超过该值的知识库通常由全局 HNSW 更快，不再为其维护 partial 索引
       max-ratio: ${PGVECTOR_HNSW_PARTIAL_MAX_RATIO:0.4}
