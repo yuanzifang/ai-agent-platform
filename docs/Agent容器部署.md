@@ -116,7 +116,8 @@ client → container:8080 /v1/chat/completions
 - 副本明细在弹窗内展示（容器名/端口/状态/地址），`agent_deployment` 主行保存第一个副本，明细存 `replicas_json`
 - 启停/删除/日志/统计会作用于全部副本
 - **多副本必须配置 Redis**（`agent.deploy.redis-url`），限流、日配额与用量跨副本共享；未配置时只允许 1 副本
-- 没有内置负载均衡：客户端可任选一个副本地址，或在外层网关做轮询
+- 多副本自动创建一个 nginx LB 容器（`aap-agent-<id>-lb`，迁移 V100），对外暴露稳定「统一入口」，按 `least_conn` 轮询副本；副本故障时自动转发到健康副本
+- 统一入口地址写入 `lb_endpoint`/`lb_local_endpoint`，部署弹窗的对外地址和 curl 示例优先使用 LB；副本表仍展示各自端口
 
 ## 调用方 Key 与日配额
 
@@ -151,7 +152,7 @@ client → container:8080 /v1/chat/completions
 - 每个 Agent 只保留一个部署记录/容器，重新部署 = 删旧建新（短暂不可用）。重新部署优先复用原端口，最多等待 3 秒。
 - 「回滚并部署」= 完整恢复该版本的 Agent 配置（含知识库/工具/技能/子 Agent）+ 重新部署容器，详见 `docs/Agent版本与回滚.md`。
 - 发布自动重新部署是「已部署过才触发」；从未部署过的 Agent 发布后不会自动拉起容器，避免意外占用端口。
-- 暂未实现：K8s 部署、滚动更新、内置负载均衡、容器日志采集到平台可观测、资源配额（CPU/内存限制）。多副本已支持（依赖 Redis），但没有内置 LB。
+- 暂未实现：K8s 部署、滚动更新、容器日志采集到平台可观测、资源配额（CPU/内存限制）。多副本已有内置 nginx LB（依赖 Redis 共享状态）。
 
 ## 验证
 
@@ -164,6 +165,7 @@ client → container:8080 /v1/chat/completions
   - 自研运行时：无令牌 401、正确令牌 200、SSE 对话正常、CORS 预检 204、限流 429、多 Key 配额与 `/stats` 验证通过
   - 调用方 Key：新建（配额 2）→ 调用 200/200/429 → `/stats` 显示名称与 2 次；停用后 401；删除后 401、主令牌仍 200；UI 新建→自动重建→停用→删除全流程通过
   - 多副本：部署 2 副本（19001/19000）均 healthy；Key 配额 4 跨副本 4 次 200、第 5 次 429；`/stats` 返回 `store:"redis"` 且计数共享；UI 显示副本输入 2、副本表 2 行、Key 用量 4
+  - **内置 LB（2026-10-27 真实 Docker）**：2 副本自动创建 nginx 统一入口 19003；`/healthz`、`/v1/models` 经 LB 均 200；两个副本直连 19000/19002 均 200；停止/启动后 LB 状态同步为 STOPPED/RUNNING；删除部署后 LB 与副本容器全部清理
 - **nginx 回退方案（colima + nginx:alpine）**：
   - `docker ps` → `aap-agent-1 Up (healthy) 0.0.0.0:19000->80/tcp`
   - `curl localhost:19000/healthz` → `ok`；`/v1/models` → `agent-1`
@@ -177,5 +179,5 @@ client → container:8080 /v1/chat/completions
 ## 下一步（如需）
 
 1. K8s 实现：`ContainerRuntime` 增加 `KubernetesRuntime`，按租户配额创建 Deployment/Service/Ingress
-2. 运行时多副本：配额/用量改用 Redis 汇总，支持 token 级配额
+2. 运行时多副本：token 级配额（限流/日配额/统计已 Redis 共享）
 3. 资源限制（CPU/内存）、容器日志/指标接入平台可观测
