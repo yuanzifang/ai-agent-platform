@@ -21,7 +21,6 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "search.keyword.provider", havingValue = "mysql", matchIfMissing = true)
 public class MysqlKeywordSearchStore implements KeywordSearchStore {
 
     private final KnowledgeChunkMapper chunkMapper;

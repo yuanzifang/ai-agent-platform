@@ -86,6 +86,12 @@ public class KnowledgeService {
     private final EmbeddingService embeddingService;
     private final VectorStore vectorRepository;
     private final HybridRetrievalService hybridRetrieval;
+    @Autowired(required = false)
+    private KnowledgeSearchIndexService searchIndexService;
+    @Value("${search.keyword.provider:mysql}")
+    private String defaultSearchBackend = "mysql";
+    @Value("${vector.store:pgvector}")
+    private String defaultVectorBackend = "pgvector";
     private final DocumentParser parser;
     private final KnowledgeParseConfigResolver parseConfigResolver;
     private final ImageUnderstandingService imageUnderstanding;
@@ -140,7 +146,20 @@ public class KnowledgeService {
 
     public Map<String, Object> create(String name, String description, String visibility,
                                       String embeddingModel, Boolean graphEnabled, Long userId) {
+        return create(name, description, visibility, embeddingModel, graphEnabled,
+                null, null, userId);
+    }
+
+    /** 创建知识库，并选择该库的关键字/向量后端。 */
+    public Map<String, Object> create(String name, String description, String visibility,
+                                      String embeddingModel, Boolean graphEnabled,
+                                      String searchBackend, String vectorBackend, Long userId) {
         quotaService.checkKnowledgeBaseCreate();
+        String search = normalizeBackend(searchBackend, defaultSearchBackend,
+                java.util.Set.of("MYSQL", "ES"));
+        String vector = normalizeBackend(vectorBackend, defaultVectorBackend,
+                java.util.Set.of("PGVECTOR", "QDRANT"));
+        validateBackendAvailability(search, vector);
         KnowledgeBase kb = new KnowledgeBase();
         kb.setName(name);
         kb.setDescription(description);
@@ -155,16 +174,49 @@ public class KnowledgeService {
             throw new BusinessException(400, "未配置的 embedding 模型：" + model);
         }
         kb.setEmbeddingModel(model);
+        kb.setSearchBackend(search);
+        kb.setVectorBackend(vector);
         kb.setIndexVersion("v1");
         kb.setCreatedAt(LocalDateTime.now());
         kbMapper.insert(kb);
         vectorRepository.ensureTenantSchema(kb.getTenantId());
+        if ("ES".equals(search) && searchIndexService != null) {
+            searchIndexService.enqueueKnowledgeBase(kb.getTenantId(), kb.getId());
+        }
         return Map.of("id", kb.getId());
+    }
+
+    private String normalizeBackend(String requested, String fallback, java.util.Set<String> allowed) {
+        String value = requested == null || requested.isBlank() ? fallback : requested.trim();
+        value = value == null ? "" : value.toUpperCase(java.util.Locale.ROOT);
+        if (!allowed.contains(value)) {
+            throw new BusinessException(400, "不支持的检索后端：" + requested);
+        }
+        return value;
+    }
+
+    private void validateBackendAvailability(String search, String vector) {
+        if ("ES".equals(search) && searchIndexService == null) {
+            throw new BusinessException(400, "ES 后端未启用，请先配置 SEARCH_ES_ENABLED=true");
+        }
+        if ("QDRANT".equals(vector)) {
+            if (!(vectorRepository instanceof VectorStoreRouter router) || !router.supports("QDRANT")) {
+                throw new BusinessException(400, "Qdrant 后端未启用，请先配置 VECTOR_QDRANT_ENABLED=true");
+            }
+        }
     }
 
     /** 编辑名称/描述（需求 3.6.3(6)）；需编辑权限。 */
     public void update(Long id, String name, String description, String embeddingModel,
                        Boolean graphEnabled, Map<String, Object> parseConfig,
+                       KnowledgePermissionService.Viewer viewer) {
+        update(id, name, description, embeddingModel, graphEnabled, parseConfig,
+                null, null, viewer);
+    }
+
+    public void update(Long id, String name, String description, String embeddingModel,
+                       Boolean graphEnabled, Map<String, Object> parseConfig,
+                       String searchBackend, String vectorBackend,
                        KnowledgePermissionService.Viewer viewer) {
         String parseConfigJson;
         try {
@@ -181,6 +233,18 @@ public class KnowledgeService {
         }
         // 部分更新语义（解析设置对话框只发 parseConfig）：空字段保留现值
         KnowledgeBase kb = permissionService.requireEdit(id, viewer);
+        long chunkCount = chunkMapper.selectCount(new LambdaQueryWrapper<KnowledgeChunk>()
+                .eq(KnowledgeChunk::getKnowledgeBaseId, id));
+        String oldSearch = kb.getSearchBackend() == null ? "MYSQL" : kb.getSearchBackend();
+        String oldVector = kb.getVectorBackend() == null ? "PGVECTOR" : kb.getVectorBackend();
+        String newSearch = searchBackend == null || searchBackend.isBlank()
+                ? oldSearch : normalizeBackend(searchBackend, oldSearch, java.util.Set.of("MYSQL", "ES"));
+        String newVector = vectorBackend == null || vectorBackend.isBlank()
+                ? oldVector : normalizeBackend(vectorBackend, oldVector, java.util.Set.of("PGVECTOR", "QDRANT"));
+        validateBackendAvailability(newSearch, newVector);
+        if (!newVector.equalsIgnoreCase(oldVector) && chunkCount > 0) {
+            throw new BusinessException(400, "已有文档时不能切换向量后端；请先清空文档或新建知识库");
+        }
         if (name != null && name.isBlank()) name = null;
         if (name == null) name = kb.getName();
         String model = kb.getEmbeddingModel();
@@ -189,9 +253,7 @@ public class KnowledgeService {
             if (!embeddingService.supports(embeddingModel.trim())) {
                 throw new BusinessException(400, "未配置的 embedding 模型：" + embeddingModel);
             }
-            long chunks = chunkMapper.selectCount(new LambdaQueryWrapper<KnowledgeChunk>()
-                    .eq(KnowledgeChunk::getKnowledgeBaseId, id));
-            if (chunks > 0) {
+            if (chunkCount > 0) {
                 throw new BusinessException(400,
                         "已有文档使用当前 embedding 模型，不能直接切换；请先清空文档或新建知识库");
             }
@@ -209,9 +271,18 @@ public class KnowledgeService {
                 // null = 未提交该字段，保留原值；空串 = 显式清空描述
                 .set(description != null, KnowledgeBase::getDescription, descriptionValue)
                 .set(KnowledgeBase::getEmbeddingModel, finalModel)
+                .set(KnowledgeBase::getSearchBackend, newSearch)
+                .set(KnowledgeBase::getVectorBackend, newVector)
                 .set(graphEnabled != null, KnowledgeBase::getGraphEnabled, graphEnabled)
                 // null = 保留原解析配置；空对象 = 清除覆盖并回退默认
                 .set(parseConfig != null, KnowledgeBase::getParseConfig, parseConfigValue));
+        if (!newSearch.equalsIgnoreCase(oldSearch) && searchIndexService != null) {
+            if ("ES".equals(newSearch)) {
+                searchIndexService.enqueueKnowledgeBase(kb.getTenantId(), id);
+            } else {
+                searchIndexService.enqueueKnowledgeBaseDeletes(kb.getTenantId(), id);
+            }
+        }
         auditService.record(viewer.userId(), "kb.update", "knowledge", String.valueOf(id), "SUCCESS",
                 Map.of("name", name.trim()));
         log.info("知识库已更新：id={} name={}", kb.getId(), name.trim());
@@ -297,6 +368,8 @@ public class KnowledgeService {
             m.put("parseResolved", resolvedMap);
         } catch (Exception ignored) { }
         m.put("embeddingModel", kb.getEmbeddingModel());
+        m.put("searchBackend", kb.getSearchBackend() == null ? "MYSQL" : kb.getSearchBackend());
+        m.put("vectorBackend", kb.getVectorBackend() == null ? "PGVECTOR" : kb.getVectorBackend());
         m.put("indexVersion", kb.getIndexVersion());
         m.put("graphEnabled", !Boolean.FALSE.equals(kb.getGraphEnabled()));
         m.put("createdAt", kb.getCreatedAt());

@@ -28,6 +28,7 @@
               <el-tag v-if="kb.graphEnabled === false" size="small" type="info">{{ t('knowledgeList.graphOff') }}</el-tag>
             </div>
             <div class="meta">{{ t('knowledgeList.embedding') }} {{ kb.embeddingModel }} · {{ formatDate(kb.createdAt) }}</div>
+            <div class="meta">{{ t('knowledgeList.searchBackend') }} {{ kb.searchBackend || 'MYSQL' }} · {{ t('knowledgeList.vectorBackend') }} {{ kb.vectorBackend || 'PGVECTOR' }}</div>
           </div>
         </div>
         <div class="desc">{{ kb.description || t('knowledgeList.noDesc') }}</div>
@@ -66,6 +67,22 @@
           </el-select>
           <span v-if="editForm.documentCount > 0" class="hint">{{ t('knowledgeList.modelLocked') }}</span>
         </el-form-item>
+        <el-form-item :label="t('knowledgeList.searchBackend')">
+          <el-select v-model="editForm.searchBackend" style="width: 260px">
+            <el-option v-for="b in searchBackends" :key="b.value" :value="b.value"
+                       :label="b.label + (b.available ? '' : t('knowledgeList.backendUnavailable'))"
+                       :disabled="!b.available" />
+          </el-select>
+          <span class="hint">{{ t('knowledgeList.searchBackendHint') }}</span>
+        </el-form-item>
+        <el-form-item :label="t('knowledgeList.vectorBackend')">
+          <el-select v-model="editForm.vectorBackend" :disabled="editForm.documentCount > 0" style="width: 260px">
+            <el-option v-for="b in vectorBackends" :key="b.value" :value="b.value"
+                       :label="b.label + (b.available ? '' : t('knowledgeList.backendUnavailable'))"
+                       :disabled="!b.available" />
+          </el-select>
+          <span class="hint">{{ editForm.documentCount > 0 ? t('knowledgeList.vectorBackendLocked') : t('knowledgeList.vectorBackendHint') }}</span>
+        </el-form-item>
         <el-form-item :label="t('knowledgeList.graphEnabled')">
           <el-switch v-model="editForm.graphEnabled" />
           <span class="hint">{{ t('knowledgeList.graphHint') }}</span>
@@ -92,6 +109,22 @@
                        :label="`${m.name} (${m.dimensions}${t('knowledgeList.dimSuffix')})`" />
           </el-select>
           <span class="hint">{{ t('knowledgeList.modelHint') }}</span>
+        </el-form-item>
+        <el-form-item :label="t('knowledgeList.searchBackend')">
+          <el-select v-model="form.searchBackend" style="width: 260px">
+            <el-option v-for="b in searchBackends" :key="b.value" :value="b.value"
+                       :label="b.label + (b.available ? '' : t('knowledgeList.backendUnavailable'))"
+                       :disabled="!b.available" />
+          </el-select>
+          <span class="hint">{{ t('knowledgeList.searchBackendHint') }}</span>
+        </el-form-item>
+        <el-form-item :label="t('knowledgeList.vectorBackend')">
+          <el-select v-model="form.vectorBackend" style="width: 260px">
+            <el-option v-for="b in vectorBackends" :key="b.value" :value="b.value"
+                       :label="b.label + (b.available ? '' : t('knowledgeList.backendUnavailable'))"
+                       :disabled="!b.available" />
+          </el-select>
+          <span class="hint">{{ t('knowledgeList.vectorBackendHint') }}</span>
         </el-form-item>
         <el-form-item :label="t('knowledgeList.visibility')">
           <el-radio-group v-model="form.visibility">
@@ -125,6 +158,7 @@ interface Kb {
   id: number; name: string; description: string; embeddingModel: string; createdAt: string
   visibility: string; documentCount: number; chunkCount: number; creatorName: string; canEdit: boolean
   graphEnabled?: boolean; parseConfig?: Record<string, any>
+  searchBackend?: string; vectorBackend?: string
 }
 
 const userStore = useUserStore()
@@ -141,12 +175,14 @@ const loading = ref(false)
 const createVisible = ref(false)
 const creating = ref(false)
 const embeddingModels = ref<any[]>([])
-const form = reactive({ name: '', description: '', visibility: 'TENANT', embeddingModel: '', graphEnabled: false })
+const searchBackends = ref<any[]>([])
+const vectorBackends = ref<any[]>([])
+const form = reactive({ name: '', description: '', visibility: 'TENANT', embeddingModel: '', graphEnabled: false, searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR' })
 const editVisible = ref(false)
 const editSaving = ref(false)
 const editForm = reactive({
   id: 0, name: '', description: '', embeddingModel: '', documentCount: 0, graphEnabled: false,
-  parseConfig: {} as Record<string, any>
+  searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR', parseConfig: {} as Record<string, any>
 })
 
 async function load() {
@@ -179,6 +215,8 @@ function openEdit(kb: Kb) {
   editForm.embeddingModel = kb.embeddingModel
   editForm.documentCount = kb.documentCount || 0
   editForm.graphEnabled = kb.graphEnabled !== false
+  editForm.searchBackend = kb.searchBackend || 'MYSQL'
+  editForm.vectorBackend = kb.vectorBackend || 'PGVECTOR'
   editForm.parseConfig = kb.parseConfig || {}
   editVisible.value = true
 }
@@ -190,6 +228,7 @@ async function saveEdit() {
     await http.put(`/knowledge-base/${editForm.id}`, {
       name: editForm.name.trim(), description: editForm.description,
       embeddingModel: editForm.embeddingModel, graphEnabled: editForm.graphEnabled,
+      searchBackend: editForm.searchBackend, vectorBackend: editForm.vectorBackend,
       parseConfig: editForm.parseConfig
     })
     ElMessage.success(t('knowledgeList.savedMsg'))
@@ -226,7 +265,8 @@ async function create() {
   try {
     await http.post('/knowledge-base', {
       name: form.name, description: form.description, visibility: form.visibility,
-      embeddingModel: form.embeddingModel, graphEnabled: form.graphEnabled
+      embeddingModel: form.embeddingModel, graphEnabled: form.graphEnabled,
+      searchBackend: form.searchBackend, vectorBackend: form.vectorBackend
     })
     ElMessage.success(t('knowledgeList.createdMsg'))
     createVisible.value = false
@@ -235,6 +275,8 @@ async function create() {
     form.visibility = 'TENANT'
     form.embeddingModel = embeddingModels.value.find((m: any) => m.default)?.name || ''
     form.graphEnabled = false
+    form.searchBackend = 'MYSQL'
+    form.vectorBackend = 'PGVECTOR'
     await load()
   } finally {
     creating.value = false
@@ -255,6 +297,9 @@ onMounted(async () => {
   try {
     embeddingModels.value = await http.get('/knowledge-base/embedding-models') as any
     form.embeddingModel = embeddingModels.value.find((m: any) => m.default)?.name || ''
+    const backends = await http.get('/knowledge-base/retrieval-backends') as any
+    searchBackends.value = backends.search || []
+    vectorBackends.value = backends.vector || []
   } catch {
     // 选项加载失败时后端仍会使用默认模型
   }

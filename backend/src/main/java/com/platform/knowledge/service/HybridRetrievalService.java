@@ -50,7 +50,9 @@ public class HybridRetrievalService {
     private RerankService rerankService;
 
     @Autowired(required = false)
-    private KeywordSearchStore keywordSearchStore;
+    private MysqlKeywordSearchStore mysqlKeywordSearchStore;
+    @Autowired(required = false)
+    private ElasticsearchKeywordSearchStore elasticsearchKeywordSearchStore;
 
     @Autowired(required = false)
     private KnowledgeParentMapper parentMapper;
@@ -149,8 +151,9 @@ public class HybridRetrievalService {
         if (!"vector".equals(mode)) {
             long start = System.currentTimeMillis();
             try {
-                keywordHits = keywordSearchStore != null
-                        ? keywordSearchStore.search(tenantId, kbId, keywordQuery, candidates, userId,
+                KeywordSearchStore store = keywordStore(kbId);
+                keywordHits = store != null
+                        ? store.search(tenantId, kbId, keywordQuery, candidates, userId,
                                 tenantWide, effectiveAfter, effectiveBefore)
                         : hasValidity
                         ? chunkMapper.searchFulltextByValidity(kbId, keywordQuery, candidates,
@@ -246,6 +249,18 @@ public class HybridRetrievalService {
         log.debug("混合检索 kb={} mode={} vector={} keyword={} merged={} rerank={}",
                 kbId, mode, vectorHits.size(), keywordHits.size(), result.size(), rerank);
         return new Result(result, vectorHits.size(), keywordHits.size(), embedMs, searchMs, mode);
+    }
+
+    private KeywordSearchStore keywordStore(Long kbId) {
+        try {
+            com.platform.knowledge.entity.KnowledgeBase kb = kbMapper.selectById(kbId);
+            if (kb != null && "ES".equalsIgnoreCase(kb.getSearchBackend())
+                    && elasticsearchKeywordSearchStore != null) {
+                return elasticsearchKeywordSearchStore;
+            }
+        } catch (Exception ignored) {
+        }
+        return mysqlKeywordSearchStore;
     }
 
     /** 先由 MySQL 只取命中 ID/score，再按 ID 回表取详情，避免全文查询搬运大量 content。 */

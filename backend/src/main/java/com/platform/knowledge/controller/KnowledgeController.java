@@ -10,6 +10,7 @@ import com.platform.knowledge.service.KnowledgeSearchIndexService;
 import com.platform.knowledge.service.KnowledgeService;
 import com.platform.knowledge.service.KnowledgeUpgradeService;
 import com.platform.knowledge.service.VectorStore;
+import com.platform.knowledge.service.VectorStoreRouter;
 import com.platform.security.JwtPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -47,7 +48,8 @@ public class KnowledgeController {
     }
 
     public record CreateKbRequest(@NotBlank String name, String description, String visibility,
-                                  String embeddingModel, Boolean graphEnabled) {
+                                  String embeddingModel, Boolean graphEnabled,
+                                  String searchBackend, String vectorBackend) {
     }
 
     @PostMapping
@@ -55,7 +57,8 @@ public class KnowledgeController {
     public ApiResponse<Map<String, Object>> create(@Valid @RequestBody CreateKbRequest req,
                                                    @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(knowledgeService.create(req.name(), req.description(), req.visibility(),
-                req.embeddingModel(), req.graphEnabled(), principal.userId()));
+                req.embeddingModel(), req.graphEnabled(), req.searchBackend(), req.vectorBackend(),
+                principal.userId()));
     }
 
     /** 列表：可见性过滤 + 搜索 + 分页（仅返回当前用户可见的知识库）。 */
@@ -75,7 +78,8 @@ public class KnowledgeController {
     }
 
     public record UpdateKbRequest(String name, String description, String embeddingModel,
-                                  Boolean graphEnabled, Map<String, Object> parseConfig) {
+                                  Boolean graphEnabled, Map<String, Object> parseConfig,
+                                  String searchBackend, String vectorBackend) {
     }
 
     /** 编辑名称/描述（需编辑权限）。 */
@@ -83,7 +87,8 @@ public class KnowledgeController {
     public ApiResponse<Void> update(@PathVariable Long id, @Valid @RequestBody UpdateKbRequest req,
                                     @AuthenticationPrincipal JwtPrincipal principal) {
         knowledgeService.update(id, req.name(), req.description(), req.embeddingModel(),
-                req.graphEnabled(), req.parseConfig(), viewer(principal));
+                req.graphEnabled(), req.parseConfig(), req.searchBackend(), req.vectorBackend(),
+                viewer(principal));
         return ApiResponse.ok();
     }
 
@@ -91,6 +96,21 @@ public class KnowledgeController {
     @GetMapping("/embedding-models")
     public ApiResponse<List<Map<String, Object>>> embeddingModels() {
         return ApiResponse.ok(embeddingService.availableModels());
+    }
+
+    /** 知识库可选的检索后端与当前是否已配置。 */
+    @GetMapping("/retrieval-backends")
+    public ApiResponse<Map<String, Object>> retrievalBackends() {
+        boolean es = searchIndexService != null;
+        boolean qdrant = vectorRepository instanceof VectorStoreRouter router
+                && router.supports("QDRANT");
+        return ApiResponse.ok(Map.of(
+                "search", List.of(
+                        Map.of("value", "MYSQL", "label", "MySQL", "available", true),
+                        Map.of("value", "ES", "label", "Elasticsearch", "available", es)),
+                "vector", List.of(
+                        Map.of("value", "PGVECTOR", "label", "pgvector", "available", true),
+                        Map.of("value", "QDRANT", "label", "Qdrant", "available", qdrant))));
     }
 
     /** 当前知识库的全局/partial HNSW 状态（可见用户可查看）。 */
