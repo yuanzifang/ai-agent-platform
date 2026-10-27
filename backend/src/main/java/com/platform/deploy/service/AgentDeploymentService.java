@@ -542,13 +542,44 @@ public class AgentDeploymentService {
     }
 
     public String logs(Long agentId, int tail) {
+        return logs(agentId, tail, false);
+    }
+
+    /** all=true 时聚合所有运行副本与 LB 的日志，便于平台排查多副本问题。 */
+    public String logs(Long agentId, int tail, boolean all) {
         AgentDeployment deployment = requireDeployment(agentId);
-        String name = replicaRows(deployment).stream()
-                .filter(row -> "RUNNING".equals(row.get("status")))
-                .map(row -> String.valueOf(row.get("name")))
-                .findFirst()
-                .orElse(deployment.getContainerName());
-        return runtime.logs(name, Math.min(Math.max(tail, 1), 1000));
+        int size = Math.min(Math.max(tail, 1), 1000);
+        List<Map<String, Object>> rows = replicaRows(deployment);
+        if (!all) {
+            String name = rows.stream()
+                    .filter(row -> "RUNNING".equals(row.get("status")))
+                    .map(row -> String.valueOf(row.get("name")))
+                    .findFirst()
+                    .orElse(deployment.getContainerName());
+            return runtime.logs(name, size);
+        }
+        StringBuilder out = new StringBuilder();
+        for (Map<String, Object> row : rows) {
+            String name = String.valueOf(row.get("name"));
+            out.append("===== ").append(name).append(" (").append(row.get("hostPort")).append(") =====\n");
+            try {
+                out.append(runtime.logs(name, size));
+            } catch (Exception e) {
+                out.append("[日志读取失败] ").append(message(e));
+            }
+            out.append('\n');
+        }
+        if (deployment.getLbContainerName() != null && !deployment.getLbContainerName().isBlank()) {
+            out.append("===== ").append(deployment.getLbContainerName())
+                    .append(" (").append(deployment.getLbHostPort()).append(") =====\n");
+            try {
+                out.append(runtime.logs(deployment.getLbContainerName(), size));
+            } catch (Exception e) {
+                out.append("[日志读取失败] ").append(message(e));
+            }
+            out.append('\n');
+        }
+        return out.toString();
     }
 
     // ------------------------------------------------------------------

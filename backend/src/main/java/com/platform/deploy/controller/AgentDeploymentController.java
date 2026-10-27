@@ -89,7 +89,8 @@ public class AgentDeploymentController {
     @GetMapping("/logs")
     @PreAuthorize("hasAuthority('agent:edit')")
     public ApiResponse<Map<String, Object>> logs(@PathVariable Long agentId,
-                                                 @RequestParam(defaultValue = "200") int tail) {
-        return ApiResponse.ok(Map.of("logs", deploymentService.logs(agentId, tail)));
+                                                 @RequestParam(defaultValue = "200") int tail,
+                                                 @RequestParam(defaultValue = "false") boolean all) {
+        return ApiResponse.ok(Map.of("logs", deploymentService.logs(agentId, tail, all)));
     }
 }

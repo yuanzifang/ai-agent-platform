@@ -22,6 +22,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
@@ -112,6 +113,18 @@ class AgentDeploymentServiceLifecycleTest {
         verify(eventMapper).insert(argThat((AgentDeploymentEvent e) -> "REMOVE".equals(e.getAction())));
         verify(deploymentMapper).deleteById(5L);
         verify(auditService).record(7L, "agent.undeploy", "agent", "1", "SUCCESS", Map.of("containers", 2));
+    }
+
+    @Test
+    void allReplicaLogsIncludeReplicasAndLoadBalancer() {
+        when(runtime.logs(any(), org.mockito.ArgumentMatchers.anyInt())).thenReturn("line");
+
+        String logs = service.logs(1L, 20, true);
+
+        assertTrue(logs.contains("===== aap-agent-1 (19001) ====="));
+        assertTrue(logs.contains("===== aap-agent-1-r2 (19002) ====="));
+        assertTrue(logs.contains("===== aap-agent-1-lb (19003) ====="));
+        assertTrue(logs.contains("line"));
     }
 
     @Test
