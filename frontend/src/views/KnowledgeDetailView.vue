@@ -187,6 +187,12 @@
           </div>
           <div v-for="c in chunks.list" :key="c.id" class="chunk">
             <span class="idx">#{{ c.chunkIndex }}<template v-if="c.pageFrom"> · p.{{ c.pageFrom }}<template v-if="c.pageTo && c.pageTo !== c.pageFrom">-{{ c.pageTo }}</template></template></span>
+            <span class="chunk-meta" v-if="c.documentType || c.sectionType || c.regulatoryCategory">
+              <el-tag v-if="c.documentType" size="small" type="info">{{ c.documentType }}</el-tag>
+              <el-tag v-if="c.sectionType" size="small">{{ c.sectionType }}</el-tag>
+              <el-tag v-if="c.regulatoryCategory" size="small" type="warning">{{ c.regulatoryCategory }}</el-tag>
+              <el-tag v-if="c.chunkLevel" size="small" type="success">L{{ c.chunkLevel }}</el-tag>
+            </span>
             <span class="text">{{ c.content }}</span>
             <el-tag v-if="isChartChunk(c)" size="small"
                     :type="c.reviewStatus === 'REVIEWED' ? 'success' : 'warning'">
@@ -1338,6 +1344,7 @@ function statusText(s: string) {
 .hint { color: #909399; font-size: 12px; margin-left: 8px; }
 .meta-params { margin-top: 6px; }
 .hit-meta { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.chunk-meta { display: inline-flex; gap: 4px; margin-left: 6px; }
 .stale-parse { color: #f56c6c; margin-left: 0; }
 .perm-tip { color: #909399; font-size: 12px; line-height: 20px; padding-left: 90px; }
 
