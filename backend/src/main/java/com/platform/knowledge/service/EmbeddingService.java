@@ -18,11 +18,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 嵌入服务（架构 6.4）：Ollama/OpenAI 兼容 /v1/embeddings；知识库按名称选择模型与维度。
@@ -50,6 +53,8 @@ public class EmbeddingService {
     /** 查询 embedding 进程内缓存：重复 FAQ/检索问句不必反复打 embedding 上游。 */
     private record QueryCacheEntry(float[] vector, long expiresAt) { }
     private final Map<String, QueryCacheEntry> queryCache = new ConcurrentHashMap<>();
+    /** 单飞：同一模型/问句的冷查询只允许一个请求打 embedding 上游。 */
+    private final Map<String, CompletableFuture<float[]>> queryInFlight = new ConcurrentHashMap<>();
 
     private volatile RestClient client;
     private volatile ExecutorService embedExecutor;
@@ -157,15 +162,39 @@ public class EmbeddingService {
         if (cached != null && cached.expiresAt() > now) {
             return cached.vector();
         }
-        float[] vector = embedOne(text, model);
-        if (vector != null) {
-            if (queryCache.size() >= queryCacheMaxEntries) {
-                queryCache.entrySet().removeIf(e -> e.getValue().expiresAt() <= now);
-                if (queryCache.size() >= queryCacheMaxEntries) queryCache.clear();
+        CompletableFuture<float[]> mine = new CompletableFuture<>();
+        CompletableFuture<float[]> existing = queryInFlight.putIfAbsent(key, mine);
+        if (existing != null) {
+            try {
+                return existing.get(130, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new BusinessException(502, "查询 embedding 等待被中断");
+            } catch (ExecutionException e) {
+                Throwable root = e.getCause() == null ? e : e.getCause();
+                if (root instanceof BusinessException business) throw business;
+                throw new BusinessException(502, "查询 embedding 失败：" + root.getMessage());
+            } catch (TimeoutException e) {
+                throw new BusinessException(504, "查询 embedding 等待超时");
             }
-            queryCache.put(key, new QueryCacheEntry(vector, now + queryCacheTtlSeconds * 1000L));
         }
-        return vector;
+        try {
+            float[] vector = embedOne(text, model);
+            if (vector != null) {
+                if (queryCache.size() >= queryCacheMaxEntries) {
+                    queryCache.entrySet().removeIf(e -> e.getValue().expiresAt() <= now);
+                    if (queryCache.size() >= queryCacheMaxEntries) queryCache.clear();
+                }
+                queryCache.put(key, new QueryCacheEntry(vector, now + queryCacheTtlSeconds * 1000L));
+            }
+            mine.complete(vector);
+            return vector;
+        } catch (RuntimeException e) {
+            mine.completeExceptionally(e);
+            throw e;
+        } finally {
+            queryInFlight.remove(key, mine);
+        }
     }
 
     private static String sha256(String text) {
