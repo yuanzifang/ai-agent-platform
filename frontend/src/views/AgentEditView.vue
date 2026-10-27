@@ -1193,6 +1193,7 @@
     </el-dialog>
 
     <el-dialog v-model="deployLogsVisible" append-to-body :title="t('deploy.logs')" width="760px">
+      <div class="hint mb8">{{ t('deploy.logsHint') }}</div>
       <pre class="deploy-logs">{{ deployLogs || t('deploy.noLogs') }}</pre>
     </el-dialog>
 
@@ -1947,7 +1948,7 @@ async function deployAction(action: 'start' | 'stop') {
 }
 
 async function openDeployLogs() {
-  const data = await http.get(`/agent/${agentId}/deployment/logs`, { params: { tail: 200 } }) as any
+  const data = await http.get(`/agent/${agentId}/deployment/logs`, { params: { tail: 200, all: true } }) as any
   deployLogs.value = data?.logs || ''
   deployLogsVisible.value = true
 }
