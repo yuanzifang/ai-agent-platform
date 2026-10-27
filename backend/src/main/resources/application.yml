@@ -213,6 +213,8 @@ pgvector:
       enabled: ${PGVECTOR_HNSW_PARTIAL_ENABLED:true}
       min-rows: ${PGVECTOR_HNSW_PARTIAL_MIN_ROWS:50000}
       max-indexes: ${PGVECTOR_HNSW_PARTIAL_MAX_INDEXES:20}
+      # 命中占比超过该值的知识库通常由全局 HNSW 更快，不再为其维护 partial 索引
+      max-ratio: ${PGVECTOR_HNSW_PARTIAL_MAX_RATIO:0.4}
       # 默认不自动删除历史 partial 索引；确认存储/写放大预算后可开启
       prune: ${PGVECTOR_HNSW_PARTIAL_PRUNE:false}
       reconcile-interval-ms: ${PGVECTOR_HNSW_PARTIAL_RECONCILE_INTERVAL_MS:86400000}

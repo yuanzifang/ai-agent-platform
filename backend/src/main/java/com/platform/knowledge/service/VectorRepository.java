@@ -51,6 +51,8 @@ public class VectorRepository {
     private long partialHnswMinRows = 50000;
     @Value("${pgvector.hnsw.partial.max-indexes:20}")
     private int partialHnswMaxIndexes = 20;
+    @Value("${pgvector.hnsw.partial.max-ratio:0.4}")
+    private double partialHnswMaxRatio = 0.4;
     @Value("${pgvector.hnsw.partial.prune:false}")
     private boolean partialHnswPrune = false;
 
@@ -175,6 +177,11 @@ public class VectorRepository {
             String table = table(dim);
             String prefix = partialIndexPrefix(table);
             try {
+                Long total = pgJdbcTemplate.queryForObject(
+                        "SELECT count(*) FROM %s.%s".formatted(schema, table), Long.class);
+                long tableRows = total == null ? 0 : total;
+                // 先取比上限更多的候选，再按命中占比过滤；50% 命中的知识库通常由全局 HNSW 更快，
+                // 继续建 partial 只会占用磁盘。
                 List<Map<String, Object>> rows = pgJdbcTemplate.queryForList("""
                         SELECT metadata->>'knowledge_base_id' AS kb_id, count(*) AS cnt
                         FROM %s.%s
@@ -184,14 +191,19 @@ public class VectorRepository {
                         ORDER BY cnt DESC, kb_id
                         LIMIT ?
                         """.formatted(schema, table), partialHnswMinRows,
-                        Math.max(1, partialHnswMaxIndexes));
+                        Math.max(1, partialHnswMaxIndexes * 4));
                 LinkedHashMap<String, String> desired = new LinkedHashMap<>();
                 for (Map<String, Object> row : rows) {
                     Object kb = row.get("kb_id");
-                    if (kb != null) {
-                        String kbId = String.valueOf(kb);
-                        desired.put(kbId, partialIndexName(table, kbId));
+                    if (kb == null) continue;
+                    long count = longValue(row.get("cnt"));
+                    if (partialHnswMaxRatio > 0 && tableRows > 0
+                            && (double) count / tableRows > partialHnswMaxRatio) {
+                        continue;
                     }
+                    String kbId = String.valueOf(kb);
+                    desired.put(kbId, partialIndexName(table, kbId));
+                    if (desired.size() >= partialHnswMaxIndexes) break;
                 }
                 desiredCount += desired.size();
                 List<String> existing = new java.util.ArrayList<>(pgJdbcTemplate.queryForList("""
@@ -607,6 +619,18 @@ public class VectorRepository {
                             .formatted(schema(tenantId), table),
                     String.valueOf(knowledgeBaseId));
         }
+    }
+
+    private long longValue(Object value) {
+        if (value instanceof Number number) return number.longValue();
+        if (value != null) {
+            try {
+                return Long.parseLong(String.valueOf(value));
+            } catch (NumberFormatException ignored) {
+                // fall through
+            }
+        }
+        return 0;
     }
 
     String table(int dimensions) {
