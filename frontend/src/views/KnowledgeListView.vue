@@ -175,8 +175,8 @@ const loading = ref(false)
 const createVisible = ref(false)
 const creating = ref(false)
 const embeddingModels = ref<any[]>([])
-const searchBackends = ref<any[]>([])
-const vectorBackends = ref<any[]>([])
+const searchBackends = ref<any[]>([{ value: 'MYSQL', label: 'MySQL', available: true }])
+const vectorBackends = ref<any[]>([{ value: 'PGVECTOR', label: 'pgvector', available: true }])
 const form = reactive({ name: '', description: '', visibility: 'TENANT', embeddingModel: '', graphEnabled: false, searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR' })
 const editVisible = ref(false)
 const editSaving = ref(false)
@@ -297,7 +297,7 @@ onMounted(async () => {
   try {
     embeddingModels.value = await http.get('/knowledge-base/embedding-models') as any
     form.embeddingModel = embeddingModels.value.find((m: any) => m.default)?.name || ''
-    const backends = await http.get('/knowledge-base/retrieval-backends') as any
+    const backends = await http.get('/knowledge-base/retrieval-backends', { _silent: true } as any) as any
     searchBackends.value = backends.search || []
     vectorBackends.value = backends.vector || []
   } catch {
