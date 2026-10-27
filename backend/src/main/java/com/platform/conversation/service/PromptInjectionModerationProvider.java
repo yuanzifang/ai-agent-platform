@@ -9,8 +9,8 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
- * 提示注入专项检测（启发式）：只针对 IN 方向，高置信组合拦截，单特征留痕告警。
- * 这不是语义级安全模型，不能替代第三方内容安全/渗透测试。
+ * 提示注入专项检测（启发式）：IN 方向高置信组合拦截、单特征留痕告警；
+ * OUT 方向检测疑似系统提示泄露并告警。这不是语义级安全模型，不能替代第三方内容安全/渗透测试。
  */
 @Component
 public class PromptInjectionModerationProvider implements ContentModerationProvider {
@@ -27,6 +27,11 @@ public class PromptInjectionModerationProvider implements ContentModerationProvi
                     + "|(system|developer|hidden)\\s*(prompt|message|instruction).{0,30}(reveal|show|print|output)"
                     + "|(输出|显示|打印|泄露|告诉我).{0,30}(系统|开发者|隐藏)(提示词|消息|指令)"
                     + "|(系统|开发者|隐藏)(提示词|消息|指令).{0,30}(输出|显示|打印|泄露)",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern OUTPUT_LEAK = Pattern.compile(
+            "(here('s| is)|this is|my)\\s+(the\\s+|my\\s+)?(system|developer|hidden)\\s*(prompt|message|instruction)"
+                    + "|(system|developer|hidden)\\s*(prompt|message|instruction)\\s*(is|:|：)"
+                    + "|(这是|我的)?(系统|开发者|隐藏)(提示词|消息|指令)(是|为|：|:)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern SAFETY_BYPASS = Pattern.compile(
             "bypass.{0,20}(safety|policy|guardrail|filter)"
@@ -56,18 +61,25 @@ public class PromptInjectionModerationProvider implements ContentModerationProvi
 
     @Override
     public List<ModerationService.Hit> check(String direction, String content) {
-        if (!enabled || !"IN".equalsIgnoreCase(direction) || content == null || content.isBlank()) {
-            return List.of();
-        }
+        if (!enabled || content == null || content.isBlank()) return List.of();
+        boolean inbound = "IN".equalsIgnoreCase(direction);
+        boolean outbound = "OUT".equalsIgnoreCase(direction);
+        if (!inbound && !outbound) return List.of();
         String text = content.toLowerCase(Locale.ROOT);
         List<String> matched = new ArrayList<>();
         int score = 0;
-        if (IGNORE.matcher(text).find()) { matched.add("ignore-instructions"); score++; }
-        if (PROMPT_LEAK.matcher(text).find()) { matched.add("prompt-leak"); score++; }
-        if (SAFETY_BYPASS.matcher(text).find()) { matched.add("safety-bypass"); score += 2; }
-        if (ROLE_HIJACK.matcher(text).find()) { matched.add("role-hijack"); score++; }
+        if (inbound) {
+            if (IGNORE.matcher(text).find()) { matched.add("ignore-instructions"); score++; }
+            if (PROMPT_LEAK.matcher(text).find()) { matched.add("prompt-leak"); score++; }
+            if (SAFETY_BYPASS.matcher(text).find()) { matched.add("safety-bypass"); score += 2; }
+            if (ROLE_HIJACK.matcher(text).find()) { matched.add("role-hijack"); score++; }
+        } else if (PROMPT_LEAK.matcher(text).find() || OUTPUT_LEAK.matcher(text).find()) {
+            // 模型输出疑似泄露系统提示：只告警，避免误伤正常引用
+            matched.add("output-prompt-leak");
+            score = 1;
+        }
         if (matched.isEmpty()) return List.of();
-        String action = score >= blockScore ? "BLOCK" : "WARN";
+        String action = inbound && score >= blockScore ? "BLOCK" : "WARN";
         String match = matched.get(0);
         String evidence = content.length() > 120 ? content.substring(0, 120) + "…" : content;
         return List.of(new ModerationService.Hit("prompt-injection:" + match, action, evidence,
