@@ -17,6 +17,8 @@ import com.platform.deploy.mapper.AgentDeploymentMapper;
 import com.platform.deploy.runtime.ContainerRuntime;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.service.AuditService;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,6 +40,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Agent 容器部署（MVP：本机 Docker）。
@@ -62,6 +66,9 @@ public class AgentDeploymentService {
     private final ApiKeyService apiKeyService;
     private final AuditService auditService;
     private final ContainerRuntime runtime;
+    private final MeterRegistry meterRegistry;
+
+    private final Map<String, AtomicInteger> deploymentGauges = new ConcurrentHashMap<>();
 
     @Value("${agent.deploy.runtime:gateway}")
     private String deployRuntime;
@@ -336,6 +343,7 @@ public class AgentDeploymentService {
                 removeLoadBalancer(deployment);
             }
             deployment.setStatus("RUNNING");
+            publishDeploymentMetrics(deployment);
             save(deployment, true);
             auditService.record(principal.userId(), "agent.deploy", "agent", String.valueOf(agentId),
                     "SUCCESS", Map.of("containers", rows.size(), "port", deployment.getHostPort()));
@@ -352,6 +360,7 @@ public class AgentDeploymentService {
             deployment.setLastError(message(e));
             deployment.setReplicasJson(null);
             deployment.setReplicaCount(replicas);
+            publishDeploymentMetrics(deployment);
             save(deployment, true);
             auditService.record(principal.userId(), "agent.deploy", "agent", String.valueOf(agentId),
                     "FAILED", Map.of("error", message(e)));
@@ -376,6 +385,7 @@ public class AgentDeploymentService {
         applyReplicaRows(deployment, rows);
         deployment.setStatus("RUNNING");
         deployment.setLastError(null);
+        publishDeploymentMetrics(deployment);
         save(deployment, true);
         recordEvent(deployment, "START", "SUCCESS", null, principal);
         return view(deployment);
@@ -394,6 +404,7 @@ public class AgentDeploymentService {
         }
         applyReplicaRows(deployment, rows);
         deployment.setStatus("STOPPED");
+        publishDeploymentMetrics(deployment);
         save(deployment, true);
         recordEvent(deployment, "STOP", "SUCCESS", null, principal);
         return view(deployment);
@@ -409,6 +420,7 @@ public class AgentDeploymentService {
         removeContainerQuietly(deployment.getContainerName());
         deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
         recordEvent(deployment, "REMOVE", "SUCCESS", null, principal);
+        clearDeploymentMetrics(deployment);
         deploymentMapper.deleteById(deployment.getId());
         auditService.record(principal.userId(), "agent.undeploy", "agent", String.valueOf(agentId),
                 "SUCCESS", Map.of("containers", replicaRows(deployment).size()));
@@ -455,6 +467,7 @@ public class AgentDeploymentService {
             event.setOperatorId(principal == null ? null : principal.userId());
             event.setCreatedAt(LocalDateTime.now());
             eventMapper.insert(event);
+            meterRegistry.counter("agent.deployment.events", "action", action, "status", status).increment();
         } catch (Exception e) {
             log.warn("写入部署事件失败（忽略）：{}", e.getMessage());
         }
@@ -538,6 +551,7 @@ public class AgentDeploymentService {
         removeContainerQuietly(deployment.getContainerName());
         deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
         recordEvent(deployment, "REMOVE", "SUCCESS", "agent deleted", principal);
+        clearDeploymentMetrics(deployment);
         deploymentMapper.deleteById(deployment.getId());
     }
 
@@ -674,6 +688,7 @@ public class AgentDeploymentService {
             applyReplicaRows(deployment, rows);
             deployment.setStatus(aggregate);
             if (firstError != null) deployment.setLastError(firstError);
+            publishDeploymentMetrics(deployment);
             save(deployment, true);
         }
     }
@@ -978,6 +993,45 @@ public class AgentDeploymentService {
         deployment.setLbStatus(null);
         deployment.setLbEndpoint(null);
         deployment.setLbLocalEndpoint(null);
+    }
+
+    /** 部署状态/副本/LB 指标，随部署生命周期更新，供 /actuator/prometheus 抓取。 */
+    void publishDeploymentMetrics(AgentDeployment deployment) {
+        if (deployment == null || deployment.getAgentId() == null) return;
+        List<Map<String, Object>> replicas = replicaRows(deployment);
+        long ready = replicas.stream().filter(row -> "RUNNING".equals(row.get("status"))).count();
+        gauge("agent.deployment.running", deployment,
+                "RUNNING".equals(deployment.getStatus()) ? 1 : 0);
+        gauge("agent.deployment.replicas", deployment, replicas.size());
+        gauge("agent.deployment.ready_replicas", deployment, (int) ready);
+        gauge("agent.deployment.lb_running", deployment,
+                deployment.getLbContainerName() != null
+                        && !deployment.getLbContainerName().isBlank()
+                        && "RUNNING".equals(deployment.getLbStatus()) ? 1 : 0);
+    }
+
+    private void gauge(String name, AgentDeployment deployment, int value) {
+        String agent = String.valueOf(deployment.getAgentId());
+        String tenant = String.valueOf(deployment.getTenantId());
+        String key = name + "|" + agent + "|" + tenant;
+        AtomicInteger holder = deploymentGauges.computeIfAbsent(key, ignored -> {
+            AtomicInteger counter = new AtomicInteger();
+            meterRegistry.gauge(name, Tags.of("agent_id", agent, "tenant_id", tenant), counter);
+            return counter;
+        });
+        holder.set(value);
+    }
+
+    private void clearDeploymentMetrics(AgentDeployment deployment) {
+        if (deployment == null || deployment.getAgentId() == null) return;
+        String agent = String.valueOf(deployment.getAgentId());
+        String tenant = String.valueOf(deployment.getTenantId());
+        for (String name : List.of("agent.deployment.running", "agent.deployment.replicas",
+                "agent.deployment.ready_replicas", "agent.deployment.lb_running")) {
+            meterRegistry.find(name).tags("agent_id", agent, "tenant_id", tenant)
+                    .meters().forEach(meterRegistry::remove);
+        }
+        deploymentGauges.keySet().removeIf(key -> key.endsWith("|" + agent + "|" + tenant));
     }
 
     private void removeContainerQuietly(String name) {
