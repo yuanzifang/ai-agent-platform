@@ -5,6 +5,13 @@ metadata:
   labels:
     {{- include "ai-agent-platform.labels" . | nindent 4 }}
     app.kubernetes.io/component: backend
+  annotations:
+    # Traefik 的 sticky 注解必须放在 Service 上；nginx ingress 会忽略
+    traefik.ingress.kubernetes.io/service.sticky.cookie: "true"
+    traefik.ingress.kubernetes.io/service.sticky.cookie.name: AIAGENTSESSION
+    traefik.ingress.kubernetes.io/service.sticky.cookie.secure: {{ if .Values.ingress.tls }}"true"{{ else }}"false"{{ end }}
+    traefik.ingress.kubernetes.io/service.sticky.cookie.httpOnly: "true"
+    traefik.ingress.kubernetes.io/service.sticky.cookie.sameSite: Lax
 spec:
   type: {{ .Values.backend.service.type }}
   ports:

@@ -84,9 +84,35 @@ helm test aap -n aap-helm
 - `/api/actuator/health` 经 Ingress 前缀路径转发后不是 actuator 原路径，返回 401；健康检查应走 frontend `/healthz` 或后端 Service 直连。
 - 真实域名/TLS 证书、托管依赖仍未验收。
 
+## 补充：外部依赖 + Traefik 多副本会话保持（2026-10-27）
+
+### 外部依赖连接
+
+- MySQL 8.4 / Redis 7.4 / PgVector 16：独立容器，通过 `host.k3d.internal` 访问
+- MinIO：宿主机独立实例 `:9002`
+- Ollama：独立容器 `:11435`，拉取 `nomic-embed-text`
+- Helm `appEnv=development`（规避开发 MinIO 凭据/DeepSeek placeholder 的 ProductionGuard）
+- 验证：
+  - 通过 Traefik HTTPS 登录成功
+  - 创建知识库 → 预签名上传到 MinIO → callback → 解析 **DONE**
+  - `chunkCount=1`，PgVector `tenant_1.embeddings` 写入 1 行（nomic 768 维）
+  - MySQL Flyway/登录、Redis 连接均正常
+
+### Traefik 多副本会话保持
+
+- backend 2/2、frontend 2/2 Ready
+- 未开启 sticky 时，100 次登录请求分散到两个 backend Pod（access log 约 54/55）
+- 仅在 backend **Service** 上加 Traefik sticky cookie 注解（Ingress 注解无效）：
+  - `traefik.ingress.kubernetes.io/service.sticky.cookie=true`
+  - `...cookie.name=AIAGENTSESSION`
+- 开启后首个响应返回 `Set-Cookie: AIAGENTSESSION=...`；带 cookie 的 50 次请求全部落到同一个 backend Pod，另一个 Pod 计数不变，HTTP 全部 200
+- 已把注解固化到 `templates/backend-service.yaml`，nginx Ingress 会忽略
+
+限制：这是本地 100 请求突发 + 50 请求 cookie 保持验证，不是 30 分钟长稳；生产真实 CA 证书/托管云服务仍未验收。
+
 ## 仍缺
 
-- 真实域名/TLS 证书、生产 Ingress Controller 参数（本地 Traefik 自签已通过）
-- 托管 MySQL/Redis/PgVector/MinIO/Ollama 连接验收
-- 多副本滚动更新、PDB、HPA、Traefik 下会话保持压力验证
+- 真实域名/CA 证书、生产 Ingress Controller 参数（本地 Traefik 自签已通过）
+- 真正托管云 MySQL/Redis/PgVector/MinIO/Ollama 连接验收（本地外部服务已通过）
+- 30 分钟长稳、滚动更新/PDB/HPA 压测（本地 2 副本 + sticky 已通过）
 - 完全离线环境的镜像清单/预载脚本
