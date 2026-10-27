@@ -26,6 +26,24 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-card shadow="never" class="mt12">
+      <template #header>{{ t('sysConfig.gateTitle') }}</template>
+      <el-form label-width="180px">
+        <el-form-item :label="t('sysConfig.gateThreshold')">
+          <el-input-number v-model="gate.threshold" :min="0.3" :max="0.95" :step="0.05" />
+          <span class="gate-hint">{{ t('sysConfig.gateThresholdHint') }}</span>
+        </el-form-item>
+        <el-form-item :label="t('sysConfig.gateJudge')">
+          <el-input v-model="gate.judge" style="width: 320px"
+                    :placeholder="t('sysConfig.gateJudgePh')" />
+          <span class="gate-hint">{{ t('sysConfig.gateJudgeHint') }}</span>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="gateSaving" @click="saveGate">{{ t('sysConfig.save') }}</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
   </div>
 </template>
 
@@ -45,6 +63,10 @@ const parse = reactive({
   visionEnabled: false, visionModel: 'qwen3-vl:32b', visionMaxImages: 3
 })
 const parseSaving = ref(false)
+const gate = reactive({ threshold: 0.8, judge: '' })
+const gateSaving = ref(false)
+const GATE_THRESHOLD_KEY = 'publish.gate-threshold'
+const GATE_JUDGE_KEY = 'eval.gate-judge-model'
 const PARSE_KEYS = {
   ocrEnabled: 'knowledge.parse.ocr-enabled', ocrLanguages: 'knowledge.parse.ocr-languages',
   ocrDpi: 'knowledge.parse.ocr-dpi', ocrMaxPages: 'knowledge.parse.ocr-max-pages',
@@ -78,6 +100,26 @@ onMounted(load)
 
 async function load() {
   rows.value = await http.get('/admin/config') as any
+  const threshold = rows.value.find(r => r.configKey === GATE_THRESHOLD_KEY)
+  const judge = rows.value.find(r => r.configKey === GATE_JUDGE_KEY)
+  gate.threshold = threshold && Number(threshold.configValue) > 0 ? Number(threshold.configValue) : 0.8
+  gate.judge = judge?.configValue || ''
+}
+
+async function saveGate() {
+  gateSaving.value = true
+  try {
+    await http.post('/admin/config', {
+      configKey: GATE_THRESHOLD_KEY, configValue: String(gate.threshold)
+    })
+    await http.post('/admin/config', {
+      configKey: GATE_JUDGE_KEY, configValue: gate.judge.trim()
+    })
+    ElMessage.success(t('sysConfig.gateSaved'))
+    await load()
+  } finally {
+    gateSaving.value = false
+  }
 }
 
 async function save(row: any) {
@@ -92,4 +134,6 @@ async function save(row: any) {
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .page-title { font-size: 16px; font-weight: 600; }
 .val { font-family: monospace; }
+.mt12 { margin-top: 12px; }
+.gate-hint { margin-left: 10px; color: #909399; font-size: 12px; }
 </style>

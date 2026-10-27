@@ -328,7 +328,12 @@ const messages = {
     },
     sysConfig: {
       header: '全局配置项（sys_config，实时生效于新请求）', key: '配置项', value: '值', desc: '说明',
-      actions: '操作', save: '保存', cancel: '取消', edit: '编辑', updated: '已更新 '
+      actions: '操作', save: '保存', cancel: '取消', edit: '编辑', updated: '已更新 ',
+      gateTitle: '发布门禁', gateThreshold: '通过率阈值',
+      gateThresholdHint: '任一步骤通过率低于阈值时阻断发布（0.3–0.95）',
+      gateJudge: '裁判模型', gateJudgePh: '留空使用 deepseek-flash；本地裁判填 qwen2.5:7b',
+      gateJudgeHint: '平台单步/门禁裁判可用 PLATFORM 本地模型，Agent 回答仍用 Agent 模型',
+      gateSaved: '门禁配置已保存'
     },
     resetPassword: {
       title: '重置密码', newPassword: '新密码（至少 8 位，含字母与数字）', confirm: '确认新密码',
@@ -1250,7 +1255,12 @@ const messages = {
     },
     sysConfig: {
       header: 'Global config (sys_config, applies to new requests immediately)', key: 'Key', value: 'Value', desc: 'Description',
-      actions: 'Actions', save: 'Save', cancel: 'Cancel', edit: 'Edit', updated: 'Updated '
+      actions: 'Actions', save: 'Save', cancel: 'Cancel', edit: 'Edit', updated: 'Updated ',
+      gateTitle: 'Publish gate', gateThreshold: 'Pass-rate threshold',
+      gateThresholdHint: 'Blocks publish when any step pass rate is below the threshold (0.3–0.95)',
+      gateJudge: 'Judge model', gateJudgePh: 'Blank uses deepseek-flash; local judge: qwen2.5:7b',
+      gateJudgeHint: 'PLATFORM local models can judge platform steps; Agent answers still use the Agent model',
+      gateSaved: 'Gate settings saved'
     },
     resetPassword: {
       title: 'Reset password', newPassword: 'New password (8+ chars, letters and numbers)', confirm: 'Confirm password',
