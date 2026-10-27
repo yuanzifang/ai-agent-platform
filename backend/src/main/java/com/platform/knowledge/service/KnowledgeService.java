@@ -926,6 +926,9 @@ public class KnowledgeService {
                             enriched.put("validationSource", evidenceSource);
                             enriched.put("validationChecked", cross.checked());
                             enriched.put("validationMissing", cross.missing());
+                            ArrayNode missingPoints = objectMapper.createArrayNode();
+                            cross.missingPoints().forEach(missingPoints::add);
+                            enriched.set("validationMissingPoints", missingPoints);
                             if ("conflict".equals(cross.status())) enriched.put("confidence", "low");
                             String chartText = buildChartChunk(enriched, parseWarnings);
                             String chartError = ChartDataValidator.validate(chartText);
