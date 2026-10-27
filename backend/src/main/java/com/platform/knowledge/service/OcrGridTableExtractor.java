@@ -155,7 +155,7 @@ final class OcrGridTableExtractor {
         return html.append("</tbody>\n</table>").toString();
     }
 
-    /** 识别 1–5 行表头：首行标签、年份/季度行、分组子表头；数字数据行会终止表头。 */
+    /** 识别 1–8 行表头：首行标签、年份/季度行、分组子表头；数字数据行会终止表头。 */
     private static int headerRows(Map<Integer, Component> components, Dsu dsu, int rows, int cols) {
         if (rows < 2) return 0;
         Row first = rowInfo(components, dsu, 0, cols);
@@ -163,7 +163,7 @@ final class OcrGridTableExtractor {
         boolean firstSpan = components.values().stream()
                 .anyMatch(c -> c.minY == 0 && (c.maxX > c.minX || c.maxY > c.minY));
         int headers = 1;
-        int limit = Math.min(5, rows - 1);
+        int limit = Math.min(8, rows - 1);
         for (int row = 1; row < limit; row++) {
             Row info = rowInfo(components, dsu, row, cols);
             if (!info.hasText || info.hasNumber) break;
