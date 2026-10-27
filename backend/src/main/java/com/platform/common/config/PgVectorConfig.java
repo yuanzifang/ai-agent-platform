@@ -17,12 +17,13 @@ public class PgVectorConfig {
     @Bean
     public JdbcTemplate pgJdbcTemplate(@Value("${pgvector.url}") String url,
                                        @Value("${pgvector.username}") String username,
-                                       @Value("${pgvector.password:}") String password) {
+                                       @Value("${pgvector.password:}") String password,
+                                       @Value("${pgvector.pool-size:8}") int poolSize) {
         HikariDataSource ds = new HikariDataSource();
         ds.setJdbcUrl(url);
         ds.setUsername(username);
         ds.setPassword(password);
-        ds.setMaximumPoolSize(8);
+        ds.setMaximumPoolSize(poolSize);
         ds.setPoolName("pgvector-pool");
         return new JdbcTemplate(ds);
     }
