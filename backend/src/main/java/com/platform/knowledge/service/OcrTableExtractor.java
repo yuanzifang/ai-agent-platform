@@ -21,7 +21,10 @@ final class OcrTableExtractor {
     private OcrTableExtractor() {
     }
 
-    record Result(String text, String table) {
+    record Result(String text, String table, double confidence) {
+        Result(String text, String table) {
+            this(text, table, 0);
+        }
     }
 
     static Result extract(String tsv) {
@@ -32,6 +35,7 @@ final class OcrTableExtractor {
     static Result extract(String tsv, BufferedImage image) {
         List<Word> words = parseWords(tsv);
         if (words.isEmpty()) return new Result("", "");
+        double confidence = words.stream().mapToInt(Word::confidence).average().orElse(0);
         List<Line> lines = groupLines(words);
         StringBuilder text = new StringBuilder();
         for (Line line : lines) {
@@ -47,7 +51,7 @@ final class OcrTableExtractor {
             if (!table.isBlank()) table = decorateGridTable(table, lines);
         }
         if (table.isBlank()) table = toTable(lines);
-        return new Result(text.toString().trim(), table);
+        return new Result(text.toString().trim(), table, confidence);
     }
 
     private static List<Word> parseWords(String tsv) {
@@ -66,7 +70,7 @@ final class OcrTableExtractor {
                 float top = Float.parseFloat(columns[7]);
                 float width = Float.parseFloat(columns[8]);
                 float height = Float.parseFloat(columns[9]);
-                words.add(new Word(value, left, top, width, height));
+                words.add(new Word(value, left, top, width, height, confidence));
             } catch (NumberFormatException ignored) {
                 // 非文本行跳过
             }
@@ -572,7 +576,7 @@ final class OcrTableExtractor {
                 .replace("\"", "&quot;");
     }
 
-    private record Word(String text, float left, float top, float width, float height) {
+    private record Word(String text, float left, float top, float width, float height, int confidence) {
     }
 
     private record Cell(String text, float left) {

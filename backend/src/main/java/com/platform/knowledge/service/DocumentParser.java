@@ -100,7 +100,7 @@ import java.util.zip.ZipInputStream;
 public class DocumentParser {
 
     /** 解析器版本：解析行为/结构化输出变化时递增，用于存量升级和复用判断。 */
-    public static final String PARSER_VERSION = "2026-10-27.2";
+    public static final String PARSER_VERSION = "2026-10-27.3";
 
     private static final long MAX_BYTES = 20 * 1024 * 1024;
 
@@ -522,14 +522,18 @@ public class DocumentParser {
                 // 只有空白或质量差且没有表格时才回退原图。
                 boolean lowQuality = (textLength == 0
                         || resultQuality < 0.30
-                        || (textLength < Math.max(0, ocrRetryRawMinChars) && resultQuality < 0.45))
+                        || (textLength < Math.max(0, ocrRetryRawMinChars) && resultQuality < 0.45)
+                        || (result.confidence() > 0 && result.confidence() < 45))
                         && (result.tableHtml() == null || result.tableHtml().isBlank());
                 if (lowQuality) {
                     PdfMarkdownConverter.OcrResult raw = ocrPageVariant(base, direct == null, false);
                     double rawQuality = ocrQuality(raw.text());
                     boolean betterTable = (result.tableHtml() == null || result.tableHtml().isBlank())
                             && raw.tableHtml() != null && !raw.tableHtml().isBlank();
-                    if (rawQuality > resultQuality + 0.03 || betterTable) result = raw;
+                    if (rawQuality > resultQuality + 0.03 || betterTable
+                            || (raw.confidence() > 0 && raw.confidence() > result.confidence() + 5)) {
+                        result = raw;
+                    }
                 }
             }
             return result;
@@ -556,7 +560,7 @@ public class DocumentParser {
     private PdfMarkdownConverter.OcrResult ocrPageVariant(BufferedImage base, boolean crop,
                                                           boolean enhance) throws Exception {
         OcrTableExtractor.Result result = ocrBufferedImage(base, crop, enhance, "kb-page-");
-        return new PdfMarkdownConverter.OcrResult(result.text(), result.table());
+        return new PdfMarkdownConverter.OcrResult(result.text(), result.table(), result.confidence());
     }
 
     /** 页面/内嵌图片共用的 OCR 流水线：预处理后按图像内容哈希查缓存。 */

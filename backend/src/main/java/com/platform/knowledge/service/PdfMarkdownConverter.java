@@ -56,7 +56,10 @@ final class PdfMarkdownConverter {
         OcrResult ocr(PDDocument doc, int pageIndex, ParseOptions options) throws Exception;
     }
 
-    record OcrResult(String text, String tableHtml) {
+    record OcrResult(String text, String tableHtml, double confidence) {
+        OcrResult(String text, String tableHtml) {
+            this(text, tableHtml, 0);
+        }
     }
 
     private final ParseOptions opts;
