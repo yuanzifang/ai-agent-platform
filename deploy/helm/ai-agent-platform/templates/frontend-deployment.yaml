@@ -10,6 +10,8 @@ spec:
   replicas: {{ .Values.frontend.replicaCount }}
   {{- end }}
   revisionHistoryLimit: 5
+  minReadySeconds: {{ .Values.frontend.minReadySeconds | default 0 }}
+  progressDeadlineSeconds: {{ .Values.frontend.progressDeadlineSeconds | default 600 }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -35,6 +37,14 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "ai-agent-platform.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: frontend
       containers:
         - name: frontend
           image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
@@ -63,6 +73,10 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 20
             failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep {{ .Values.frontend.preStopSleepSeconds | default 5 }}"]
           volumeMounts:
             - name: nginx-config
               mountPath: /etc/nginx/conf.d/default.conf
