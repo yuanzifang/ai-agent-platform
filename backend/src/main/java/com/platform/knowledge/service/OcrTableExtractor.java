@@ -105,8 +105,8 @@ final class OcrTableExtractor {
                 .toList();
         if (candidates.size() < 3) return "";
         int maxColumns = candidates.stream().mapToInt(line -> line.cells.size()).max().orElse(0);
-        // 两列表格要求至少 4 行，降低双栏正文误判。
-        if (maxColumns == 2 && candidates.size() < 4) return "";
+        // 两列表格从至少 4 行放宽到 3 行；仍要求列锚点对齐，降低双栏正文误判。
+        if (maxColumns == 2 && candidates.size() < 3) return "";
         String caption = findCaption(lines, candidates.get(0).top);
         List<String> notes = findNotes(lines, candidates.get(candidates.size() - 1).top);
         if (maxColumns < 2 || !aligned(candidates)) return "";
