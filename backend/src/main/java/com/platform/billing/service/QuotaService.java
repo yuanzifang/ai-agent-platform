@@ -26,6 +26,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 配额校验（需求 3.11(4)）：0 表示不限制；超限拒绝创建/调用。
@@ -50,6 +52,11 @@ public class QuotaService {
     private final MailService mailService;
     private final StringRedisTemplate redis;
     private final MeterRegistry meterRegistry;
+
+    private static final long QUOTA_CACHE_MS = 30_000;
+    private static final long TOKEN_CACHE_MS = 1_000;
+    private final Map<Long, CachedQuota> quotaCache = new ConcurrentHashMap<>();
+    private final Map<Long, CachedTokens> tokenCache = new ConcurrentHashMap<>();
 
     public void checkAgentCreate() {
         SysTenantQuota q = quota();
@@ -214,13 +221,36 @@ public class QuotaService {
     public long tokensToday() {
         Long tenantId = TenantContext.getTenantId();
         if (tenantId == null) return 0;
-        return usageMapper.sumTokensToday(tenantId);
+        long now = System.currentTimeMillis();
+        CachedTokens cached = tokenCache.get(tenantId);
+        if (cached != null && cached.expiresAt() > now) return cached.value();
+        long used = usageMapper.sumTokensToday(tenantId);
+        tokenCache.put(tenantId, new CachedTokens(used, now + TOKEN_CACHE_MS));
+        return used;
+    }
+
+    /** 用量落库后同步本地计数，避免等待下一次数据库聚合。 */
+    public void addTokens(Long tenantId, long tokens) {
+        if (tenantId == null || tokens <= 0) return;
+        tokenCache.computeIfPresent(tenantId, (id, cached) ->
+                new CachedTokens(cached.value() + tokens, cached.expiresAt()));
     }
 
     private SysTenantQuota quota() {
         Long tenantId = TenantContext.getTenantId();
         if (tenantId == null) return null;
-        return quotaMapper.selectOne(new LambdaQueryWrapper<SysTenantQuota>()
+        long now = System.currentTimeMillis();
+        CachedQuota cached = quotaCache.get(tenantId);
+        if (cached != null && cached.expiresAt() > now) return cached.quota();
+        SysTenantQuota value = quotaMapper.selectOne(new LambdaQueryWrapper<SysTenantQuota>()
                 .eq(SysTenantQuota::getTenantId, tenantId));
+        if (value != null) quotaCache.put(tenantId, new CachedQuota(value, now + QUOTA_CACHE_MS));
+        return value;
+    }
+
+    private record CachedQuota(SysTenantQuota quota, long expiresAt) {
+    }
+
+    private record CachedTokens(long value, long expiresAt) {
     }
 }

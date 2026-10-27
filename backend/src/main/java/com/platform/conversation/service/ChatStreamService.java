@@ -1088,6 +1088,7 @@ public class ChatStreamService {
         u.setStatDate(LocalDate.now());
         u.setCreatedAt(LocalDateTime.now());
         billingMapper.insert(u);
+        quotaService.addTokens(tenantId, Math.max(0, in) + Math.max(0, out));
     }
 
     private void emitSafe(SseEmitter emitter, String event, Object data) {
