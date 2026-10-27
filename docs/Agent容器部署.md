@@ -102,6 +102,8 @@ client → container:8080 /v1/chat/completions
 | `cpu-limit` | `AGENT_DEPLOY_CPU_LIMIT` | `1` | 每个运行时/LB 容器的 CPU 上限（Docker `--cpus`） |
 | `memory-limit` | `AGENT_DEPLOY_MEMORY_LIMIT` | `512m` | 每个运行时/LB 容器的内存上限 |
 | `pids-limit` | `AGENT_DEPLOY_PIDS_LIMIT` | `256` | 每个容器的 PID 上限，防止进程失控 |
+| `log-max-size` | `AGENT_DEPLOY_LOG_MAX_SIZE` | `10m` | Docker json-file 单文件日志上限 |
+| `log-max-file` | `AGENT_DEPLOY_LOG_MAX_FILE` | `3` | Docker 日志保留文件数 |
 | `platform-base-url` | `AGENT_DEPLOY_PLATFORM_BASE` | `http://host.docker.internal:8080` | 容器访问平台的地址 |
 | `rate-limit-per-min` | `AGENT_DEPLOY_RATE_LIMIT` | 60 | 每 IP 每分钟请求数（作用于 /v1/ 代理请求） |
 | `rate-limit-burst` | `AGENT_DEPLOY_RATE_BURST` | 20 | 突发配额，超出返回 429 |
@@ -152,7 +154,7 @@ client → container:8080 /v1/chat/completions
 - CORS 默认 `*`，生产建议改成具体前端域名。
 - API Key 与令牌以环境变量形式存在容器里，`docker inspect` 可见；删除部署时会一并删除该 Key。
 - 默认绑定 `0.0.0.0` 是为了 Tailscale/手机访问；仍建议只在内网/网关后面暴露该端口。
-- 运行时与 LB 容器默认限制 CPU=1、内存=512m、PID=256，并带 `no-new-privileges`；可由 `agent.deploy.*` 调整。
+- 运行时与 LB 容器默认限制 CPU=1、内存=512m、PID=256，并带 `no-new-privileges`；日志使用 Docker json-file 轮转，默认单文件 10m、保留 3 个；可由 `agent.deploy.*` 调整。
 - 每个 Agent 只保留一个部署记录（1–5 个运行时副本 + 可选 LB 容器），重新部署 = 删旧建新（短暂不可用）。重新部署优先复用原端口，最多等待 3 秒。
 - 「回滚并部署」= 完整恢复该版本的 Agent 配置（含知识库/工具/技能/子 Agent）+ 重新部署容器，详见 `docs/Agent版本与回滚.md`。
 - 发布自动重新部署是「已部署过才触发」；从未部署过的 Agent 发布后不会自动拉起容器，避免意外占用端口。
@@ -187,6 +189,7 @@ client → container:8080 /v1/chat/completions
   - **资源边界（2026-10-27 真实 Docker）**：2 副本 + LB 的 `docker inspect` 均为 `NanoCpus=1000000000`（1 CPU）、`Memory=536870912`（512MiB）、`PidsLimit=256`、`SecurityOpt=[no-new-privileges]`
   - **聚合日志（2026-10-27 真实 Docker）**：`logs?all=true` 返回两个副本和 LB 三段日志；网关启动日志、`/healthz`、`/v1/models` 访问日志均可见
   - **Prometheus 指标（2026-10-27 真实部署）**：2 副本 + LB 时 `agent_deployment_running=1`、`replicas=2`、`ready_replicas=2`、`lb_running=1`；停止后 running/ready/lb 均为 0；删除后时间序列清理
+  - **日志轮转（2026-10-27 真实 Docker）**：2 副本 + LB 的 `docker inspect` 均为 `log-driver=json-file`、`max-size=10m`、`max-file=3`
 - **nginx 回退方案（colima + nginx:alpine）**：
   - `docker ps` → `aap-agent-1 Up (healthy) 0.0.0.0:19000->80/tcp`
   - `curl localhost:19000/healthz` → `ok`；`/v1/models` → `agent-1`
