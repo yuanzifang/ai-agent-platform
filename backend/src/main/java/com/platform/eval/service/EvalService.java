@@ -928,7 +928,7 @@ public class EvalService {
         JwtPrincipal sysPrincipal = new com.platform.security.JwtPrincipal(
                 operatorId, TenantContext.getTenantId(), false, List.of("SYSTEM"), List.of());
         TaskOutcome outcome = selfProvider.getObject().createAndExecuteExclusive(
-                "预发布门禁-" + LocalDate.now(), agentId, dsId, gateJudgeModel,
+                "预发布门禁-" + LocalDate.now(), agentId, dsId, gateJudgeModel(),
                 threshold, "PRE_RELEASE", sysPrincipal);
         Map<String, Object> stepGate = stepGate(outcome.taskId(), threshold);
         boolean pass = "DONE".equals(outcome.status()) && outcome.passRate() != null
@@ -982,8 +982,19 @@ public class EvalService {
             if (ds == null) throw new BusinessException(400, "该 Agent 未绑定默认数据集，请指定数据集");
             dsId = ds.getId();
         }
-        return createTask("预发布评测-" + LocalDate.now(), agentId, dsId, gateJudgeModel,
+        return createTask("预发布评测-" + LocalDate.now(), agentId, dsId, gateJudgeModel(),
                 gateThreshold(), Map.of("evalType", "PRE_RELEASE"), principal);
+    }
+
+    /** sys_config 优先，未配置时回落到启动参数/默认值；用于在系统设置里切换裁判模型。 */
+    private String gateJudgeModel() {
+        com.platform.system.entity.SysConfig cfg = sysConfigMapper.selectOne(
+                new LambdaQueryWrapper<com.platform.system.entity.SysConfig>()
+                        .eq(com.platform.system.entity.SysConfig::getConfigKey, "eval.gate-judge-model"));
+        if (cfg != null && cfg.getConfigValue() != null && !cfg.getConfigValue().isBlank()) {
+            return cfg.getConfigValue().trim();
+        }
+        return gateJudgeModelDefault;
     }
 
     private double gateThreshold() {
@@ -1239,9 +1250,9 @@ public class EvalService {
 
     private final com.platform.model.service.ChatModelRouter chatModelRouter;
 
-    /** 门禁裁判模型：默认 DeepSeek；可切到平台专用本地模型做离线验收。 */
+    /** 门禁裁判模型兜底：sys_config 未配置时使用；可切到平台专用本地模型做离线验收。 */
     @org.springframework.beans.factory.annotation.Value("${eval.gate-judge-model:deepseek-flash}")
-    private String gateJudgeModel = "deepseek-flash";
+    private String gateJudgeModelDefault = "deepseek-flash";
 
     private Map<String, Object> publishedConfig(Long agentId) {
         AgentVersion v = versionMapper.selectList(new LambdaQueryWrapper<AgentVersion>()
