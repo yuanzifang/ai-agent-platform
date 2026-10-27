@@ -219,7 +219,7 @@ public class AuthService {
         audit(user, "FAIL", request);
         if (lockedUntil != null) {
             log.warn("异常登录告警：账号 {} 连续失败 {} 次，已锁定至 {}（IP={}）",
-                    user.getUsername(), failed, lockedUntil, clientIp(request));
+                    logSafe(user.getUsername()), failed, lockedUntil, logSafe(clientIp(request)));
             if (user.getUsername() != null && user.getUsername().contains("@")) {
                 mailService.sendLocalized(user.getUsername(), user.getLocale(),
                         "AI Agent 平台 - 安全提醒",
@@ -326,5 +326,11 @@ public class AuthService {
     private String clientIp(HttpServletRequest request) {
         String forwarded = request.getHeader("X-Forwarded-For");
         return forwarded != null ? forwarded.split(",")[0].trim() : request.getRemoteAddr();
+    }
+
+    private static String logSafe(String value) {
+        if (value == null) return "-";
+        String safe = value.replace('\r', '_').replace('\n', '_');
+        return safe.length() > 120 ? safe.substring(0, 120) + "…" : safe;
     }
 }
