@@ -84,7 +84,7 @@ public class KnowledgeService {
     private final QuotaService quotaService;
     private final StorageService storage;
     private final EmbeddingService embeddingService;
-    private final VectorRepository vectorRepository;
+    private final VectorStore vectorRepository;
     private final HybridRetrievalService hybridRetrieval;
     private final DocumentParser parser;
     private final KnowledgeParseConfigResolver parseConfigResolver;

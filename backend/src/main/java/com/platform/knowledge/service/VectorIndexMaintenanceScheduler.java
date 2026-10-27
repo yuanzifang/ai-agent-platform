@@ -38,7 +38,7 @@ public class VectorIndexMaintenanceScheduler {
             """, Long.class);
 
     private final SysTenantMapper tenantMapper;
-    private final VectorRepository vectorRepository;
+    private final VectorStore vectorRepository;
     private final StringRedisTemplate redis;
 
     @Scheduled(fixedDelayString =

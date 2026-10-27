@@ -56,7 +56,7 @@ public class KnowledgePermissionService {
     private final KnowledgeBaseMapper kbMapper;
     private final KnowledgePermissionMapper permMapper;
     private final KnowledgeChunkMapper chunkMapper;
-    private final VectorRepository vectorRepository;
+    private final VectorStore vectorRepository;
     private final SysUserMapper userMapper;
     private final SysUserRoleMapper userRoleMapper;
     private final SysRoleMapper roleMapper;

@@ -35,7 +35,7 @@ import java.util.Set;
 public class HybridRetrievalService {
 
     private final EmbeddingService embeddingService;
-    private final VectorRepository vectorRepository;
+    private final VectorStore vectorRepository;
     private final KnowledgeChunkMapper chunkMapper;
     private final com.platform.knowledge.mapper.KnowledgeBaseMapper kbMapper;
     private final ObjectMapper objectMapper;
@@ -48,6 +48,9 @@ public class HybridRetrievalService {
 
     @Autowired(required = false)
     private RerankService rerankService;
+
+    @Autowired(required = false)
+    private KeywordSearchStore keywordSearchStore;
 
     @Autowired(required = false)
     private KnowledgeParentMapper parentMapper;
@@ -146,7 +149,10 @@ public class HybridRetrievalService {
         if (!"vector".equals(mode)) {
             long start = System.currentTimeMillis();
             try {
-                keywordHits = hasValidity
+                keywordHits = keywordSearchStore != null
+                        ? keywordSearchStore.search(tenantId, kbId, keywordQuery, candidates, userId,
+                                tenantWide, effectiveAfter, effectiveBefore)
+                        : hasValidity
                         ? chunkMapper.searchFulltextByValidity(kbId, keywordQuery, candidates,
                                 validityAfter, validityBefore, userId, tenantWide)
                         : userId == null

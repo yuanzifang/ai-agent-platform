@@ -6,9 +6,10 @@ import com.platform.knowledge.entity.KnowledgeDocument;
 import com.platform.knowledge.service.EmbeddingService;
 import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.knowledge.service.KnowledgeGraphService;
+import com.platform.knowledge.service.KnowledgeSearchIndexService;
 import com.platform.knowledge.service.KnowledgeService;
 import com.platform.knowledge.service.KnowledgeUpgradeService;
-import com.platform.knowledge.service.VectorRepository;
+import com.platform.knowledge.service.VectorStore;
 import com.platform.security.JwtPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -37,7 +38,9 @@ public class KnowledgeController {
     private final KnowledgePermissionService permissionService;
     private final EmbeddingService embeddingService;
     private final KnowledgeUpgradeService upgradeService;
-    private final VectorRepository vectorRepository;
+    private final VectorStore vectorRepository;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private KnowledgeSearchIndexService searchIndexService;
 
     private static KnowledgePermissionService.Viewer viewer(JwtPrincipal principal) {
         return KnowledgePermissionService.Viewer.of(principal.userId(), principal.roles());
@@ -97,6 +100,19 @@ public class KnowledgeController {
         KnowledgeBase kb = permissionService.requireView(id, viewer(principal));
         int dimensions = embeddingService.dimension(kb.getEmbeddingModel());
         return ApiResponse.ok(vectorRepository.partialIndexStatus(kb.getTenantId(), id, dimensions));
+    }
+
+    /** 手动把当前知识库分段排入 ES 索引 outbox；ES 未开启时返回未配置。 */
+    @PostMapping("/{id}/search-index/reindex")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('kb:edit')")
+    public ApiResponse<Map<String, Object>> reindexSearch(@PathVariable Long id,
+                                                          @AuthenticationPrincipal JwtPrincipal principal) {
+        KnowledgeBase kb = permissionService.requireEdit(id, viewer(principal));
+        if (searchIndexService == null) {
+            return ApiResponse.ok(Map.of("enabled", false, "queued", 0));
+        }
+        int queued = searchIndexService.enqueueKnowledgeBase(kb.getTenantId(), id);
+        return ApiResponse.ok(Map.of("enabled", true, "queued", queued));
     }
 
     /** 立即执行一次 partial HNSW 维护，不必等待定时任务；需要编辑权限。 */
