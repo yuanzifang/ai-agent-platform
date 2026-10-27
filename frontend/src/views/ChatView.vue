@@ -523,6 +523,7 @@ function toolStatusText(status?: string) {
   if (status === 'RUNNING') return t('chatPage.statusRunning')
   if (status === 'ERROR') return t('chatPage.statusError')
   if (status === 'CANCELLED') return t('chatPage.statusCancelled')
+  if (status === 'WAITING') return t('chatPage.statusWaiting')
   return t('chatPage.statusDone')
 }
 

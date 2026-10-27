@@ -96,6 +96,7 @@ public class ToolRuntimeService {
     private final com.platform.model.service.ChatModelRouter chatModelRouter;
     private final com.platform.knowledge.service.HybridRetrievalService hybridRetrieval;
     private final ScriptRunnerService scriptRunner;
+    private final com.platform.capability.service.ToolApprovalService toolApprovalService;
     private final KnowledgePermissionService permissionService;
     private final ObjectMapper objectMapper;
 
@@ -521,6 +522,35 @@ public class ToolRuntimeService {
         return true;
     }
 
+    /** APPROVAL：写工具只创建单次审批，不执行，批准后由审批 Controller 执行。 */
+    private boolean requiresApproval(Long agentId) {
+        if (agentId == null) return false;
+        try {
+            var agent = agentMapper.selectById(agentId);
+            if (agent == null) return false;
+            Map<String, Object> caps = fromJsonMap(agent.getAgentCapabilities());
+            return "APPROVAL".equalsIgnoreCase(String.valueOf(caps.getOrDefault("writeToolPolicy", "")));
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    private String requestApproval(Long agentId, ToolRegistry tool, String type,
+                                   ToolCallCollector collector, String toolInput) {
+        try {
+            var approval = toolApprovalService.request(agentId, tool, toolInput);
+            String message = "【待审批】写工具「" + tool.getName() + "」已创建审批 #" + approval.getId()
+                    + "，本次未执行。请到审批箱批准后执行。";
+            long now = System.currentTimeMillis();
+            collector.add(new ToolCallEvent(tool.getToolKey(), tool.getName(), type, null, null,
+                    "WAITING", 0, truncate(toolInput, 4000), message, 0, 0, now, now));
+            return message;
+        } catch (Exception e) {
+            log.warn("写工具审批创建失败，按阻断处理 agent={} tool={}：{}", agentId, tool.getId(), e.getMessage());
+            return deniedTool(tool.getToolKey(), tool.getName(), type, collector, toolInput);
+        }
+    }
+
     private String deniedTool(String toolKey, String displayName, String type,
                               ToolCallCollector collector, String toolInput) {
         String message = "【安全阻断】工具「" + displayName + "」为写操作，默认需要人工确认。"
@@ -607,8 +637,11 @@ public class ToolRuntimeService {
             public String call(String toolInput) {
                 if (isCancelled(collector)) return cancelledMessage();
                 collector.start(tool.getToolKey(), tool.getName(), "API", toolInput);
-                if (isWriteOperation(tool) && (!allowWriteTools || !writePolicyAllows(agentId, tool, toolInput))) {
-                    return deniedTool(tool.getToolKey(), tool.getName(), "API", collector, toolInput);
+                if (isWriteOperation(tool)) {
+                    if (requiresApproval(agentId)) return requestApproval(agentId, tool, "API", collector, toolInput);
+                    if (!allowWriteTools || !writePolicyAllows(agentId, tool, toolInput)) {
+                        return deniedTool(tool.getToolKey(), tool.getName(), "API", collector, toolInput);
+                    }
                 }
                 long start = System.currentTimeMillis();
                 String status = "SUCCESS";
@@ -831,8 +864,11 @@ public class ToolRuntimeService {
             public String call(String toolInput) {
                 if (isCancelled(collector)) return cancelledMessage();
                 collector.start(tool.getToolKey(), tool.getName(), "MCP", toolInput);
-                if (isWriteOperation(tool) && (!allowWriteTools || !writePolicyAllows(agentId, tool, toolInput))) {
-                    return deniedTool(tool.getToolKey(), tool.getName(), "MCP", collector, toolInput);
+                if (isWriteOperation(tool)) {
+                    if (requiresApproval(agentId)) return requestApproval(agentId, tool, "MCP", collector, toolInput);
+                    if (!allowWriteTools || !writePolicyAllows(agentId, tool, toolInput)) {
+                        return deniedTool(tool.getToolKey(), tool.getName(), "MCP", collector, toolInput);
+                    }
                 }
                 long start = System.currentTimeMillis();
                 String status = "SUCCESS";
