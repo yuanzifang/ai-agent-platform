@@ -114,6 +114,15 @@ public class AgentDeploymentService {
     @Value("${agent.deploy.cors-origins:*}")
     private String corsOrigins;
 
+    @Value("${agent.deploy.cpu-limit:1}")
+    private String cpuLimit;
+
+    @Value("${agent.deploy.memory-limit:512m}")
+    private String memoryLimit;
+
+    @Value("${agent.deploy.pids-limit:256}")
+    private int pidsLimit;
+
     private static final String LB_SUFFIX = "-lb";
 
     private static final String NGINX_TEMPLATE = """
@@ -305,7 +314,7 @@ public class AgentDeploymentService {
                                 "aap.tenant_id", String.valueOf(agent.getTenantId()),
                                 "aap.managed_by", "ai-agent-platform"),
                         mounts,
-                        List.of());
+                        containerLimits());
                 String containerId = runtime.create(request);
                 runtime.start(containerId);
                 waitForHealthy(port);
@@ -818,6 +827,16 @@ public class AgentDeploymentService {
         return best == null ? "http://localhost" : best;
     }
 
+    /** Docker 资源边界：CPU、内存、PID 上限，并禁止提权。 */
+    List<String> containerLimits() {
+        List<String> args = new ArrayList<>();
+        if (cpuLimit != null && !cpuLimit.isBlank()) args.addAll(List.of("--cpus", cpuLimit.trim()));
+        if (memoryLimit != null && !memoryLimit.isBlank()) args.addAll(List.of("--memory", memoryLimit.trim()));
+        if (pidsLimit > 0) args.addAll(List.of("--pids-limit", String.valueOf(pidsLimit)));
+        args.addAll(List.of("--security-opt", "no-new-privileges"));
+        return args;
+    }
+
     /** 多副本统一入口：额外启动一个 nginx 容器，轮询转发到各副本的宿主端口。 */
     private void createLoadBalancer(AgentDeployment deployment, List<Map<String, Object>> rows,
                                     Set<Integer> reserved, Integer previousLbPort) {
@@ -842,7 +861,7 @@ public class AgentDeploymentService {
                     Map.of(),
                     labels,
                     List.of(configDir.resolve("default.conf") + ":/etc/nginx/conf.d/default.conf:ro"),
-                    List.of());
+                    containerLimits());
             containerId = runtime.create(request);
             runtime.start(containerId);
             waitForHealthy(port);

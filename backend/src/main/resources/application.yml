@@ -202,6 +202,15 @@ pgvector:
   hnsw:
     enabled: ${PGVECTOR_HNSW_ENABLED:true}
     concurrently: ${PGVECTOR_HNSW_CONCURRENTLY:true}
+    partial:
+      # 为达到阈值的知识库维护专用 partial HNSW，避免全局索引 + metadata 过滤退化
+      enabled: ${PGVECTOR_HNSW_PARTIAL_ENABLED:true}
+      min-rows: ${PGVECTOR_HNSW_PARTIAL_MIN_ROWS:50000}
+      max-indexes: ${PGVECTOR_HNSW_PARTIAL_MAX_INDEXES:20}
+      # 默认不自动删除历史 partial 索引；确认存储/写放大预算后可开启
+      prune: ${PGVECTOR_HNSW_PARTIAL_PRUNE:false}
+      reconcile-interval-ms: ${PGVECTOR_HNSW_PARTIAL_RECONCILE_INTERVAL_MS:86400000}
+      initial-delay-ms: ${PGVECTOR_HNSW_PARTIAL_INITIAL_DELAY_MS:300000}
   iterative-scan:
     enabled: ${PGVECTOR_ITERATIVE_SCAN_ENABLED:true}
   filtered-exact:
@@ -311,6 +320,10 @@ agent:
     redis-url: ${AGENT_DEPLOY_REDIS_URL:redis://host.docker.internal:6379/0}
     # 容器端口绑定地址：0.0.0.0 允许局域网/Tailscale 访问，127.0.0.1 仅本机
     bind: ${AGENT_DEPLOY_BIND:0.0.0.0}
+    # 运行时与 LB 容器的资源边界（Docker --cpus/--memory/--pids-limit）
+    cpu-limit: ${AGENT_DEPLOY_CPU_LIMIT:1}
+    memory-limit: ${AGENT_DEPLOY_MEMORY_LIMIT:512m}
+    pids-limit: ${AGENT_DEPLOY_PIDS_LIMIT:256}
     # 容器内访问平台的地址（Docker Desktop 用 host.docker.internal；Linux 可换成宿主内网 IP）
     platform-base-url: ${AGENT_DEPLOY_PLATFORM_BASE:http://host.docker.internal:8080}
     # 对外地址前缀（如 https://agents.example.com），留空自动取本机 Tailscale/内网 IP
