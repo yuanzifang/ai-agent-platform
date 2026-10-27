@@ -214,6 +214,25 @@ knowledge:
     timeout-seconds: ${KNOWLEDGE_VISION_TIMEOUT_SECONDS:600}
     max-images: ${KNOWLEDGE_VISION_MAX_IMAGES:3}
 
+vector:
+  # pgvector（默认）/ qdrant；milvus 保留扩展接口
+  store: ${VECTOR_STORE:pgvector}
+  qdrant:
+    url: ${QDRANT_URL:http://127.0.0.1:6333}
+    api-key: ${QDRANT_API_KEY:}
+    collection-prefix: ${QDRANT_COLLECTION_PREFIX:aap}
+
+search:
+  keyword:
+    # mysql（默认）/ es
+    provider: ${KEYWORD_SEARCH_PROVIDER:mysql}
+  es:
+    url: ${ELASTICSEARCH_URL:http://127.0.0.1:9200}
+    index: ${ELASTICSEARCH_INDEX:aap_knowledge_chunks_v1}
+    api-key: ${ELASTICSEARCH_API_KEY:}
+    username: ${ELASTICSEARCH_USERNAME:}
+    password: ${ELASTICSEARCH_PASSWORD:}
+
 pgvector:
   url: ${PG_URL:jdbc:postgresql://localhost:5432/vector}
   username: ${PG_USERNAME:wangpan}

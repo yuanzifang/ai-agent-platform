@@ -24,7 +24,7 @@ public class KnowledgeVectorAuditScheduler {
 
     private final SysTenantMapper tenantMapper;
     private final KnowledgeDocumentMapper docMapper;
-    private final VectorRepository vectorRepository;
+    private final VectorStore vectorRepository;
 
     @Value("${knowledge.vector-audit.batch:20}")
     private int batch = 20;

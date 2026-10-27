@@ -73,7 +73,7 @@ public class EvalService {
     private final PricingService pricingService;
     private final QuotaService quotaService;
     private final com.platform.knowledge.service.EmbeddingService embeddingService;
-    private final com.platform.knowledge.service.VectorRepository vectorRepository;
+    private final com.platform.knowledge.service.VectorStore vectorRepository;
     @org.springframework.beans.factory.annotation.Qualifier("llmTaskExecutor")
     private final org.springframework.core.task.TaskExecutor llmExecutor;
     private final ObjectMapper objectMapper;

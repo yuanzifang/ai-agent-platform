@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,8 +22,9 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @Service
+@ConditionalOnProperty(name = "vector.store", havingValue = "pgvector", matchIfMissing = true)
 @RequiredArgsConstructor
-public class VectorRepository {
+public class VectorRepository implements VectorStore {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -60,6 +62,12 @@ public class VectorRepository {
     private final Map<String, CachedFlag> partialIndexCache = new ConcurrentHashMap<>();
     private static final long COUNT_CACHE_MS = 300_000;
 
+    @Override
+    public String provider() {
+        return "pgvector";
+    }
+
+    @Override
     public void ensureTenantSchema(Long tenantId) {
         String schema = schema(tenantId);
         pgJdbcTemplate.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
@@ -165,6 +173,7 @@ public class VectorRepository {
      *
      * @return created/dropped/desired 统计
      */
+    @Override
     public Map<String, Integer> reconcilePartialIndexes(Long tenantId) {
         if (!hnswEnabled || !partialHnswEnabled || partialHnswMaxIndexes <= 0) {
             return Map.of("created", 0, "dropped", 0, "desired", 0);
@@ -262,6 +271,7 @@ public class VectorRepository {
     }
 
     /** 查询指定知识库的全局/partial HNSW 状态，供运维页面和手动接口使用。 */
+    @Override
     public Map<String, Object> partialIndexStatus(Long tenantId, Long knowledgeBaseId, int dimensions) {
         String schema = schema(tenantId);
         String table = table(dimensions);
@@ -331,10 +341,12 @@ public class VectorRepository {
     }
 
     /** 批量写入分段向量（默认维度）。 */
+    @Override
     public void saveBatch(Long tenantId, List<Map<String, Object>> rows) {
         saveBatch(tenantId, rows, embeddingProperties.getDimensions());
     }
 
+    @Override
     public void saveBatch(Long tenantId, List<Map<String, Object>> rows, int dimensions) {
         if (rows == null || rows.isEmpty()) return;
         String table = "%s.%s".formatted(schema(tenantId), table(dimensions));
@@ -355,6 +367,7 @@ public class VectorRepository {
         }
     }
 
+    @Override
     public List<Map<String, Object>> search(Long tenantId, float[] queryVector, Long knowledgeBaseId,
                                             int topK, double threshold) {
         return search(tenantId, queryVector, knowledgeBaseId, topK, threshold,
@@ -365,6 +378,7 @@ public class VectorRepository {
      * 相似度检索：cosine（<=> 为距离，score = 1 - 距离），按 knowledge_base_id 过滤。
      */
     /** 权限变更时同步所有维度表的 ACL；旧数据缺失 ACL 时由检索 SQL 按知识库级权限兜底。 */
+    @Override
     public void updateAclForKnowledgeBase(Long tenantId, Long knowledgeBaseId,
                                           List<Long> allowedUsers, boolean tenantWide) {
         String usersJson = allowedUsers.stream().map(String::valueOf).map(id -> "\"" + id + "\"")
@@ -379,6 +393,7 @@ public class VectorRepository {
     }
 
     /** 单 chunk 独立 ACL：同步所有维度表。 */
+    @Override
     public void updateAclForChunk(Long tenantId, Long knowledgeBaseId, Long chunkId,
                                   List<Long> allowedUsers, boolean tenantWide) {
         String usersJson = allowedUsers.stream().map(String::valueOf).map(id -> "\"" + id + "\"")
@@ -393,11 +408,13 @@ public class VectorRepository {
         }
     }
 
+    @Override
     public List<Map<String, Object>> search(Long tenantId, float[] queryVector, Long knowledgeBaseId,
                                             int topK, double threshold, int dimensions) {
         return search(tenantId, queryVector, knowledgeBaseId, topK, threshold, dimensions, null, true);
     }
 
+    @Override
     public List<Map<String, Object>> search(Long tenantId, float[] queryVector, Long knowledgeBaseId,
                                             int topK, double threshold, int dimensions,
                                             Long userId, boolean tenantWide) {
@@ -406,6 +423,7 @@ public class VectorRepository {
     }
 
     /** 在向量检索层按内容有效期区间过滤，避免先取 topK 再过滤导致有效数据被截断。 */
+    @Override
     public List<Map<String, Object>> search(Long tenantId, float[] queryVector, Long knowledgeBaseId,
                                             int topK, double threshold, int dimensions,
                                             Long userId, boolean tenantWide,
@@ -541,6 +559,7 @@ public class VectorRepository {
     }
 
     /** 人工修正图表内容后同步向量表内容与 embedding。 */
+    @Override
     public void updateContentForChunk(Long tenantId, Long knowledgeBaseId, Long chunkId,
                                       String content, float[] embedding, int dimensions) {
         String table = "%s.%s".formatted(schema(tenantId), table(dimensions));
@@ -554,6 +573,7 @@ public class VectorRepository {
     }
 
     /** 修改文档有效期时同步所有维度表的向量有效期与 metadata，无需重新解析。 */
+    @Override
     public void updateValidityForDocument(Long tenantId, Long knowledgeBaseId, Long documentId,
                                           Timestamp effectiveFrom, Timestamp effectiveTo) {
         for (String table : tables()) {
@@ -575,6 +595,7 @@ public class VectorRepository {
      * @return 复制的向量行数；0 表示没有可复用数据；抛异常时调用方回退正常解析
      */
     @SuppressWarnings("unchecked")
+    @Override
     public int copyDocumentVectors(Long tenantId, Long fromDocumentId, Long toDocumentId,
                                    int dimensions, String embeddingModel,
                                    Map<Integer, Long> chunkIdByIndex,
@@ -629,6 +650,7 @@ public class VectorRepository {
     }
 
     /** 某文档实际写入的向量行数，用于 MySQL/PgVector 跨库写入后的数量校验。 */
+    @Override
     public long countByDocument(Long tenantId, Long documentId, int dimensions) {
         String table = "%s.%s".formatted(schema(tenantId), table(dimensions));
         Long count = pgJdbcTemplate.queryForObject(
@@ -637,6 +659,7 @@ public class VectorRepository {
         return count == null ? 0 : count;
     }
 
+    @Override
     public void deleteByDocument(Long tenantId, Long documentId) {
         for (String table : tables()) {
             pgJdbcTemplate.update(
@@ -647,6 +670,7 @@ public class VectorRepository {
     }
 
     /** 删除知识库时级联清理全部维度向量（需求 3.6.4 / 架构 6.5）。 */
+    @Override
     public void deleteByKnowledgeBase(Long tenantId, Long knowledgeBaseId) {
         for (String table : tables()) {
             pgJdbcTemplate.update(

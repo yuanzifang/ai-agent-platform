@@ -36,7 +36,7 @@ public class KnowledgeVectorOutboxScheduler {
     private final KnowledgeVectorOutboxMapper outboxMapper;
     private final KnowledgeDocumentMapper docMapper;
     private final KnowledgeService knowledgeService;
-    private final VectorRepository vectorRepository;
+    private final VectorStore vectorRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${knowledge.outbox.batch:10}")
