@@ -15,7 +15,7 @@ import java.util.Map;
 /** ES 关键字检索实现；文档由 MySQL outbox 异步同步。 */
 @Service
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "search.keyword.provider", havingValue = "es")
+@ConditionalOnProperty(name = "search.es.enabled", havingValue = "true")
 public class ElasticsearchKeywordSearchStore implements KeywordSearchStore {
 
     private final ElasticsearchClient client;

@@ -19,6 +19,10 @@ public class KnowledgeBase {
     /** PRIVATE=只有我 / TENANT=所有团队成员（不含受限成员）/ PARTIAL=部分团队成员 */
     private String visibility;
     private String embeddingModel;
+    /** MYSQL / ES */
+    private String searchBackend;
+    /** PGVECTOR / QDRANT */
+    private String vectorBackend;
     private String indexVersion;
     private LocalDateTime createdAt;
     private String parseConfig; // JSON：解析配置覆盖（KB 默认 / 文档上传时选择）

@@ -20,7 +20,7 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "search.keyword.provider", havingValue = "es")
+@ConditionalOnProperty(name = "search.es.enabled", havingValue = "true")
 public class KnowledgeSearchIndexService {
 
     private final @Qualifier("jdbcTemplate") JdbcTemplate mysqlJdbcTemplate;
@@ -33,9 +33,10 @@ public class KnowledgeSearchIndexService {
                        kc.document_type, kc.section_type, kc.chunk_level, kc.parent_key,
                        kc.domain_keywords, kc.relevance_score, kc.regulatory_category,
                        kc.content, kc.allowed_users, kc.tenant_visible, kc.page_from, kc.page_to,
-                       kd.effective_from, kd.effective_to
+                       kd.effective_from, kd.effective_to, kb.search_backend
                 FROM knowledge_chunk kc
                 LEFT JOIN knowledge_document kd ON kd.id = kc.document_id
+                JOIN knowledge_base kb ON kb.id = kc.knowledge_base_id
                 WHERE kc.id = ? AND kc.tenant_id = ?
                 """, chunkId, tenantId);
         if (rows.isEmpty()) {
@@ -43,6 +44,10 @@ public class KnowledgeSearchIndexService {
             return;
         }
         Map<String, Object> row = rows.get(0);
+        if (!"ES".equalsIgnoreCase(String.valueOf(row.get("search_backend")))) {
+            client.deleteDocument(documentId(tenantId, chunkId));
+            return;
+        }
         String metadata = metadata(row);
         Map<String, Object> source = new LinkedHashMap<>();
         source.put("content", row.get("content"));
@@ -79,7 +84,9 @@ public class KnowledgeSearchIndexService {
                     (tenant_id, chunk_id, operation, status, attempts, available_at, created_at, updated_at)
                 SELECT kc.tenant_id, kc.id, 'UPSERT', 'PENDING', 0, NOW(), NOW(), NOW()
                 FROM knowledge_chunk kc
+                JOIN knowledge_base kb ON kb.id = kc.knowledge_base_id
                 WHERE kc.tenant_id = ? AND kc.knowledge_base_id = ?
+                  AND kb.search_backend = 'ES'
                 ON DUPLICATE KEY UPDATE operation='UPSERT', status='PENDING',
                     attempts=0, available_at=NOW(), updated_at=NOW()
                 """, tenantId, knowledgeBaseId);
@@ -92,9 +99,24 @@ public class KnowledgeSearchIndexService {
                     (tenant_id, chunk_id, operation, status, attempts, available_at, created_at, updated_at)
                 SELECT kc.tenant_id, kc.id, 'UPSERT', 'PENDING', 0, NOW(), NOW(), NOW()
                 FROM knowledge_chunk kc
+                JOIN knowledge_base kb ON kb.id = kc.knowledge_base_id
+                WHERE kb.search_backend = 'ES'
                 ON DUPLICATE KEY UPDATE operation='UPSERT', status='PENDING',
                     attempts=0, available_at=NOW(), updated_at=NOW()
                 """);
+    }
+
+    /** 知识库从 ES 切换到 MySQL 时排队删除旧 ES 文档。 */
+    public int enqueueKnowledgeBaseDeletes(Long tenantId, Long knowledgeBaseId) {
+        return mysqlJdbcTemplate.update("""
+                INSERT INTO knowledge_search_outbox
+                    (tenant_id, chunk_id, operation, status, attempts, available_at, created_at, updated_at)
+                SELECT kc.tenant_id, kc.id, 'DELETE', 'PENDING', 0, NOW(), NOW(), NOW()
+                FROM knowledge_chunk kc
+                WHERE kc.tenant_id = ? AND kc.knowledge_base_id = ?
+                ON DUPLICATE KEY UPDATE operation='DELETE', status='PENDING',
+                    attempts=0, available_at=NOW(), updated_at=NOW()
+                """, tenantId, knowledgeBaseId);
     }
 
     private String metadata(Map<String, Object> row) {

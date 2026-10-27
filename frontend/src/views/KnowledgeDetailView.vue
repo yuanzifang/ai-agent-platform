@@ -7,6 +7,7 @@
       <span class="kb-title">{{ detail.name }}</span>
       <el-tag size="small" :type="visTag(detail.visibility)">{{ visText(detail.visibility) }}</el-tag>
       <el-tag v-if="detail.graphEnabled === false" size="small" type="info">{{ t('knowledgeList.graphOff') }}</el-tag>
+      <el-tag size="small" type="info">{{ detail.searchBackend || 'MYSQL' }} / {{ detail.vectorBackend || 'PGVECTOR' }}</el-tag>
       <span class="kb-meta">{{ t('kbDetail.metaDocs') }}{{ detail.documentCount }}{{ t('kbDetail.metaChunks') }}{{ detail.chunkCount }}{{ t('kbDetail.creator') }}{{ detail.creatorName || '-' }}</span>
       <el-button v-if="detail.canEdit" @click="openEdit">{{ t('kbDetail.edit') }}</el-button>
       <el-button v-if="detail.graphEnabled !== false" @click="$router.push(`/knowledge/${kbId}/graph`)">{{ t('graphPage.title') }}</el-button>
@@ -349,6 +350,20 @@
         <el-form-item :label="t('kbDetail.desc')">
           <el-input v-model="editForm.description" type="textarea" :rows="2" maxlength="512" />
         </el-form-item>
+        <el-form-item :label="t('knowledgeList.searchBackend')">
+          <el-select v-model="editForm.searchBackend" style="width: 260px">
+            <el-option v-for="b in searchBackends" :key="b.value" :value="b.value"
+                       :label="b.label + (b.available ? '' : t('knowledgeList.backendUnavailable'))"
+                       :disabled="!b.available" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('knowledgeList.vectorBackend')">
+          <el-select v-model="editForm.vectorBackend" :disabled="detail.documentCount > 0" style="width: 260px">
+            <el-option v-for="b in vectorBackends" :key="b.value" :value="b.value"
+                       :label="b.label + (b.available ? '' : t('knowledgeList.backendUnavailable'))"
+                       :disabled="!b.available" />
+          </el-select>
+        </el-form-item>
         <el-form-item :label="t('knowledgeList.graphEnabled')">
           <el-switch v-model="editForm.graphEnabled" />
           <span class="hint">{{ t('knowledgeList.graphHint') }}</span>
@@ -522,6 +537,8 @@ const detail = reactive<Record<string, any>>({
   name: '', visibility: 'TENANT', creatorId: null, creatorName: '', documentCount: 0, chunkCount: 0,
   canEdit: false, graphEnabled: false
 })
+const searchBackends = ref<any[]>([])
+const vectorBackends = ref<any[]>([])
 const documents = ref<any[]>([])
 const validOnly = ref(false)
 const reviewOnly = ref(false)
@@ -591,7 +608,8 @@ const aclForm = reactive<{ tenantVisible: boolean; users: number[] }>({ tenantVi
 const editVisible = ref(false)
 const editSaving = ref(false)
 const editForm = reactive({
-  name: '', description: '', graphEnabled: false, parseConfig: {} as Record<string, any>
+  name: '', description: '', graphEnabled: false, searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR',
+  parseConfig: {} as Record<string, any>
 })
 
 // ---- 权限设置 ----
@@ -605,6 +623,11 @@ const grantableMembers = computed(() =>
   members.value.filter(m => m.id !== detail.creatorId && !(m.roles || []).includes('RESTRICTED')))
 
 onMounted(async () => {
+  try {
+    const b = await http.get('/knowledge-base/retrieval-backends') as any
+    searchBackends.value = b.search || []
+    vectorBackends.value = b.vector || []
+  } catch { /* 使用默认选项 */ }
   await loadDetail()
   await loadDocs()
   await loadUpgradeJob()
@@ -639,6 +662,8 @@ function openEdit() {
   editForm.name = detail.name
   editForm.description = detail.description || ''
   editForm.graphEnabled = detail.graphEnabled !== false
+  editForm.searchBackend = detail.searchBackend || 'MYSQL'
+  editForm.vectorBackend = detail.vectorBackend || 'PGVECTOR'
   editForm.parseConfig = detail.parseConfig || {}
   editVisible.value = true
 }
@@ -649,7 +674,8 @@ async function saveEdit() {
   try {
     await http.put(`/knowledge-base/${kbId}`, {
       name: editForm.name.trim(), description: editForm.description,
-      graphEnabled: editForm.graphEnabled, parseConfig: editForm.parseConfig
+      graphEnabled: editForm.graphEnabled, parseConfig: editForm.parseConfig,
+      searchBackend: editForm.searchBackend, vectorBackend: editForm.vectorBackend
     })
     ElMessage.success(t('kbDetail.saved'))
     editVisible.value = false

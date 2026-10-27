@@ -29,7 +29,7 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "vector.store", havingValue = "qdrant")
+@ConditionalOnProperty(name = "vector.qdrant.enabled", havingValue = "true")
 public class QdrantVectorStore implements VectorStore {
 
     private final EmbeddingProperties embeddingProperties;

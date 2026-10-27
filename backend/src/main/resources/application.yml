@@ -218,15 +218,19 @@ vector:
   # pgvector（默认）/ qdrant；milvus 保留扩展接口
   store: ${VECTOR_STORE:pgvector}
   qdrant:
+    # 是否启用 Qdrant 适配器；知识库选择 QDRANT 前必须为 true
+    enabled: ${VECTOR_QDRANT_ENABLED:false}
     url: ${QDRANT_URL:http://127.0.0.1:6333}
     api-key: ${QDRANT_API_KEY:}
     collection-prefix: ${QDRANT_COLLECTION_PREFIX:aap}
 
 search:
   keyword:
-    # mysql（默认）/ es
+    # 新知识库默认关键字后端：mysql / es
     provider: ${KEYWORD_SEARCH_PROVIDER:mysql}
   es:
+    # 是否启用 ES 适配器；知识库选择 ES 前必须为 true
+    enabled: ${SEARCH_ES_ENABLED:false}
     url: ${ELASTICSEARCH_URL:http://127.0.0.1:9200}
     index: ${ELASTICSEARCH_INDEX:aap_knowledge_chunks_v1}
     api-key: ${ELASTICSEARCH_API_KEY:}

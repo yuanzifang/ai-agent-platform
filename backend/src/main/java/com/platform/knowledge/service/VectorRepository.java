@@ -22,7 +22,6 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @Service
-@ConditionalOnProperty(name = "vector.store", havingValue = "pgvector", matchIfMissing = true)
 @RequiredArgsConstructor
 public class VectorRepository implements VectorStore {
 

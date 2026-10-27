@@ -19,7 +19,7 @@ import java.util.Map;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "search.keyword.provider", havingValue = "es")
+@ConditionalOnProperty(name = "search.es.enabled", havingValue = "true")
 public class KnowledgeSearchOutboxScheduler {
 
     private final @Qualifier("jdbcTemplate") JdbcTemplate mysqlJdbcTemplate;

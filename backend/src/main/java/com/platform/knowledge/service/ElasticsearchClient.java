@@ -22,7 +22,7 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "search.keyword.provider", havingValue = "es")
+@ConditionalOnProperty(name = "search.es.enabled", havingValue = "true")
 public class ElasticsearchClient {
 
     private final ObjectMapper objectMapper;
