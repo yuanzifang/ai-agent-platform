@@ -171,7 +171,6 @@ public class OpenApiController {
         response.put("session_id", conversation.getSessionId());
         response.put("conversation_id", conversation.getId());
         response.put("trace_id", traceId);
-
         return ResponseEntity.ok(response);
     }
 
