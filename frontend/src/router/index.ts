@@ -37,6 +37,7 @@ const router = createRouter({
         { path: 'metrics/:agentId?', component: () => import('../views/MetricsView.vue') },
         { path: 'audit', component: () => import('../views/AuditView.vue') },
         { path: 'admin/settings', component: () => import('../views/SysConfigView.vue') },
+        { path: 'admin/i18n', component: () => import('../views/I18nAdminView.vue') },
         { path: 'eval/:agentId?', component: () => import('../views/EvalView.vue') },
         { path: 'cases', component: () => import('../views/CaseLibraryView.vue') },
         { path: 'approvals', component: () => import('../views/ApprovalView.vue') },
