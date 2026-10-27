@@ -290,6 +290,7 @@ public class GatewayService {
                     copyHeader(request, builder, "Accept");
                     copyHeader(request, builder, "User-Agent");
                     copyHeader(request, builder, "Authorization");
+                    copyHeader(request, builder, "X-Gray-Tag");   // 灰度标记全链路透传
                     HttpRequest httpRequest = builder.build();
 
                     int attempts = 1 + (isIdempotent(request.getMethod())
@@ -373,6 +374,7 @@ public class GatewayService {
                 copyHeader(request, builder, "Accept");
                 copyHeader(request, builder, "User-Agent");
                 copyHeader(request, builder, "Authorization");
+                copyHeader(request, builder, "X-Gray-Tag");   // 灰度标记全链路透传
                 HttpRequest httpRequest = builder.build();
 
                 HttpResponse<InputStream> response = httpClient.send(
