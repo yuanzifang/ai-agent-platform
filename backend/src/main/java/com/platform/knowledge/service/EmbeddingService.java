@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -17,6 +18,7 @@ import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -29,7 +31,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.UUID;
 
 /**
  * 嵌入服务（架构 6.4）：Ollama/OpenAI 兼容 /v1/embeddings；知识库按名称选择模型与维度。
@@ -56,6 +60,16 @@ public class EmbeddingService {
 
     @org.springframework.beans.factory.annotation.Value("${embedding.query-cache-redis-enabled:true}")
     private boolean redisQueryCacheEnabled = true;
+
+    @org.springframework.beans.factory.annotation.Value("${embedding.query-cache-redis-lock-enabled:true}")
+    private boolean redisLockEnabled = true;
+
+    @org.springframework.beans.factory.annotation.Value("${embedding.query-cache-redis-lock-wait-ms:3000}")
+    private long redisLockWaitMs = 3000;
+
+    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            Long.class);
 
     /** 测试/无 Redis 环境可缺省；有 Redis 时跨实例共享 query embedding。 */
     @Autowired(required = false)
@@ -183,17 +197,19 @@ public class EmbeddingService {
         CompletableFuture<float[]> mine = new CompletableFuture<>();
         CompletableFuture<float[]> existing = queryInFlight.putIfAbsent(key, mine);
         if (existing != null) {
-            try {
-                return existing.get(130, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new BusinessException(502, "查询 embedding 等待被中断");
-            } catch (ExecutionException e) {
-                Throwable root = e.getCause() == null ? e : e.getCause();
-                if (root instanceof BusinessException business) throw business;
-                throw new BusinessException(502, "查询 embedding 失败：" + root.getMessage());
-            } catch (TimeoutException e) {
-                throw new BusinessException(504, "查询 embedding 等待超时");
+            return awaitLocal(existing);
+        }
+        String lockToken = null;
+        if (redisQueryCacheEnabled && redisLockEnabled && redis != null) {
+            lockToken = tryLock(key);
+            if (lockToken == null) {
+                float[] shared = awaitRedis(key);
+                if (shared != null) {
+                    putLocal(key, shared, now);
+                    mine.complete(shared);
+                    queryInFlight.remove(key, mine);
+                    return shared;
+                }
             }
         }
         try {
@@ -208,8 +224,59 @@ public class EmbeddingService {
             mine.completeExceptionally(e);
             throw e;
         } finally {
+            if (lockToken != null) unlock(key, lockToken);
             queryInFlight.remove(key, mine);
         }
+    }
+
+    private float[] awaitLocal(CompletableFuture<float[]> future) {
+        try {
+            return future.get(130, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException(502, "查询 embedding 等待被中断");
+        } catch (ExecutionException e) {
+            Throwable root = e.getCause() == null ? e : e.getCause();
+            if (root instanceof BusinessException business) throw business;
+            throw new BusinessException(502, "查询 embedding 失败：" + root.getMessage());
+        } catch (TimeoutException e) {
+            throw new BusinessException(504, "查询 embedding 等待超时");
+        }
+    }
+
+    private String tryLock(String key) {
+        String token = UUID.randomUUID().toString();
+        try {
+            Boolean acquired = redis.opsForValue().setIfAbsent("embedding:lock:" + key, token,
+                    Duration.ofSeconds(30));
+            return Boolean.TRUE.equals(acquired) ? token : null;
+        } catch (Exception e) {
+            log.debug("获取 Redis embedding 锁失败（回退计算）：{}", e.getMessage());
+            return null;
+        }
+    }
+
+    private void unlock(String key, String token) {
+        try {
+            redis.execute(UNLOCK_SCRIPT, Collections.singletonList("embedding:lock:" + key), token);
+        } catch (Exception e) {
+            log.debug("释放 Redis embedding 锁失败（等待 TTL）：{}", e.getMessage());
+        }
+    }
+
+    private float[] awaitRedis(String key) {
+        long deadline = System.currentTimeMillis() + Math.max(0, redisLockWaitMs);
+        while (System.currentTimeMillis() < deadline) {
+            float[] cached = redisGet(key);
+            if (cached != null) return cached;
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
+        return null;
     }
 
     private void putLocal(String key, float[] vector, long now) {
