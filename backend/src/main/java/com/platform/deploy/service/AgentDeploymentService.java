@@ -220,6 +220,10 @@ public class AgentDeploymentService {
         }
 
         Integer previousLbPort = deployment.getLbHostPort();
+        // host_port 在表结构中非空：首次部署先占一个候选端口，真正创建容器时会优先复用。
+        if (deployment.getHostPort() == null) {
+            deployment.setHostPort(allocatePort(deployment, Set.of(), false));
+        }
         removeReplicaContainers(deployment);
         // 旧 Key 先清理，避免每 Agent 10 个 Key 的上限被重复部署占满
         deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
