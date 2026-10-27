@@ -40,7 +40,7 @@ PDF_BENCH_DIR=/path/to/pdf-samples mvn -Dtest=PdfBenchmarkTest test
 cat target/pdf-bench-report.md
 ```
 
-基准测试默认跳过；只有设置 `PDF_BENCH_DIR` 才运行。报告包含每份 PDF 的页数、
+默认使用自包含 fixture 运行；设置 `PDF_BENCH_DIR` 时改跑真实语料。报告包含每份 PDF 的页数、
 耗时、分段数、字符数、标题数、表格数、图片数、页码覆盖和正文预览。
 
 ## 结果（修复后）
