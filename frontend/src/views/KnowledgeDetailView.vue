@@ -84,6 +84,8 @@
         <div class="sec-title">{{ t('kbDetail.docs') }}{{ documents.length }}）
           <el-switch v-model="validOnly" size="small" />
           <span class="hint">{{ t('kbDetail.validOnly') }}</span>
+          <el-switch v-model="reviewOnly" size="small" />
+          <span class="hint">{{ t('kbDetail.reviewOnly') }}</span>
           <el-button v-if="detail.canEdit" size="small" text type="primary"
                      :loading="validityRebuilding" @click="rebuildValidity">
             {{ t('kbDetail.rebuildValidity') }}
@@ -172,6 +174,8 @@
                          @click.stop="retryDoc(row)">{{ t('kbDetail.retry') }}</el-button>
               <el-button v-if="reparseAvailable(row)" size="small" text type="primary"
                          :loading="row.reparseLoading" @click.stop="reparseDoc(row)">{{ t('kbDetail.reparse') }}</el-button>
+              <el-button v-if="row.manualReviewRequired" size="small" text type="warning"
+                         @click.stop="resolveManualReview(row)">{{ t('kbDetail.reviewDone') }}</el-button>
               <el-button size="small" text type="primary"
                          @click.stop="openValidity(row)">{{ t('kbDetail.validity') }}</el-button>
               <el-button v-if="isPdf(row) && (row.status === 'DONE' || row.status === 'FAILED')"
@@ -520,6 +524,7 @@ const detail = reactive<Record<string, any>>({
 })
 const documents = ref<any[]>([])
 const validOnly = ref(false)
+const reviewOnly = ref(false)
 const validityRebuilding = ref(false)
 const legacyReparsing = ref(false)
 const upgradeJob = ref<any>(null)
@@ -532,9 +537,13 @@ const hashMissingCount = computed(() => documents.value.filter(
   (d: any) => d.status === 'DONE' && !d.sourceSha256).length)
 const uploadTasks = ref<any[]>([])
 let uploadSeq = 0
-const visibleDocuments = computed(() => validOnly.value
-  ? documents.value.filter(doc => validityState(doc) === 'valid')
-  : documents.value)
+const visibleDocuments = computed(() => {
+  let docs = validOnly.value
+    ? documents.value.filter(doc => validityState(doc) === 'valid')
+    : documents.value
+  if (reviewOnly.value) docs = docs.filter(doc => doc.manualReviewRequired)
+  return docs
+})
 const legacyDocCount = computed(() => documents.value.filter((doc: any) =>
   doc.upgradePending ?? (doc.status === 'DONE' && !doc.parseFingerprint)).length)
 const uploading = computed(() => uploadTasks.value.some(
@@ -833,6 +842,15 @@ async function cancelUpgrade() {
     upgradeTimer = null
   }
   ElMessage.success(t('kbDetail.upgradeCancelled'))
+  await loadDocs()
+}
+
+async function resolveManualReview(row: any) {
+  const result = await ElMessageBox.prompt(t('kbDetail.reviewNotePrompt'),
+    t('kbDetail.reviewDone'), { inputPlaceholder: t('kbDetail.reviewNotePh'), inputValue: '' })
+  await http.post(`/knowledge-base/${kbId}/documents/${row.id}/manual-review`,
+    { note: result.value || '' })
+  ElMessage.success(t('kbDetail.reviewSaved'))
   await loadDocs()
 }
 

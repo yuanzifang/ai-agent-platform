@@ -349,6 +349,23 @@ class KnowledgeServiceLifecycleTest {
     }
 
     @Test
+    void marksManualReviewResolved() {
+        KnowledgeDocument doc = new KnowledgeDocument();
+        doc.setId(90L);
+        doc.setKnowledgeBaseId(1L);
+        doc.setStatus("DONE");
+        doc.setParseWarning("人工复核：复杂表格");
+        when(docMapper.selectById(90L)).thenReturn(doc);
+
+        Map<String, Object> result = service.resolveManualReview(1L, 90L, "人工核对完成", viewer);
+
+        assertEquals("RESOLVED", result.get("manualReviewStatus"));
+        verify(docMapper).update(isNull(), any());
+        verify(auditService).record(7L, "knowledge.document.manual_review", "knowledge_document",
+                "90", "SUCCESS", Map.of("kbId", 1L, "note", "人工核对完成"));
+    }
+
+    @Test
     void recoversStaleParsingDocumentAndCleansPartialData() {
         KnowledgeDocument stale = new KnowledgeDocument();
         stale.setId(78L);
