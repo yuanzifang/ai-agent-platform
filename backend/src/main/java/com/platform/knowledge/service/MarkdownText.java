@@ -7,8 +7,10 @@ import org.jsoup.nodes.Node;
 import org.jsoup.nodes.TextNode;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Markdown/HTML 文本工具。
@@ -76,10 +78,6 @@ final class MarkdownText {
     }
 
     private static List<String> splitHtmlTable(String html, int maxChars) {
-        if (html.toLowerCase(Locale.ROOT).contains("rowspan")
-                || html.toLowerCase(Locale.ROOT).contains("colspan")) {
-            return List.of(html);
-        }
         try {
             Document doc = Jsoup.parseBodyFragment(html);
             Element table = doc.selectFirst("table");
@@ -110,23 +108,55 @@ final class MarkdownText {
             }
             head = (caption == null ? "" : caption.outerHtml()) + head;
             if (!headerRows.isEmpty()) bodyRows.removeAll(headerRows);
+            // 表头自身有跨行时，表头无法安全重复，保持原子。
+            if (headerRows.stream().anyMatch(row -> row.select("[rowspan]").stream()
+                    .anyMatch(cell -> intAttr(cell, "rowspan") > 1))) {
+                return List.of(html);
+            }
             List<String> parts = new ArrayList<>();
             StringBuilder part = new StringBuilder("<table border=\"1\">\n").append(head).append("\n<tbody>");
             boolean hasRows = false;
+            Map<Integer, Integer> activeRowSpans = new HashMap<>();
             for (Element row : bodyRows) {
+                // 先消耗上一行留下的 rowspan；仍活动的列在本行会被跳过。
+                activeRowSpans.entrySet().removeIf(e -> e.getValue() <= 0);
+                activeRowSpans.replaceAll((col, remaining) -> remaining - 1);
                 String rowHtml = row.outerHtml();
-                if (hasRows && part.length() + rowHtml.length() > maxChars) {
+                if (hasRows && activeRowSpans.isEmpty()
+                        && part.length() + rowHtml.length() > maxChars) {
                     parts.add(part.append("\n</tbody>\n</table>").toString());
                     part = new StringBuilder("<table border=\"1\">\n").append(head).append("\n<tbody>");
                     hasRows = false;
                 }
                 part.append('\n').append(rowHtml);
                 hasRows = true;
+                int column = 0;
+                for (Element cell : row.select("td,th")) {
+                    while (activeRowSpans.containsKey(column) && activeRowSpans.get(column) > 0) column++;
+                    int colspan = Math.max(1, intAttr(cell, "colspan"));
+                    int rowspan = Math.max(1, intAttr(cell, "rowspan"));
+                    if (rowspan > 1) {
+                        for (int c = 0; c < colspan; c++) {
+                            activeRowSpans.put(column + c, rowspan - 1);
+                        }
+                    }
+                    column += colspan;
+                }
             }
             if (hasRows) parts.add(part.append("\n</tbody>\n</table>").toString());
-            return parts.isEmpty() ? List.of(html) : parts;
+            if (parts.size() <= 1) return List.of(html);
+            // 只有真正找到安全切分点时才拆；否则保持原表原子。
+            return parts;
         } catch (Exception e) {
             return List.of(html);
+        }
+    }
+
+    private static int intAttr(Element element, String name) {
+        try {
+            return Integer.parseInt(element.attr(name));
+        } catch (Exception e) {
+            return 1;
         }
     }
 
