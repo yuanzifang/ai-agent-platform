@@ -11,9 +11,12 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class VectorRepositoryTest {
 
@@ -95,6 +98,22 @@ class VectorRepositoryTest {
         assertTrue(sql.getValue().contains("effective_from"));
         assertTrue(sql.getValue().contains("effective_to"));
         assertTrue(sql.getValue().contains("jsonb_set"));
+    }
+
+    @Test
+    void usesExactMaterializedScanForLowSelectivityFilter() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        VectorRepository repo = new VectorRepository(jdbc, properties());
+        when(jdbc.queryForObject(anyString(), eq(Long.class))).thenReturn(1_000_000L);
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(10_000L);
+        when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
+
+        repo.search(1L, new float[]{0.1f, 0.2f}, 2L, 5, 0.5, 768, null, true);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).queryForList(sql.capture(), any(Object[].class));
+        assertTrue(sql.getValue().contains("MATERIALIZED"), sql.getValue());
+        assertTrue(sql.getValue().contains("ORDER BY score DESC"), sql.getValue());
     }
 
     @Test
