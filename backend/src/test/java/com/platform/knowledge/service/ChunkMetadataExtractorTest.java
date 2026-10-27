@@ -30,6 +30,23 @@ class ChunkMetadataExtractorTest {
     }
 
     @Test
+    void extractsChineseRegulatoryAndSectionMetadata() {
+        String text = "药品注册 监管 指导原则 方法";
+        ChunkMetadataExtractor.Profile profile = ChunkMetadataExtractor.profile(
+                "指导原则.pdf", text);
+        DocumentParser.ParsedChunk chunk = new DocumentParser.ParsedChunk(
+                "方法\n本指导原则描述剂量与安全性。", 1, "方法\n监管指导原则",
+                null, 1, 1, List.of("方法"));
+
+        ChunkMetadataExtractor.Metadata meta = ChunkMetadataExtractor.extract(9L, chunk, profile);
+
+        assertEquals("regulatory", meta.documentType());
+        assertEquals("REGULATORY", meta.regulatoryCategory());
+        assertEquals("methods", meta.sectionType());
+        assertEquals("9:1", meta.parentKey());
+    }
+
+    @Test
     void extractsClinicalTrialAndAbstractMetadata() {
         String text = "A randomized placebo-controlled clinical trial (NCT01234567).";
         ChunkMetadataExtractor.Profile profile = ChunkMetadataExtractor.profile("trial.pdf", text);

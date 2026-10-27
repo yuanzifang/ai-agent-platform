@@ -49,12 +49,17 @@ final class ChunkMetadataExtractor {
         String text = ((fileName == null ? "" : fileName) + " " + (sampleContent == null ? "" : sampleContent))
                 .toLowerCase(Locale.ROOT);
         String regulatory = regulatoryCategory(text);
+        if (regulatory == null && containsAny(text, "监管", "指导原则", "法规", "药品注册")) {
+            regulatory = "REGULATORY";
+        }
         String type;
         if (regulatory != null) {
             type = "regulatory";
-        } else if (text.matches("(?s).*\\b(randomi[sz]ed|placebo|clinical trial|phase\\s+(i|ii|iii|iv)|nct\\d+)\\b.*")) {
+        } else if (text.matches("(?s).*\\b(randomi[sz]ed|placebo|clinical trial|phase\\s+(i|ii|iii|iv)|nct\\d+)\\b.*")
+                || containsAny(text, "临床试验", "随机", "安慰剂", "受试者")) {
             type = "clinical_trial";
-        } else if (text.matches("(?s).*\\b(abstract|doi|references|et al\\.|journal|research article)\\b.*")) {
+        } else if (text.matches("(?s).*\\b(abstract|doi|references|et al\\.|journal|research article)\\b.*")
+                || containsAny(text, "摘要", "参考文献", "研究论文")) {
             type = "research_paper";
         } else {
             type = "general";
@@ -96,9 +101,16 @@ final class ChunkMetadataExtractor {
                 {"references", "references|bibliography|参考文献"}
         };
         for (String[] rule : rules) {
-            if (lower.matches("(?s).*\\b(" + rule[1] + ")\\b.*")) return rule[0];
+            if (containsAny(lower, rule[1].split("\\|"))) return rule[0];
         }
         return "body";
+    }
+
+    private static boolean containsAny(String text, String... terms) {
+        for (String term : terms) {
+            if (term != null && !term.isBlank() && text.contains(term)) return true;
+        }
+        return false;
     }
 
     private static List<String> keywords(String text) {
