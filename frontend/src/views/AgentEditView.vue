@@ -112,6 +112,7 @@
                 <el-select v-model="form.capabilities.writeToolPolicy" style="width: 220px">
                   <el-option :label="t('agentEdit.writePolicyAllowAll')" value="ALLOW_ALL" />
                   <el-option :label="t('agentEdit.writePolicyBlock')" value="BLOCK" />
+                  <el-option :label="t('agentEdit.writePolicyApproval')" value="APPROVAL" />
                   <el-option :label="t('agentEdit.writePolicyAllowlist')" value="ALLOWLIST" />
                 </el-select>
               </el-form-item>

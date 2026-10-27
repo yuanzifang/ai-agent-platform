@@ -8,6 +8,8 @@
         <el-option :label="t('approval.pending')" value="PENDING" />
         <el-option :label="t('approval.approved')" value="APPROVED" />
         <el-option :label="t('approval.rejected')" value="REJECTED" />
+        <el-option :label="t('approval.executed')" value="EXECUTED" />
+        <el-option :label="t('approval.failed')" value="FAILED" />
         <el-option :label="t('approval.expired')" value="EXPIRED" />
         <el-option :label="t('approval.all')" value="ALL" />
       </el-select>
@@ -53,6 +55,38 @@
                    :total="total" v-model:current-page="page" :page-size="20"
                    @current-change="load(false)" />
 
+    <el-card shadow="never" class="mt12">
+      <template #header>{{ t('approval.toolTitle') }}</template>
+      <el-table :data="toolApprovals" size="small" v-loading="toolLoading"
+                :empty-text="t('approval.toolEmpty')">
+        <el-table-column prop="id" label="ID" width="65" />
+        <el-table-column prop="agentId" label="Agent" width="70" />
+        <el-table-column prop="toolName" :label="t('approval.tool')" width="150" />
+        <el-table-column :label="t('approval.content')" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }"><span class="mono">{{ row.toolInput || '-' }}</span></template>
+        </el-table-column>
+        <el-table-column :label="t('approval.status')" width="100">
+          <template #default="{ row }">
+            <el-tag size="small" :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('approval.result')" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }"><span class="mono">{{ row.result || '-' }}</span></template>
+        </el-table-column>
+        <el-table-column :label="t('approval.submitted')" width="165">
+          <template #default="{ row }">{{ fmt(row.createdAt) }}</template>
+        </el-table-column>
+        <el-table-column :label="t('approval.actions')" width="160">
+          <template #default="{ row }">
+            <template v-if="row.status === 'PENDING'">
+              <el-button size="small" type="primary" text @click="decideTool(row, true)">{{ t('approval.approve') }}</el-button>
+              <el-button size="small" type="danger" text @click="decideTool(row, false)">{{ t('approval.reject') }}</el-button>
+            </template>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <el-dialog v-model="decideVisible" :title="decideApprove ? t('approval.approveTitle') : t('approval.rejectTitle')" width="520px">
       <el-form label-width="80px">
         <el-form-item :label="t('approval.title')">{{ current.title }}</el-form-item>
@@ -97,7 +131,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 
 const { t } = useI18n()
@@ -114,6 +148,9 @@ const comment = ref('')
 const current = reactive<any>({})
 const runVisible = ref(false)
 const run = ref<any>(null)
+const toolApprovals = ref<any[]>([])
+const toolLoading = ref(false)
+const toolTotal = ref(0)
 
 onMounted(() => load(true))
 
@@ -121,11 +158,18 @@ async function load(reset: boolean) {
   if (reset) page.value = 1
   loading.value = true
   try {
-    const data = await http.get('/workflow/approvals', {
-      params: { status: status.value === 'ALL' ? undefined : status.value, page: page.value, pageSize: 20 }
-    }) as any
+    const [data, toolData] = await Promise.all([
+      http.get('/workflow/approvals', {
+        params: { status: status.value === 'ALL' ? undefined : status.value, page: page.value, pageSize: 20 }
+      }) as any,
+      http.get('/tool-approvals', {
+        params: { status: status.value === 'ALL' ? undefined : status.value, page: 1, pageSize: 100 }
+      }) as any
+    ])
     list.value = data.list || []
     total.value = data.total || 0
+    toolApprovals.value = toolData.list || []
+    toolTotal.value = toolData.total || 0
   } finally {
     loading.value = false
   }
@@ -158,18 +202,39 @@ async function decide() {
   }
 }
 
+async function decideTool(row: any, approve: boolean) {
+  const action = approve ? t('approval.approve') : t('approval.reject')
+  try {
+    await ElMessageBox.confirm(
+      `${action} ${t('approval.tool')} #${row.id}？${approve ? t('approval.toolApproveHint') : ''}`,
+      t('approval.toolTitle'), { type: 'warning',
+        confirmButtonText: action, cancelButtonText: t('approval.cancel') })
+  } catch {
+    return
+  }
+  try {
+    await http.post(`/tool-approvals/${row.id}/decide`, {
+      approve, comment: ''
+    }, { timeout: 180000 })
+    ElMessage.success(approve ? t('approval.toolExecutedToast') : t('approval.rejectedToast'))
+    await load(true)
+  } catch {
+    // 请求拦截器已提示
+  }
+}
+
 async function viewRun(row: any) {
   run.value = await http.get(`/workflow/runs/${row.runId}`) as any
   runVisible.value = true
 }
 
 function statusText(s: string) {
-  return ({ PENDING: t('approval.pending'), APPROVED: t('approval.approved'), REJECTED: t('approval.rejected'), EXPIRED: t('approval.expired') } as any)[s] || s
+  return ({ PENDING: t('approval.pending'), APPROVED: t('approval.approved'), REJECTED: t('approval.rejected'), EXECUTED: t('approval.executed'), FAILED: t('approval.failed'), EXPIRED: t('approval.expired') } as any)[s] || s
 }
 
 function statusType(s: string) {
-  if (s === 'APPROVED') return 'success'
-  if (s === 'REJECTED') return 'danger'
+  if (s === 'APPROVED' || s === 'EXECUTED') return 'success'
+  if (s === 'REJECTED' || s === 'FAILED') return 'danger'
   return 'warning'
 }
 
@@ -188,5 +253,6 @@ function fmt(v?: string) {
 .payload { white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow-y: auto; font-size: 13px; }
 .mt12 { margin-top: 12px; }
 .hint { color: #909399; font-size: 12px; margin-bottom: 6px; }
+.mono { font-family: monospace; font-size: 12px; }
 .node-line { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed #ebeef5; font-size: 13px; }
 </style>
