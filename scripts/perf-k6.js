@@ -2,7 +2,8 @@
 // 需要后端已启动、模型可走 mock 或真实 Provider、租户限流足够高。
 // 运行：k6 run scripts/perf-k6.js
 // 可用环境变量：PERF_BASE_URL / PERF_USERNAME / PERF_PASSWORD / PERF_TENANT /
-//               PERF_RATE / PERF_DURATION / PERF_PRE_VUS / PERF_MAX_VUS
+//               PERF_RATE / PERF_DURATION / PERF_PRE_VUS / PERF_MAX_VUS /
+//               PERF_MODEL / PERF_KB_ID / PERF_MESSAGE / PERF_WARN_WORD
 import http from 'k6/http'
 import { check } from 'k6'
 import { Trend, Rate } from 'k6/metrics'
@@ -15,10 +16,16 @@ const RATE = Number(__ENV.PERF_RATE || 3)
 const DURATION = __ENV.PERF_DURATION || '60s'
 const PRE_VUS = Number(__ENV.PERF_PRE_VUS || 10)
 const MAX_VUS = Number(__ENV.PERF_MAX_VUS || 30)
+const MODEL = __ENV.PERF_MODEL || 'deepseek-flash'
+const KB_ID = __ENV.PERF_KB_ID || ''
+const MESSAGE = __ENV.PERF_MESSAGE || '请简短回答：压测消息'
+const WARN_WORD = __ENV.PERF_WARN_WORD || ''
 
 const chatTtfb = new Trend('chat_ttfb_ms', true)
 const chatTotal = new Trend('chat_total_ms', true)
 const chatOk = new Rate('chat_ok')
+const ragCitation = new Rate('rag_citation')
+const moderationWarn = new Rate('moderation_warn')
 
 export const options = {
   discardResponseBodies: false,
@@ -39,6 +46,8 @@ export const options = {
     'http_req_duration{endpoint:chat_stream}': ['p(95)<5000'],
     'chat_ttfb_ms': ['p(95)<1500'],
     'chat_ok': ['rate>0.99'],
+    ...(KB_ID ? { rag_citation: ['rate>0.99'] } : {}),
+    ...(WARN_WORD ? { moderation_warn: ['rate>0.99'] } : {}),
   },
 }
 
@@ -63,9 +72,10 @@ export function setup() {
     name,
     description: 'k6 SSE 压测专用 Agent',
     systemPrompt: '你是压测助手，请用一句话简洁回答。',
-    modelConfig: { modelName: 'deepseek-flash', temperature: 0.2 },
+    modelConfig: { modelName: MODEL, temperature: 0.2 },
     agentCapabilities: { functionCall: false },
     tools: [],
+    knowledgeBases: KB_ID ? [{ knowledgeBaseId: Number(KB_ID), enabled: true }] : [],
     visibility: 'PRIVATE',
   }), { headers: authHeaders(token), tags: { endpoint: 'setup_agent' } })
   if (created.status !== 200 || created.json('code') !== 0) {
@@ -98,7 +108,7 @@ function conversationId(data) {
 export function chat(data) {
   const convId = conversationId(data)
   const res = http.post(`${BASE}/api/v1/conversations/${convId}/messages`, JSON.stringify({
-    message: '请简短回答：压测消息',
+    message: MESSAGE,
     stream: true,
   }), {
     headers: { ...authHeaders(data.token), Accept: 'text/event-stream' },
@@ -108,15 +118,22 @@ export function chat(data) {
 
   const body = String(res.body || '')
   const done = /event:\s*done/.test(body)
+  const citation = /event:\s*citation/.test(body)
+  const moderation = /event:\s*moderation/.test(body)
+  if (KB_ID) ragCitation.add(citation)
+  if (WARN_WORD) moderationWarn.add(moderation)
   const ok = res.status === 200 && done
   chatOk.add(ok)
   chatTtfb.add(res.timings.waiting)
   chatTotal.add(res.timings.duration)
-  check(res, {
+  const resultChecks = {
     'chat status 200': (r) => r.status === 200,
     'chat done event': () => done,
     'chat content-type sse': (r) => String(r.headers['Content-Type'] || '').includes('text/event-stream'),
-  })
+  }
+  if (KB_ID) resultChecks['rag citation event'] = () => citation
+  if (WARN_WORD) resultChecks['moderation event'] = () => moderation && body.includes(WARN_WORD)
+  check(res, resultChecks)
 }
 
 export function teardown(data) {
@@ -139,6 +156,8 @@ export function handleSummary(data) {
     `chat_ok rate=${metric('chat_ok', 'rate')}`,
     `http_req_failed rate=${metric('http_req_failed', 'rate')}`,
     `http_reqs count=${metric('http_reqs', 'count')}`,
+    ...(KB_ID ? [`rag_citation rate=${metric('rag_citation', 'rate')}`] : []),
+    ...(WARN_WORD ? [`moderation_warn rate=${metric('moderation_warn', 'rate')}`] : []),
   ].join('\n')
   return {
     stdout: summary + '\n',
