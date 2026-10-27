@@ -141,6 +141,8 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
       OLLAMA_ENDPOINT: http://ollama:11434
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-ollama}
+      EMBEDDING_ENDPOINT: ${EMBEDDING_ENDPOINT:-http://ollama:11434}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-sk-not-configured}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}

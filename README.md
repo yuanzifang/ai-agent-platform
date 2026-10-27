@@ -56,6 +56,11 @@ cd frontend && npm install && npm run dev   # http://localhost:5173
 
 ## 服务器部署（Docker Compose）
 
+> Ollama 只是本地默认的 embedding 服务，不是云端必需。生产可在 `.env.docker`/Helm 设置
+> `EMBEDDING_PROVIDER=openai`、`EMBEDDING_ENDPOINT=https://<openai-compatible>/v1`（可带 `/v1`），
+> 使用 BGE-M3/OpenAI/其他 OpenAI 兼容 embeddings API，并移除 Ollama 依赖。
+
+
 前置：Docker Engine / Docker Desktop + Compose v2。
 
 ```bash
