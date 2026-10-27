@@ -1928,7 +1928,8 @@ export async function applyRemoteMessages(lang: string) {
     const body = await res.json()
     if (!res.ok || body?.code !== 0 || !body.data) return
     const flat: Record<string, string> = body.data
-    const merged = { ...(i18n.global.getLocaleMessage(lang) as Record<string, unknown>) }
+    const current = i18n.global.getLocaleMessage(lang) as unknown
+    const merged = JSON.parse(JSON.stringify(current)) as Record<string, unknown>
     for (const [key, value] of Object.entries(flat)) {
       const parts = key.split('.')
       let node: Record<string, unknown> = merged
