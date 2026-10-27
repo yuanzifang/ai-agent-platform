@@ -98,7 +98,7 @@ import java.util.zip.ZipInputStream;
 public class DocumentParser {
 
     /** 解析器版本：解析行为/结构化输出变化时递增，用于存量升级和复用判断。 */
-    public static final String PARSER_VERSION = "2026-10-26.11";
+    public static final String PARSER_VERSION = "2026-10-27.1";
 
     private static final long MAX_BYTES = 20 * 1024 * 1024;
 
@@ -120,6 +120,8 @@ public class DocumentParser {
     /** 进程内 OCR 结果缓存；0 表示关闭。key 含租户/OCR 命令/语言和图像内容哈希。 */
     @Value("${knowledge.ocr.cache-size:256}")
     private int ocrCacheSize = 256;
+    @Value("${knowledge.ocr.binarize:false}")
+    private boolean ocrBinarize;
     private final Map<String, OcrTableExtractor.Result> ocrCache = new ConcurrentHashMap<>();
 
     /** 解析级覆盖（上传/知识库/租户/平台配置解析产物）；为空时回落上方 @Value 默认。 */
@@ -511,15 +513,16 @@ public class DocumentParser {
             if (enhanced) {
                 int textLength = result.text() == null ? 0
                         : result.text().replaceAll("\\s", "").length();
-                boolean lowQuality = textLength < Math.max(0, ocrRetryRawMinChars)
+                double resultQuality = ocrQuality(result.text());
+                boolean lowQuality = (textLength < Math.max(0, ocrRetryRawMinChars)
+                        || resultQuality < 0.45)
                         && (result.tableHtml() == null || result.tableHtml().isBlank());
                 if (lowQuality) {
                     PdfMarkdownConverter.OcrResult raw = ocrPageVariant(base, direct == null, false);
-                    int rawLength = raw.text() == null ? 0
-                            : raw.text().replaceAll("\\s", "").length();
+                    double rawQuality = ocrQuality(raw.text());
                     boolean betterTable = (result.tableHtml() == null || result.tableHtml().isBlank())
                             && raw.tableHtml() != null && !raw.tableHtml().isBlank();
-                    if (rawLength > textLength || betterTable) result = raw;
+                    if (rawQuality > resultQuality + 0.03 || betterTable) result = raw;
                 }
             }
             return result;
@@ -527,6 +530,20 @@ public class DocumentParser {
             if (previous == null) optsHolder.remove();
             else optsHolder.set(previous);
         }
+    }
+
+    /** OCR 文本质量：字母/数字/中文占非空白字符比例；用于增强图和原图结果取舍。 */
+    private double ocrQuality(String text) {
+        if (text == null || text.isBlank()) return 0;
+        int good = 0;
+        int total = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (Character.isWhitespace(c)) continue;
+            total++;
+            if (Character.isLetterOrDigit(c) || (c >= 0x4E00 && c <= 0x9FFF)) good++;
+        }
+        return total == 0 ? 0 : (double) good / total;
     }
 
     private PdfMarkdownConverter.OcrResult ocrPageVariant(BufferedImage base, boolean crop,
@@ -1465,10 +1482,48 @@ public class DocumentParser {
                             Math.max(0, Math.min(255, (int) ((value - min) * scale))));
                 }
             }
+            if (ocrBinarize) applyOtsu(gray);
             return gray;
         } catch (Exception e) {
             log.debug("OCR 预处理失败（使用原图）：{}", e.getMessage());
             return source;
+        }
+    }
+
+    /** 可选 Otsu 二值化；默认关闭，开启后适合低对比度扫描件。 */
+    private void applyOtsu(BufferedImage image) {
+        int[] histogram = new int[256];
+        int total = image.getWidth() * image.getHeight();
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                histogram[image.getRaster().getSample(x, y, 0)]++;
+            }
+        }
+        double sum = 0;
+        for (int i = 0; i < 256; i++) sum += i * histogram[i];
+        double sumB = 0;
+        int wB = 0;
+        double max = 0;
+        int threshold = 127;
+        for (int i = 0; i < 256; i++) {
+            wB += histogram[i];
+            if (wB == 0) continue;
+            int wF = total - wB;
+            if (wF == 0) break;
+            sumB += i * histogram[i];
+            double mB = sumB / wB;
+            double mF = (sum - sumB) / wF;
+            double between = (double) wB * wF * (mB - mF) * (mB - mF);
+            if (between > max) {
+                max = between;
+                threshold = i;
+            }
+        }
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int value = image.getRaster().getSample(x, y, 0) > threshold ? 255 : 0;
+                image.getRaster().setSample(x, y, 0, value);
+            }
         }
     }
 

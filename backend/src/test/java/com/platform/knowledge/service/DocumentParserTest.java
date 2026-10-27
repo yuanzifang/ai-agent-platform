@@ -137,6 +137,31 @@ class DocumentParserTest {
     }
 
     @Test
+    void appliesOtsuBinarizationWhenEnabled() throws Exception {
+        BufferedImage image = new BufferedImage(20, 10, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setColor(new Color(100, 100, 100));
+            g.fillRect(0, 0, 10, 10);
+            g.setColor(new Color(180, 180, 180));
+            g.fillRect(10, 0, 10, 10);
+        } finally {
+            g.dispose();
+        }
+        ReflectionTestUtils.setField(parser, "ocrPreprocess", true);
+        ReflectionTestUtils.setField(parser, "ocrBinarize", true);
+
+        BufferedImage processed = ReflectionTestUtils.invokeMethod(parser, "preprocessForOcr", image);
+
+        for (int y = 0; y < processed.getHeight(); y++) {
+            for (int x = 0; x < processed.getWidth(); x++) {
+                int value = processed.getRaster().getSample(x, y, 0);
+                assertTrue(value == 0 || value == 255, "二值化后像素应为 0/255，实际=" + value);
+            }
+        }
+    }
+
+    @Test
     void realTesseractOcrOnRenderedImage() throws Exception {
         Assumptions.assumeTrue(commandExists("tesseract"), "本机未安装 tesseract，跳过真实 OCR");
         BufferedImage image = new BufferedImage(1200, 320, BufferedImage.TYPE_INT_RGB);
@@ -1990,6 +2015,58 @@ class DocumentParserTest {
         assertEquals(1, occurrences(text, "Product"), "跨页表头应只保留一次，实际=" + text);
         assertTrue(text.contains("Row 10"), "续页数据应保留，实际=" + text);
         assertTrue(text.contains("Discount"), "新增列应保留，实际=" + text);
+    }
+
+    @Test
+    void extendsRowSpanAcrossPageBoundary() throws Exception {
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDType1Font font = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
+            PDPage first = new PDPage(PDRectangle.A4);
+            doc.addPage(first);
+            try (PDPageContentStream content = new PDPageContentStream(doc, first)) {
+                content.setFont(font, 12);
+                String[][] rows = new String[10][];
+                rows[0] = new String[]{"Product", "Price", "Qty"};
+                for (int i = 1; i <= 8; i++) {
+                    rows[i] = new String[]{"Row " + i, String.valueOf(100 + i), String.valueOf(i)};
+                }
+                rows[9] = new String[]{"Fruit", "10", "1"};
+                float y = 780;
+                for (String[] row : rows) {
+                    float[] xs = {50, 220, 360};
+                    for (int col = 0; col < row.length; col++) {
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 60;
+                }
+            }
+            PDPage second = new PDPage(PDRectangle.A4);
+            doc.addPage(second);
+            try (PDPageContentStream content = new PDPageContentStream(doc, second)) {
+                content.setFont(font, 12);
+                float y = 800;
+                for (String[] row : new String[][]{{"", "11", "2"}, {"", "12", "3"}}) {
+                    float[] xs = {50, 220, 360};
+                    for (int col = 0; col < row.length; col++) {
+                        if (row[col].isEmpty()) continue;
+                        content.beginText();
+                        content.newLineAtOffset(xs[col], y);
+                        content.showText(row[col]);
+                        content.endText();
+                    }
+                    y -= 40;
+                }
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        String text = String.join("\n", parser.parse("cross-page-rowspan.pdf", pdf));
+        assertTrue(text.contains("rowspan=\"3\"") && text.contains("Fruit"),
+                "跨页 rowspan 应延续，实际=" + text);
     }
 
     @Test

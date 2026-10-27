@@ -179,6 +179,8 @@ knowledge:
     retry-raw-min-chars: ${KNOWLEDGE_OCR_RETRY_RAW_MIN_CHARS:10}
     # OCR 结果进程内缓存条数；0 关闭
     cache-size: ${KNOWLEDGE_OCR_CACHE_SIZE:256}
+    # 低对比度扫描件可选 Otsu 二值化
+    binarize: ${KNOWLEDGE_OCR_BINARIZE:false}
   vision:
     # 可选图片多模态理解（本地 Ollama 视觉模型）；默认关闭
     enabled: ${KNOWLEDGE_VISION_ENABLED:false}
