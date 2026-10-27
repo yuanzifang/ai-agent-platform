@@ -122,7 +122,7 @@ scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 ./scripts/restore-drill.sh          # 自动恢复演练（临时库/临时 bucket，不碰生产）
 ```
 
-备份产物包含 `manifest.json` 和 `SHA256SUMS`，默认落在 `backups/`（已 gitignore）。详细配置、定时任务、生产恢复步骤与边界见 [`docs/备份与恢复.md`](docs/备份与恢复.md)。
+备份产物包含 `manifest.json` 和 `SHA256SUMS`，默认落在 `backups/`（已 gitignore）。详细配置、定时任务、生产恢复步骤与边界见 [`docs/备份与恢复.md`](docs/备份与恢复.md)。面向租户管理员和 Agent 搭建者的操作指南见 [`docs/用户手册.md`](docs/用户手册.md)。
 
 大表分区与未来分区自动补齐见 [`docs/大表分区.md`](docs/大表分区.md)；V48 覆盖消息、会话、Trace、Span、审计和系统日志。 消息 90 天归档见 [`docs/消息归档.md`](docs/消息归档.md)；平台管理员可手动触发归档，默认每日 03:40 执行。 审计 180 天归档与链锚点见 [`docs/审计归档.md`](docs/审计归档.md)。 MCP resources/prompts 与工具热更新现状见 [`docs/MCP能力.md`](docs/MCP能力.md)。告警规则与 Trace 采样见 [`docs/可观测性告警与采样.md`](docs/可观测性告警与采样.md)，CSP/安全响应头见 [`docs/CSP与安全响应头.md`](docs/CSP与安全响应头.md)。真实交付缺口见 [`docs/交付现状.md`](docs/交付现状.md)。
 
