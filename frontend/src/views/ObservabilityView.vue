@@ -25,7 +25,15 @@
 
     <div class="charts">
       <el-card shadow="never">
-        <template #header>{{ t('obsPage.spanTree') }}</template>
+        <template #header>
+          <div class="card-head">
+            <span>{{ t('obsPage.spanTree') }}</span>
+            <el-radio-group v-model="spanChartMode" size="small">
+              <el-radio-button value="summary">{{ t('obsPage.spanSummary') }}</el-radio-button>
+              <el-radio-button value="trend">{{ t('obsPage.spanTrend') }}</el-radio-button>
+            </el-radio-group>
+          </div>
+        </template>
         <el-empty v-if="emptySeries" :description="t('obsPage.noSpans')" :image-size="50" />
         <EChart v-else :option="spanChartOption" height="240px" />
       </el-card>
@@ -481,6 +489,7 @@ const overview = reactive<any>({
   errorCount: 0, byModel: [], topTools: [], spanSeries: []
 })
 const modelSort = ref<'calls' | 'tokens'>('calls')
+const spanChartMode = ref<'summary' | 'trend'>('summary')
 
 // ---- Traces ----
 const traces = ref<any[]>([])
@@ -547,19 +556,44 @@ const cards = computed(() => [
   { key: 'errorCount', label: t('obsPage.errorCount'), value: intFmt(overview.errorCount), tip: t('obsPage.errorTip') }
 ])
 
-const spanChartOption = computed(() => ({
-  tooltip: { trigger: 'axis' },
-  legend: { data: ['agent', 'chain', 'llm', 'tool'] },
-  grid: { left: 40, right: 12, top: 30, bottom: 26 },
-  xAxis: { type: 'category', data: (overview.spanSeries || []).map((b: any) => b.bucket) },
-  yAxis: { type: 'value', minInterval: 1 },
-  series: [
-    { name: 'agent', type: 'bar', stack: 'spans', itemStyle: { color: '#3B82F6' }, data: (overview.spanSeries || []).map((b: any) => b.agent) },
-    { name: 'chain', type: 'bar', stack: 'spans', itemStyle: { color: '#10B981' }, data: (overview.spanSeries || []).map((b: any) => b.chain) },
-    { name: 'llm', type: 'bar', stack: 'spans', itemStyle: { color: '#F59E0B' }, data: (overview.spanSeries || []).map((b: any) => b.llm) },
-    { name: 'tool', type: 'bar', stack: 'spans', itemStyle: { color: '#6B7280' }, data: (overview.spanSeries || []).map((b: any) => b.tool) }
+const spanSummary = computed(() => {
+  const rows = (overview.spanSeries || [])
+  return [
+    { name: 'agent', value: rows.reduce((n: number, b: any) => n + Number(b.agent || 0), 0), color: '#3B82F6' },
+    { name: 'chain', value: rows.reduce((n: number, b: any) => n + Number(b.chain || 0), 0), color: '#10B981' },
+    { name: 'llm', value: rows.reduce((n: number, b: any) => n + Number(b.llm || 0), 0), color: '#F59E0B' },
+    { name: 'tool', value: rows.reduce((n: number, b: any) => n + Number(b.tool || 0), 0), color: '#6B7280' }
   ]
-}))
+})
+
+const spanChartOption = computed(() => {
+  if (spanChartMode.value === 'summary') {
+    return {
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: 70, right: 50, top: 16, bottom: 20 },
+      xAxis: { type: 'value', minInterval: 1 },
+      yAxis: { type: 'category', data: spanSummary.value.map((r: any) => r.name) },
+      series: [{
+        type: 'bar', barWidth: 18,
+        data: spanSummary.value.map((r: any) => ({ value: r.value, itemStyle: { color: r.color } })),
+        label: { show: true, position: 'right' }
+      }]
+    }
+  }
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['agent', 'chain', 'llm', 'tool'] },
+    grid: { left: 40, right: 12, top: 30, bottom: 26 },
+    xAxis: { type: 'category', data: (overview.spanSeries || []).map((b: any) => b.bucket) },
+    yAxis: { type: 'value', minInterval: 1 },
+    series: [
+      { name: 'agent', type: 'bar', stack: 'spans', itemStyle: { color: '#3B82F6' }, data: (overview.spanSeries || []).map((b: any) => b.agent) },
+      { name: 'chain', type: 'bar', stack: 'spans', itemStyle: { color: '#10B981' }, data: (overview.spanSeries || []).map((b: any) => b.chain) },
+      { name: 'llm', type: 'bar', stack: 'spans', itemStyle: { color: '#F59E0B' }, data: (overview.spanSeries || []).map((b: any) => b.llm) },
+      { name: 'tool', type: 'bar', stack: 'spans', itemStyle: { color: '#6B7280' }, data: (overview.spanSeries || []).map((b: any) => b.tool) }
+    ]
+  }
+})
 
 const toolChartHeight = computed(() =>
   Math.max(120, (overview.topTools || []).length * 30 + 50) + 'px')
