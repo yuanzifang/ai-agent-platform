@@ -190,7 +190,7 @@ public class AuthService {
                         + "\nIf this was not you, ignore this email.");
         if (!sent) {
             // 未配置 SMTP 或发送失败：写入日志，便于管理员/开发环境使用
-            log.info("密码重置链接（30 分钟有效）：{}", link);
+            log.info("密码重置链接已生成（未发送邮件，请配置 SMTP 或联系管理员）；有效期 30 分钟");
         }
     }
 

@@ -34,7 +34,11 @@ public class ChannelController {
         Map<String, Object> data = channelService.handleInbound(token, rawBody,
                 headers(request), params(request));
         if (data.containsKey("_wecomXml")) {
-            return ResponseEntity.ok().contentType(MediaType.TEXT_XML).body(data.get("_wecomXml"));
+            return ResponseEntity.ok()
+                    .contentType(MediaType.APPLICATION_XML)
+                    .header("X-Content-Type-Options", "nosniff")
+                    .header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+                    .body(data.get("_wecomXml"));
         }
         if (data.containsKey("_wecomPlain")) {
             return ResponseEntity.ok().contentType(MediaType.TEXT_PLAIN).body("success");
