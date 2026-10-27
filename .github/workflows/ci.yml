@@ -51,14 +51,18 @@ jobs:
           npm ci --ignore-scripts
           npm audit --omit=dev --audit-level=high || true   # 先观察基线
 
-      - name: 前端依赖许可证基线（观察模式）
+      - name: 前端依赖许可证基线
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
           scan-ref: frontend/package-lock.json
           scanners: license
-          format: table
+          format: json
+          output: frontend-licenses.json
           exit-code: '0'
+
+      - name: 许可证策略（阻断 AGPL/SSPL/GPL-only/unknown）
+        run: python3 scripts/license_policy.py frontend-licenses.json backend/target/licenses/THIRD-PARTY.txt
 
   gateway:
     name: 运行时网关/告警中继（Node 单测 + 镜像/容器冒烟）

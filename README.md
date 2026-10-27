@@ -162,3 +162,8 @@ helm upgrade --install ai-agent deploy/helm/ai-agent-platform \
 
 M1 平台基座（当前）→ M2 模型与 Agent → M3 知识库 → M4 会话对话 → M5 可观测 → M6 安全合规验收。
 每个里程碑对应一批 Flyway 迁移脚本（V1 为 M1 表结构，后续里程碑递增）。
+
+## License
+
+本项目使用 [Apache License 2.0](LICENSE) 开源。第三方组件及许可证见
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
