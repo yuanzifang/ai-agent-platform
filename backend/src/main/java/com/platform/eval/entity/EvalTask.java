@@ -18,6 +18,9 @@ public class EvalTask {
     private String agentVersion;
     private String targetType;
     private String evalType;
+
+    /** 灰度标记：评测运行分组维度（轨迹 tags 记 gray:<tag>，供 GrayCompareService 聚合对比） */
+    private String grayTag;
     private String filterSnapshot;
     private Integer matchedTraces;
     private String judgeModel;
