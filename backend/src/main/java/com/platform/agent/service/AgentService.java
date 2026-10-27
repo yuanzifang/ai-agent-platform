@@ -202,7 +202,13 @@ public class AgentService {
     /** 按面板整体覆盖（需求文档 7.3 PUT 语义）；If-Match 携带 updated_at，冲突返回 409。 */
     @Transactional
     public Map<String, Object> update(Long id, Map<String, Object> req, String ifMatch) {
+        return update(id, req, ifMatch, null);
+    }
+
+    public Map<String, Object> update(Long id, Map<String, Object> req, String ifMatch,
+                                      JwtPrincipal principal) {
         AgentRegistry current = get(id); // 存在性 + 租户过滤（插件自动注入 tenant_id）
+        Map<String, Object> beforePolicy = writePolicySnapshot(asMap(fromJson(current.getAgentCapabilities())));
         LocalDateTime expected = parseIfMatch(ifMatch);
         if (req.containsKey("modelConfig")) {
             validateAgentModel(asMap(req.get("modelConfig")), current.getTenantId());
@@ -243,6 +249,14 @@ public class AgentService {
         if (skillsTouched) replaceSkills(id, tenantId, req.get("skills"));
         if (toolsTouched) replaceTools(id, tenantId, req.get("tools"));
         if (subAgentsTouched) replaceSubAgents(id, tenantId, req.get("subAgents"));
+        if (principal != null && req.containsKey("agentCapabilities")) {
+            Map<String, Object> afterPolicy = writePolicySnapshot(asMap(req.get("agentCapabilities")));
+            if (!beforePolicy.equals(afterPolicy)) {
+                auditService.record(principal.userId(), "agent.write_policy.change", "agent",
+                        String.valueOf(id), "SUCCESS",
+                        Map.of("before", beforePolicy, "after", afterPolicy));
+            }
+        }
         return Map.of("updatedAt", agentMapper.selectById(id).getUpdatedAt()
                 .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
     }
@@ -629,6 +643,17 @@ public class AgentService {
                         "模型「" + name + "」为平台评测专用，不能用于 Agent；请选择 Agent 自己的对话模型");
             }
         }
+    }
+
+    /** 只记录与写工具权限相关的 capabilities，避免把整份 Agent 配置写入每次审计。 */
+    private Map<String, Object> writePolicySnapshot(Map<String, Object> caps) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        if (caps == null) return m;
+        for (String key : List.of("writeToolPolicy", "allowedWriteToolIds", "writeToolMaxArgs",
+                "writeToolArgRules", "writeToolArgPatterns", "writeToolAmountLimits")) {
+            m.put(key, caps.get(key));
+        }
+        return m;
     }
 
     private Map<String, Object> asMap(Object o) {
