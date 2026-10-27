@@ -42,7 +42,8 @@ trivy fs --format cyclonedx --output ../frontend-sbom.cdx.json package-lock.json
 3. 用 `scripts/merge_cyclonedx_sbom.py` 合并后端/前端组件（按 purl/bom-ref 去重，保留依赖与漏洞）；
 4. 校验三个文件的 `bomFormat=CycloneDX` 且 `components` 非空；
 5. 生成 `SHA256SUMS`；
-6. 通过 `gh release upload --clobber` 附加到对应 GitHub Release。
+6. 用 GitHub Actions OIDC 生成 build provenance attestation（`actions/attest-build-provenance`）；
+7. 通过 `gh release upload --clobber` 附加到对应 GitHub Release。
 
 资产命名：
 
@@ -53,9 +54,14 @@ merged-sbom-<tag>.cdx.json
 SHA256SUMS
 ```
 
-手动验证时可在 Actions 中运行 `Release SBOM`，输入已存在的 release tag。
+手动验证时可在 Actions 中运行 `Release SBOM`，输入已存在的 release tag。下载 Release 资产后可验证来源证明：
+
+```bash
+gh attestation verify merged-sbom-<tag>.cdx.json \
+  --repo yuanzifang/ai-agent-platform
+```
 
 ## 仍缺
 
-- SBOM 签名/attestation（Sigstore/cosign）
-- 运行时镜像 SBOM 未并入 Release 合并清单（当前 Release 合并清单只覆盖后端/前端应用依赖）
+- 独立 Sigstore/cosign 签名/attestation（当前使用 GitHub 内置 build provenance）
+- 运行时镜像 SBOM 未并入 Release 合并清单；镜像 SBOM 也尚未单独做 attestation（当前 Release 合并清单只覆盖后端/前端应用依赖）
