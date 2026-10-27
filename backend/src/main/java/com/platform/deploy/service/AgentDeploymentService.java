@@ -114,6 +114,8 @@ public class AgentDeploymentService {
     @Value("${agent.deploy.cors-origins:*}")
     private String corsOrigins;
 
+    private static final String LB_SUFFIX = "-lb";
+
     private static final String NGINX_TEMPLATE = """
             limit_req_zone $binary_remote_addr zone=agent_gw:10m rate=${RATE_LIMIT}r/m;
 
@@ -217,6 +219,7 @@ public class AgentDeploymentService {
             throw new BusinessException(400, "多副本部署需要 gateway 运行时并配置 agent.deploy.redis-url（共享限流/配额/用量）");
         }
 
+        Integer previousLbPort = deployment.getLbHostPort();
         removeReplicaContainers(deployment);
         // 旧 Key 先清理，避免每 Agent 10 个 Key 的上限被重复部署占满
         deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
@@ -312,6 +315,13 @@ public class AgentDeploymentService {
                 rows.add(row);
             }
             applyReplicaRows(deployment, rows);
+            if (replicas > 1) {
+                createLoadBalancer(deployment, rows, reserved, previousLbPort);
+                deployment.setEndpoint(deployment.getLbEndpoint());
+                deployment.setLocalEndpoint(deployment.getLbLocalEndpoint());
+            } else {
+                removeLoadBalancer(deployment);
+            }
             deployment.setStatus("RUNNING");
             save(deployment, true);
             auditService.record(principal.userId(), "agent.deploy", "agent", String.valueOf(agentId),
@@ -319,6 +329,7 @@ public class AgentDeploymentService {
             recordEvent(deployment, "DEPLOY", "SUCCESS", null, principal);
             return view(deployment);
         } catch (Exception e) {
+            removeLoadBalancer(deployment);
             for (Map<String, Object> row : rows) {
                 removeContainerQuietly(String.valueOf(row.get("name")));
             }
@@ -345,6 +356,10 @@ public class AgentDeploymentService {
             row.put("status", "RUNNING");
             row.remove("error");
         }
+        if (deployment.getLbContainerName() != null && !deployment.getLbContainerName().isBlank()) {
+            runtime.start(deployment.getLbContainerName());
+            deployment.setLbStatus("RUNNING");
+        }
         applyReplicaRows(deployment, rows);
         deployment.setStatus("RUNNING");
         deployment.setLastError(null);
@@ -355,6 +370,10 @@ public class AgentDeploymentService {
 
     public Map<String, Object> stop(Long agentId, JwtPrincipal principal) {
         AgentDeployment deployment = requireDeployment(agentId);
+        if (deployment.getLbContainerName() != null && !deployment.getLbContainerName().isBlank()) {
+            runtime.stop(deployment.getLbContainerName());
+            deployment.setLbStatus("STOPPED");
+        }
         List<Map<String, Object>> rows = replicaRows(deployment);
         for (Map<String, Object> row : rows) {
             runtime.stop(String.valueOf(row.get("name")));
@@ -370,6 +389,7 @@ public class AgentDeploymentService {
     @Transactional
     public void remove(Long agentId, JwtPrincipal principal) {
         AgentDeployment deployment = requireDeployment(agentId);
+        removeLoadBalancer(deployment);
         for (Map<String, Object> row : replicaRows(deployment)) {
             removeContainerQuietly(String.valueOf(row.get("name")));
         }
@@ -498,6 +518,7 @@ public class AgentDeploymentService {
     public void removeIfExists(Long agentId, JwtPrincipal principal) {
         AgentDeployment deployment = find(agentId);
         if (deployment == null) return;
+        removeLoadBalancer(deployment);
         for (Map<String, Object> row : replicaRows(deployment)) {
             removeContainerQuietly(String.valueOf(row.get("name")));
         }
@@ -579,7 +600,31 @@ public class AgentDeploymentService {
                 row.put("error", e.getMessage());
             }
         }
-        String aggregate = anyRunning ? "RUNNING" : (anyFailed ? "FAILED" : "STOPPED");
+        boolean lbRunning = true;
+        if (deployment.getLbContainerName() != null && !deployment.getLbContainerName().isBlank()) {
+            lbRunning = false;
+            try {
+                ContainerRuntime.Info info = runtime.inspect(deployment.getLbContainerName());
+                String next = info.running() ? "RUNNING" : "STOPPED";
+                if (!next.equals(deployment.getLbStatus())) {
+                    deployment.setLbStatus(next);
+                    changed = true;
+                }
+                lbRunning = info.running();
+                if (!lbRunning && firstError == null) firstError = "负载均衡容器未运行";
+            } catch (BusinessException e) {
+                deployment.setLbStatus("FAILED");
+                changed = true;
+                anyFailed = true;
+                if (firstError == null) firstError = e.getMessage();
+            }
+        }
+        String aggregate;
+        if (anyRunning) {
+            aggregate = lbRunning ? "RUNNING" : "FAILED";
+        } else {
+            aggregate = anyFailed ? "FAILED" : "STOPPED";
+        }
         boolean errorChanged = firstError != null && !firstError.equals(deployment.getLastError());
         if (changed || !aggregate.equals(deployment.getStatus()) || errorChanged) {
             applyReplicaRows(deployment, rows);
@@ -626,9 +671,15 @@ public class AgentDeploymentService {
             deployment.setEndpoint(first.get("endpoint") == null ? null : String.valueOf(first.get("endpoint")));
             deployment.setLocalEndpoint(first.get("localEndpoint") == null ? null : String.valueOf(first.get("localEndpoint")));
         }
+        // 多副本时对外地址保持统一 LB 入口，不因刷新副本状态退回第一个副本。
+        if (deployment.getLbEndpoint() != null) {
+            deployment.setEndpoint(deployment.getLbEndpoint());
+            deployment.setLocalEndpoint(deployment.getLbLocalEndpoint());
+        }
     }
 
     private void removeReplicaContainers(AgentDeployment deployment) {
+        removeLoadBalancer(deployment);
         for (Map<String, Object> row : replicaRows(deployment)) {
             removeContainerQuietly(String.valueOf(row.get("name")));
         }
@@ -685,18 +736,21 @@ public class AgentDeploymentService {
 
     private Path templateDir() {
         try {
-            // 默认放用户目录下：macOS 上 Docker/colima 默认只共享 $HOME，
-            // 系统临时目录（/var/folders/...）容器里挂载不到。
-            Path base = (workdir == null || workdir.isBlank())
-                    ? Path.of(System.getProperty("user.home"), ".aap-agent-runtime")
-                    : Path.of(workdir);
-            Path dir = base.resolve("templates");
+            Path dir = runtimeBase().resolve("templates");
             Files.createDirectories(dir);
             Files.writeString(dir.resolve("default.conf.template"), NGINX_TEMPLATE, StandardCharsets.UTF_8);
             return dir;
         } catch (IOException e) {
             throw new BusinessException(500, "写入容器配置模板失败：" + message(e));
         }
+    }
+
+    private Path runtimeBase() {
+        // 默认放用户目录下：macOS 上 Docker/colima 默认只共享 $HOME，
+        // 系统临时目录（/var/folders/...）容器里挂载不到。
+        return (workdir == null || workdir.isBlank())
+                ? Path.of(System.getProperty("user.home"), ".aap-agent-runtime")
+                : Path.of(workdir);
     }
 
     /** 轮询容器 /healthz，确认配置生效；超时抛 409 并回滚容器。 */
@@ -760,6 +814,118 @@ public class AgentDeploymentService {
         return best == null ? "http://localhost" : best;
     }
 
+    /** 多副本统一入口：额外启动一个 nginx 容器，轮询转发到各副本的宿主端口。 */
+    private void createLoadBalancer(AgentDeployment deployment, List<Map<String, Object>> rows,
+                                    Set<Integer> reserved, Integer previousLbPort) {
+        if (rows.size() < 2) return;
+        removeLoadBalancer(deployment);
+        String name = deployment.getContainerName() + LB_SUFFIX;
+        int port = allocateLoadBalancerPort(deployment, reserved, previousLbPort);
+        Path configDir = lbConfigDir(name, rows);
+        Map<String, String> labels = Map.of(
+                "aap.agent_id", String.valueOf(deployment.getAgentId()),
+                "aap.tenant_id", String.valueOf(deployment.getTenantId()),
+                "aap.managed_by", "ai-agent-platform",
+                "aap.role", "load-balancer");
+        String containerId = null;
+        try {
+            ContainerRuntime.CreateRequest request = new ContainerRuntime.CreateRequest(
+                    name,
+                    nginxImage,
+                    bind,
+                    port,
+                    80,
+                    Map.of(),
+                    labels,
+                    List.of(configDir.resolve("default.conf") + ":/etc/nginx/conf.d/default.conf:ro"),
+                    List.of());
+            containerId = runtime.create(request);
+            runtime.start(containerId);
+            waitForHealthy(port);
+            deployment.setLbContainerName(name);
+            deployment.setLbContainerId(containerId);
+            deployment.setLbHostPort(port);
+            deployment.setLbStatus("RUNNING");
+            deployment.setLbEndpoint(publicEndpoint(port));
+            deployment.setLbLocalEndpoint("http://localhost:" + port + "/v1");
+        } catch (Exception e) {
+            if (containerId != null) removeContainerQuietly(containerId);
+            removeContainerQuietly(name);
+            clearLoadBalancer(deployment);
+            throw new BusinessException(500, "创建多副本负载均衡失败：" + message(e));
+        }
+    }
+
+    private int allocateLoadBalancerPort(AgentDeployment deployment, Set<Integer> reserved,
+                                         Integer previousLbPort) {
+        if (previousLbPort != null && !reserved.contains(previousLbPort) && portFree(previousLbPort)) {
+            return previousLbPort;
+        }
+        return allocatePort(deployment, reserved, false);
+    }
+
+    private Path lbConfigDir(String name, List<Map<String, Object>> rows) {
+        try {
+            Path dir = runtimeBase().resolve("lb").resolve(name);
+            Files.createDirectories(dir);
+            StringBuilder config = new StringBuilder();
+            config.append("upstream agent_replicas {\n    least_conn;\n");
+            for (Map<String, Object> row : rows) {
+                Object raw = row.get("hostPort");
+                if (!(raw instanceof Number n)) continue;
+                config.append("    server host.docker.internal:").append(n.intValue())
+                        .append(" max_fails=2 fail_timeout=10s;\n");
+            }
+            config.append("""
+                    }
+                    server {
+                        listen 80;
+                        client_max_body_size 2m;
+                        location = /healthz {
+                            proxy_pass http://agent_replicas/healthz;
+                            proxy_connect_timeout 2s;
+                            proxy_read_timeout 3s;
+                        }
+                        location / {
+                            proxy_pass http://agent_replicas;
+                            proxy_http_version 1.1;
+                            proxy_set_header Host $host;
+                            proxy_set_header X-Real-IP $remote_addr;
+                            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                            proxy_set_header X-Forwarded-Proto $scheme;
+                            proxy_set_header Connection "";
+                            proxy_buffering off;
+                            proxy_cache off;
+                            proxy_read_timeout 300s;
+                            proxy_send_timeout 300s;
+                        }
+                    }
+                    """);
+            Files.writeString(dir.resolve("default.conf"), config.toString(), StandardCharsets.UTF_8);
+            return dir;
+        } catch (IOException e) {
+            throw new BusinessException(500, "写入负载均衡配置失败：" + message(e));
+        }
+    }
+
+    private void removeLoadBalancer(AgentDeployment deployment) {
+        if (deployment == null) return;
+        if (deployment.getLbContainerName() != null && !deployment.getLbContainerName().isBlank()) {
+            removeContainerQuietly(deployment.getLbContainerName());
+        }
+        clearLoadBalancer(deployment);
+    }
+
+    private void clearLoadBalancer(AgentDeployment deployment) {
+        if (deployment == null) return;
+        deployment.setLbContainerName(null);
+        deployment.setLbContainerId(null);
+        deployment.setLbHostPort(null);
+        deployment.setLbStatus(null);
+        deployment.setLbEndpoint(null);
+        deployment.setLbLocalEndpoint(null);
+    }
+
     private void removeContainerQuietly(String name) {
         if (name == null || name.isBlank()) return;
         try {
@@ -796,6 +962,22 @@ public class AgentDeploymentService {
                 .filter(java.util.Objects::nonNull)
                 .map(String::valueOf)
                 .toList());
+        m.put("lbContainerName", deployment.getLbContainerName());
+        m.put("lbHostPort", deployment.getLbHostPort());
+        m.put("lbStatus", deployment.getLbStatus());
+        m.put("lbEndpoint", deployment.getLbEndpoint());
+        m.put("lbLocalEndpoint", deployment.getLbLocalEndpoint());
+        if (deployment.getLbEndpoint() == null) {
+            m.put("loadBalancer", null);
+        } else {
+            Map<String, Object> lb = new LinkedHashMap<>();
+            lb.put("containerName", deployment.getLbContainerName());
+            lb.put("hostPort", deployment.getLbHostPort());
+            lb.put("status", deployment.getLbStatus());
+            lb.put("endpoint", deployment.getLbEndpoint());
+            lb.put("localEndpoint", deployment.getLbLocalEndpoint());
+            m.put("loadBalancer", lb);
+        }
         m.put("status", deployment.getStatus());
         m.put("hasToken", deployment.getRuntimeToken() != null && !deployment.getRuntimeToken().isBlank());
         m.put("lastError", deployment.getLastError());

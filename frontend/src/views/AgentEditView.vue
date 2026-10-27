@@ -1090,11 +1090,12 @@
             <el-tag :type="deployTagType" size="small">{{ deployStatusText }}</el-tag>
             <span class="hint">{{ t('deploy.versionPrefix') }}{{ deployment.version || '-' }}</span>
           </el-descriptions-item>
-          <el-descriptions-item :label="t('deploy.endpoint')">
+          <el-descriptions-item :label="deployment.lbEndpoint ? t('deploy.lbEndpoint') : t('deploy.endpoint')">
             <code class="deploy-code">{{ deployment.endpoint }}</code>
             <el-button size="small" text type="primary" @click="copyText(deployment.endpoint!)">
               {{ t('deploy.copy') }}
             </el-button>
+            <div v-if="deployment.lbEndpoint" class="hint">{{ t('deploy.lbHint', { count: deployment.replicaCount }) }}</div>
           </el-descriptions-item>
           <el-descriptions-item :label="t('deploy.localEndpoint')">
             <code class="deploy-code">{{ deployment.localEndpoint }}</code>
