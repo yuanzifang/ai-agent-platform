@@ -293,7 +293,7 @@ public class AgentService {
         int oldRank = policyRank(str(oldCaps.get("writeToolPolicy")));
         int newRank = policyRank(str(newCaps.get("writeToolPolicy")));
         if (newRank <= oldRank) return false;
-        auditService.record(principal.userId(), "agent.publish.write_policy_gate", "agent",
+        auditService.recordIndependent(principal.userId(), "agent.publish.write_policy_gate", "agent",
                 String.valueOf(agent.getId()), "BLOCKED",
                 Map.of("before", str(oldCaps.get("writeToolPolicy")),
                         "after", str(newCaps.get("writeToolPolicy"))));
