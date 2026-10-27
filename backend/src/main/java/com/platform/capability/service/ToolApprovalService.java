@@ -8,7 +8,10 @@ import com.platform.capability.mapper.ToolApprovalMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
 import com.platform.security.JwtPrincipal;
+import com.platform.system.entity.SysTenant;
+import com.platform.system.mapper.SysTenantMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -19,9 +22,11 @@ import java.util.Map;
 /** 写工具逐次审批的持久化与状态流转；工具执行由 Controller 调用 ToolRuntimeService 完成，避免循环依赖。 */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ToolApprovalService {
 
     private final ToolApprovalMapper mapper;
+    private final SysTenantMapper tenantMapper;
 
     @org.springframework.beans.factory.annotation.Value("${tool.approval.timeout-minutes:1440}")
     private int timeoutMinutes = 1440;
@@ -81,7 +86,15 @@ public class ToolApprovalService {
     /** 将过期未处理的审批置为 EXPIRED；可由定时任务或管理接口触发。 */
     @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
     public void autoExpire() {
-        expirePending();
+        // 定时线程没有请求租户上下文；按租户执行，避免多租户插件抛 403。
+        List<SysTenant> tenants = tenantMapper.selectList(new LambdaQueryWrapper<>());
+        for (SysTenant tenant : tenants) {
+            try {
+                TenantContext.run(tenant.getId(), this::expirePending);
+            } catch (Exception e) {
+                log.warn("审批超时扫描失败 tenant={}：{}", tenant.getId(), e.getMessage());
+            }
+        }
     }
 
     public int expirePending() {
