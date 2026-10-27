@@ -168,6 +168,33 @@ jobs:
             -d '{"alerts":[]}' | grep -q '"configured":false'
           echo "alert-relay container smoke passed"
 
+      - name: Gateway 镜像 SBOM（CycloneDX）
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: image
+          image-ref: agent-gateway:ci
+          format: cyclonedx
+          output: gateway-sbom.cdx.json
+          exit-code: '0'
+
+      - name: Alert-relay 镜像 SBOM（CycloneDX）
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: image
+          image-ref: alert-relay:ci
+          format: cyclonedx
+          output: alert-relay-sbom.cdx.json
+          exit-code: '0'
+
+      - name: 上传运行时镜像 SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-image-sbom
+          path: |
+            gateway-sbom.cdx.json
+            alert-relay-sbom.cdx.json
+          if-no-files-found: error
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
