@@ -50,6 +50,28 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
                                                 @Param("userId") Long userId,
                                                 @Param("tenantWide") boolean tenantWide);
 
+    /** ACL 全文检索只取 ID/score，避免把大量命中的 content/元数据先读回应用层。 */
+    @Select("""
+            <script>
+            SELECT id, MATCH(content) AGAINST(#{query} IN NATURAL LANGUAGE MODE) AS score
+            FROM knowledge_chunk
+            WHERE knowledge_base_id = #{kbId}
+              AND MATCH(content) AGAINST(#{query} IN NATURAL LANGUAGE MODE)
+              <if test="userId != null">
+                AND (allowed_users IS NULL
+                     OR (tenant_visible = 1 AND #{tenantWide} = TRUE)
+                     OR JSON_CONTAINS(allowed_users, JSON_QUOTE(CAST(#{userId} AS CHAR))))
+              </if>
+            ORDER BY score DESC
+            LIMIT #{limit}
+            </script>
+            """)
+    List<Map<String, Object>> searchFulltextAclIds(@Param("kbId") Long kbId,
+                                                   @Param("query") String query,
+                                                   @Param("limit") int limit,
+                                                   @Param("userId") Long userId,
+                                                   @Param("tenantWide") boolean tenantWide);
+
     /** 有效期感知的全文检索：JOIN 文档，按内容有效期区间重叠过滤。 */
     @Select("""
             <script>

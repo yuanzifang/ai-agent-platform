@@ -173,6 +173,8 @@ class HybridRetrievalServiceTest {
                 anyDouble(), anyInt(), eq(7L), eq(false)))
                 .thenReturn(List.of(Map.of("content", "向量命中", "score", 0.9,
                         "metadata", "{\"chunk_id\":1,\"document_id\":1}")));
+        when(chunkMapper.searchFulltextAclIds(eq(1L), anyString(), anyInt(), eq(7L), eq(false)))
+                .thenReturn(null);
         when(chunkMapper.searchFulltextAcl(eq(1L), anyString(), anyInt(), eq(7L), eq(false)))
                 .thenReturn(List.of(Map.of("id", 2, "content", "全文命中", "score", 4,
                         "document_id", 1, "chunk_index", 0)));
@@ -186,6 +188,25 @@ class HybridRetrievalServiceTest {
         verify(vectorRepository).search(eq(9L), any(float[].class), eq(1L), anyInt(),
                 eq(0.5), anyInt(), eq(7L), eq(false));
         verify(chunkMapper).searchFulltextAcl(eq(1L), anyString(), anyInt(), eq(7L), eq(false));
+    }
+
+    @Test
+    void hydratesAclKeywordHitsFromIds() {
+        KnowledgeChunk chunk = new KnowledgeChunk();
+        chunk.setId(2L);
+        chunk.setDocumentId(1L);
+        chunk.setChunkIndex(0);
+        chunk.setContent("全文命中");
+        when(chunkMapper.searchFulltextAclIds(eq(1L), anyString(), anyInt(), eq(7L), eq(false)))
+                .thenReturn(List.of(Map.of("id", 2L, "score", 4.0)));
+        when(chunkMapper.selectBatchIds(anyCollection())).thenReturn(List.of(chunk));
+
+        var result = service.search(1L, "q", 1L, 5, 0.5,
+                Map.of("mode", "keyword"), 7L, false);
+
+        assertEquals(1, result.hits().size());
+        assertEquals("全文命中", result.hits().get(0).get("content"));
+        verify(chunkMapper).searchFulltextAclIds(eq(1L), anyString(), anyInt(), eq(7L), eq(false));
     }
 
     @Test
