@@ -31,7 +31,8 @@ public class GrayCompareService {
     @Value("${gray.compare.max-days:90}")
     private int maxDays = 90;
 
-    public GrayCompareService(JdbcTemplate jdbcTemplate) {
+    public GrayCompareService(@org.springframework.beans.factory.annotation.Qualifier("jdbcTemplate")
+                              JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
     }
 

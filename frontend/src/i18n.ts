@@ -550,6 +550,14 @@ const messages = {
       callsSeries: '调用量', errorsSeries: '错误数'
     },
     obsPage: {
+      grayTab: '灰度 A/B', grayTagPh: '灰度标记，如 once', grayDays: '天数', loadGray: '加载对比',
+      grayHint: 'baseline vs gray；来自 Trace 与评测任务', grayNoData: '输入灰度标记后加载对比',
+      grayRequests: '请求量', grayErrorRate: '错误率', grayAvgLatency: '平均延迟', grayP95: 'P95 延迟',
+      grayTokens: '平均 Token', grayCost: '成本', grayToolCalls: '工具/轨迹强度', grayDelta: '对比',
+      grayBaseline: '基线', grayGroup: '灰度', grayByModel: '按模型', grayEvalBaseline: '基线评测',
+      grayEvalGray: '灰度评测', grayEvalCount: '次', grayEvalScore: '平均分',
+      waterfall: '时间线', list: '列表', totalDuration: '总耗时', spans: 'Spans',
+      modelTrace: '模型路由轨迹', modelTraceEmpty: '无模型调用/切换轨迹',
       back: '返回', eval: 'Agent 评测', refresh: '刷新', last24: '近 24 小时', last7: '近 7 天', last30: '近 30 天',
       spanTree: 'Span 结构图（agent / chain / llm / tool）', noSpans: '暂无 Span 数据', noTools: '暂无工具调用',
       modelShare: '模型占比（LLM Span）', calls: '调用量', noModelCalls: '暂无模型调用',
@@ -1492,6 +1500,14 @@ const messages = {
       callsSeries: 'Calls', errorsSeries: 'Errors'
     },
     obsPage: {
+      grayTab: 'Gray A/B', grayTagPh: 'Gray tag, e.g. once', grayDays: 'Days', loadGray: 'Load compare',
+      grayHint: 'baseline vs gray from traces and eval tasks', grayNoData: 'Enter a gray tag to load comparison',
+      grayRequests: 'Requests', grayErrorRate: 'Error rate', grayAvgLatency: 'Avg latency', grayP95: 'P95 latency',
+      grayTokens: 'Avg tokens', grayCost: 'Cost', grayToolCalls: 'Tool/trace intensity', grayDelta: 'Compare',
+      grayBaseline: 'Baseline', grayGroup: 'Gray', grayByModel: 'By model', grayEvalBaseline: 'Baseline eval',
+      grayEvalGray: 'Gray eval', grayEvalCount: 'runs', grayEvalScore: 'Avg score',
+      waterfall: 'Timeline', list: 'List', totalDuration: 'Total', spans: 'Spans',
+      modelTrace: 'Model routing trace', modelTraceEmpty: 'No model call/fallback trace',
       back: 'Back', eval: 'Agent evaluation', refresh: 'Refresh', last24: 'Last 24 hours', last7: 'Last 7 days', last30: 'Last 30 days',
       spanTree: 'Span structure (agent / chain / llm / tool)', noSpans: 'No span data', noTools: 'No tool calls',
       modelShare: 'Model share (LLM spans)', calls: 'Calls', noModelCalls: 'No model calls',

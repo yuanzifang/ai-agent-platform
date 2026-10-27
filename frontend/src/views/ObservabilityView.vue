@@ -263,6 +263,60 @@
                          @current-change="loadVersions(false)" />
         </el-tab-pane>
 
+        <!-- Gray A/B -->
+        <el-tab-pane :label="t('obsPage.grayTab')" name="gray">
+          <div class="filter-bar">
+            <el-input v-model="grayTag" :placeholder="t('obsPage.grayTagPh')" clearable style="width: 220px"
+                      @keyup.enter="loadGray" />
+            <span class="hint">{{ t('obsPage.grayDays') }}</span>
+            <el-input-number v-model="grayDays" :min="1" :max="90" size="small" />
+            <el-button size="small" :loading="grayLoading" @click="loadGray">{{ t('obsPage.loadGray') }}</el-button>
+            <span class="hint">{{ t('obsPage.grayHint') }}</span>
+          </div>
+          <el-empty v-if="!grayData" :description="t('obsPage.grayNoData')" :image-size="60" />
+          <template v-else>
+            <el-descriptions :column="4" border size="small" class="mb">
+              <el-descriptions-item :label="t('obsPage.grayRequests')">{{ intFmt(grayData.baseline?.requests) }} / {{ intFmt(grayData.gray?.requests) }}</el-descriptions-item>
+              <el-descriptions-item :label="t('obsPage.grayErrorRate')">{{ pct((grayData.baseline?.errorRate || 0) * 100) }} / {{ pct((grayData.gray?.errorRate || 0) * 100) }}</el-descriptions-item>
+              <el-descriptions-item :label="t('obsPage.grayAvgLatency')">{{ num(grayData.baseline?.avgLatencyMs) }} / {{ num(grayData.gray?.avgLatencyMs) }} ms</el-descriptions-item>
+              <el-descriptions-item :label="t('obsPage.grayP95')">{{ num(grayData.baseline?.p95LatencyMs) }} / {{ num(grayData.gray?.p95LatencyMs) }} ms</el-descriptions-item>
+              <el-descriptions-item :label="t('obsPage.grayTokens')">{{ intFmt(grayData.baseline?.avgTotalTokens) }} / {{ intFmt(grayData.gray?.avgTotalTokens) }}</el-descriptions-item>
+              <el-descriptions-item :label="t('obsPage.grayCost')">{{ costFmt(grayData.baseline?.totalCost) }} / {{ costFmt(grayData.gray?.totalCost) }}</el-descriptions-item>
+              <el-descriptions-item :label="t('obsPage.grayToolCalls')">{{ num(grayData.baseline?.avgToolCallsPerTrace) }} / {{ num(grayData.gray?.avgToolCallsPerTrace) }}</el-descriptions-item>
+              <el-descriptions-item :label="t('obsPage.grayDelta')">{{ t('obsPage.grayBaseline') }} → {{ t('obsPage.grayGroup') }}</el-descriptions-item>
+            </el-descriptions>
+            <div class="gray-grid">
+              <el-card shadow="never">
+                <template #header>{{ t('obsPage.grayByModel') }} · {{ t('obsPage.grayBaseline') }}</template>
+                <el-table :data="grayData.baseline?.byModel || []" size="small">
+                  <el-table-column prop="model_name" label="Model" />
+                  <el-table-column prop="requests" :label="t('obsPage.grayRequests')" width="80" />
+                  <el-table-column prop="avg_latency" :label="t('obsPage.grayAvgLatency')" width="110" />
+                </el-table>
+              </el-card>
+              <el-card shadow="never">
+                <template #header>{{ t('obsPage.grayByModel') }} · {{ t('obsPage.grayGroup') }}</template>
+                <el-table :data="grayData.gray?.byModel || []" size="small">
+                  <el-table-column prop="model_name" label="Model" />
+                  <el-table-column prop="requests" :label="t('obsPage.grayRequests')" width="80" />
+                  <el-table-column prop="avg_latency" :label="t('obsPage.grayAvgLatency')" width="110" />
+                </el-table>
+              </el-card>
+            </div>
+            <el-descriptions :column="3" border size="small" class="mt8">
+              <el-descriptions-item :label="t('obsPage.grayEvalBaseline')">
+                {{ grayData.eval?.baseline?.evals || 0 }} {{ t('obsPage.grayEvalCount') }} · {{ pct((grayData.eval?.baseline?.passRate || 0) * 100) }}
+              </el-descriptions-item>
+              <el-descriptions-item :label="t('obsPage.grayEvalGray')">
+                {{ grayData.eval?.gray?.evals || 0 }} {{ t('obsPage.grayEvalCount') }} · {{ pct((grayData.eval?.gray?.passRate || 0) * 100) }}
+              </el-descriptions-item>
+              <el-descriptions-item :label="t('obsPage.grayEvalScore')">
+                {{ num(grayData.eval?.baseline?.avgScore) }} / {{ num(grayData.eval?.gray?.avgScore) }}
+              </el-descriptions-item>
+            </el-descriptions>
+          </template>
+        </el-tab-pane>
+
         <!-- Logs -->
         <el-tab-pane label="Logs" name="logs">
           <div class="filter-bar">
@@ -326,6 +380,18 @@
         </el-descriptions-item>
       </el-descriptions>
 
+      <div class="io-title" style="margin-top: 14px">{{ t('obsPage.modelTrace') }}</div>
+      <div v-if="modelTraceRows.length" class="model-trace">
+        <div v-for="(s, i) in modelTraceRows" :key="i" class="model-trace-row">
+          <el-tag size="small" :type="s.status === 'SUCCESS' ? 'success' : 'warning'">{{ s.status }}</el-tag>
+          <b>{{ s.name }}</b>
+          <span>{{ s.modelName || current.modelName || '—' }}</span>
+          <span v-if="s.attributes?.from || s.attributes?.to">{{ s.attributes?.from }} → {{ s.attributes?.to }}</span>
+          <span class="hint">{{ s.durationMs }}ms · {{ fmtTime(s.startTime) }}</span>
+        </div>
+      </div>
+      <div v-else class="hint">{{ t('obsPage.modelTraceEmpty') }}</div>
+
       <div v-if="current.errorMessage" class="err-box">{{ t('obsPage.errorInfo') }}{{ current.errorMessage }}</div>
 
       <div class="io-block">
@@ -337,20 +403,48 @@
         <pre class="io-text">{{ current.output || '—' }}</pre>
       </div>
 
-      <div class="io-title" style="margin-top: 14px">SPANS</div>
-      <div v-for="(s, i) in spanRows" :key="i" class="span-row" :class="s.spanType"
-           :style="{ marginLeft: (8 + s.depth * 22) + 'px' }">
-        <span class="dot" :class="s.spanType" />
-        <span class="s-type">{{ s.spanType }}</span>
-        <span class="s-name">{{ s.name }}</span>
-        <span class="s-meta">
-          <template v-if="s.modelName">{{ t('obsPage.modelPrefix') }}{{ s.modelName }} · </template>
-          <template v-if="s.toolName">{{ t('obsPage.toolPrefix') }}{{ s.toolName }} · </template>
-          <template v-if="s.spanType === 'llm'">{{ s.inputTokens }}/{{ s.outputTokens }} tok · </template>
-          <template v-if="s.spanType === 'retrieval'">{{ (s.attributes || {}).hits || 0 }}{{ t('obsPage.hits') }} · </template>
-          {{ s.durationMs }}ms · {{ s.status }}
-          <span class="span-time">{{ fmtTime(s.startTime) }}</span>
-        </span>
+      <div class="span-head">
+        <div class="io-title">{{ t('obsPage.spans') }}</div>
+        <el-radio-group v-model="traceView" size="small">
+          <el-radio-button value="waterfall">{{ t('obsPage.waterfall') }}</el-radio-button>
+          <el-radio-button value="list">{{ t('obsPage.list') }}</el-radio-button>
+        </el-radio-group>
+        <span class="hint">{{ t('obsPage.totalDuration') }} {{ current.latencyMs }}ms</span>
+      </div>
+      <div v-if="traceView === 'waterfall'" class="waterfall">
+        <div class="waterfall-axis">
+          <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
+        </div>
+        <div v-for="(s, i) in spanRows" :key="i" class="waterfall-row">
+          <div class="waterfall-label" :style="{ paddingLeft: (8 + s.depth * 14) + 'px' }">
+            <span class="dot" :class="s.spanType" />
+            <span class="s-type">{{ s.spanType }}</span>
+            <span class="s-name">{{ s.name }}</span>
+          </div>
+          <div class="waterfall-track">
+            <div class="waterfall-bar" :class="s.spanType"
+                 :style="{ left: s.leftPct + '%', width: s.widthPct + '%' }"
+                 :title="`${s.durationMs}ms · ${s.status}`">
+              <span v-if="s.widthPct >= 12">{{ s.durationMs }}ms</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-else>
+        <div v-for="(s, i) in spanRows" :key="i" class="span-row" :class="s.spanType"
+             :style="{ marginLeft: (8 + s.depth * 22) + 'px' }">
+          <span class="dot" :class="s.spanType" />
+          <span class="s-type">{{ s.spanType }}</span>
+          <span class="s-name">{{ s.name }}</span>
+          <span class="s-meta">
+            <template v-if="s.modelName">{{ t('obsPage.modelPrefix') }}{{ s.modelName }} · </template>
+            <template v-if="s.toolName">{{ t('obsPage.toolPrefix') }}{{ s.toolName }} · </template>
+            <template v-if="s.spanType === 'llm'">{{ s.inputTokens }}/{{ s.outputTokens }} tok · </template>
+            <template v-if="s.spanType === 'retrieval'">{{ (s.attributes || {}).hits || 0 }}{{ t('obsPage.hits') }} · </template>
+            {{ s.durationMs }}ms · {{ s.status }}
+            <span class="span-time">{{ fmtTime(s.startTime) }}</span>
+          </span>
+        </div>
       </div>
       <div class="legend">
         <span><i class="dot agent" /> agent</span>
@@ -434,6 +528,11 @@ const logLevel = ref(''); const logKeyword = ref(''); const logLoading = ref(fal
 // ---- Detail ----
 const traceVisible = ref(false)
 const current = reactive<any>({})
+const traceView = ref<'waterfall' | 'list'>('waterfall')
+const grayTag = ref('')
+const grayDays = ref(7)
+const grayLoading = ref(false)
+const grayData = ref<any>(null)
 
 const emptySeries = computed(() =>
   (overview.spanSeries || []).every((b: any) => !b.agent && !b.chain && !b.llm && !b.tool))
@@ -517,6 +616,7 @@ watch(tab, (t) => {
   if (t === 'users' && users.value.length === 0) loadUsers(true)
   if (t === 'versions' && versions.value.length === 0) loadVersions(true)
   if (t === 'logs' && logs.value.length === 0) loadLogs(true)
+  if (t === 'gray' && !grayData.value && grayTag.value.trim()) loadGray()
 })
 
 async function refreshAll() {
@@ -619,6 +719,18 @@ function levelType(level: string) {
   return 'info'
 }
 
+async function loadGray() {
+  if (!grayTag.value.trim()) return
+  grayLoading.value = true
+  try {
+    grayData.value = await http.get('/observability/gray/compare', {
+      params: { tag: grayTag.value.trim(), days: grayDays.value, agentId }
+    })
+  } finally {
+    grayLoading.value = false
+  }
+}
+
 async function openTrace(row: any) {
   Object.assign(current, await http.get(`/observability/traces/${row.traceId}`) as any)
   traceVisible.value = true
@@ -703,8 +815,28 @@ const spanRows = computed(() => {
     }
     return d
   }
-  return spans.map((s: any) => ({ ...s, depth: depth(s) }))
+  const parse = (v: any) => {
+    const n = Date.parse(String(v || '').replace(' ', 'T'))
+    return Number.isFinite(n) ? n : 0
+  }
+  const starts = spans.map((s: any) => parse(s.startTime)).filter(Boolean)
+  const origin = starts.length ? Math.min(...starts) : parse(current.startTime)
+  const end = Math.max(...spans.map((s: any) => parse(s.startTime) + num(s.durationMs)), origin + num(current.latencyMs))
+  const total = Math.max(end - origin, 1)
+  return spans.map((s: any) => {
+    const start = parse(s.startTime) || origin
+    const width = Math.max(0.4, Math.min(100, num(s.durationMs) * 100 / total))
+    return {
+      ...s, depth: depth(s),
+      leftPct: Math.max(0, Math.min(99.6, (start - origin) * 100 / total)),
+      widthPct: Math.min(100, width)
+    }
+  })
 })
+
+const modelTraceRows = computed(() => (current.spans || [])
+  .filter((s: any) => s.spanType === 'llm' || /model|fallback|circuit/i.test(String(s.name || '')))
+  .sort((a: any, b: any) => String(a.startTime || '').localeCompare(String(b.startTime || ''))))
 
 // ---- 格式化 ----
 function num(v: any) { return Number(v || 0) }
@@ -782,6 +914,34 @@ function kindType(k: string) {
 .err-box { background: #fef0f0; color: #f56c6c; border-radius: 4px; padding: 8px 10px; font-size: 13px; margin-top: 8px; word-break: break-word; }
 .tag-item { margin-right: 4px; }
 .mb { margin-bottom: 12px; }
+.span-head { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.span-head .io-title { margin: 0; flex: 1; }
+.waterfall { margin-top: 8px; border: 1px solid #ebeef5; border-radius: 6px; padding: 8px 10px 10px; }
+.waterfall-axis { display: flex; justify-content: space-between; color: #c0c4cc; font-size: 11px; margin-left: 250px; padding-bottom: 4px; }
+.waterfall-row { display: grid; grid-template-columns: 250px 1fr; align-items: center; min-height: 28px; border-top: 1px dashed #f2f3f5; }
+.waterfall-label { display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; font-size: 12px; }
+.waterfall-label .s-type { width: 52px; }
+.waterfall-label .s-name { overflow: hidden; text-overflow: ellipsis; }
+.waterfall-track { position: relative; height: 16px; background: #f5f7fa; border-radius: 3px; }
+.waterfall-bar { position: absolute; top: 2px; height: 12px; min-width: 2px; border-radius: 3px; opacity: .85; display: flex; align-items: center; overflow: hidden; }
+.waterfall-bar span { font-size: 10px; color: #fff; padding-left: 4px; white-space: nowrap; }
+.waterfall-bar.agent { background: #3B82F6; }
+.waterfall-bar.chain { background: #10B981; }
+.waterfall-bar.llm { background: #F59E0B; }
+.waterfall-bar.tool { background: #6B7280; }
+.waterfall-bar.retrieval { background: #8B5CF6; }
+.model-trace { border: 1px solid #ebeef5; border-radius: 6px; padding: 6px 10px; }
+.model-trace-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px dashed #f2f3f5; font-size: 12px; }
+.model-trace-row:last-child { border-bottom: 0; }
+.gray-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; }
+.gray-grid :deep(.el-card__body) { padding: 8px; }
+@media (max-width: 768px) {
+  .waterfall-axis { margin-left: 140px; }
+  .waterfall-row { grid-template-columns: 140px 1fr; }
+  .waterfall-label .s-name { max-width: 70px; }
+  .gray-grid { grid-template-columns: 1fr; }
+}
+
 
 @media (max-width: 768px) {
   .cards { grid-template-columns: repeat(2, 1fr); }
