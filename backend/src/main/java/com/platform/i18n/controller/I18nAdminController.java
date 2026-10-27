@@ -6,6 +6,7 @@ import com.platform.common.response.ApiResponse;
 import com.platform.i18n.entity.I18nMessage;
 import com.platform.i18n.service.I18nService;
 import com.platform.security.JwtPrincipal;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,14 +36,14 @@ public class I18nAdminController {
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long size,
-            JwtPrincipal principal) {
+            @AuthenticationPrincipal JwtPrincipal principal) {
         requirePlatformAdmin(principal);
         return ApiResponse.ok(i18nService.page(lang, keyword, page, size));
     }
 
     @PostMapping("/messages")
     public ApiResponse<Map<String, Object>> upsert(@RequestBody UpsertRequest req,
-                                                   JwtPrincipal principal) {
+                                                   @AuthenticationPrincipal JwtPrincipal principal) {
         requirePlatformAdmin(principal);
         i18nService.upsert(req.lang(), req.key(), req.content(), req.description(),
                 principal == null ? null : principal.userId());
@@ -50,7 +51,7 @@ public class I18nAdminController {
     }
 
     @DeleteMapping("/messages/{id}")
-    public ApiResponse<Map<String, Object>> delete(@PathVariable Long id, JwtPrincipal principal) {
+    public ApiResponse<Map<String, Object>> delete(@PathVariable Long id, @AuthenticationPrincipal JwtPrincipal principal) {
         requirePlatformAdmin(principal);
         i18nService.delete(id);
         return ApiResponse.ok(Map.of("deleted", true));
@@ -58,7 +59,7 @@ public class I18nAdminController {
 
     @PostMapping("/import")
     public ApiResponse<Map<String, Object>> importMessages(@RequestBody ImportRequest req,
-                                                           JwtPrincipal principal) {
+                                                           @AuthenticationPrincipal JwtPrincipal principal) {
         requirePlatformAdmin(principal);
         return ApiResponse.ok(i18nService.importMessages(req.lang(), req.format(),
                 req.content(), principal == null ? null : principal.userId()));
@@ -69,7 +70,7 @@ public class I18nAdminController {
     public ExportResponse export(@RequestParam String lang,
                                  @RequestParam(defaultValue = "json") String format,
                                  @RequestParam(required = false) String filename,
-                                 JwtPrincipal principal) {
+                                 @AuthenticationPrincipal JwtPrincipal principal) {
         requirePlatformAdmin(principal);
         String fmt = "csv".equalsIgnoreCase(format) ? "csv" : "json";
         byte[] data = i18nService.export(lang, fmt);
@@ -83,7 +84,7 @@ public class I18nAdminController {
     public record ExportResponse(String filename, byte[] data) {
     }
 
-    private void requirePlatformAdmin(JwtPrincipal principal) {
+    private void requirePlatformAdmin(@AuthenticationPrincipal JwtPrincipal principal) {
         if (principal == null || !principal.platformAdmin()) {
             throw new BusinessException(403, "仅平台管理员可管理国际化字段");
         }
