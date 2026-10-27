@@ -1226,7 +1226,7 @@ public class ToolRuntimeService {
      * 执行前 schema 校验。失败时把结构化错误作为 tool result 返回给模型，
      * 让模型有机会修正参数；达到上限后 retryable=false，禁止继续自动重试。
      */
-    private String validateToolInput(String toolKey, String displayName, String type,
+    String validateToolInput(String toolKey, String displayName, String type,
                                      ToolCallCollector collector, String toolInput,
                                      String schema, Map<String, Object> args) {
         ToolInputValidator.Result result = inputValidator.validate(schema, args);
