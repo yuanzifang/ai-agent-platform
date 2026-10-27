@@ -1928,15 +1928,14 @@ export async function applyRemoteMessages(lang: string) {
     const body = await res.json()
     if (!res.ok || body?.code !== 0 || !body.data) return
     const flat: Record<string, string> = body.data
-    const current = i18n.global.getLocaleMessage(lang) as unknown
-    const merged = JSON.parse(JSON.stringify(current)) as Record<string, unknown>
+    // 深合并到当前消息树；类型上借道 any 绕过 vue-i18n 对联合字面量的严格推断
+    const merged: any = JSON.parse(JSON.stringify(i18n.global.getLocaleMessage(lang)))
     for (const [key, value] of Object.entries(flat)) {
       const parts = key.split('.')
-      let node: Record<string, unknown> = merged
+      let node = merged
       for (let i = 0; i < parts.length - 1; i++) {
-        const seg = parts[i]
-        if (!node[seg] || typeof node[seg] !== 'object') node[seg] = {}
-        node = node[seg] as Record<string, unknown>
+        if (!node[parts[i]] || typeof node[parts[i]] !== 'object') node[parts[i]] = {}
+        node = node[parts[i]]
       }
       node[parts[parts.length - 1]] = escapeMessageBraces(value)
     }
