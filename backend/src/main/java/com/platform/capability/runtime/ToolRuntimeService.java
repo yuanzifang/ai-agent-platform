@@ -159,7 +159,7 @@ public class ToolRuntimeService {
                         .append(applyVariables(skill.getPrompt(), skill.getParams(), variables));
             }
             if (hasTools && hasScript(skill)) {
-                addSkillScript(callbacks, names, skill, collector, allowWriteTools);
+                addSkillScript(callbacks, names, skill, collector, allowWriteTools, agentId);
             }
             for (SkillDependency dep : skillDepMapper.selectBySkill(skillId)) {
                 if ("KNOWLEDGE_BASE".equals(dep.getDepType())) {
@@ -248,7 +248,7 @@ public class ToolRuntimeService {
     /** 技能脚本注册为工具，模型可像普通工具一样调用。 */
     private void addSkillScript(List<ToolCallback> callbacks, Set<String> names,
                                 SkillRegistry skill, ToolCallCollector collector,
-                                boolean allowWriteTools) {
+                                boolean allowWriteTools, Long agentId) {
         String toolName = "skill_" + skill.getId();
         if (!toolName.matches("[a-zA-Z0-9_-]{1,64}") || !names.add(toolName)) return;
         String schema = scriptRunner.inputSchema(skill.getParams());
@@ -270,6 +270,9 @@ public class ToolRuntimeService {
             public String call(String toolInput) {
                 if (isCancelled(collector)) return cancelledMessage();
                 collector.start(toolName, skill.getName(), "SKILL", toolInput);
+                if (requiresApproval(agentId)) {
+                    return requestSkillApproval(agentId, skill, collector, toolInput, toolName);
+                }
                 if (!allowWriteTools) {
                     return deniedTool(toolName, skill.getName(), "SKILL", collector, toolInput);
                 }
@@ -533,6 +536,45 @@ public class ToolRuntimeService {
         } catch (Exception e) {
             return true;
         }
+    }
+
+    private String requestSkillApproval(Long agentId, SkillRegistry skill, ToolCallCollector collector,
+                                        String toolInput, String toolName) {
+        try {
+            var approval = toolApprovalService.requestSkill(agentId, skill, toolInput);
+            String message = "【待审批】技能脚本「" + skill.getName() + "」已创建审批 #" + approval.getId()
+                    + "，本次未执行。请到审批箱批准后执行。";
+            long now = System.currentTimeMillis();
+            collector.add(new ToolCallEvent(toolName, skill.getName(), "SKILL", null, null,
+                    "WAITING", 0, truncate(toolInput, 4000), message, 0, 0, now, now));
+            return message;
+        } catch (Exception e) {
+            log.warn("技能脚本审批创建失败，按阻断处理 agent={} skill={}：{}", agentId, skill.getId(), e.getMessage());
+            return deniedTool(toolName, skill.getName(), "SKILL", collector, toolInput);
+        }
+    }
+
+    /** 审批通过后执行一次技能脚本（独立于工具注册表）。 */
+    public Map<String, Object> executeSkillForApproval(Long agentId, Long skillId, String argsJson) {
+        SkillRegistry skill = skillMapper.findVisible(skillId, TenantContext.getTenantId());
+        if (skill == null || !"ENABLED".equals(skill.getStatus()) || !hasScript(skill)) {
+            throw new IllegalArgumentException("技能不存在、未启用或没有脚本");
+        }
+        int timeout = skill.getScriptTimeoutMs() == null ? 5000 : skill.getScriptTimeoutMs();
+        ToolCallCollector collector = new ToolCallCollector();
+        long start = System.currentTimeMillis();
+        String output;
+        try {
+            Map<String, Object> args = scriptRunner.withDefaults(skill.getParams(), args(argsJson));
+            ScriptRunnerService.Result result = scriptRunner.run(skill.getScriptLanguage(),
+                    skill.getScriptCode(), args, timeout, collector::isCancelled);
+            output = result.output().isBlank() ? "脚本执行完成（无输出）" : result.output();
+            if (!result.stderr().isBlank()) output = output + "\n[stderr] " + result.stderr();
+        } catch (Exception e) {
+            throw new IllegalArgumentException("技能脚本执行失败：" + rootMessage(e));
+        }
+        return Map.of("output", output, "latencyMs", System.currentTimeMillis() - start,
+                "toolCalls", collector.events());
     }
 
     private String requestApproval(Long agentId, ToolRegistry tool, String type,
