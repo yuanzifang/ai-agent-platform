@@ -58,6 +58,7 @@ public class BillingService {
     private final ChatAttachmentMapper attachmentMapper;
     private final SysTenantQuotaMapper quotaMapper;
     private final AuditService auditService;
+    private final QuotaService quotaService;
 
     @Value("${billing.low-balance-threshold:10}")
     private BigDecimal lowBalanceThreshold;
@@ -421,6 +422,7 @@ public class BillingService {
                 q.getMaxApiCallsPerMin() == null ? 60 : q.getMaxApiCallsPerMin(), "maxApiCallsPerMin"));
         if (created) quotaMapper.insert(q);
         else quotaMapper.updateById(q);
+        quotaService.invalidateTenant(tenantId);
         auditService.record(principal.userId(), "billing.quota.update", "sys_tenant_quota",
                 String.valueOf(q.getId()), "SUCCESS", Map.of());
         return quota();

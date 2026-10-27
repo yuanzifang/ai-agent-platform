@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.platform.common.exception.BusinessException;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.entity.SysRole;
+import com.platform.billing.service.QuotaService;
 import com.platform.system.entity.SysTenant;
 import com.platform.system.entity.SysTenantQuota;
 import com.platform.system.entity.SysUser;
@@ -38,6 +39,7 @@ public class PlatformAdminService {
     private final SysUserRoleMapper userRoleMapper;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final QuotaService quotaService;
 
     public List<Map<String, Object>> tenants() {
         List<SysTenant> tenants = tenantMapper.selectList(null);
@@ -149,6 +151,7 @@ public class PlatformAdminService {
                 req.setId(existing.getId());
                 quotaMapper.updateById(req);
             }
+            quotaService.invalidateTenant(tenantId);
         });
     }
 

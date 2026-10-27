@@ -229,6 +229,13 @@ public class QuotaService {
         return used;
     }
 
+    /** 配额配置变更后立即失效本实例缓存。 */
+    public void invalidateTenant(Long tenantId) {
+        if (tenantId == null) return;
+        quotaCache.remove(tenantId);
+        tokenCache.remove(tenantId);
+    }
+
     /** 用量落库后同步本地计数，避免等待下一次数据库聚合。 */
     public void addTokens(Long tenantId, long tokens) {
         if (tenantId == null || tokens <= 0) return;
