@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class ChartDataValidatorTest {
@@ -47,6 +48,19 @@ class ChartDataValidatorTest {
         assertEquals("conflict", ChartDataValidator.crossCheck(chart,
                 "Water 300\nFilter 99").status());
         assertEquals("unverified", ChartDataValidator.crossCheck(chart, "no numbers").status());
+    }
+
+    @Test
+    void crossChecksEachLabeledPointInNearbyEvidence() throws Exception {
+        JsonNode chart = new ObjectMapper().readTree(
+                "{\"series\":[{\"points\":[{\"x\":\"Q1\",\"y\":10},"
+                        + "{\"x\":\"Q2\",\"y\":20}]}]}");
+
+        assertEquals("verified", ChartDataValidator.crossCheck(chart, "Q1 10\nQ2 20").status());
+        assertEquals("conflict", ChartDataValidator.crossCheck(chart, "Q1 10\nQ2 21").status());
+        assertTrue(ChartDataValidator.crossCheck(chart, "Q1 10\nQ2 21")
+                .missingPoints().contains("Q2=20"));
+        assertEquals("unverified", ChartDataValidator.crossCheck(chart, "Q1 10").status());
     }
 
     @Test

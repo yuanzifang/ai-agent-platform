@@ -24,52 +24,83 @@ final class ChartDataValidator {
     private ChartDataValidator() {
     }
 
-    record CrossCheck(String status, int checked, int missing) {
+    record CrossCheck(String status, int checked, int missing, List<String> missingPoints) {
     }
 
-    /** 与文档文本/OCR 中的数字交叉比对；只标记验证状态，不判定图表事实为真。 */
+    private record Point(String x, String value) { }
+
+    /** 与文档文本/OCR 中的数字逐点比对：有 x 标签时要求在标签邻近窗口出现 y 值。 */
     static CrossCheck crossCheck(JsonNode chart, String evidence) {
-        List<String> values = new ArrayList<>();
-        collectChartValues(chart, values);
-        if (values.isEmpty()) return new CrossCheck("unverified", 0, 0);
+        List<Point> points = new ArrayList<>();
+        collectPoints(chart, points);
+        if (points.isEmpty()) return new CrossCheck("unverified", 0, 0, List.of());
+        String text = evidence == null ? "" : evidence;
+        String lower = text.toLowerCase(java.util.Locale.ROOT);
         Set<String> evidenceNumbers = new LinkedHashSet<>();
-        Matcher matcher = EVIDENCE_NUMBER.matcher(evidence == null ? "" : evidence);
+        Matcher matcher = EVIDENCE_NUMBER.matcher(text);
         while (matcher.find()) {
             String normalized = normalize(matcher.group());
             if (normalized != null) evidenceNumbers.add(normalized);
         }
+        int checked = 0;
         int missing = 0;
-        for (String value : values) {
-            String normalized = normalize(value);
-            if (normalized == null) continue;
-            if (!evidenceNumbers.contains(normalized)) missing++;
+        boolean labelUnavailable = false;
+        List<String> missingPoints = new ArrayList<>();
+        for (Point point : points) {
+            String value = normalize(point.value());
+            if (value == null) continue;
+            checked++;
+            String x = point.x() == null ? "" : point.x().trim();
+            if (x.isBlank()) {
+                if (!evidenceNumbers.contains(value)) {
+                    missing++;
+                    if (missingPoints.size() < 20) missingPoints.add(value);
+                }
+                continue;
+            }
+            int at = lower.indexOf(x.toLowerCase(java.util.Locale.ROOT));
+            if (at < 0) {
+                labelUnavailable = true;
+                missing++;
+                continue;
+            }
+            int end = Math.min(text.length(), at + x.length() + 120);
+            String window = text.substring(Math.max(0, at - 20), end);
+            Set<String> nearby = new LinkedHashSet<>();
+            Matcher nearbyMatcher = EVIDENCE_NUMBER.matcher(window);
+            while (nearbyMatcher.find()) {
+                String normalized = normalize(nearbyMatcher.group());
+                if (normalized != null) nearby.add(normalized);
+            }
+            if (!nearby.contains(value)) {
+                missing++;
+                if (missingPoints.size() < 20) missingPoints.add(x + "=" + value);
+            }
         }
-        if (evidenceNumbers.isEmpty()) return new CrossCheck("unverified", values.size(), values.size());
-        return new CrossCheck(missing == 0 ? "verified" : "conflict", values.size(), missing);
+        if (evidenceNumbers.isEmpty()) {
+            return new CrossCheck("unverified", checked, checked,
+                    points.stream().map(Point::value).limit(20).toList());
+        }
+        if (labelUnavailable) return new CrossCheck("unverified", checked, missing, missingPoints);
+        return new CrossCheck(missing == 0 ? "verified" : "conflict", checked, missing, missingPoints);
     }
 
-    private static void collectChartValues(JsonNode node, List<String> values) {
+    private static void collectPoints(JsonNode node, List<Point> points) {
         if (node == null || node.isNull()) return;
-        if (node.isValueNode()) {
-            values.add(node.asText());
-            return;
-        }
         if (node.isArray()) {
-            for (JsonNode item : node) collectChartValues(item, values);
+            for (JsonNode item : node) collectPoints(item, points);
             return;
         }
         if (!node.isObject()) return;
-        var fields = node.fields();
-        while (fields.hasNext()) {
-            var entry = fields.next();
-            String key = entry.getKey();
-            JsonNode value = entry.getValue();
-            if (("value".equals(key) || "y".equals(key)) && value.isValueNode()) {
-                values.add(value.asText());
-            } else if ("series".equals(key) || "data".equals(key) || "points".equals(key)
-                    || "values".equals(key)) {
-                collectChartValues(value, values);
-            }
+        JsonNode value = node.get("value") != null ? node.get("value") : node.get("y");
+        if (value != null && value.isValueNode()) {
+            String x = node.has("x") ? node.get("x").asText()
+                    : node.has("label") ? node.get("label").asText() : null;
+            points.add(new Point(x, value.asText()));
+            return;
+        }
+        for (String key : new String[]{"series", "data", "points", "values"}) {
+            if (node.has(key)) collectPoints(node.get(key), points);
         }
     }
 
