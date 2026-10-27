@@ -154,6 +154,9 @@
           <el-table-column :label="t('kbDetail.error')" min-width="160">
             <template #default="{ row }">
               <span class="err">{{ row.errorMessage || '' }}</span>
+              <el-tag v-if="row.manualReviewRequired" size="small" type="warning">
+                {{ t('kbDetail.manualReview') }}
+              </el-tag>
               <span v-if="row.parseWarning" class="warn">{{ row.parseWarning }}</span>
               <span v-if="row.retryTimes > 0" class="retry-tip">{{ t('kbDetail.retriedPrefix') }}{{ row.retryTimes }}{{ t('kbDetail.retriedSuffix') }}</span>
             </template>
