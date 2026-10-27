@@ -64,6 +64,30 @@ jobs:
       - name: 许可证策略（阻断 AGPL/SSPL/GPL-only/unknown）
         run: python3 scripts/license_policy.py frontend-licenses.json backend/target/licenses/THIRD-PARTY.txt
 
+      - name: 后端 SBOM（CycloneDX）
+        working-directory: backend
+        run: |
+          mvn -q org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom \
+            -DoutputFormat=json -DoutputName=bom
+
+      - name: 前端 SBOM（CycloneDX）
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: frontend/package-lock.json
+          format: cyclonedx
+          output: frontend-sbom.cdx.json
+          exit-code: '0'
+
+      - name: 上传 SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            backend/target/bom.json
+            frontend-sbom.cdx.json
+          if-no-files-found: error
+
   gateway:
     name: 运行时网关/告警中继（Node 单测 + 镜像/容器冒烟）
     runs-on: ubuntu-latest
