@@ -684,7 +684,7 @@ public class KnowledgeService {
         permissionService.requireEdit(kbId, viewer);
         if (rawUrl == null || rawUrl.isBlank()) throw new BusinessException(400, "URL 不能为空");
         String url = rawUrl.trim();
-        networkPolicy.validateHttpUrl(url, "URL");
+        networkPolicy.validatePublicHttpUrl(url, "URL");
         Fetched fetched;
         try {
             fetched = fetch(url, 0);
@@ -717,7 +717,7 @@ public class KnowledgeService {
 
     private Fetched fetch(String url, int depth) throws Exception {
         if (depth > 3) throw new BusinessException(400, "URL 重定向次数过多");
-        networkPolicy.validateHttpUrl(url, "URL");
+        networkPolicy.validatePublicHttpUrl(url, "URL");
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .followRedirects(HttpClient.Redirect.NEVER)

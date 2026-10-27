@@ -27,6 +27,17 @@ class NetworkPolicyServiceTest {
     }
 
     @Test
+    void publicValidatorBlocksPrivateEvenWhenGlobalAllows() {
+        NetworkPolicyService service = new NetworkPolicyService();
+        ReflectionTestUtils.setField(service, "allowPrivate", true);
+        ReflectionTestUtils.setField(service, "allowedHosts", "");
+        assertThrows(BusinessException.class,
+                () -> service.validatePublicHttpUrl("http://127.0.0.1:8080/actuator/health", "URL"));
+        assertThrows(BusinessException.class,
+                () -> service.validatePublicHttpUrl("http://169.254.169.254/latest/meta-data/", "URL"));
+    }
+
+    @Test
     void blocksPrivateWhenDisabled() {
         NetworkPolicyService service = new NetworkPolicyService();
         ReflectionTestUtils.setField(service, "allowPrivate", false);

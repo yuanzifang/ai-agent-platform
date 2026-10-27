@@ -100,6 +100,7 @@ warn() { log "WARN: $*"; printf '%s\n' "$*" >> "$WARNINGS"; }
 
 MYSQL_TABLE_COUNT=0
 MYSQL_AUDIT_ROWS=0
+MYSQL_CORE_COUNTS_FILE=""
 MYSQL_BINLOG_FILES=0
 MYSQL_BINLOG_BYTES=0
 MYSQL_DUMP_VERSION="skipped"
@@ -151,6 +152,26 @@ else
 
   MYSQL_AUDIT_ROWS="$("${MYSQL[@]}" --batch --skip-column-names -e \
     "SELECT COUNT(*) FROM \`$MYSQL_DATABASE\`.audit_operation" 2>/dev/null || echo 0)"
+
+  # 业务级恢复校验基线；旧备份没有该文件时 pitr-verify 只做存在性/结构校验。
+  MYSQL_CORE_COUNTS_FILE="$PARTIAL/mysql/core-counts.tsv"
+  if ! "${MYSQL[@]}" --batch --skip-column-names -e "
+      SELECT 'sys_tenant', COUNT(*) FROM \`$MYSQL_DATABASE\`.sys_tenant
+      UNION ALL SELECT 'sys_user', COUNT(*) FROM \`$MYSQL_DATABASE\`.sys_user
+      UNION ALL SELECT 'agent_registry', COUNT(*) FROM \`$MYSQL_DATABASE\`.agent_registry
+      UNION ALL SELECT 'knowledge_base', COUNT(*) FROM \`$MYSQL_DATABASE\`.knowledge_base
+      UNION ALL SELECT 'knowledge_document', COUNT(*) FROM \`$MYSQL_DATABASE\`.knowledge_document
+      UNION ALL SELECT 'conversation', COUNT(*) FROM \`$MYSQL_DATABASE\`.conversation
+      UNION ALL SELECT 'message', COUNT(*) FROM \`$MYSQL_DATABASE\`.message
+      UNION ALL SELECT 'audit_operation', COUNT(*) FROM \`$MYSQL_DATABASE\`.audit_operation
+      UNION ALL SELECT 'billing_usage', COUNT(*) FROM \`$MYSQL_DATABASE\`.billing_usage
+      UNION ALL SELECT 'agent_trace', COUNT(*) FROM \`$MYSQL_DATABASE\`.agent_trace
+      UNION ALL SELECT 'agent_span', COUNT(*) FROM \`$MYSQL_DATABASE\`.agent_span
+      UNION ALL SELECT 'eval_task', COUNT(*) FROM \`$MYSQL_DATABASE\`.eval_task" \
+      > "$MYSQL_CORE_COUNTS_FILE"; then
+    : > "$MYSQL_CORE_COUNTS_FILE"
+    warn "无法采集 MySQL 业务表计数基线；PITR 业务校验将只做结构/非空检查"
+  fi
 
   # 可选 PITR 坐标；MySQL 8.4 使用 SHOW BINARY LOG STATUS，旧版本回退 SHOW MASTER STATUS
   if "${MYSQL[@]}" --batch -e "SHOW BINARY LOG STATUS" > "$PARTIAL/mysql/binlog.txt" 2>/dev/null; then
@@ -349,6 +370,7 @@ export BACKUP_GIT="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo u
 export BACKUP_MYSQL_DB="${MYSQL_DATABASE:-}"
 export BACKUP_MYSQL_TABLES="$MYSQL_TABLE_COUNT"
 export BACKUP_MYSQL_AUDIT_ROWS="$MYSQL_AUDIT_ROWS"
+export BACKUP_MYSQL_CORE_COUNTS_FILE="$MYSQL_CORE_COUNTS_FILE"
 export BACKUP_MYSQL_BINLOG_FILES="$MYSQL_BINLOG_FILES"
 export BACKUP_MYSQL_BINLOG_BYTES="$MYSQL_BINLOG_BYTES"
 export BACKUP_MYSQL_VERSION="$MYSQL_DUMP_VERSION"
@@ -374,6 +396,19 @@ for p in sorted(root.rglob('*')):
             h.update(chunk)
     files[rel] = {'bytes': p.stat().st_size, 'sha256': h.hexdigest()}
 
+core_counts = {}
+core_counts_file = os.environ.get('BACKUP_MYSQL_CORE_COUNTS_FILE') or ''
+if core_counts_file:
+    cp = pathlib.Path(core_counts_file)
+    if cp.is_file():
+        for line in cp.read_text().splitlines():
+            parts = line.split('\t')
+            if len(parts) >= 2 and parts[0].strip():
+                try:
+                    core_counts[parts[0].strip()] = int(parts[1])
+                except ValueError:
+                    pass
+
 warnings = []
 wp = root / 'warnings.txt'
 if wp.is_file():
@@ -389,6 +424,7 @@ manifest = {
             'database': os.environ.get('BACKUP_MYSQL_DB') or None,
             'tables': int(os.environ.get('BACKUP_MYSQL_TABLES') or 0),
             'auditRows': int(os.environ.get('BACKUP_MYSQL_AUDIT_ROWS') or 0),
+            'coreCounts': core_counts,
             'binlogFiles': int(os.environ.get('BACKUP_MYSQL_BINLOG_FILES') or 0),
             'binlogBytes': int(os.environ.get('BACKUP_MYSQL_BINLOG_BYTES') or 0),
             'dumpVersion': os.environ.get('BACKUP_MYSQL_VERSION') or None,

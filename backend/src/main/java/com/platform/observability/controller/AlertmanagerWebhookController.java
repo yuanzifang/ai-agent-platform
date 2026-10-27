@@ -1,12 +1,16 @@
 package com.platform.observability.controller;
 
+import com.platform.common.exception.BusinessException;
 import com.platform.system.service.AlertWebhookService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
 import java.util.Map;
 
@@ -21,8 +25,17 @@ public class AlertmanagerWebhookController {
 
     private final AlertWebhookService alertWebhookService;
 
+    @Value("${alert.webhook.internal-token:}")
+    private String internalToken;
+
     @PostMapping("/alertmanager")
-    public Map<String, Object> receive(@RequestBody Map<String, Object> payload) {
+    public Map<String, Object> receive(@RequestBody Map<String, Object> payload,
+                                       @org.springframework.web.bind.annotation.RequestHeader(
+                                               value = "X-Internal-Token", required = false) String providedToken) {
+        if (internalToken != null && !internalToken.isBlank()
+                && !safeEquals(internalToken, providedToken)) {
+            throw new BusinessException(403, "内部 webhook token 无效");
+        }
         List<?> alerts = payload.get("alerts") instanceof List<?> list ? list : List.of();
         int sent = 0;
         for (Object raw : alerts) {
@@ -50,5 +63,11 @@ public class AlertmanagerWebhookController {
 
     private static String string(Object value, String fallback) {
         return value == null || String.valueOf(value).isBlank() ? fallback : String.valueOf(value);
+    }
+
+    private static boolean safeEquals(String expected, String actual) {
+        if (actual == null) return false;
+        return MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8),
+                actual.getBytes(StandardCharsets.UTF_8));
     }
 }

@@ -411,4 +411,10 @@ alert:
     enabled: ${ALERT_WEBHOOK_ENABLED:false}
     url: ${ALERT_WEBHOOK_URL:}
     secret: ${ALERT_WEBHOOK_SECRET:}
+    internal-token: ${ALERT_WEBHOOK_INTERNAL_TOKEN:}
     env: ${ALERT_WEBHOOK_ENV:dev}
+
+chat:
+  stream:
+    # 流式快照心跳超过该阈值仍为 RUNNING，resume 判定生产实例已宕机
+    stale-ms: ${CHAT_STREAM_STALE_MS:30000}

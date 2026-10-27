@@ -58,9 +58,29 @@ class StreamRegistryServiceTest {
     @Test
     void unregisterReturnsWhetherLocalExisted() {
         service.register(4L, disposable(new AtomicBoolean()));
+        when(valueOps.get("chat:active:4")).thenReturn(service.instanceId());
         assertTrue(service.unregister(4L));
         assertFalse(service.unregister(4L));
         verify(redis, org.mockito.Mockito.atLeastOnce()).delete("chat:active:4");
+    }
+
+    @Test
+    void unregisterDoesNotDeleteAnotherInstancesKey() {
+        service.register(5L, disposable(new AtomicBoolean()));
+        when(valueOps.get("chat:active:5")).thenReturn("other-instance");
+        assertTrue(service.unregister(5L));
+        verify(redis, never()).delete("chat:active:5");
+    }
+
+    @Test
+    void refreshExtendsOnlyOwnedKey() {
+        when(valueOps.get("chat:active:6")).thenReturn(service.instanceId());
+        service.refresh(6L);
+        verify(redis).expire(eq("chat:active:6"), any(Duration.class));
+
+        when(valueOps.get("chat:active:7")).thenReturn("other-instance");
+        service.refresh(7L);
+        verify(redis, never()).expire(eq("chat:active:7"), any(Duration.class));
     }
 
     private Disposable disposable(AtomicBoolean flag) {

@@ -23,6 +23,15 @@ public class NetworkPolicyService {
     private String allowedHosts;
 
     public void validateHttpUrl(String url, String label) {
+        validateHttpUrl(url, label, allowPrivate);
+    }
+
+    /** 用户可控 URL（文档导入等）必须禁止内网/环回，即使开发环境全局 allow-private=true。 */
+    public void validatePublicHttpUrl(String url, String label) {
+        validateHttpUrl(url, label, false);
+    }
+
+    private void validateHttpUrl(String url, String label, boolean allowPrivate) {
         if (url == null || url.isBlank()) throw new BusinessException(400, label + "不能为空");
         URI uri;
         try {

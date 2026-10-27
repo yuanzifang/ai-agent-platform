@@ -1,13 +1,17 @@
 package com.platform.observability.controller;
 
+import com.platform.common.exception.BusinessException;
 import com.platform.system.service.AlertWebhookService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -30,7 +34,7 @@ class AlertmanagerWebhookControllerTest {
                                 "instance", "backend:8080"),
                         "annotations", Map.of("summary", "后端不可用", "description", "连续 2 分钟抓取失败"))));
 
-        Map<String, Object> result = controller.receive(payload);
+        Map<String, Object> result = controller.receive(payload, null);
 
         assertEquals(1, result.get("alerts"));
         assertEquals(1, result.get("sent"));
@@ -52,9 +56,27 @@ class AlertmanagerWebhookControllerTest {
         Map<String, Object> payload = Map.of("alerts", List.of(Map.of(
                 "labels", Map.of("alertname", "X"))));
 
-        Map<String, Object> result = controller.receive(payload);
+        Map<String, Object> result = controller.receive(payload, null);
 
         assertEquals(1, result.get("alerts"));
         assertEquals(0, result.get("sent"));
+    }
+
+    @Test
+    void tokenIsRequiredWhenConfigured() {
+        AlertmanagerWebhookController controller = new AlertmanagerWebhookController(mock(AlertWebhookService.class));
+        ReflectionTestUtils.setField(controller, "internalToken", "secret");
+        Map<String, Object> payload = Map.of("alerts", List.of());
+
+        assertThrows(BusinessException.class, () -> controller.receive(payload, null));
+        assertThrows(BusinessException.class, () -> controller.receive(payload, "wrong"));
+        assertDoesNotThrow(() -> controller.receive(payload, "secret"));
+    }
+
+    @Test
+    void tokenOptionalForBackwardCompatibility() {
+        AlertmanagerWebhookController controller = new AlertmanagerWebhookController(mock(AlertWebhookService.class));
+        ReflectionTestUtils.setField(controller, "internalToken", "");
+        assertDoesNotThrow(() -> controller.receive(Map.of("alerts", List.of()), null));
     }
 }
