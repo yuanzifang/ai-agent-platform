@@ -171,7 +171,7 @@ public class OpenApiController {
         response.put("session_id", conversation.getSessionId());
         response.put("conversation_id", conversation.getId());
         response.put("trace_id", traceId);
-        if (grayTag != null) response.put("gray_tag", grayTag);
+
         return ResponseEntity.ok(response);
     }
 
