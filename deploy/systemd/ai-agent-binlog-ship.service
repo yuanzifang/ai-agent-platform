@@ -1,0 +1,20 @@
+[Unit]
+Description=AI Agent Platform continuous MySQL binlog shipping
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=aiagent
+Group=aiagent
+WorkingDirectory=/opt/ai-agent-platform
+EnvironmentFile=-/opt/ai-agent-platform/.env
+ExecStart=/opt/ai-agent-platform/scripts/binlog-ship.sh
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/ai-agent-platform/backups
+TimeoutStartSec=10m
