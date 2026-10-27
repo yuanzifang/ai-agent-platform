@@ -946,6 +946,7 @@ public class KnowledgeService {
             }
             if (described > 0) log.info("文档图片多模态分段：doc={} images={}", doc.getId(), described);
         }
+        PdfManualReviewInspector.inspect(chunks, parseWarnings);
         float[][] vectors = embedChunksWithCache(chunks, embeddingModel);
         // 业务有效期优先；未配置时回退文档入库时间，而不是向量写入时间。
         LocalDateTime effectiveFrom = doc.getEffectiveFrom() != null
@@ -1690,6 +1691,8 @@ public class KnowledgeService {
                     && (doc.getParseFingerprint() == null
                     || doc.getParserVersion() == null
                     || !DocumentParser.PARSER_VERSION.equals(doc.getParserVersion())));
+            doc.setManualReviewRequired(doc.getParseWarning() != null
+                    && doc.getParseWarning().contains("人工复核"));
         }
         return docs;
     }
@@ -2016,6 +2019,9 @@ public class KnowledgeService {
                     ? "已复用相同文件「" + source.getFileName() + "」的解析结果"
                     : "已复用同租户相同文件的解析结果";
             warnings.add(reuseMessage);
+            if (source.getParseWarning() != null && source.getParseWarning().contains("人工复核")) {
+                warnings.add("人工复核：复用了需人工复核的源文档解析结果，请核对");
+            }
             recordParserVersion(doc);
             recordEmbeddingInfo(doc, embeddingModel, dimensions);
             updateStatus(doc, "DONE", newChunks.size(), null);

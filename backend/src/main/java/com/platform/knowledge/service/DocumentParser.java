@@ -73,6 +73,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.Map;
@@ -100,7 +101,7 @@ import java.util.zip.ZipInputStream;
 public class DocumentParser {
 
     /** 解析器版本：解析行为/结构化输出变化时递增，用于存量升级和复用判断。 */
-    public static final String PARSER_VERSION = "2026-10-27.6";
+    public static final String PARSER_VERSION = "2026-10-27.7";
 
     private static final long MAX_BYTES = 20 * 1024 * 1024;
 
@@ -137,7 +138,7 @@ public class DocumentParser {
 
     /** 带警告的解析入口：OCR 超限、扫描页无文本等不会静默丢失。 */
     public ParseOutcome parseWithParentsAndWarnings(String fileName, byte[] bytes, ParseOptions opts) {
-        warningsHolder.set(new ArrayList<>());
+        warningsHolder.set(Collections.synchronizedList(new ArrayList<>()));
         try {
             return new ParseOutcome(parseWithParents(fileName, bytes, opts),
                     List.copyOf(warningsHolder.get()));
@@ -535,6 +536,10 @@ public class DocumentParser {
                         result = raw;
                     }
                 }
+            }
+            if (result.confidence() > 0 && result.confidence() < 45) {
+                warn("人工复核：第 " + (pageIndex + 1) + " 页 OCR 平均置信度较低（"
+                        + Math.round(result.confidence()) + "），请核对识别正文/表格");
             }
             return result;
         } finally {

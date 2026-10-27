@@ -39,4 +39,6 @@ public class KnowledgeDocument {
     /** 仅用于文档列表返回：当前解析结果是否需要按最新解析器版本升级。 */
     @com.baomidou.mybatisplus.annotation.TableField(exist = false)
     private Boolean upgradePending;
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private Boolean manualReviewRequired;
 }
