@@ -48,7 +48,7 @@ curl -s http://100.82.118.40:19000/v1/chat/completions \
 
 ## 实现方式
 
-默认使用**自研运行时镜像** `aap/agent-gateway:1`（见 `docs/Agent运行时镜像.md`），每个 Agent 一个容器：
+默认使用**自研运行时镜像** `aap/agent-gateway:1`（见 `docs/Agent运行时镜像.md`），每个 Agent 至少一个运行时容器；多副本时额外一个 nginx LB 容器：
 
 ```
 client → container:8080 /v1/chat/completions
@@ -65,7 +65,7 @@ client → container:8080 /v1/chat/completions
 
 ### 表结构
 
-- `agent_deployment`（一个 Agent 一行）：容器名/ID、镜像、端口、地址、状态、API Key 引用、访问令牌（加密）、错误信息、版本、部署人
+- `agent_deployment`（一个 Agent 一行）：容器名/ID、镜像、端口、地址、状态、API Key 引用、访问令牌（加密）、错误信息、版本、部署人；多副本另有 `replicas_json` 与 LB 端口/容器/地址字段
 - `agent_deployment_event`：部署事件流水（DEPLOY/START/STOP/REMOVE、版本、端口、结果、错误、操作人）。部署弹窗「部署历史」直接读它
 - 删除 Agent 时会顺带停止/删除容器、清理部署 Key 并记一条 REMOVE 事件（软删除后容器不会残留）
 
@@ -149,7 +149,7 @@ client → container:8080 /v1/chat/completions
 - CORS 默认 `*`，生产建议改成具体前端域名。
 - API Key 与令牌以环境变量形式存在容器里，`docker inspect` 可见；删除部署时会一并删除该 Key。
 - 默认绑定 `0.0.0.0` 是为了 Tailscale/手机访问；仍建议只在内网/网关后面暴露该端口。
-- 每个 Agent 只保留一个部署记录/容器，重新部署 = 删旧建新（短暂不可用）。重新部署优先复用原端口，最多等待 3 秒。
+- 每个 Agent 只保留一个部署记录（1–5 个运行时副本 + 可选 LB 容器），重新部署 = 删旧建新（短暂不可用）。重新部署优先复用原端口，最多等待 3 秒。
 - 「回滚并部署」= 完整恢复该版本的 Agent 配置（含知识库/工具/技能/子 Agent）+ 重新部署容器，详见 `docs/Agent版本与回滚.md`。
 - 发布自动重新部署是「已部署过才触发」；从未部署过的 Agent 发布后不会自动拉起容器，避免意外占用端口。
 - 暂未实现：K8s 部署、滚动更新、容器日志采集到平台可观测、资源配额（CPU/内存限制）。多副本已有内置 nginx LB（依赖 Redis 共享状态）。
