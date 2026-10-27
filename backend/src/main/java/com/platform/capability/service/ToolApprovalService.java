@@ -42,6 +42,22 @@ public class ToolApprovalService {
         return a;
     }
 
+    public ToolApproval requestSkill(Long agentId, com.platform.capability.entity.SkillRegistry skill, String input) {
+        ToolApproval a = new ToolApproval();
+        a.setTenantId(TenantContext.getTenantId());
+        a.setAgentId(agentId);
+        a.setToolId(skill.getId());
+        a.setToolKey("skill_" + skill.getId());
+        a.setToolName(skill.getName());
+        a.setToolType("SKILL");
+        a.setToolInput(input == null ? "" : input.substring(0, Math.min(input.length(), 8000)));
+        a.setStatus("PENDING");
+        a.setCreatedAt(LocalDateTime.now());
+        a.setExpireAt(LocalDateTime.now().plusMinutes(Math.max(1, timeoutMinutes)));
+        mapper.insert(a);
+        return a;
+    }
+
     public Map<String, Object> list(String status, long page, long pageSize) {
         long size = Math.max(1, Math.min(pageSize, 100));
         long current = Math.max(1, page);

@@ -48,8 +48,9 @@ public class ToolApprovalController {
         Map<String, Object> view = view(a);
         if (req.approve()) {
             try {
-                Map<String, Object> result = toolRuntime.executeToolForWorkflow(
-                        a.getAgentId(), a.getToolId(), a.getToolInput());
+                Map<String, Object> result = "SKILL".equals(a.getToolType())
+                        ? toolRuntime.executeSkillForApproval(a.getAgentId(), a.getToolId(), a.getToolInput())
+                        : toolRuntime.executeToolForWorkflow(a.getAgentId(), a.getToolId(), a.getToolInput());
                 Object output = result.get("output");
                 approvalService.finish(id, "EXECUTED", output == null ? "" : String.valueOf(output));
                 view.put("status", "EXECUTED");
