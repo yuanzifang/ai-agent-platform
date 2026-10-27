@@ -33,6 +33,8 @@ data:
   OTEL_ENABLED: {{ .Values.config.otelEnabled | quote }}
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.config.otelEndpoint | quote }}
   RATE_LIMIT_PER_MINUTE: {{ .Values.config.rateLimitPerMinute | quote }}
+  MODERATION_PROMPT_INJECTION_ENABLED: {{ .Values.config.moderationPromptInjectionEnabled | quote }}
+  MODERATION_PROMPT_INJECTION_BLOCK_SCORE: {{ .Values.config.moderationPromptInjectionBlockScore | quote }}
   SKILL_SCRIPT_ENABLED: {{ .Values.config.skillScriptEnabled | quote }}
   SKILL_SCRIPT_RUNTIME: {{ .Values.config.skillScriptRuntime | quote }}
   ASR_ENABLED: {{ .Values.config.asrEnabled | quote }}
