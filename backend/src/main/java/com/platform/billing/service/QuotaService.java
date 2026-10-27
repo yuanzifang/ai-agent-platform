@@ -22,8 +22,10 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +57,10 @@ public class QuotaService {
 
     private static final long QUOTA_CACHE_MS = 5_000;
     private static final long TOKEN_CACHE_MS = 1_000;
+    private static final String TOKEN_KEY_PREFIX = "quota:tokens:";
+    private static final DefaultRedisScript<Long> INCR_TOKEN_IF_EXISTS = new DefaultRedisScript<>(
+            "if redis.call('EXISTS', KEYS[1]) == 1 then "
+                    + "return redis.call('INCRBY', KEYS[1], ARGV[1]) else return -1 end", Long.class);
     private final Map<Long, CachedQuota> quotaCache = new ConcurrentHashMap<>();
     private final Map<Long, CachedTokens> tokenCache = new ConcurrentHashMap<>();
 
@@ -221,12 +227,24 @@ public class QuotaService {
     public long tokensToday() {
         Long tenantId = TenantContext.getTenantId();
         if (tenantId == null) return 0;
-        long now = System.currentTimeMillis();
-        CachedTokens cached = tokenCache.get(tenantId);
-        if (cached != null && cached.expiresAt() > now) return cached.value();
-        long used = usageMapper.sumTokensToday(tenantId);
-        tokenCache.put(tenantId, new CachedTokens(used, now + TOKEN_CACHE_MS));
-        return used;
+        String key = tokenKey(tenantId);
+        try {
+            String cached = redis.opsForValue().get(key);
+            if (cached != null) return Long.parseLong(cached);
+            long used = usageMapper.sumTokensToday(tenantId);
+            Boolean initialized = redis.opsForValue().setIfAbsent(key, String.valueOf(used), Duration.ofDays(2));
+            if (Boolean.TRUE.equals(initialized)) return used;
+            String current = redis.opsForValue().get(key);
+            return current == null ? used : Long.parseLong(current);
+        } catch (Exception e) {
+            // Redis 不可用时回退进程内短缓存/数据库，保证单实例可用性
+            long now = System.currentTimeMillis();
+            CachedTokens cached = tokenCache.get(tenantId);
+            if (cached != null && cached.expiresAt() > now) return cached.value();
+            long used = usageMapper.sumTokensToday(tenantId);
+            tokenCache.put(tenantId, new CachedTokens(used, now + TOKEN_CACHE_MS));
+            return used;
+        }
     }
 
     /** 配额配置变更后立即失效本实例缓存。 */
@@ -234,13 +252,32 @@ public class QuotaService {
         if (tenantId == null) return;
         quotaCache.remove(tenantId);
         tokenCache.remove(tenantId);
+        try {
+            redis.delete(tokenKey(tenantId));
+        } catch (Exception ignored) {
+            // Redis 不可用时本地缓存已失效即可
+        }
     }
 
-    /** 用量落库后同步本地计数，避免等待下一次数据库聚合。 */
+    /** 用量落库后同步 Redis/本地计数，避免等待下一次数据库聚合。 */
     public void addTokens(Long tenantId, long tokens) {
         if (tenantId == null || tokens <= 0) return;
-        tokenCache.computeIfPresent(tenantId, (id, cached) ->
-                new CachedTokens(cached.value() + tokens, cached.expiresAt()));
+        try {
+            Long value = redis.execute(INCR_TOKEN_IF_EXISTS, List.of(tokenKey(tenantId)),
+                    String.valueOf(tokens));
+            if (value == null || value < 0) {
+                // key 尚未初始化时不能只写增量；下次校验会从数据库初始化
+                tokenCache.computeIfPresent(tenantId, (id, cached) ->
+                        new CachedTokens(cached.value() + tokens, cached.expiresAt()));
+            }
+        } catch (Exception e) {
+            tokenCache.computeIfPresent(tenantId, (id, cached) ->
+                    new CachedTokens(cached.value() + tokens, cached.expiresAt()));
+        }
+    }
+
+    private String tokenKey(Long tenantId) {
+        return TOKEN_KEY_PREFIX + tenantId + ":" + LocalDate.now();
     }
 
     private SysTenantQuota quota() {
