@@ -3,9 +3,10 @@
 // 运行：k6 run scripts/perf-k6.js
 // 可用环境变量：PERF_BASE_URL / PERF_USERNAME / PERF_PASSWORD / PERF_TENANT /
 //               PERF_RATE / PERF_DURATION / PERF_PRE_VUS / PERF_MAX_VUS /
-//               PERF_MODEL / PERF_KB_ID / PERF_MESSAGE / PERF_WARN_WORD
+//               PERF_VUS / PERF_THINK_SECONDS / PERF_MODEL / PERF_KB_ID /
+//               PERF_MESSAGE / PERF_WARN_WORD
 import http from 'k6/http'
-import { check } from 'k6'
+import { check, sleep } from 'k6'
 import { Trend, Rate } from 'k6/metrics'
 
 const BASE = __ENV.PERF_BASE_URL || 'http://localhost:8080'
@@ -20,6 +21,8 @@ const MODEL = __ENV.PERF_MODEL || 'deepseek-flash'
 const KB_ID = __ENV.PERF_KB_ID || ''
 const MESSAGE = __ENV.PERF_MESSAGE || '请简短回答：压测消息'
 const WARN_WORD = __ENV.PERF_WARN_WORD || ''
+const VUS = Number(__ENV.PERF_VUS || 0)
+const THINK_SECONDS = Number(__ENV.PERF_THINK_SECONDS || 1)
 
 const chatTtfb = new Trend('chat_ttfb_ms', true)
 const chatTotal = new Trend('chat_total_ms', true)
@@ -27,19 +30,14 @@ const chatOk = new Rate('chat_ok')
 const ragCitation = new Rate('rag_citation')
 const moderationWarn = new Rate('moderation_warn')
 
+const scenario = VUS > 0
+  ? { executor: 'constant-vus', exec: 'chat', vus: VUS, duration: DURATION }
+  : { executor: 'constant-arrival-rate', exec: 'chat', rate: RATE, timeUnit: '1s',
+      duration: DURATION, preAllocatedVUs: PRE_VUS, maxVUs: MAX_VUS }
+
 export const options = {
   discardResponseBodies: false,
-  scenarios: {
-    chat_stream: {
-      executor: 'constant-arrival-rate',
-      exec: 'chat',
-      rate: RATE,
-      timeUnit: '1s',
-      duration: DURATION,
-      preAllocatedVUs: PRE_VUS,
-      maxVUs: MAX_VUS,
-    },
-  },
+  scenarios: { chat_stream: scenario },
   thresholds: {
     http_req_failed: ['rate<0.01'],
     checks: ['rate>0.99'],
@@ -134,6 +132,7 @@ export function chat(data) {
   if (KB_ID) resultChecks['rag citation event'] = () => citation
   if (WARN_WORD) resultChecks['moderation event'] = () => moderation && body.includes(WARN_WORD)
   check(res, resultChecks)
+  if (VUS > 0) sleep(Math.max(0, THINK_SECONDS))
 }
 
 export function teardown(data) {
@@ -150,7 +149,7 @@ export function handleSummary(data) {
     return values && values[key] !== undefined ? values[key] : 'n/a'
   }
   const summary = [
-    `k6 SSE baseline: rate=${RATE}/s duration=${DURATION}`,
+    VUS > 0 ? `k6 SSE concurrency: vus=${VUS} think=${THINK_SECONDS}s duration=${DURATION}` : `k6 SSE baseline: rate=${RATE}/s duration=${DURATION}`,
     `chat_ttfb p95=${metric('chat_ttfb_ms', 'p(95)')}ms avg=${metric('chat_ttfb_ms', 'avg')}ms`,
     `chat_total p95=${metric('chat_total_ms', 'p(95)')}ms avg=${metric('chat_total_ms', 'avg')}ms`,
     `chat_ok rate=${metric('chat_ok', 'rate')}`,
