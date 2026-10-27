@@ -39,15 +39,17 @@ trivy fs --format cyclonedx --output ../frontend-sbom.cdx.json package-lock.json
 
 1. 按 Release tag checkout，构建并生成后端 CycloneDX BOM；
 2. 用 Trivy 对 `frontend/package-lock.json` 生成前端 CycloneDX BOM；
-3. 校验两个文件的 `bomFormat=CycloneDX` 且 `components` 非空；
-4. 生成 `SHA256SUMS`；
-5. 通过 `gh release upload --clobber` 附加到对应 GitHub Release。
+3. 用 `scripts/merge_cyclonedx_sbom.py` 合并后端/前端组件（按 purl/bom-ref 去重，保留依赖与漏洞）；
+4. 校验三个文件的 `bomFormat=CycloneDX` 且 `components` 非空；
+5. 生成 `SHA256SUMS`；
+6. 通过 `gh release upload --clobber` 附加到对应 GitHub Release。
 
 资产命名：
 
 ```text
 backend-sbom-<tag>.cdx.json
 frontend-sbom-<tag>.cdx.json
+merged-sbom-<tag>.cdx.json
 SHA256SUMS
 ```
 
@@ -56,4 +58,4 @@ SHA256SUMS
 ## 仍缺
 
 - SBOM 签名/attestation（Sigstore/cosign）
-- 后端/前端/镜像 SBOM 的统一合并清单
+- 运行时镜像 SBOM 未并入 Release 合并清单（当前 Release 合并清单只覆盖后端/前端应用依赖）
