@@ -153,6 +153,14 @@
             <template #title><span class="p-title">{{ t('agentEdit.kb') }}</span>
               <el-tag size="small" class="ml8">{{ enabledKbCount ? `${t('agentEdit.boundCount')}${enabledKbCount}${t('agentEdit.countSuffix')}` : t('agentEdit.unbound') }}</el-tag>
             </template>
+            <el-form-item :label="t('agentEdit.resourceProfile')">
+              <el-select v-model="form.resourceProfileId" clearable style="width: 300px"
+                         :placeholder="t('agentEdit.resourceProfilePh')">
+                <el-option v-for="p in resourceProfiles" :key="p.id" :value="p.id"
+                           :label="`${p.name} · ${p.searchBackend}/${p.vectorBackend}`" />
+              </el-select>
+              <span class="hint">{{ t('agentEdit.resourceProfileHint') }}</span>
+            </el-form-item>
             <div v-if="kbRows.length === 0" class="hint">{{ t('agentEdit.noKb') }}</div>
             <div v-for="kb in kbRows" :key="kb.knowledgeBaseId" class="kb-row">
               <el-switch v-model="kb.enabled" :disabled="kb.missing" />
@@ -1271,6 +1279,7 @@ const agentId = Number(route.params.id)
 const activePanels = ref(['base', 'model', 'prompt', 'knowledge', 'skill', 'tool', 'subagent', 'variable'])
 const models = ref<any[]>([])
 const kbRows = ref<KbRow[]>([])
+const resourceProfiles = ref<any[]>([])
 const versions = ref<any[]>([])
 const members = ref<any[]>([])
 const grantedIds = ref<number[]>([])
@@ -1304,7 +1313,8 @@ const form = reactive({
   capabilities: { streamOutput: true, functionCall: false, multimodal: false, selfCorrection: false,
     selfCorrectionRounds: 1, writeToolPolicy: 'ALLOW_ALL', allowedWriteToolIds: [] as number[], writeToolMaxArgs: 16384 },
   memory: { enabled: true, windowSize: 10, autoExtract: true },
-  variables: [] as VariableRow[]
+  variables: [] as VariableRow[],
+  resourceProfileId: null as number | null
 })
 const tagsStr = ref('')
 const writeToolPatternsText = ref('')
@@ -1491,15 +1501,17 @@ const debugRunning = ref(false)
 const dbgBox = ref<HTMLElement>()
 
 onMounted(async () => {
-  const [detail, modelList, kbList, skillsRes, toolsRes, agentRes, templatesRes] = await Promise.all([
+  const [detail, modelList, kbList, skillsRes, toolsRes, agentRes, templatesRes, profileRes] = await Promise.all([
     http.get(`/agent/${agentId}`) as any,
     http.get('/provider/models') as any,
     http.get('/knowledge-base', { params: { pageSize: 100 } }) as any,
     http.get('/skills') as any,
     http.get('/tools') as any,
     http.get('/agent', { params: { pageSize: 100 } }) as any,
-    http.get('/prompt-templates') as any
+    http.get('/prompt-templates') as any,
+    http.get('/resource-profiles', { _silent: true } as any).catch(() => [])
   ])
+  resourceProfiles.value = Array.isArray(profileRes) ? profileRes : []
   promptTemplates.value = templatesRes?.list || []
   skillCatalog.value = skillsRes?.list || []
   toolCatalog.value = toolsRes?.list || []
@@ -1525,6 +1537,7 @@ onMounted(async () => {
   form.reasoningEffort = typeof mc.reasoningEffort === 'string' ? mc.reasoningEffort : 'medium'
   form.systemPrompt = detail.systemPrompt || ''
   form.openingStatement = detail.openingStatement || ''
+  form.resourceProfileId = detail.resourceProfileId || null
   const caps = detail.agentCapabilities || {}
   form.capabilities = { ...caps, streamOutput: caps.streamOutput !== false, functionCall: !!caps.functionCall,
     multimodal: !!caps.multimodal, selfCorrection: !!caps.selfCorrection,
@@ -3283,6 +3296,7 @@ function buildPayload() {
     modelConfig: { modelName: form.modelName, fallbackModelName: form.fallbackModelName || null,
       temperature: form.temperature,
       thinking: form.thinking, reasoningEffort: form.thinking ? form.reasoningEffort : null },
+    resourceProfileId: form.resourceProfileId,
     variables: form.variables.filter(v => v.key),
     visibility: form.visibility,
     knowledgeBases: kbRows.value.filter(k => k.enabled).map(k => ({

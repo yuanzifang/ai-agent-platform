@@ -184,6 +184,7 @@ public class AgentService {
         setJsonField(req.get("memoryConfig"), agent::setMemoryConfig);
         agent.setModelConfig(toJson(modelConfig));
         setJsonField(req.get("retrievalConfig"), agent::setRetrievalConfig);
+        agent.setResourceProfileId(toLong(req.get("resourceProfileId")));
         setJsonField(req.get("variables"), agent::setVariables);
         agent.setOwnerId(principal.userId());
         agent.setVisibility("PRIVATE".equals(str(req.get("visibility"))) ? "PRIVATE" : "TENANT");
@@ -239,6 +240,9 @@ public class AgentService {
                 .eq(AgentRegistry::getId, id)
                 .eq(expected != null, AgentRegistry::getUpdatedAt, expected)
                 .set(AgentRegistry::getUpdatedAt, LocalDateTime.now());
+        if (req.containsKey("resourceProfileId")) {
+            uw.set(AgentRegistry::getResourceProfileId, toLong(req.get("resourceProfileId")));
+        }
         // MyBatis-Plus updateById 忽略 null 字段，这里用 wrapper 直接 set 非空变更
         int rows = agentMapper.update(patch, uw);
         if (rows == 0) {
@@ -368,6 +372,7 @@ public class AgentService {
         if (snap.containsKey("memoryConfig")) patch.setMemoryConfig(toJson(snap.get("memoryConfig")));
         if (snap.containsKey("modelConfig")) patch.setModelConfig(toJson(snap.get("modelConfig")));
         if (snap.containsKey("retrievalConfig")) patch.setRetrievalConfig(toJson(snap.get("retrievalConfig")));
+        if (snap.containsKey("resourceProfileId")) patch.setResourceProfileId(toLong(snap.get("resourceProfileId")));
         if (snap.containsKey("variables")) patch.setVariables(toJson(snap.get("variables")));
         agentMapper.updateById(patch);
 
@@ -413,6 +418,7 @@ public class AgentService {
         v.put("memoryConfig", fromJsonMap(a.getMemoryConfig()));
         v.put("modelConfig", fromJsonMap(a.getModelConfig()));
         v.put("retrievalConfig", fromJsonMap(a.getRetrievalConfig()));
+        v.put("resourceProfileId", a.getResourceProfileId());
         v.put("variables", fromJsonList(a.getVariables()));
         v.put("updatedAt", a.getUpdatedAt() == null ? null
                 : a.getUpdatedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
@@ -632,6 +638,7 @@ public class AgentService {
         snap.put("memoryConfig", fromJson(a.getMemoryConfig()));
         snap.put("modelConfig", fromJson(a.getModelConfig()));
         snap.put("retrievalConfig", fromJson(a.getRetrievalConfig()));
+        snap.put("resourceProfileId", a.getResourceProfileId());
         snap.put("variables", fromJson(a.getVariables()));
         snap.put("knowledgeBases", knowledgeBases(a.getId()));
         snap.put("skills", skillBindings(a.getId()));

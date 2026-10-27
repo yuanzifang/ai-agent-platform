@@ -107,6 +107,7 @@
             <el-menu-item v-if="can('tenant:manage')" index="/admin/tenant">{{ t('menu.tenant') }}</el-menu-item>
             <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/platform">{{ t('menu.platform') }}</el-menu-item>
             <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/settings">{{ t('menu.settings') }}</el-menu-item>
+            <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/infrastructure">{{ t('menu.infra') }}</el-menu-item>
             <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/admin/i18n">{{ t('menu.i18n') }}</el-menu-item>
           </el-sub-menu>
         </el-menu>

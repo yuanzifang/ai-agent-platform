@@ -29,3 +29,7 @@ backups/
 # Python 测试/脚本缓存
 __pycache__/
 *.pyc
+
+# 平台管理页保存的本地基础设施配置（含凭据，不提交）
+config/application-platform.yml
+backend/config/application-platform.yml

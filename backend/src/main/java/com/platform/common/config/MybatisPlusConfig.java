@@ -24,7 +24,7 @@ public class MybatisPlusConfig {
     /** 无 tenant_id 列的表（架构 2.2 ignoreTable 清单）。 */
     private static final Set<String> IGNORE_TABLES = Set.of(
             "sys_tenant", "sys_permission", "sys_user_role", "user_session",
-            "sys_config", "sys_role", "audit_login");
+            "sys_config", "sys_role", "audit_login", "retrieval_resource_profile");
 
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor() {

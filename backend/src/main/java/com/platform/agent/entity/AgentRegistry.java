@@ -27,6 +27,7 @@ public class AgentRegistry {
     private String tools;           // JSON
     private String knowledgeBaseIds; // JSON
     private String retrievalConfig; // JSON
+    private Long resourceProfileId;
     private String subAgentIds;     // JSON
     private String variables;       // JSON
     private Long ownerId;
