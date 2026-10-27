@@ -76,6 +76,8 @@ public class ToolRuntimeService {
 
     @org.springframework.beans.factory.annotation.Value("${tool.max-output-chars:8000}")
     private int maxToolOutput;
+    @org.springframework.beans.factory.annotation.Value("${tool.input-validation.max-attempts:3}")
+    private int maxInputValidationAttempts;
     private static final String EMPTY_SCHEMA = "{\"type\":\"object\",\"properties\":{}}";
 
     private final ToolRegistryMapper toolMapper;
@@ -98,6 +100,7 @@ public class ToolRuntimeService {
     private final ScriptRunnerService scriptRunner;
     private final com.platform.capability.service.ToolApprovalService toolApprovalService;
     private final KnowledgePermissionService permissionService;
+    private final ToolInputValidator inputValidator;
     private final ObjectMapper objectMapper;
 
     /** 类级单例：HttpClient 线程安全且持有连接池，避免每次工具调用创建后无法关闭。 */
@@ -270,8 +273,23 @@ public class ToolRuntimeService {
             public String call(String toolInput) {
                 if (isCancelled(collector)) return cancelledMessage();
                 collector.start(toolName, skill.getName(), "SKILL", toolInput);
+                Map<String, Object> args;
+                try {
+                    args = scriptRunner.withDefaults(skill.getParams(), args(toolInput));
+                } catch (Exception e) {
+                    return invalidJson(toolName, skill.getName(), "SKILL", collector, toolInput);
+                }
+                String invalid = validateToolInput(toolName, skill.getName(), "SKILL",
+                        collector, toolInput, schema, args);
+                if (invalid != null) return invalid;
+                String validatedInput;
+                try {
+                    validatedInput = objectMapper.writeValueAsString(args);
+                } catch (Exception e) {
+                    validatedInput = toolInput;
+                }
                 if (requiresApproval(agentId)) {
-                    return requestSkillApproval(agentId, skill, collector, toolInput, toolName);
+                    return requestSkillApproval(agentId, skill, collector, validatedInput, toolName);
                 }
                 if (!allowWriteTools) {
                     return deniedTool(toolName, skill.getName(), "SKILL", collector, toolInput);
@@ -280,7 +298,6 @@ public class ToolRuntimeService {
                 String status = "SUCCESS";
                 String output;
                 try {
-                    Map<String, Object> args = scriptRunner.withDefaults(skill.getParams(), args(toolInput));
                     ScriptRunnerService.Result result = scriptRunner.run(skill.getScriptLanguage(),
                             skill.getScriptCode(), args, timeout, collector::isCancelled);
                     output = result.output().isBlank() ? "脚本执行完成（无输出）" : result.output();
@@ -621,11 +638,19 @@ public class ToolRuntimeService {
             public String call(String toolInput) {
                 if (isCancelled(collector)) return cancelledMessage();
                 collector.start(tool.getToolKey(), tool.getName(), "BUILTIN", toolInput);
+                Map<String, Object> args;
+                try {
+                    args = args(toolInput);
+                } catch (Exception e) {
+                    return invalidJson(tool.getToolKey(), tool.getName(), "BUILTIN", collector, toolInput);
+                }
+                String invalid = validateToolInput(tool.getToolKey(), tool.getName(), "BUILTIN",
+                        collector, toolInput, schema, args);
+                if (invalid != null) return invalid;
                 long start = System.currentTimeMillis();
                 String status = "SUCCESS";
                 String output;
                 try {
-                    Map<String, Object> args = args(toolInput);
                     output = switch (tool.getToolKey()) {
                         case "calculator" -> "计算结果：" + Calculator.eval(str(args.get("expression")));
                         case "current_time" -> currentTime(str(args.get("timezone")));
@@ -679,6 +704,15 @@ public class ToolRuntimeService {
             public String call(String toolInput) {
                 if (isCancelled(collector)) return cancelledMessage();
                 collector.start(tool.getToolKey(), tool.getName(), "API", toolInput);
+                Map<String, Object> args;
+                try {
+                    args = args(toolInput);
+                } catch (Exception e) {
+                    return invalidJson(tool.getToolKey(), tool.getName(), "API", collector, toolInput);
+                }
+                String invalid = validateToolInput(tool.getToolKey(), tool.getName(), "API",
+                        collector, toolInput, schema, args);
+                if (invalid != null) return invalid;
                 if (isWriteOperation(tool)) {
                     if (requiresApproval(agentId)) return requestApproval(agentId, tool, "API", collector, toolInput);
                     if (!allowWriteTools || !writePolicyAllows(agentId, tool, toolInput)) {
@@ -695,7 +729,7 @@ public class ToolRuntimeService {
                         credential = credentialService.resolveContent(agentId, tool.getId());
                         credentialType = credentialService.typeOf(agentId, tool.getId());
                     }
-                    output = executeApi(cfg, args(toolInput), timeout, retries, credential, credentialType, collector);
+                    output = executeApi(cfg, args, timeout, retries, credential, credentialType, collector);
                 } catch (Exception e) {
                     status = isCancelled(collector) ? "CANCELLED" : "ERROR";
                     output = isCancelled(collector) ? cancelledMessage() : "工具执行失败：" + rootMessage(e);
@@ -906,6 +940,15 @@ public class ToolRuntimeService {
             public String call(String toolInput) {
                 if (isCancelled(collector)) return cancelledMessage();
                 collector.start(tool.getToolKey(), tool.getName(), "MCP", toolInput);
+                Map<String, Object> args;
+                try {
+                    args = args(toolInput);
+                } catch (Exception e) {
+                    return invalidJson(tool.getToolKey(), tool.getName(), "MCP", collector, toolInput);
+                }
+                String invalid = validateToolInput(tool.getToolKey(), tool.getName(), "MCP",
+                        collector, toolInput, schema, args);
+                if (invalid != null) return invalid;
                 if (isWriteOperation(tool)) {
                     if (requiresApproval(agentId)) return requestApproval(agentId, tool, "MCP", collector, toolInput);
                     if (!allowWriteTools || !writePolicyAllows(agentId, tool, toolInput)) {
@@ -916,7 +959,6 @@ public class ToolRuntimeService {
                 String status = "SUCCESS";
                 String output;
                 try {
-                    Map<String, Object> args = args(toolInput);
                     McpClientService.McpCallResult result = TenantContext.runWith(
                             TenantContext.getTenantId(),
                             () -> mcpClient.callTool(server, finalRemoteName, args, collector::isCancelled));
@@ -961,12 +1003,21 @@ public class ToolRuntimeService {
             public String call(String toolInput) {
                 if (isCancelled(collector)) return cancelledMessage();
                 collector.start(name, sub.getName(), "SUB_AGENT", toolInput);
+                Map<String, Object> args;
+                try {
+                    args = args(toolInput);
+                } catch (Exception e) {
+                    return invalidJson(name, sub.getName(), "SUB_AGENT", collector, toolInput);
+                }
+                String invalid = validateToolInput(name, sub.getName(), "SUB_AGENT",
+                        collector, toolInput, schema, args);
+                if (invalid != null) return invalid;
                 long start = System.currentTimeMillis();
                 String status = "SUCCESS";
                 String output;
                 long[] usage = {0, 0};
                 try {
-                    String task = str(args(toolInput).get("task"));
+                    String task = str(args.get("task"));
                     if (task == null || task.isBlank()) throw new IllegalArgumentException("task 不能为空");
                     Long tenantId = TenantContext.getTenantId();
                     output = TenantContext.runWith(tenantId, () -> invokeSubAgent(sub, task, principal, viewer,
@@ -1107,10 +1158,20 @@ public class ToolRuntimeService {
     private String schemaOf(ToolRegistry tool) {
         Map<String, Object> cfg = fromJsonMap(tool.getApiConfig());
         Object schema = cfg.get("inputSchema");
+        if (schema instanceof String raw && !raw.isBlank()) {
+            return raw;
+        }
         if (schema != null) {
             try {
                 return objectMapper.writeValueAsString(schema);
             } catch (Exception e) {     log.debug("工具配置解析失败：{}", e.getMessage()); }
+        }
+        if ("calculator".equals(tool.getToolKey())) {
+            return "{\"type\":\"object\",\"properties\":{\"expression\":{\"type\":\"string\"}},"
+                    + "\"required\":[\"expression\"]}";
+        }
+        if ("current_time".equals(tool.getToolKey())) {
+            return "{\"type\":\"object\",\"properties\":{\"timezone\":{\"type\":\"string\"}}}";
         }
         // API 工具：由参数定义生成 inputSchema
         if (cfg.get("params") instanceof List<?> params && !params.isEmpty()) {
@@ -1124,7 +1185,8 @@ public class ToolRuntimeService {
                 prop.put("type", p.getOrDefault("type", "string"));
                 if (p.get("description") != null) prop.put("description", p.get("description"));
                 props.put(name, prop);
-                if (Boolean.TRUE.equals(p.get("required"))) required.add(name);
+                if (Boolean.TRUE.equals(p.get("required"))
+                        || "true".equals(String.valueOf(p.get("required")))) required.add(name);
             }
             Map<String, Object> schemaMap = new LinkedHashMap<>();
             schemaMap.put("type", "object");
@@ -1140,10 +1202,75 @@ public class ToolRuntimeService {
     private Map<String, Object> args(String toolInput) {
         if (toolInput == null || toolInput.isBlank()) return Map.of();
         try {
-            return objectMapper.readValue(toolInput, Map.class);
+            Map<String, Object> parsed = objectMapper.readValue(toolInput, Map.class);
+            return parsed == null ? Map.of() : parsed;
         } catch (Exception e) {
             throw new IllegalArgumentException("工具参数不是合法 JSON");
         }
+    }
+
+    /**
+     * 执行前 schema 校验。失败时把结构化错误作为 tool result 返回给模型，
+     * 让模型有机会修正参数；达到上限后 retryable=false，禁止继续自动重试。
+     */
+    private String validateToolInput(String toolKey, String displayName, String type,
+                                     ToolCallCollector collector, String toolInput,
+                                     String schema, Map<String, Object> args) {
+        ToolInputValidator.Result result = inputValidator.validate(schema, args);
+        if (result.valid()) return null;
+        int attempt = collector.recordValidationFailure(toolKey);
+        int limit = Math.max(1, maxInputValidationAttempts);
+        boolean retryable = attempt < limit;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("ok", false);
+        payload.put("error", "INVALID_ARGUMENTS");
+        payload.put("retryable", retryable);
+        payload.put("attempt", attempt);
+        payload.put("maxAttempts", limit);
+        payload.put("violations", result.violations());
+        payload.put("message", retryable
+                ? "参数校验失败，请根据 violations 修正后重试"
+                : "参数校验失败，已达到重试上限，请向用户说明");
+        String output;
+        try {
+            output = objectMapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            output = "{\"ok\":false,\"error\":\"INVALID_ARGUMENTS\",\"retryable\":false}";
+        }
+        long now = System.currentTimeMillis();
+        collector.add(new ToolCallEvent(toolKey, displayName, type, null, null,
+                retryable ? "INVALID_ARGS" : "INVALID_ARGS_FINAL", 0,
+                truncate(toolInput, 4000), truncate(output, MAX_TOOL_EVENT_OUTPUT), 0, 0, now, now));
+        return output;
+    }
+
+    private String invalidJson(String toolKey, String displayName, String type,
+                               ToolCallCollector collector, String toolInput) {
+        int attempt = collector.recordValidationFailure(toolKey);
+        int limit = Math.max(1, maxInputValidationAttempts);
+        boolean retryable = attempt < limit;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("ok", false);
+        payload.put("error", "INVALID_ARGUMENTS");
+        payload.put("retryable", retryable);
+        payload.put("attempt", attempt);
+        payload.put("maxAttempts", limit);
+        payload.put("violations", List.of(Map.of(
+                "path", "$", "rule", "json", "expected", "合法 JSON object", "actual", "无法解析")));
+        payload.put("message", retryable
+                ? "参数不是合法 JSON object，请修正后重试"
+                : "参数不是合法 JSON object，已达到重试上限");
+        String output;
+        try {
+            output = objectMapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            output = "{\"ok\":false,\"error\":\"INVALID_ARGUMENTS\",\"retryable\":false}";
+        }
+        long now = System.currentTimeMillis();
+        collector.add(new ToolCallEvent(toolKey, displayName, type, null, null,
+                retryable ? "INVALID_ARGS" : "INVALID_ARGS_FINAL", 0,
+                truncate(toolInput, 4000), truncate(output, MAX_TOOL_EVENT_OUTPUT), 0, 0, now, now));
+        return output;
     }
 
     private String substitute(String template, Map<String, Object> args) {

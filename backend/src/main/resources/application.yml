@@ -40,6 +40,11 @@ mybatis-plus:
 server:
   port: 8080
 
+tool:
+  input-validation:
+    # 模型入参校验失败时回传结构化 tool result；达到上限后 retryable=false
+    max-attempts: ${TOOL_INPUT_VALIDATION_MAX_ATTEMPTS:3}
+
 management:
   endpoints:
     web:
