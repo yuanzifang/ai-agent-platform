@@ -5,7 +5,10 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
@@ -23,6 +26,7 @@ public class ToolCallCollector {
     private final Consumer<ToolCallEvent> listener;
     private final Consumer<ToolCallStart> startListener;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
+    private final Map<String, AtomicInteger> validationFailures = new ConcurrentHashMap<>();
 
     public ToolCallCollector() {
         this(null, null);
@@ -67,6 +71,11 @@ public class ToolCallCollector {
 
     public boolean isCancelled() {
         return cancelled.get();
+    }
+
+    /** 同一轮对话内按工具累计入参校验失败次数，供模型纠正参数并设置重试上限。 */
+    public int recordValidationFailure(String toolKey) {
+        return validationFailures.computeIfAbsent(toolKey, k -> new AtomicInteger()).incrementAndGet();
     }
 
     public List<ToolCallEvent> events() {
