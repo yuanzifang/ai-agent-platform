@@ -281,6 +281,35 @@ public class AgentService {
         return publish(id, principal, null, false);
     }
 
+    /** 比较当前写策略与最近发布版本；策略更宽松时要求显式 force。 */
+    private boolean writePolicyMorePermissive(AgentRegistry agent, JwtPrincipal principal) {
+        AgentVersion previous = versionMapper.selectList(new LambdaQueryWrapper<AgentVersion>()
+                        .eq(AgentVersion::getAgentId, agent.getId())
+                        .orderByDesc(AgentVersion::getId).last("LIMIT 1"))
+                .stream().findFirst().orElse(null);
+        if (previous == null) return false;
+        Map<String, Object> oldCaps = asMap(asMap(fromJson(previous.getSnapshot())).get("agentCapabilities"));
+        Map<String, Object> newCaps = asMap(fromJson(agent.getAgentCapabilities()));
+        int oldRank = policyRank(str(oldCaps.get("writeToolPolicy")));
+        int newRank = policyRank(str(newCaps.get("writeToolPolicy")));
+        if (newRank <= oldRank) return false;
+        auditService.record(principal.userId(), "agent.publish.write_policy_gate", "agent",
+                String.valueOf(agent.getId()), "BLOCKED",
+                Map.of("before", str(oldCaps.get("writeToolPolicy")),
+                        "after", str(newCaps.get("writeToolPolicy"))));
+        return true;
+    }
+
+    private int policyRank(String mode) {
+        return switch (mode == null ? "" : mode.toUpperCase(java.util.Locale.ROOT)) {
+            case "BLOCK" -> 0;
+            case "APPROVAL" -> 1;
+            case "ALLOWLIST" -> 2;
+            case "ALLOW_ALL" -> 3;
+            default -> 3; // 与运行时一致：未配置/未知模式按 ALLOW_ALL 处理
+        };
+    }
+
     /** 带 force：预发布门禁未过时仅 OWNER/ADMIN 可强制发布（需求 3.5）。 */
     @Transactional
     public Map<String, Object> publish(Long id, JwtPrincipal principal, Long gateDatasetId, boolean force) {
@@ -292,6 +321,10 @@ public class AgentService {
         // 不能在 @Transactional 内睡眠占住数据库连接）
         if (agent.getModelConfig() == null || !agent.getModelConfig().contains("modelName")) {
             throw new BusinessException(400, "未选择模型，无法发布");
+        }
+        if (!force && writePolicyMorePermissive(agent, principal)) {
+            throw new BusinessException(400,
+                    "writePolicyGate: 写工具策略比上一发布版本更宽松，需 OWNER/ADMIN 确认后强制发布");
         }
         int count = versionMapper.countByAgent(id);
         String version = "V" + (count + 1);
