@@ -110,9 +110,26 @@ helm test aap -n aap-helm
 
 限制：这是本地 100 请求突发 + 50 请求 cookie 保持验证，不是 30 分钟长稳；生产真实 CA 证书/托管云服务仍未验收。
 
+## 补充：滚动更新、PDB 与 HPA（2026-10-27）
+
+Chart 增强（`95b22cb`）：
+
+- `minReadySeconds`、`progressDeadlineSeconds`、`preStop sleep`
+- backend/frontend `topologySpreadConstraints` 按节点打散
+- HPA `behavior` 稳定窗口与扩缩容策略
+- `config.mysqlDatabase` / `MYSQL_DATABASE` 可配置
+
+k3d 实跑（backend 2/2、frontend 2/2）：
+
+- `helm upgrade --install --wait` 成功
+- `kubectl rollout restart` backend/frontend：滚动完成，2/2 Ready，无 PDB 阻断
+- PDB：minAvailable=1、allowed disruptions=1；drain 一个节点后 Pod 被驱逐并在其他节点恢复 Ready
+- HPA：对象创建成功（min 2 / max 6 / CPU 70%、behavior 已渲染）；本地 `metrics-server` 镜像拉取失败，`cpu: <unknown>`，**HPA 实际扩缩容未完成**，需有可用 metrics-server 的集群复测
+
 ## 仍缺
 
 - 真实域名/CA 证书、生产 Ingress Controller 参数（本地 Traefik 自签已通过）
 - 真正托管云 MySQL/Redis/PgVector/MinIO/Ollama 连接验收（本地外部服务已通过）
-- 30 分钟长稳、滚动更新/PDB/HPA 压测（本地 2 副本 + sticky 已通过）
+- 30 分钟长稳、HPA 实际扩缩容（滚动更新/PDB 本地已通过）
+- 可用 metrics-server 的 K8s 集群（本地镜像拉取失败）
 - 完全离线环境的镜像清单/预载脚本
