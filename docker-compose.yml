@@ -179,8 +179,8 @@ services:
     expose:
       - "8080"
     volumes:
-      # 平台页保存的基础设施配置；目录不存在时自动创建，配置文件本身仍受 .gitignore/0600 保护
-      - ./backend/config:/app/config
+      # 平台页保存的基础设施配置；命名卷避免宿主机密钥/权限不一致，容器重建后仍保留
+      - platform-config:/app/config
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health || exit 1"]
       interval: 15s
@@ -282,6 +282,7 @@ volumes:
   redis-data:
   pgvector-data:
   minio-data:
+  platform-config:
   ollama-data:
   prometheus-data:
   grafana-data:
