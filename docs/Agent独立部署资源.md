@@ -15,7 +15,9 @@ Agent 部署时只选择部署 Profile，不接触宿主机资源参数或连接
 |---|---|
 | `name` | Profile 名称 |
 | `cpu_limit` | Docker `--cpus`，如 `0.5`、`1` |
+| `cpu_request` | K8s requests.cpu，如 `250m` |
 | `memory_limit` | Docker `--memory`，如 `384m`、`1g` |
+| `memory_request` | K8s requests.memory，如 `256Mi` |
 | `pids_limit` | Docker `--pids-limit`，16-4096 |
 | `default_replicas` | 首次部署默认副本数 |
 | `max_replicas` | 最大副本数，1-5 |
@@ -88,6 +90,32 @@ POST /api/v1/agent/{agentId}/deployment
   "replicas": 2
 }
 ```
+
+## K8s 资源映射
+
+当前容器运行时是 Docker，Docker 使用 Profile 的 CPU/内存 limits；K8s 映射接口：
+
+```http
+GET /api/v1/platform/deploy-resource-profiles/{id}/k8s-resources
+```
+
+返回示例：
+
+```json
+{
+  "requests": { "cpu": "250m", "memory": "256Mi" },
+  "limits": { "cpu": "500m", "memory": "384Mi" }
+}
+```
+
+映射规则：
+
+- CPU `0.5` → `500m`，`1` → `1`，`1.5` → `1500m`；
+- 内存 `384m` → `384Mi`，`1g` → `1Gi`；
+- 已经是 `250m`、`256Mi`、`1Gi` 的数量保持 K8s 语义。
+
+未来接入 K8s ContainerRuntime 时，直接将返回的 `requests/limits` 写入 Pod 的
+`resources`；当前 Docker 运行时不会使用 requests。
 
 ## 边界
 

@@ -20,6 +20,8 @@ public class AgentDeployProfileService {
 
     private static final Pattern CPU = Pattern.compile("^\\d+(\\.\\d+)?$");
     private static final Pattern MEMORY = Pattern.compile("^\\d+[mMgG]$");
+    private static final Pattern CPU_QUANTITY = Pattern.compile("^\\d+(\\.\\d+)?m?$");
+    private static final Pattern MEMORY_QUANTITY = Pattern.compile("^\\d+(\\.\\d+)?(Mi|Gi|M|G|m|g)$");
 
     private final AgentDeployProfileMapper mapper;
 
@@ -82,9 +84,19 @@ public class AgentDeployProfileService {
         if (cpu == null || !CPU.matcher(cpu).matches() || Double.parseDouble(cpu) <= 0) {
             throw new BusinessException(400, "CPU 限制格式错误，例如 0.5 或 1");
         }
+        String cpuRequest = value(req.get("cpuRequest"));
+        if (cpuRequest == null || cpuRequest.isBlank()) cpuRequest = "250m";
+        if (!CPU_QUANTITY.matcher(cpuRequest).matches() || quantity(cpuRequest) <= 0) {
+            throw new BusinessException(400, "CPU request 格式错误，例如 250m 或 0.5");
+        }
         String memory = value(req.get("memoryLimit"));
         if (memory == null || !MEMORY.matcher(memory).matches()) {
             throw new BusinessException(400, "内存限制格式错误，例如 512m 或 1g");
+        }
+        String memoryRequest = value(req.get("memoryRequest"));
+        if (memoryRequest == null || memoryRequest.isBlank()) memoryRequest = "256Mi";
+        if (!MEMORY_QUANTITY.matcher(memoryRequest).matches() || quantity(memoryRequest) <= 0) {
+            throw new BusinessException(400, "内存 request 格式错误，例如 256Mi 或 512m");
         }
         int pids = integer(req.get("pidsLimit"), 256);
         if (pids < 16 || pids > 4096) throw new BusinessException(400, "PID 上限应在 16-4096");
@@ -97,11 +109,19 @@ public class AgentDeployProfileService {
         p.setName(name);
         p.setDescription(value(req.get("description")));
         p.setCpuLimit(cpu);
+        p.setCpuRequest(cpuRequest);
         p.setMemoryLimit(memory.toLowerCase(Locale.ROOT));
+        p.setMemoryRequest(memoryRequest);
         p.setPidsLimit(pids);
         p.setDefaultReplicas(defaultReplicas);
         p.setMaxReplicas(maxReplicas);
         p.setStatus("DISABLED".equalsIgnoreCase(value(req.get("status"))) ? "DISABLED" : "ENABLED");
+    }
+
+    private double quantity(String value) {
+        String text = value.trim().toLowerCase(Locale.ROOT)
+                .replace("mi", "").replace("gi", "").replace("m", "").replace("g", "");
+        return Double.parseDouble(text);
     }
 
     private int integer(Object value, int fallback) {

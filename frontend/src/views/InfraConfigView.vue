@@ -156,8 +156,10 @@
       </template>
       <el-table :data="deployProfiles" size="small">
         <el-table-column prop="name" :label="t('infraPage.profileName')" width="160" />
-        <el-table-column prop="cpuLimit" label="CPU" width="80" />
-        <el-table-column prop="memoryLimit" label="Memory" width="100" />
+        <el-table-column prop="cpuLimit" label="CPU limit" width="90" />
+        <el-table-column prop="cpuRequest" label="CPU request" width="100" />
+        <el-table-column prop="memoryLimit" label="Memory limit" width="110" />
+        <el-table-column prop="memoryRequest" label="Memory request" width="120" />
         <el-table-column prop="pidsLimit" label="PID" width="80" />
         <el-table-column :label="t('infraPage.deployReplicas')" width="110">
           <template #default="{ row }">{{ row.defaultReplicas }}-{{ row.maxReplicas }}</template>
@@ -204,8 +206,14 @@
         <el-form-item label="CPU limit">
           <el-input v-model="deployProfileForm.cpuLimit" placeholder="1" />
         </el-form-item>
+        <el-form-item label="CPU request">
+          <el-input v-model="deployProfileForm.cpuRequest" placeholder="250m" />
+        </el-form-item>
         <el-form-item label="Memory limit">
           <el-input v-model="deployProfileForm.memoryLimit" placeholder="512m" />
+        </el-form-item>
+        <el-form-item label="Memory request">
+          <el-input v-model="deployProfileForm.memoryRequest" placeholder="256Mi" />
         </el-form-item>
         <el-form-item label="PID limit">
           <el-input-number v-model="deployProfileForm.pidsLimit" :min="16" :max="4096" />
@@ -256,7 +264,8 @@ const deployProfiles = ref<any[]>([])
 const deployProfileVisible = ref(false)
 const deployProfileSaving = ref(false)
 const deployProfileForm = reactive<any>({
-  id: null, name: '', description: '', cpuLimit: '1', memoryLimit: '512m',
+  id: null, name: '', description: '', cpuLimit: '1', cpuRequest: '250m',
+  memoryLimit: '512m', memoryRequest: '256Mi',
   pidsLimit: 256, defaultReplicas: 1, maxReplicas: 5, enabled: true
 })
 const form = reactive<any>({
@@ -334,11 +343,13 @@ async function loadDeployProfiles() {
 function openDeployProfile(row?: any) {
   Object.assign(deployProfileForm, row ? {
     id: row.id, name: row.name, description: row.description || '',
-    cpuLimit: row.cpuLimit || '1', memoryLimit: row.memoryLimit || '512m',
+    cpuLimit: row.cpuLimit || '1', cpuRequest: row.cpuRequest || '250m',
+    memoryLimit: row.memoryLimit || '512m', memoryRequest: row.memoryRequest || '256Mi',
     pidsLimit: row.pidsLimit || 256, defaultReplicas: row.defaultReplicas || 1,
     maxReplicas: row.maxReplicas || 5, enabled: row.status !== 'DISABLED'
   } : {
-    id: null, name: '', description: '', cpuLimit: '1', memoryLimit: '512m',
+    id: null, name: '', description: '', cpuLimit: '1', cpuRequest: '250m',
+    memoryLimit: '512m', memoryRequest: '256Mi',
     pidsLimit: 256, defaultReplicas: 1, maxReplicas: 5, enabled: true
   })
   deployProfileVisible.value = true
@@ -353,7 +364,8 @@ async function saveDeployProfile() {
   try {
     const body = {
       name: deployProfileForm.name, description: deployProfileForm.description,
-      cpuLimit: deployProfileForm.cpuLimit, memoryLimit: deployProfileForm.memoryLimit,
+      cpuLimit: deployProfileForm.cpuLimit, cpuRequest: deployProfileForm.cpuRequest,
+      memoryLimit: deployProfileForm.memoryLimit, memoryRequest: deployProfileForm.memoryRequest,
       pidsLimit: deployProfileForm.pidsLimit, defaultReplicas: deployProfileForm.defaultReplicas,
       maxReplicas: deployProfileForm.maxReplicas,
       status: deployProfileForm.enabled ? 'ENABLED' : 'DISABLED'
