@@ -3,6 +3,7 @@ package com.platform.deploy.controller;
 import com.platform.common.response.ApiResponse;
 import com.platform.deploy.entity.AgentDeployProfile;
 import com.platform.deploy.service.AgentDeployProfileService;
+import com.platform.deploy.service.K8sResourceMapper;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.service.PlatformAdminService;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,7 @@ import java.util.Map;
 public class AgentDeployProfileController {
 
     private final AgentDeployProfileService profileService;
+    private final K8sResourceMapper k8sResourceMapper;
     private final PlatformAdminService platformAdminService;
 
     @GetMapping("/deploy-resource-profiles")
@@ -37,6 +39,13 @@ public class AgentDeployProfileController {
     public ApiResponse<List<AgentDeployProfile>> list(@AuthenticationPrincipal JwtPrincipal principal) {
         platformAdminService.requirePlatformAdmin(principal);
         return ApiResponse.ok(profileService.list(false));
+    }
+
+    @GetMapping("/platform/deploy-resource-profiles/{id}/k8s-resources")
+    public ApiResponse<Map<String, Object>> k8sResources(@PathVariable Long id,
+                                                         @AuthenticationPrincipal JwtPrincipal principal) {
+        platformAdminService.requirePlatformAdmin(principal);
+        return ApiResponse.ok(k8sResourceMapper.resources(profileService.get(id)));
     }
 
     @PostMapping("/platform/deploy-resource-profiles")

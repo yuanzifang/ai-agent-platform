@@ -16,7 +16,9 @@ public class AgentDeployProfile {
     private String name;
     private String description;
     private String cpuLimit;
+    private String cpuRequest;
     private String memoryLimit;
+    private String memoryRequest;
     private Integer pidsLimit;
     private Integer defaultReplicas;
     private Integer maxReplicas;
