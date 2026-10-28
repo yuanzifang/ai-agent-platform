@@ -1,5 +1,6 @@
 package com.platform.system.service;
 
+import com.platform.common.security.CryptoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.env.Environment;
@@ -32,6 +33,7 @@ import java.util.Set;
 public class PlatformInfraConfigService {
 
     private final Environment env;
+    private final CryptoService cryptoService;
 
     public String configPath() {
         return Path.of(System.getenv().getOrDefault("PLATFORM_INFRA_CONFIG",
@@ -131,19 +133,19 @@ public class PlatformInfraConfigService {
         Map<String, Object> datasource = new LinkedHashMap<>();
         datasource.put("url", value(req, "mysqlUrl"));
         datasource.put("username", value(req, "mysqlUsername"));
-        datasource.put("password", secret(req, "mysqlPassword", "spring.datasource.password"));
+        datasource.put("password", encryptedSecret(req, "mysqlPassword", "spring.datasource.password"));
         spring.put("datasource", datasource);
         Map<String, Object> redis = new LinkedHashMap<>();
         redis.put("host", value(req, "redisHost"));
         redis.put("port", value(req, "redisPort"));
-        redis.put("password", secret(req, "redisPassword", "spring.data.redis.password"));
+        redis.put("password", encryptedSecret(req, "redisPassword", "spring.data.redis.password"));
         spring.put("data", Map.of("redis", redis));
         yaml.put("spring", spring);
 
         Map<String, Object> pg = new LinkedHashMap<>();
         pg.put("url", value(req, "pgUrl"));
         pg.put("username", value(req, "pgUsername"));
-        pg.put("password", secret(req, "pgPassword", "pgvector.password"));
+        pg.put("password", encryptedSecret(req, "pgPassword", "pgvector.password"));
         yaml.put("pgvector", pg);
 
         Map<String, Object> storage = new LinkedHashMap<>();
@@ -151,7 +153,7 @@ public class PlatformInfraConfigService {
         Map<String, Object> minio = new LinkedHashMap<>();
         minio.put("endpoint", value(req, "minioEndpoint"));
         minio.put("access-key", value(req, "minioAccessKey"));
-        minio.put("secret-key", secret(req, "minioSecret", "storage.minio.secret-key"));
+        minio.put("secret-key", encryptedSecret(req, "minioSecret", "storage.minio.secret-key"));
         minio.put("bucket", value(req, "minioBucket"));
         storage.put("minio", minio);
         yaml.put("storage", storage);
@@ -165,8 +167,8 @@ public class PlatformInfraConfigService {
         es.put("url", value(req, "esUrl"));
         es.put("index", value(req, "esIndex"));
         es.put("username", value(req, "esUsername"));
-        es.put("password", secret(req, "esPassword", "search.es.password"));
-        es.put("api-key", secret(req, "esApiKey", "search.es.api-key"));
+        es.put("password", encryptedSecret(req, "esPassword", "search.es.password"));
+        es.put("api-key", encryptedSecret(req, "esApiKey", "search.es.api-key"));
         search.put("es", es);
         yaml.put("search", search);
 
@@ -176,7 +178,7 @@ public class PlatformInfraConfigService {
         qdrant.put("enabled", bool(req.get("qdrantEnabled")));
         qdrant.put("url", value(req, "qdrantUrl"));
         qdrant.put("collection-prefix", value(req, "qdrantCollectionPrefix"));
-        qdrant.put("api-key", secret(req, "qdrantApiKey", "vector.qdrant.api-key"));
+        qdrant.put("api-key", encryptedSecret(req, "qdrantApiKey", "vector.qdrant.api-key"));
         vector.put("qdrant", qdrant);
         yaml.put("vector", vector);
 
@@ -186,7 +188,7 @@ public class PlatformInfraConfigService {
             Path tmp = path.resolveSibling(path.getFileName() + ".tmp");
             Path backup = path.resolveSibling(path.getFileName() + ".bak");
             if (Files.isRegularFile(path)) {
-                Files.copy(path, backup, StandardCopyOption.REPLACE_EXISTING);
+                writeEncryptedBackup(path, backup);
             }
             DumperOptions options = new DumperOptions();
             options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
@@ -217,6 +219,66 @@ public class PlatformInfraConfigService {
     private String secret(Map<String, Object> req, String key, String currentProperty) {
         String value = value(req, key);
         return value.isBlank() ? env.getProperty(currentProperty, "") : value;
+    }
+
+    /** 落盘前加密；连接测试仍使用明文 secret()。空值保持为空。 */
+    private String encryptedSecret(Map<String, Object> req, String key, String currentProperty) {
+        String raw = secret(req, key, currentProperty);
+        return raw == null || raw.isBlank() ? raw : cryptoService.encrypt(raw);
+    }
+
+    /**
+     * 备份也写成加密快照。首次迁移时旧文件仍是明文，不能直接 copy 到 .bak。
+     */
+    private void writeEncryptedBackup(Path source, Path backup) {
+        try {
+            Object loaded = new Yaml().load(Files.readString(source));
+            if (!(loaded instanceof Map<?, ?> map)) {
+                throw new IllegalArgumentException("配置根节点不是 Map");
+            }
+            encryptSecretValues(map);
+            DumperOptions options = new DumperOptions();
+            options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+            Files.writeString(backup, new Yaml(options).dump(map));
+        } catch (Exception e) {
+            // 备份解析失败时至少保留当前文件，权限仍收紧；不能因为备份问题阻断保存。
+            log.warn("旧基础设施配置无法生成加密备份，保留原文件副本：{}", e.getMessage());
+            try {
+                Files.copy(source, backup, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException copyError) {
+                log.warn("复制旧基础设施配置失败：{}", copyError.getMessage());
+            }
+        } finally {
+            restrictPermissions(backup);
+        }
+    }
+
+    private void encryptSecretValues(Object node) {
+        if (!(node instanceof Map<?, ?> map)) return;
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            String key = String.valueOf(entry.getKey());
+            Object value = entry.getValue();
+            if (value instanceof String text && !text.isBlank()
+                    && !text.startsWith("v1:") && isSecretKey(key)) {
+                ((Map<Object, Object>) map).put(entry.getKey(), cryptoService.encrypt(text));
+            } else {
+                encryptSecretValues(value);
+            }
+        }
+    }
+
+    private boolean isSecretKey(String key) {
+        String lower = key.toLowerCase();
+        return lower.contains("password") || lower.endsWith("secret-key") || lower.endsWith("api-key");
+    }
+
+    private void restrictPermissions(Path path) {
+        try {
+            Files.setPosixFilePermissions(path, Set.of(PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE));
+        } catch (UnsupportedOperationException | IOException ignored) {
+            // 非 POSIX 文件系统继续使用默认权限
+        }
     }
 
     private boolean bool(Object value) {
