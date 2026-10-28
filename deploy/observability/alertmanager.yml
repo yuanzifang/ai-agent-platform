@@ -2,16 +2,47 @@ global:
   resolve_timeout: 5m
 
 route:
-  receiver: platform-webhook
+  receiver: platform-default
   group_by: ["alertname", "severity"]
   group_wait: 10s
   group_interval: 30s
   repeat_interval: 4h
+  routes:
+    # critical 快速进入值班通道；relay 再按 critical 通道配置发 webhook/邮件，超时升级短信。
+    - matchers:
+        - severity="critical"
+      receiver: platform-critical
+      group_wait: 0s
+      group_interval: 15s
+      repeat_interval: 1h
+    - matchers:
+        - severity="warning"
+      receiver: platform-warning
+      group_wait: 10s
+      group_interval: 30s
+      repeat_interval: 4h
 
 receivers:
-  - name: platform-webhook
+  - name: platform-default
     webhook_configs:
-      # 独立中继（不依赖后端）；后端宕机时 AiAgentBackendDown 仍可送达。
-      - url: http://alert-relay:8080/alertmanager
+      - url: http://alert-relay:8080/alertmanager?route=default
         send_resolved: true
         max_alerts: 20
+  - name: platform-critical
+    webhook_configs:
+      - url: http://alert-relay:8080/alertmanager?route=critical
+        send_resolved: true
+        max_alerts: 20
+  - name: platform-warning
+    webhook_configs:
+      - url: http://alert-relay:8080/alertmanager?route=warning
+        send_resolved: true
+        max_alerts: 20
+
+# critical 与同 alertname/instance 的 warning 同时存在时，抑制 warning，避免噪音。
+inhibit_rules:
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: ["alertname", "instance"]
