@@ -62,6 +62,13 @@ public class ConversationController {
         return ApiResponse.ok(conversationService.detail(id, principal));
     }
 
+    /** 从部分 checkpoint 继续生成；非流式 best-effort。 */
+    @PostMapping("/{id}/checkpoint/continue")
+    public ApiResponse<Map<String, Object>> continueCheckpoint(@PathVariable Long id,
+                                                               @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(chatStreamService.continueFromCheckpoint(id, principal));
+    }
+
     /** 最新持久化 checkpoint；Redis live state 丢失时用于排查/回放。 */
     @GetMapping("/{id}/checkpoint")
     public ApiResponse<com.platform.conversation.entity.ChatCheckpoint> checkpoint(

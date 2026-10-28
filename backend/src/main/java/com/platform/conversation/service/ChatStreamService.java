@@ -24,6 +24,7 @@ import com.platform.common.context.TenantContext;
 import com.platform.common.context.GrayTagContext;
 import com.platform.common.exception.BusinessException;
 import com.platform.conversation.entity.ChatAttachment;
+import com.platform.conversation.entity.ChatCheckpoint;
 import com.platform.conversation.entity.Conversation;
 import com.platform.conversation.entity.Message;
 import com.platform.conversation.mapper.ChatAttachmentMapper;
@@ -872,6 +873,55 @@ public class ChatStreamService {
         if (systemPrompt != null && !systemPrompt.isBlank()) spec = spec.system(systemPrompt);
         if (callbacks != null && !callbacks.isEmpty()) spec = spec.toolCallbacks(callbacks);
         return spec.messages(history).user(userMessage);
+    }
+
+    /**
+     * 从对话 checkpoint 继续生成：非流式、best-effort。
+     * 用于 Redis live state 丢失且 checkpoint 只包含部分内容的场景；会新建一条助手消息。
+     */
+    public Map<String, Object> continueFromCheckpoint(Long conversationId, JwtPrincipal principal) {
+        Conversation conv = conversationService.owned(conversationId, principal);
+        ChatCheckpoint checkpoint = checkpointService.get(conversationId);
+        if (checkpoint == null || checkpoint.getContent() == null || checkpoint.getContent().isBlank()) {
+            throw new BusinessException(404, "没有可继续的对话 checkpoint");
+        }
+        if ("SUCCESS".equalsIgnoreCase(checkpoint.getStatus())) {
+            throw new BusinessException(409, "该 checkpoint 已完成，不需要继续生成");
+        }
+        Message lastUser = messageMapper.selectOne(new LambdaQueryWrapper<Message>()
+                .eq(Message::getConversationId, conversationId)
+                .eq(Message::getRole, "USER")
+                .orderByDesc(Message::getId).last("LIMIT 1"));
+        if (lastUser == null) throw new BusinessException(409, "找不到对应用户消息");
+        AgentRegistry agent = agentMapper.selectById(conv.getAgentId());
+        Published published = publishedOrThrow(agent);
+        var viewer = KnowledgePermissionService.Viewer.of(principal.userId(), principal.roles());
+        String prompt = "请从中断处继续完成上一条助手回复，不要重复已经输出过的内容。\n"
+                + "【用户原始问题】\n" + lastUser.getContent() + "\n"
+                + "【已生成的部分回复】\n" + checkpoint.getContent();
+        Map<String, Object> result = chatService.debugChat(published.config(), prompt, viewer, principal);
+        String answer = result.get("answer") == null ? "" : String.valueOf(result.get("answer"));
+        if (answer.isBlank()) throw new BusinessException(502, "继续生成未返回内容");
+        String prefix = checkpoint.getContent();
+        String content = answer.startsWith(prefix) ? answer
+                : prefix + (prefix.endsWith("\n") ? "" : "\n") + answer;
+        long in = 0, out = 0;
+        if (result.get("usage") instanceof Map<?, ?> usage) {
+            in = usage.get("inputTokens") instanceof Number n ? n.longValue() : 0;
+            out = usage.get("outputTokens") instanceof Number n ? n.longValue() : 0;
+        }
+        String traceId = UUID.randomUUID().toString().replace("-", "");
+        Message ai = newMessage(conv, traceId, lastUser.getId(), false);
+        ai.setContent(content);
+        ai.setStatus("SUCCESS");
+        ai.setTokens((int) (in + out));
+        messageMapper.insert(ai);
+        conversationService.touch(conv.getId());
+        checkpointService.save(conv.getTenantId(), conv.getId(), traceId, "SUCCESS", content,
+                ai.getId(), in, out, null);
+        auditService.record(principal.userId(), "conversation.checkpoint.continue", "conversation",
+                String.valueOf(conversationId), "SUCCESS", Map.of("messageId", ai.getId()));
+        return Map.of("messageId", ai.getId(), "traceId", traceId, "content", content, "status", "SUCCESS");
     }
 
     /** 断线续传：按已收到的字符 offset 回放 Redis 快照并持续推送，直到生成结束。 */
