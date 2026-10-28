@@ -1,0 +1,22 @@
+[Unit]
+Description=Elasticsearch knowledge index snapshot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=aiagent
+Group=aiagent
+WorkingDirectory=/opt/ai-agent-platform
+EnvironmentFile=-/opt/ai-agent-platform/.env
+Environment=ELASTICSEARCH_URL=http://127.0.0.1:9200
+Environment=ES_SNAPSHOT_REPO=aap_local
+ExecStart=/opt/ai-agent-platform/scripts/es-snapshot.sh create
+ExecStartPost=/opt/ai-agent-platform/scripts/es-snapshot.sh prune 14
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+TimeoutStartSec=30min

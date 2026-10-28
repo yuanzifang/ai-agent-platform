@@ -12,6 +12,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now ai-agent-backup.timer
 sudo systemctl enable --now ai-agent-binlog-ship.timer
 sudo systemctl enable --now ai-agent-restore-drill.timer
+sudo systemctl enable --now ai-agent-es-snapshot.timer
 ```
 
 ## 任务
@@ -21,6 +22,7 @@ sudo systemctl enable --now ai-agent-restore-drill.timer
 | `ai-agent-backup.timer` | 每天 02:30 + 随机 15m | `backup.sh --prune --retention-days 14` |
 | `ai-agent-binlog-ship.timer` | 每分钟 | `binlog-ship.sh`，实现低 RPO |
 | `ai-agent-restore-drill.timer` | 每周日 04:00 + 随机 30m | `restore-drill.sh` |
+| `ai-agent-es-snapshot.timer` | 每天 03:10 + 随机 10m | ES 快照 `create`，并保留最近 14 个 |
 
 ## 检查
 
@@ -28,7 +30,12 @@ sudo systemctl enable --now ai-agent-restore-drill.timer
 systemctl list-timers 'ai-agent-*'
 journalctl -u ai-agent-backup.service -n 100 --no-pager
 journalctl -u ai-agent-binlog-ship.service -n 100 --no-pager
+journalctl -u ai-agent-es-snapshot.service -n 100 --no-pager
 ```
+
+ES 快照要求本地 Elasticsearch 已配置 `path.repo` 并挂载快照卷，详见
+`docs/ES快照恢复.md`。服务内默认 `ELASTICSEARCH_URL=http://127.0.0.1:9200`，
+可用 `.env` 覆盖。
 
 ## 注意
 
