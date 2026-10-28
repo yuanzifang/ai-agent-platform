@@ -1,0 +1,12 @@
+{{- if .Values.esSnapshot.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ai-agent-platform.fullname" . }}-es-snapshot
+  labels:
+    {{- include "ai-agent-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: es-snapshot
+data:
+  es-snapshot.py: |
+{{ .Files.Get "files/es-snapshot.py" | indent 4 }}
+{{- end }}

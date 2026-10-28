@@ -179,6 +179,29 @@ secrets:
 platformInfra:
   existingSecret: ""
 
+# 可选：ES 知识索引每日快照 CronJob。ES 节点需配置 path.repo，且 location 必须与之一致。
+# authSecret 是可选的 Secret 名称，可提供 ELASTICSEARCH_API_KEY 或 ELASTICSEARCH_USERNAME/PASSWORD。
+esSnapshot:
+  enabled: false
+  schedule: "10 3 * * *"
+  image:
+    repository: python
+    tag: "3.12-alpine"
+    pullPolicy: IfNotPresent
+  elasticsearchUrl: "http://elasticsearch:9200"
+  repository: "aap_local"
+  location: "/usr/share/elasticsearch/snapshots"
+  prefix: "aap-knowledge-"
+  keep: 14
+  authSecret: ""
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
 ingress:
   enabled: true
   className: nginx

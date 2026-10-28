@@ -1,0 +1,61 @@
+{{- if .Values.esSnapshot.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "ai-agent-platform.fullname" . }}-es-snapshot
+  labels:
+    {{- include "ai-agent-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: es-snapshot
+spec:
+  schedule: {{ .Values.esSnapshot.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            {{- include "ai-agent-platform.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: es-snapshot
+        spec:
+          restartPolicy: OnFailure
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: snapshot
+              image: "{{ .Values.esSnapshot.image.repository }}:{{ .Values.esSnapshot.image.tag }}"
+              imagePullPolicy: {{ .Values.esSnapshot.image.pullPolicy }}
+              command: ["python3", "/scripts/es-snapshot.py"]
+              env:
+                - name: ELASTICSEARCH_URL
+                  value: {{ .Values.esSnapshot.elasticsearchUrl | quote }}
+                - name: ES_SNAPSHOT_REPO
+                  value: {{ .Values.esSnapshot.repository | quote }}
+                - name: ES_SNAPSHOT_LOCATION
+                  value: {{ .Values.esSnapshot.location | quote }}
+                - name: ES_SNAPSHOT_KEEP
+                  value: {{ .Values.esSnapshot.keep | quote }}
+                - name: ES_SNAPSHOT_PREFIX
+                  value: {{ .Values.esSnapshot.prefix | quote }}
+              {{- with .Values.esSnapshot.authSecret }}
+              envFrom:
+                - secretRef:
+                    name: {{ . }}
+              {{- end }}
+              resources:
+                {{- toYaml .Values.esSnapshot.resources | nindent 16 }}
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: {{ include "ai-agent-platform.fullname" . }}-es-snapshot
+                defaultMode: 0555
+{{- end }}

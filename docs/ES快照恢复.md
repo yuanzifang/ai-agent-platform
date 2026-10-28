@@ -83,7 +83,20 @@ sudo systemctl enable --now ai-agent-es-snapshot.timer
 journalctl -u ai-agent-es-snapshot.service -n 100 --no-pager
 ```
 
-Kubernetes 环境建议改用 CronJob 调用同一个脚本，并把 `aap-es-snapshots` 换成共享存储。
+Kubernetes 环境可直接启用 Helm CronJob（无需挂载快照卷，ES 节点需配置 `path.repo`）：
+
+```bash
+helm upgrade --install ai-agent deploy/helm/ai-agent-platform \
+  -n ai-agent \
+  --set esSnapshot.enabled=true \
+  --set esSnapshot.elasticsearchUrl=http://elasticsearch:9200 \
+  --set esSnapshot.location=/usr/share/elasticsearch/snapshots \
+  --set esSnapshot.repository=aap_local \
+  --set esSnapshot.keep=14
+```
+
+CronJob 使用 `python:3.12-alpine` 和 ConfigMap 内的 `es-snapshot.py`，支持
+`ELASTICSEARCH_API_KEY` 或用户名/密码认证 Secret。详见 Helm Chart README。
 
 ## 4. 生产恢复建议
 

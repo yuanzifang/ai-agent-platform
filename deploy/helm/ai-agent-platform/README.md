@@ -88,7 +88,33 @@ helm upgrade --install ai-agent deploy/helm/ai-agent-platform \
 文件会挂载到 `/app/config/application-platform.yml`，后端启动时解密其中的 `v1:` 密文。
 该文件必须与同一个 `AES_KEY` 配套；多副本场景平台页的保存按钮无法写只读挂载，配置变更应更新 Secret 后滚动重启。
 
-## 4. Ingress / TLS
+## 4. ES 快照 CronJob
+
+外部或集群内 Elasticsearch 需先配置 `path.repo`，并确保 CronJob 的
+`esSnapshot.location` 与 ES 节点配置一致。启用：
+
+```bash
+helm upgrade --install ai-agent deploy/helm/ai-agent-platform \
+  -n ai-agent \
+  --set esSnapshot.enabled=true \
+  --set esSnapshot.elasticsearchUrl=http://elasticsearch:9200 \
+  --set esSnapshot.location=/usr/share/elasticsearch/snapshots \
+  --set esSnapshot.repository=aap_local \
+  --set esSnapshot.keep=14
+```
+
+需要认证时创建 Secret（key 可为 `ELASTICSEARCH_API_KEY` 或
+`ELASTICSEARCH_USERNAME`/`ELASTICSEARCH_PASSWORD`）：
+
+```bash
+kubectl -n ai-agent create secret generic es-auth \
+  --from-literal=ELASTICSEARCH_API_KEY='***'
+helm upgrade ... --set esSnapshot.authSecret=es-auth
+```
+
+CronJob 默认每天 03:10 创建 `aap-knowledge-*` 快照，并保留最近 14 个。
+
+## 5. Ingress / TLS
 
 `values.yaml` 默认开启 Ingress，`/api` 直接转发后端，`/` 转发前端：
 
@@ -97,7 +123,7 @@ helm upgrade --install ai-agent deploy/helm/ai-agent-platform \
 
 SSE 所需注解已默认配置（proxy-buffering off、read/send timeout 300s、body 20m）。
 
-## 5. 验证
+## 6. 验证
 
 ```bash
 helm lint deploy/helm/ai-agent-platform -f deploy/helm/ai-agent-platform/values.yaml
@@ -106,7 +132,7 @@ kubectl -n ai-agent get pods
 helm test ai-agent -n ai-agent
 ```
 
-## 6. 多副本注意事项
+## 7. 多副本注意事项
 
 - 审计哈希链使用 MySQL 租户行锁；定时任务/指标汇总使用 Redis 互斥。
 - SSE "停止生成/重新生成" 使用单实例内存中的流句柄；Service 默认 `ClientIP` 会话保持。若 Ingress/负载均衡不保持连接，先将 `backend.replicaCount` 设为 1，或引入 Redis/消息总线共享流状态。
@@ -114,7 +140,7 @@ helm test ai-agent -n ai-agent
 - 技能脚本在容器内以 Python/Node 进程执行；生产建议替换为隔离执行器（Firecracker/gVisor/K8s Job）。
 - 当前 Chart 未包含 MySQL/Redis/PgVector/MinIO/Ollama 的 StatefulSet；全量单机请用根目录 `docker-compose.yml`。
 
-## 7. 本地 k3d 实跑记录
+## 8. 本地 k3d 实跑记录
 
 2026-10-26 已在 k3d 5.9.0 / k3s v1.35.5 上完成首次 install 与 `helm test`，详见 `docs/Helm实跑验收.md`。
 
