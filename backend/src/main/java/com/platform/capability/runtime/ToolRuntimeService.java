@@ -217,7 +217,7 @@ public class ToolRuntimeService {
         List<ToolCallback> hooked = new ArrayList<>(callbacks.size());
         for (ToolCallback callback : callbacks) {
             String name = callback.getToolDefinition() == null ? "tool" : callback.getToolDefinition().name();
-            hooked.add(new HookedToolCallback(callback, agentHooks, collector, name, name, "TOOL"));
+            hooked.add(new HookedToolCallback(callback, agentHooks, collector, name, name, "TOOL", caps));
         }
         log.debug("Agent 运行时工具装配 agent={} functionCall={} callbacks={} names={} skillPrompt={} kbDeps={}",
                 agentId, functionCall, hooked.size(), names,

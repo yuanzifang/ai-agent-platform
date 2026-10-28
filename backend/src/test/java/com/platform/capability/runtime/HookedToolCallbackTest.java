@@ -29,7 +29,7 @@ class HookedToolCallbackTest {
         AgentHookRegistry hooks = new AgentHookRegistry(List.of(limitHook));
         ToolCallCollector collector = new ToolCallCollector();
         HookedToolCallback callback = new HookedToolCallback(delegate, hooks, collector,
-                "echo", "Echo", "API");
+                "echo", "Echo", "API", java.util.Map.of());
 
         assertEquals("ok", callback.call("{}"));
         collector.add(new ToolCallEvent("echo", "Echo", "API", null, null, "SUCCESS", 1,

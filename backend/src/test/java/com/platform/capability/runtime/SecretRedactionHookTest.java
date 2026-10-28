@@ -14,7 +14,7 @@ class SecretRedactionHookTest {
     @Test
     void redactsCommonSecretsButKeepsNormalOutput() {
         AgentHook.ToolContext context = new AgentHook.ToolContext(
-                "t", "T", "API", "{}", new ToolCallCollector());
+                "t", "T", "API", "{}", new ToolCallCollector(), java.util.Map.of());
         String output = "key=sk-1234567890abcdefghijklmn Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456";
 
         String redacted = hook.afterTool(context, output, "SUCCESS");
@@ -29,7 +29,7 @@ class SecretRedactionHookTest {
     void canBeDisabled() {
         ReflectionTestUtils.setField(hook, "enabled", false);
         AgentHook.ToolContext context = new AgentHook.ToolContext(
-                "t", "T", "API", "{}", new ToolCallCollector());
+                "t", "T", "API", "{}", new ToolCallCollector(), java.util.Map.of());
         String output = "sk-1234567890abcdefghijklmn";
         assertEquals(output, hook.afterTool(context, output, "SUCCESS"));
     }
