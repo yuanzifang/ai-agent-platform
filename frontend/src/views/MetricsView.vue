@@ -5,6 +5,10 @@
         <el-icon><ArrowLeft /></el-icon> {{ t('metricsPage.back') }}
       </el-button>
       <span class="page-title">{{ t('page.metrics') }} {{ agentName ? '· ' + agentName : '' }}</span>
+      <el-select v-model="agentId" :placeholder="t('metricsPage.selectAgent')" style="width: 220px"
+                 filterable @change="onAgentChange">
+        <el-option v-for="a in agentOptions" :key="a.id" :label="a.name" :value="a.id" />
+      </el-select>
       <el-select v-model="period" style="width: 150px" @change="onPeriodChange">
         <el-option value="24h" :label="t('metricsPage.last24')" />
         <el-option value="7d" :label="t('metricsPage.last7')" />
@@ -52,7 +56,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import http from '../api/http'
 import { ArrowLeft } from '@element-plus/icons-vue'
@@ -62,8 +66,9 @@ const { t } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
-const agentId = route.params.agentId ? Number(route.params.agentId) : undefined
-const agentName = ref('')
+const agentId = ref<number | undefined>(route.params.agentId ? Number(route.params.agentId) : undefined)
+const agentOptions = ref<any[]>([])
+const agentName = computed(() => agentOptions.value.find((a: any) => a.id === agentId.value)?.name || '')
 const period = ref('24h')
 const customRange = ref<[string, string] | null>(null)
 const loading = ref(false)
@@ -113,22 +118,37 @@ const callsErrorsOption = computed(() => ({
 }))
 
 onMounted(async () => {
-  if (!agentId) {
-    const agents = await http.get('/agent', { params: { pageSize: 100 } }) as any
-    const first = (agents.list || [])[0]
-    router.replace(first ? `/metrics/${first.id}` : '/agents')
-    return
-  }
   const agents = await http.get('/agent', { params: { pageSize: 100 } }) as any
-  agentName.value = (agents.list || []).find((a: any) => a.id === agentId)?.name || ''
+  agentOptions.value = agents.list || []
+  if (!agentId.value) {
+    const first = agentOptions.value[0]
+    if (first) {
+      agentId.value = first.id
+      await router.replace(`/metrics/${first.id}`)
+    }
+  }
   await load()
 })
+
+watch(() => route.params.agentId, (value) => {
+  const id = value ? Number(value) : undefined
+  if (id && id !== agentId.value) {
+    agentId.value = id
+    load()
+  }
+})
+
+function onAgentChange(value: number) {
+  router.replace(`/metrics/${value}`)
+  load()
+}
 
 function onPeriodChange() {
   if (period.value !== 'custom') load()
 }
 
 async function load() {
+  if (!agentId.value) return
   loading.value = true
   try {
     const params: any = { period: period.value }
@@ -137,7 +157,7 @@ async function load() {
       params.startTime = customRange.value[0]
       params.endTime = customRange.value[1]
     }
-    const data = await http.get(`/metrics/agent/${agentId}`, { params }) as any
+    const data = await http.get(`/metrics/agent/${agentId.value}`, { params }) as any
     Object.assign(metrics, data.metrics || {})
     Object.assign(trends, data.trends || {})
   } finally {
@@ -146,7 +166,7 @@ async function load() {
 }
 
 function drill(_key: string) {
-  if (agentId) router.push(`/observability/${agentId}`)
+  if (agentId.value) router.push(`/observability/${agentId.value}`)
 }
 
 function emptyTrend(list: number[] | undefined) {
