@@ -33,4 +33,12 @@ class SecretRedactionHookTest {
         String output = "sk-1234567890abcdefghijklmn";
         assertEquals(output, hook.afterTool(context, output, "SUCCESS"));
     }
+
+    @Test
+    void agentCapabilityCanDisableRedaction() {
+        AgentHook.ToolContext context = new AgentHook.ToolContext(
+                "t", "T", "API", "{}", new ToolCallCollector(), java.util.Map.of("redactSecrets", false));
+        String output = "sk-1234567890abcdefghijklmn";
+        assertEquals(output, hook.afterTool(context, output, "SUCCESS"));
+    }
 }
