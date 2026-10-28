@@ -227,3 +227,29 @@ test('critical 超时后升级到额外通道，resolved 可取消', async (t) =
   await new Promise(r => setTimeout(r, 350))
   assert.equal(receiver.requests.length, 2, '超时后应多投递一次升级通道')
 })
+
+test('resolved 取消尚未触发的升级', async (t) => {
+  const receiver = await startReceiver()
+  const relay = await startRelay({
+    ALERT_WEBHOOK_URL: `http://127.0.0.1:${receiver.port}/hook`,
+    ALERT_RELAY_CRITICAL_CHANNELS: 'webhook',
+    ALERT_ESCALATION_CHANNELS: 'webhook',
+    ALERT_ESCALATION_SEVERITIES: 'critical',
+    ALERT_ESCALATION_DELAY_SECONDS: '0.15'
+  })
+  t.after(() => { relay.child.kill('SIGTERM'); receiver.server.close() })
+
+  const firing = structuredClone(payload)
+  firing.alerts[0].fingerprint = 'same-alert'
+  await fetch(`http://127.0.0.1:${relay.port}/alertmanager?route=critical`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(firing)
+  })
+  const resolved = structuredClone(firing)
+  resolved.status = 'resolved'
+  resolved.alerts[0].status = 'resolved'
+  await fetch(`http://127.0.0.1:${relay.port}/alertmanager?route=critical`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(resolved)
+  })
+  await new Promise(r => setTimeout(r, 350))
+  assert.equal(receiver.requests.length, 2, 'critical + resolved，不应再触发升级')
+})
