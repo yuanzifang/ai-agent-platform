@@ -323,7 +323,8 @@ public class ToolRuntimeService {
                 String output;
                 try {
                     ScriptRunnerService.Result result = scriptRunner.run(skill.getScriptLanguage(),
-                            skill.getScriptCode(), args, timeout, collector::isCancelled);
+                            skill.getScriptCode(), args, timeout, collector::isCancelled,
+                            collector.nextToolCallKey(toolName));
                     output = result.output().isBlank() ? "脚本执行完成（无输出）" : result.output();
                     if (!result.stderr().isBlank()) {
                         output = output + "\n[stderr] " + result.stderr();

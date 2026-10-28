@@ -295,7 +295,7 @@ public class ChatStreamService {
         // 技能/工具/子 Agent 装配（工具调用事件实时推送 SSE）
         ToolCallCollector collector = new ToolCallCollector(
                 event -> out.event("tool", toolEvent(event)),
-                start -> out.event("tool_start", toolStartEvent(start)));
+                start -> out.event("tool_start", toolStartEvent(start)), traceId);
         long assemblyStart = System.currentTimeMillis();
         boolean allowWriteTools = Boolean.TRUE.equals(config.get("_allowWriteTools"));
         ToolRuntimeService.RuntimeTools runtime = toolRuntime.build(conv.getAgentId(), config, principal, viewer,

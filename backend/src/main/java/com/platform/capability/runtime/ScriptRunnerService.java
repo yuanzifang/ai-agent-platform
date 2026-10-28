@@ -96,6 +96,11 @@ public class ScriptRunnerService {
     /** cancelled 由对话停止信号驱动：每 100ms 轮询，取消时强杀子进程。 */
     public Result run(String language, String code, Map<String, Object> args, int timeoutMs,
                       BooleanSupplier cancelled) {
+        return run(language, code, args, timeoutMs, cancelled, null);
+    }
+
+    public Result run(String language, String code, Map<String, Object> args, int timeoutMs,
+                      BooleanSupplier cancelled, String idempotencyKey) {
         if (!enabled) throw new BusinessException(403, "技能脚本执行未启用（SKILL_SCRIPT_ENABLED=false）");
         String lang = normalizeLanguage(language);
         if (code == null || code.isBlank()) throw new BusinessException(400, "脚本代码不能为空");
@@ -130,7 +135,7 @@ public class ScriptRunnerService {
             List<String> command;
             if (containerMode) {
                 containerName = "skill-" + UUID.randomUUID().toString().replace("-", "");
-                command = dockerCommand(dockerBinPath, lang, fullCode, argsJson, containerName);
+                command = dockerCommand(dockerBinPath, lang, fullCode, argsJson, containerName, idempotencyKey);
             } else {
                 String executable = "PYTHON".equals(lang)
                         ? resolveExecutable(pythonCommand, "python3")
@@ -154,6 +159,9 @@ public class ScriptRunnerService {
                 pb.environment().put("LANG", "en_US.UTF-8");
                 pb.environment().put("LC_ALL", "en_US.UTF-8");
                 pb.environment().put("SKILL_ARGS", argsJson);
+                if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+                    pb.environment().put("SKILL_IDEMPOTENCY_KEY", idempotencyKey);
+                }
                 if ("PYTHON".equals(lang)) {
                     pb.environment().put("PYTHONIOENCODING", "UTF-8");
                     pb.environment().put("PYTHONUNBUFFERED", "1");
@@ -369,6 +377,11 @@ public class ScriptRunnerService {
      * package-private 供单测断言命令构造。
      */
     List<String> dockerCommand(String dockerBinPath, String lang, String fullCode, String argsJson, String name) {
+        return dockerCommand(dockerBinPath, lang, fullCode, argsJson, name, null);
+    }
+
+    List<String> dockerCommand(String dockerBinPath, String lang, String fullCode, String argsJson,
+                               String name, String idempotencyKey) {
         List<String> c = new ArrayList<>(List.of(
                 dockerBinPath, "run", "--rm", "--name", name,
                 "--network", "none",
@@ -378,6 +391,9 @@ public class ScriptRunnerService {
                 "--tmpfs", "/tmp:rw,size=33554432,noexec,nosuid",
                 "-e", "SKILL_ARGS=" + argsJson,
                 "-e", "LANG=C.UTF-8"));
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            c.addAll(List.of("-e", "SKILL_IDEMPOTENCY_KEY=" + idempotencyKey));
+        }
         if ("PYTHON".equals(lang)) {
             c.addAll(List.of("-e", "PYTHONIOENCODING=utf-8", "-e", "PYTHONUNBUFFERED=1",
                     "-e", "PYTHONDONTWRITEBYTECODE=1",
