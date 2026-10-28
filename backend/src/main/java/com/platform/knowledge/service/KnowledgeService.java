@@ -1516,7 +1516,12 @@ public class KnowledgeService {
                                             String regulatoryCategory, Integer chunkLevel,
                                             Double minRelevance,
                                             KnowledgePermissionService.Viewer viewer) {
-        permissionService.requireView(kbId, viewer);
+        KnowledgeBase kb = permissionService.requireView(kbId, viewer);
+        int effectiveTopK = topK == null
+                ? (kb.getDefaultTopK() == null ? 5 : kb.getDefaultTopK())
+                : Math.max(1, topK);
+        int maxTopK = kb.getMaxTopK() == null ? 20 : kb.getMaxTopK();
+        effectiveTopK = Math.min(effectiveTopK, Math.max(1, maxTopK));
         if (effectiveAfter != null && effectiveBefore != null && effectiveAfter.isAfter(effectiveBefore)) {
             throw new BusinessException(400, "生效开始时间不能晚于生效结束时间");
         }
@@ -1531,7 +1536,7 @@ public class KnowledgeService {
         if (chunkLevel != null) retrievalConfig.put("chunkLevel", chunkLevel);
         if (minRelevance != null) retrievalConfig.put("minRelevance", minRelevance);
         List<Map<String, Object>> hits = new ArrayList<>(hybridRetrieval.search(tenantId, query, kbId,
-                topK == null ? 5 : topK,
+                effectiveTopK,
                 threshold == null ? 0.5 : threshold, retrievalConfig,
                 viewer.userId(), permissionService.tenantWide(viewer), effectiveAfter, effectiveBefore).hits());
         // 图谱扩展分段没有完整元数据/有效期约束；有筛选时跳过，避免返回不匹配内容。
