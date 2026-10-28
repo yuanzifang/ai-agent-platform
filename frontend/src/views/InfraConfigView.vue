@@ -23,6 +23,15 @@
       </el-table>
     </el-card>
 
+    <el-card v-if="outbox" shadow="never" class="section">
+      <template #header>{{ t('infraPage.outboxTitle') }}</template>
+      <div class="outbox-row">
+        <span>{{ t('infraPage.outboxPending') }} <b>{{ outbox.pending ?? 0 }}</b></span>
+        <span>{{ t('infraPage.outboxFailed') }} <b>{{ outbox.failed ?? 0 }}</b></span>
+        <span>{{ t('infraPage.outboxOldest') }} <b>{{ outbox.oldestPendingAt || '-' }}</b></span>
+      </div>
+    </el-card>
+
     <el-alert type="warning" :closable="false" show-icon class="mb">
       {{ t('infraPage.restartHint') }}
       <div class="path">{{ t('infraPage.configFile') }}: {{ configFile }}</div>
@@ -160,6 +169,7 @@ const { t } = useI18n()
 const saving = ref(false)
 const testing = ref(false)
 const testResults = ref<any>(null)
+const outbox = ref<any>(null)
 const configFile = ref('')
 const testRows = reactive<any[]>([])
 const maskHint = reactive({
@@ -236,6 +246,10 @@ async function removeProfile(row: any) {
   await loadProfiles()
 }
 
+async function loadOutbox() {
+  try { outbox.value = await http.get('/platform/infrastructure/search-outbox') as any } catch { outbox.value = null }
+}
+
 async function testConnections() {
   testing.value = true
   try {
@@ -268,4 +282,5 @@ async function save() {
 .path { margin-top: 4px; font-family: monospace; font-size: 12px; }
 .section { margin-bottom: 14px; }
 .card-head { display: flex; align-items: center; justify-content: space-between; }
+.outbox-row { display: flex; gap: 28px; color: #606266; }
 </style>

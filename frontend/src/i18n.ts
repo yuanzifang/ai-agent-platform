@@ -282,7 +282,7 @@ const messages = {
       reload: '重新加载', save: '保存配置', test: '测试连接', testResults: '连接测试', component: '组件', result: '结果', message: '信息', restartHint: '配置保存到本地文件，重启后端后生效。',
       configFile: '配置文件', keepSecret: '已配置，留空保持不变',
       mysql: 'MySQL 主数据库', redis: 'Redis', pg: 'PostgreSQL / pgvector', minio: 'MinIO',
-      es: 'Elasticsearch', qdrant: 'Qdrant', saved: '配置已保存', savedRestart: '配置已保存，请重启后端生效'
+      es: 'Elasticsearch', qdrant: 'Qdrant', outboxTitle: 'ES 索引 outbox', outboxPending: '待处理', outboxFailed: '失败', outboxOldest: '最老待处理时间', saved: '配置已保存', savedRestart: '配置已保存，请重启后端生效'
     },
     platformPage: {
       createTenant: '开通租户', tenantKey: '租户标识', name: '名称', status: '状态', members: '成员数',
@@ -680,7 +680,10 @@ const messages = {
       promptHint: '插入后仍可编辑；双花括号变量由「占位变量」面板统一替换',
       systemPromptPh: '系统提示词，可用双花括号变量占位（见「占位变量」面板）', welcome: '欢迎语',
       welcomePh: '对话开始时展示给用户的第一句话，支持 {{变量key}}', capabilities: 'Agent 能力',
-      stream: '流式输出', functionCall: '函数调用', selfCorrection: '自我纠正',
+      stream: '流式输出', functionCall: '函数调用',
+      maxToolCalls: '单轮工具调用上限', maxToolCallsHint: '0 表示不限制；超过上限后工具调用被拒绝',
+      redactSecrets: '工具输出脱敏', redactSecretsHint: '屏蔽工具输出中的密钥、Token、私钥等敏感信息',
+      selfCorrection: '自我纠正',
       correctionHint: '生成后由审查模型校验，低分时自动修订', reviewRounds: '审查轮数',
       reviewHint: '1~3 轮，每轮增加一次审查模型调用', multimodal: '多模态输入', memory: '记忆',
       writePolicy: '写工具策略', writePolicyAllowAll: '允许全部写工具', writePolicyBlock: '全部阻断', writePolicyApproval: '逐次审批', writePolicyAllowlist: '仅允许列表',
@@ -1246,7 +1249,7 @@ const messages = {
       reload: 'Reload', save: 'Save', test: 'Test connections', testResults: 'Connection test', component: 'Component', result: 'Result', message: 'Message', restartHint: 'Saved to a local file; restart the backend to apply.',
       configFile: 'Config file', keepSecret: 'Configured; leave blank to keep',
       mysql: 'MySQL primary database', redis: 'Redis', pg: 'PostgreSQL / pgvector', minio: 'MinIO',
-      es: 'Elasticsearch', qdrant: 'Qdrant', saved: 'Configuration saved', savedRestart: 'Configuration saved; restart the backend to apply'
+      es: 'Elasticsearch', qdrant: 'Qdrant', outboxTitle: 'ES index outbox', outboxPending: 'Pending', outboxFailed: 'Failed', outboxOldest: 'Oldest pending', saved: 'Configuration saved', savedRestart: 'Configuration saved; restart the backend to apply'
     },
     platformPage: {
       createTenant: 'Create tenant', tenantKey: 'Tenant key', name: 'Name', status: 'Status', members: 'Members',
@@ -1646,7 +1649,10 @@ const messages = {
       promptHint: 'Editable after insertion; variables are resolved by the Variables panel',
       systemPromptPh: 'System prompt; supports double-brace variables (see Variables panel)', welcome: 'Greeting',
       welcomePh: 'First message shown at conversation start; supports {{variable}}', capabilities: 'Capabilities',
-      stream: 'Streaming', functionCall: 'Function calling', selfCorrection: 'Self-correction',
+      stream: 'Streaming', functionCall: 'Function calling',
+      maxToolCalls: 'Tool calls per turn', maxToolCallsHint: '0 means unlimited; calls are rejected after the limit',
+      redactSecrets: 'Redact tool output', redactSecretsHint: 'Mask keys, tokens and private keys in tool output',
+      selfCorrection: 'Self-correction',
       correctionHint: 'Review model checks the answer and revises low scores', reviewRounds: 'Review rounds',
       reviewHint: '1-3 rounds; each round adds a review model call', multimodal: 'Multimodal input', memory: 'Memory',
       writePolicy: 'Write tool policy', writePolicyAllowAll: 'Allow all write tools', writePolicyBlock: 'Block all', writePolicyApproval: 'Approve each call', writePolicyAllowlist: 'Allowlist only',
