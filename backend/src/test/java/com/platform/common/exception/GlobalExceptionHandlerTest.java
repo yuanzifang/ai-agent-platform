@@ -12,7 +12,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class GlobalExceptionHandlerTest {
 
     private final GlobalExceptionHandler handler = new GlobalExceptionHandler(
-            new com.platform.system.service.AlertWebhookService(new com.fasterxml.jackson.databind.ObjectMapper()));
+            new com.platform.system.service.AlertWebhookService(
+                    new com.platform.system.alert.WebhookAlertSender(), null, null));
 
     @Test
     void business500IsSanitized() {

@@ -1,125 +1,83 @@
 package com.platform.system.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.platform.system.alert.AliyunSmsAlertSender;
+import com.platform.system.alert.AlertSender;
+import com.platform.system.alert.EmailAlertSender;
+import com.platform.system.alert.WebhookAlertSender;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.Locale;
+import java.util.List;
 import java.util.Map;
 
 /**
- * 运维告警推送（生产闭环）：配额/异常/健康事件 → 钉钉/企微/飞书群机器人 webhook。
- * 单条文本消息，失败仅记录日志不阻断业务；DEMO/静默期可用 enabled=false 关闭。
- * 钉钉/飞书用 text 消息体，企微同构（markdown 类型三家 text 兼容）。
+ * 运维告警推送门面（多通道扇出）：配额/异常/健康事件、Alertmanager 路由 →
+ * 全部启用通道（webhook=钉钉/企微/飞书、email、aliyun-sms）逐一投递。
+ *
+ * <p>公共 API 不变（alert(title, detail) / isConfigured()），调用方零改动。
+ * 任一通道失败只影响自身，不阻断业务与其他通道。</p>
  */
 @Slf4j
 @Service
 public class AlertWebhookService {
 
-    private final ObjectMapper objectMapper;
-    private final RestClient restClient = RestClient.create();
-    private volatile boolean webhookDownLogged = false;
-
-    @Value("${alert.webhook.enabled:false}")
-    private boolean enabled;
-
-    @Value("${alert.webhook.url:}")
-    private String url;
-
-    @Value("${alert.webhook.secret:}")
-    private String secret;
+    private final List<AlertSender> senders;
 
     @Value("${alert.webhook.env:dev}")
-    private String env;
+    private String env = "dev";
 
-    public AlertWebhookService(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
+    public AlertWebhookService(WebhookAlertSender webhookSender,
+                               EmailAlertSender emailSender,
+                               AliyunSmsAlertSender smsSender) {
+        // 通道协作者可为 null（测试桩/未引入的可选依赖），容错过滤
+        this.senders = java.util.stream.Stream.of(webhookSender, emailSender, smsSender)
+                .filter(java.util.Objects::nonNull)
+                .toList();
     }
 
+    /** 是否至少配置了一个告警通道。 */
     public boolean isConfigured() {
-        return enabled && url != null && !url.isBlank();
+        return senders.stream().anyMatch(AlertSender::enabled);
     }
 
-    /** 统一入口：title 一句话摘要，detail 可空补充。返回是否成功投递（未配置/失败均为 false）。 */
+    /** 统一入口：全通道扇出。返回各通道投递结果（未启用通道不出现在结果里）。 */
+    public Map<String, Boolean> alertAll(String title, String detail) {
+        String text = "【AI Agent 平台·" + env + "】" + title
+                + (detail == null || detail.isBlank() ? "" : "\n" + detail)
+                + "\n" + LocalDateTime.now();
+        Map<String, Boolean> results = new LinkedHashMap<>();
+        for (AlertSender sender : senders) {
+            if (!sender.enabled()) continue;
+            results.put(sender.name(), sender.send(title, text));
+        }
+        if (results.isEmpty()) {
+            log.debug("无已启用的告警通道，跳过：{}", title);
+        }
+        return results;
+    }
+
+    /** 兼容旧签名：返回是否至少一个通道投递成功。 */
     public boolean alert(String title, String detail) {
-        if (!isConfigured()) return false;
-        try {
-            String text = "【AI Agent 平台·" + env + "】" + title
-                    + (detail == null || detail.isBlank() ? "" : "\n" + detail)
-                    + "\n" + LocalDateTime.now();
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("msgtype", "text");
-            body.put("text", Map.of("content", text));
-            String target = url;
-            if (secret != null && !secret.isBlank() && isDingTalk(url)) {
-                // 钉钉加签必须放 query，放 body 不会被校验（timestamp+secret HmacSHA256 → base64 → urlencoded）
-                long ts = System.currentTimeMillis();
-                target = appendQuery(url, "timestamp", String.valueOf(ts), "sign", dingtalkSign(ts, secret));
-            }
-            String resp = restClient.post()
-                    .uri(target)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(objectMapper.writeValueAsString(body))
-                    .retrieve()
-                    .body(String.class);
-            webhookDownLogged = false;
-            boolean ok = responseOk(resp);
-            if (ok) {
-                log.info("告警已推送：{}", title);
-            } else {
-                log.warn("告警推送响应异常：{}", truncate(resp));
-            }
-            return ok;
-        } catch (Exception e) {
-            // webhook 故障不阻断业务；连续失败只打一次避免日志风暴
-            if (!webhookDownLogged) {
-                log.warn("告警推送失败（后续静默直至恢复）：{}", e.getMessage());
-                webhookDownLogged = true;
-            }
-            return false;
+        return alertAll(title, detail).containsValue(true);
+    }
+
+    /** 通道清单与启用状态（管理端/测试端点展示）。 */
+    public List<Map<String, Object>> channelStatus() {
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (AlertSender sender : senders) {
+            list.add(Map.of("channel", sender.name(), "enabled", sender.enabled()));
         }
+        return list;
     }
 
-    private boolean isDingTalk(String target) {
-        return target.toLowerCase(Locale.ROOT).contains("dingtalk");
-    }
-
-    private String appendQuery(String base, String k1, String v1, String k2, String v2) {
-        char sep = base.contains("?") ? '&' : '?';
-        return base + sep + k1 + "=" + v1 + "&" + k2 + "=" + v2;
-    }
-
-    private boolean responseOk(String resp) {
-        if (resp == null || resp.isBlank()) return true;
-        try {
-            JsonNode node = objectMapper.readTree(resp);
-            if (node.has("errcode")) return node.path("errcode").asInt(-1) == 0;
-            if (node.has("code")) return node.path("code").asInt(-1) == 0;
-            return true;
-        } catch (Exception ignored) {
-            // 非 JSON 响应但 HTTP 2xx：按成功处理，避免误报
-            return true;
-        }
-    }
-
-    private String dingtalkSign(long timestamp, String secret) throws Exception {
-        String stringToSign = timestamp + "\n" + secret;
-        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
-        mac.init(new javax.crypto.spec.SecretKeySpec(secret.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                "HmacSHA256"));
-        byte[] signData = mac.doFinal(stringToSign.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        return java.net.URLEncoder.encode(java.util.Base64.getEncoder().encodeToString(signData),
-                java.nio.charset.StandardCharsets.UTF_8);
-    }
-
-    private String truncate(String s) {
-        if (s == null) return "";
-        return s.length() > 200 ? s.substring(0, 200) : s;
+    /** 兼容旧调用：webhook 通道的配置状态。 */
+    public boolean webhookEnabled() {
+        return senders.stream()
+                .filter(s -> s instanceof WebhookAlertSender)
+                .findFirst().map(AlertSender::enabled).orElse(false);
     }
 }

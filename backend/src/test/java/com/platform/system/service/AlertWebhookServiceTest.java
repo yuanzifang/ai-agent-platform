@@ -45,11 +45,16 @@ class AlertWebhookServiceTest {
     }
 
     private AlertWebhookService service(String path, String secret, boolean enabled) {
-        AlertWebhookService service = new AlertWebhookService(new ObjectMapper());
-        ReflectionTestUtils.setField(service, "enabled", enabled);
-        ReflectionTestUtils.setField(service, "url", "http://127.0.0.1:" + server.getAddress().getPort() + path);
-        ReflectionTestUtils.setField(service, "secret", secret);
-        ReflectionTestUtils.setField(service, "env", "test");
+        com.platform.system.alert.WebhookAlertSender sender =
+                new com.platform.system.alert.WebhookAlertSender();
+        ReflectionTestUtils.setField(sender, "enabled", enabled);
+        ReflectionTestUtils.setField(sender, "url",
+                "http://127.0.0.1:" + server.getAddress().getPort() + path);
+        ReflectionTestUtils.setField(sender, "secret", secret);
+        ReflectionTestUtils.setField(sender, "type", "dingtalk");
+        com.platform.system.service.AlertWebhookService service =
+                new com.platform.system.service.AlertWebhookService(sender, null, null);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "env", "test");
         return service;
     }
 

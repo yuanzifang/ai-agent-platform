@@ -415,6 +415,22 @@ alert:
     secret: ${ALERT_WEBHOOK_SECRET:}
     internal-token: ${ALERT_WEBHOOK_INTERNAL_TOKEN:}
     env: ${ALERT_WEBHOOK_ENV:dev}
+    # auto=按 URL 自动识别钉钉/企微/飞书；自建代理地址时显式指定 dingtalk/wecom/feishu
+    type: ${ALERT_WEBHOOK_TYPE:auto}
+  email:
+    # 复用 spring.mail.*；未配置 JavaMailSender 时静默跳过
+    enabled: ${ALERT_EMAIL_ENABLED:false}
+    from: ${ALERT_EMAIL_FROM:}
+    to: ${ALERT_EMAIL_TO:}
+  sms:
+    # 阿里云短信（dysmsapi）；模板需含 ${content} 变量
+    enabled: ${ALERT_SMS_ENABLED:false}
+    access-key-id: ${ALERT_SMS_ACCESS_KEY_ID:}
+    access-key-secret: ${ALERT_SMS_ACCESS_KEY_SECRET:}
+    endpoint: ${ALERT_SMS_ENDPOINT:dysmsapi.aliyuncs.com}
+    sign-name: ${ALERT_SMS_SIGN_NAME:}
+    template-code: ${ALERT_SMS_TEMPLATE_CODE:}
+    phone-numbers: ${ALERT_SMS_PHONE_NUMBERS:}
 
 chat:
   stream:
