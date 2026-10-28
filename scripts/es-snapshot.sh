@@ -48,6 +48,31 @@ if s.get('state') != 'SUCCESS':
 PY
 }
 
+prune_snapshots() {
+  local keep="${1:-14}"
+  ensure_repo
+  local names
+  names=$(json "$BASE/_snapshot/$REPO/_all" | python3 -c '
+import json,sys
+keep=int(sys.argv[1])
+d=json.load(sys.stdin)
+rows=[s for s in d.get("snapshots", [])
+      if s.get("snapshot","").startswith("aap-knowledge-") and s.get("state")=="SUCCESS"]
+rows.sort(key=lambda s: s.get("start_time_in_millis",0), reverse=True)
+for s in rows[keep:]:
+    print(s["snapshot"])
+' "$keep")
+  if [ -z "$names" ]; then
+    echo "没有需要清理的快照（保留最近 ${keep} 个）"
+    return 0
+  fi
+  while IFS= read -r name; do
+    [ -z "$name" ] && continue
+    json -X DELETE "$BASE/_snapshot/$REPO/$name" >/dev/null
+    echo "已删除快照 $name"
+  done <<< "$names"
+}
+
 restore_drill() {
   local name="${1:?用法: $0 restore-drill <snapshot>}"
   ensure_repo
@@ -67,9 +92,10 @@ case "${1:-}" in
   setup) ensure_repo ;;
   create) create_snapshot "${2:-}" ;;
   list) list_snapshots ;;
+  prune) prune_snapshots "${2:-14}" ;;
   restore-drill) restore_drill "${2:-}" ;;
   *)
-    echo "用法: $0 setup|create [snapshot]|list|restore-drill <snapshot>" >&2
+    echo "用法: $0 setup|create [snapshot]|list|prune [keep]|restore-drill <snapshot>" >&2
     exit 2
     ;;
 esac

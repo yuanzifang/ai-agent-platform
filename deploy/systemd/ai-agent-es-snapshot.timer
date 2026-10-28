@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Elasticsearch snapshot daily
+Requires=ai-agent-es-snapshot.service
+
+[Timer]
+OnCalendar=*-*-* 03:10:00
+Persistent=true
+RandomizedDelaySec=10m
+Unit=ai-agent-es-snapshot.service
+
+[Install]
+WantedBy=timers.target

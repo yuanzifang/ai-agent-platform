@@ -66,7 +66,26 @@ ES_SNAPSHOT_SOURCE=aap_knowledge_chunks_v2 \
 脚本恢复到的临时索引默认是 `aap_knowledge_chunks_restore_test`，也可用
 `ES_SNAPSHOT_RESTORE_INDEX` 覆盖。
 
-## 3. 生产恢复建议
+## 3. 定时任务
+
+单机 systemd 方案已提供：
+
+```text
+deploy/systemd/ai-agent-es-snapshot.service
+deploy/systemd/ai-agent-es-snapshot.timer
+```
+
+每天 03:10（随机延迟 10 分钟）创建快照，并调用 `prune 14` 只保留最近 14 个
+`aap-knowledge-*` 成功快照。安装方式见 `deploy/systemd/README.md`。
+
+```bash
+sudo systemctl enable --now ai-agent-es-snapshot.timer
+journalctl -u ai-agent-es-snapshot.service -n 100 --no-pager
+```
+
+Kubernetes 环境建议改用 CronJob 调用同一个脚本，并把 `aap-es-snapshots` 换成共享存储。
+
+## 4. 生产恢复建议
 
 MySQL 仍是知识库分段的权威数据源；ES 索引可以从 MySQL 重新回填。快照用于缩短恢复时间。
 
@@ -94,7 +113,7 @@ POST /_snapshot/aap_local/<snapshot>/_restore?wait_for_completion=true
 
 不要在线上索引仍处于 open 状态时直接覆盖同名索引；优先使用“新索引 + alias 切换”。
 
-## 4. 验证记录
+## 5. 验证记录
 
 本地实际演练结果：
 
