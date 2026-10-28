@@ -36,6 +36,7 @@ function trimBase(value) {
 const WEBHOOK_URL = process.env.ALERT_WEBHOOK_URL || ''
 const WEBHOOK_SECRET = process.env.ALERT_WEBHOOK_SECRET || ''
 const WEBHOOK_TYPE = (process.env.ALERT_WEBHOOK_TYPE || 'auto').toLowerCase()
+const WEBHOOK_KEYWORD = process.env.ALERT_WEBHOOK_KEYWORD || '告警'
 
 const EMAIL_ENABLED = bool('ALERT_EMAIL_ENABLED')
 const EMAIL_FROM = process.env.ALERT_EMAIL_FROM || process.env.SMTP_USERNAME || ''
@@ -82,7 +83,7 @@ function alertText(payload, alert) {
   const annotations = alert?.annotations || {}
   const status = String(alert?.status || payload?.status || 'firing')
   const name = String(labels.alertname || 'unknown')
-  const lines = [`【AI Agent 平台·${ENV}】[${status}] ${name}`]
+  const lines = [`【AI Agent 平台·${ENV}】${WEBHOOK_KEYWORD ? `【${WEBHOOK_KEYWORD}】` : ''}[${status}] ${name}`]
   const fields = [
     ['status', status],
     ['severity', labels.severity],
