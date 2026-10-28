@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -27,19 +28,27 @@ public class ToolCallCollector {
     private final Consumer<ToolCallStart> startListener;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private final Map<String, AtomicInteger> validationFailures = new ConcurrentHashMap<>();
+    private final Map<String, AtomicInteger> toolCallCounts = new ConcurrentHashMap<>();
+    private final String traceId;
     private volatile Integer inputValidationMaxAttempts;
 
     public ToolCallCollector() {
-        this(null, null);
+        this(null, null, null);
     }
 
     public ToolCallCollector(Consumer<ToolCallEvent> listener) {
-        this(listener, null);
+        this(listener, null, null);
     }
 
     public ToolCallCollector(Consumer<ToolCallEvent> listener, Consumer<ToolCallStart> startListener) {
+        this(listener, startListener, null);
+    }
+
+    public ToolCallCollector(Consumer<ToolCallEvent> listener, Consumer<ToolCallStart> startListener,
+                             String traceId) {
         this.listener = listener;
         this.startListener = startListener;
+        this.traceId = traceId;
     }
 
     public void start(String toolKey, String name, String type, String input) {
@@ -86,6 +95,13 @@ public class ToolCallCollector {
 
     public int inputValidationMaxAttempts(int fallback) {
         return inputValidationMaxAttempts == null ? Math.max(1, fallback) : inputValidationMaxAttempts;
+    }
+
+    /** 同一次对话内按工具生成稳定执行键，供脚本/下游做幂等参考。 */
+    public String nextToolCallKey(String toolKey) {
+        int n = toolCallCounts.computeIfAbsent(toolKey, k -> new AtomicInteger()).incrementAndGet();
+        String base = traceId == null || traceId.isBlank() ? UUID.randomUUID().toString() : traceId;
+        return base + ":" + toolKey + ":" + n;
     }
 
     public List<ToolCallEvent> events() {

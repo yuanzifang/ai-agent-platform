@@ -16,5 +16,8 @@ class ToolCallCollectorTest {
         assertEquals(3, collector.inputValidationMaxAttempts(3));
         collector.setInputValidationMaxAttempts(5);
         assertEquals(5, collector.inputValidationMaxAttempts(3));
+        ToolCallCollector traced = new ToolCallCollector(null, null, "trace-1");
+        assertEquals("trace-1:skill:1", traced.nextToolCallKey("skill"));
+        assertEquals("trace-1:skill:2", traced.nextToolCallKey("skill"));
     }
 }

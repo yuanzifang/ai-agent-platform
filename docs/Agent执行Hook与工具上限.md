@@ -67,4 +67,17 @@ AGENT_HOOK_REDACT_SECRETS_ENABLED=true
 
 Agent 页面可单独关闭该 Agent 的工具输出脱敏，并可配置最多 20 条自定义脱敏正则（JSON 数组）；全局默认由 `AGENT_HOOK_REDACT_SECRETS_ENABLED` 控制。非法正则自动跳过，不影响内置规则。
 
-当前已落地工具调用上限和敏感信息脱敏，其余作为后续可插拔策略。
+## Skill 幂等键
+
+技能脚本工具执行时会注入：
+
+```env
+SKILL_IDEMPOTENCY_KEY=<traceId>:<toolName>:<callIndex>
+```
+
+- Docker 沙箱通过 `-e` 注入
+- 进程沙箱通过环境变量注入
+- 脚本可自行用它做外部写操作去重
+- 平台不保证所有脚本都实现幂等
+
+当前已落地工具调用上限、敏感信息脱敏和 Skill 幂等键，其余作为后续可插拔策略。

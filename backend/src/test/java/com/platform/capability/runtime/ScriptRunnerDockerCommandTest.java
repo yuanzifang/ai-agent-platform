@@ -68,4 +68,11 @@ class ScriptRunnerDockerCommandTest {
         assertEquals("registry.cn-hangzhou.aliyuncs.com/mirror/python:3.12-alpine", c.get(c.size() - 5));
         assertFalse(c.contains("--network=true"));
     }
+
+    @Test
+    void idempotencyKeyIsInjectedAsEnv() {
+        List<String> c = serviceWithDefaults().dockerCommand(
+                "docker", "PYTHON", "print('x')", "{}", "skill-x", "run-1:skill-x:1");
+        assertTrue(c.contains("SKILL_IDEMPOTENCY_KEY=run-1:skill-x:1"));
+    }
 }
