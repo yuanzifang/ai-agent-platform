@@ -17,11 +17,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.net.InetAddress;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * MySQL/PgVector outbox 恢复器：解析任务在开始时持久化，正常成功标记 DONE。
@@ -38,6 +40,8 @@ public class KnowledgeVectorOutboxScheduler {
     private final KnowledgeService knowledgeService;
     private final VectorStore vectorRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    private static final String WORKER_ID = workerId();
 
     @Value("${knowledge.outbox.batch:10}")
     private int batch = 10;
@@ -69,20 +73,30 @@ public class KnowledgeVectorOutboxScheduler {
                 new LambdaQueryWrapper<KnowledgeVectorOutbox>()
                         .eq(KnowledgeVectorOutbox::getStatus, "PENDING")
                         .le(KnowledgeVectorOutbox::getAvailableAt, now)
+                        .apply("(locked_until IS NULL OR locked_until < NOW())")
                         .orderByAsc(KnowledgeVectorOutbox::getAvailableAt)
                         .last("LIMIT " + Math.max(1, Math.min(batch, 50))));
         int recovered = 0;
+        int claimedCount = 0;
         if (tasks == null) return 0;
         for (KnowledgeVectorOutbox task : tasks) {
             int claimed = outboxMapper.update(null, new LambdaUpdateWrapper<KnowledgeVectorOutbox>()
                     .eq(KnowledgeVectorOutbox::getId, task.getId())
                     .eq(KnowledgeVectorOutbox::getStatus, "PENDING")
                     .le(KnowledgeVectorOutbox::getAvailableAt, now)
+                    .apply("(locked_until IS NULL OR locked_until < NOW())")
                     .set(KnowledgeVectorOutbox::getAvailableAt,
+                            now.plusMinutes(Math.max(1, leaseMinutes)))
+                    .set(KnowledgeVectorOutbox::getLockedBy, WORKER_ID)
+                    .set(KnowledgeVectorOutbox::getLockedUntil,
                             now.plusMinutes(Math.max(1, leaseMinutes)))
                     .set(KnowledgeVectorOutbox::getUpdatedAt, now));
             if (claimed == 0) continue;
+            claimedCount++;
             if (processTask(task)) recovered++;
+        }
+        if (claimedCount > 0) {
+            log.info("vector outbox 认领 {} 条 worker={}", claimedCount, WORKER_ID);
         }
         return recovered;
     }
@@ -187,16 +201,31 @@ public class KnowledgeVectorOutboxScheduler {
     private void markDone(KnowledgeVectorOutbox task) {
         outboxMapper.update(null, new LambdaUpdateWrapper<KnowledgeVectorOutbox>()
                 .eq(KnowledgeVectorOutbox::getId, task.getId())
+                .eq(KnowledgeVectorOutbox::getLockedBy, WORKER_ID)
                 .set(KnowledgeVectorOutbox::getStatus, "DONE")
+                .set(KnowledgeVectorOutbox::getLockedBy, null)
+                .set(KnowledgeVectorOutbox::getLockedUntil, null)
                 .set(KnowledgeVectorOutbox::getLastError, null)
                 .set(KnowledgeVectorOutbox::getUpdatedAt, LocalDateTime.now()));
+    }
+
+    private static String workerId() {
+        try {
+            return InetAddress.getLocalHost().getHostName() + "-"
+                    + UUID.randomUUID().toString().substring(0, 8);
+        } catch (Exception e) {
+            return "vector-outbox-" + UUID.randomUUID().toString().substring(0, 8);
+        }
     }
 
     private void markFailed(KnowledgeVectorOutbox task, String error) {
         String message = error == null ? null : error.substring(0, Math.min(1000, error.length()));
         outboxMapper.update(null, new LambdaUpdateWrapper<KnowledgeVectorOutbox>()
                 .eq(KnowledgeVectorOutbox::getId, task.getId())
+                .eq(KnowledgeVectorOutbox::getLockedBy, WORKER_ID)
                 .set(KnowledgeVectorOutbox::getStatus, "FAILED")
+                .set(KnowledgeVectorOutbox::getLockedBy, null)
+                .set(KnowledgeVectorOutbox::getLockedUntil, null)
                 .set(KnowledgeVectorOutbox::getLastError, message)
                 .set(KnowledgeVectorOutbox::getUpdatedAt, LocalDateTime.now()));
     }
