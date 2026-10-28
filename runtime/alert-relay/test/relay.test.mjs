@@ -253,3 +253,68 @@ test('resolved 取消尚未触发的升级', async (t) => {
   await new Promise(r => setTimeout(r, 350))
   assert.equal(receiver.requests.length, 2, 'critical + resolved，不应再触发升级')
 })
+
+test('ACK 取消待升级告警', async (t) => {
+  const receiver = await startReceiver()
+  const relay = await startRelay({
+    ALERT_WEBHOOK_URL: `http://127.0.0.1:${receiver.port}/hook`,
+    ALERT_RELAY_CRITICAL_CHANNELS: 'webhook',
+    ALERT_ESCALATION_CHANNELS: 'webhook',
+    ALERT_ESCALATION_DELAY_SECONDS: '0.15'
+  })
+  t.after(() => { relay.child.kill('SIGTERM'); receiver.server.close() })
+  const firing = structuredClone(payload)
+  firing.alerts[0].fingerprint = 'ack-alert'
+  await fetch(`http://127.0.0.1:${relay.port}/alertmanager?route=critical`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(firing)
+  })
+  await new Promise(r => setTimeout(r, 50))
+  const ack = await fetch(`http://127.0.0.1:${relay.port}/ack`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fingerprint: 'ack-alert' })
+  })
+  assert.equal(ack.status, 200)
+  await new Promise(r => setTimeout(r, 300))
+  assert.equal(receiver.requests.length, 1, 'ACK 后不应再升级')
+})
+
+test('升级状态文件可跨 relay 重启恢复', async (t) => {
+  const receiver = await startReceiver()
+  const fs = await import('node:fs')
+  const os = await import('node:os')
+  const stateFile = `${os.tmpdir()}/aap-relay-state-${Date.now()}.json`
+  t.after(() => { try { fs.unlinkSync(stateFile) } catch {} })
+  const first = await startRelay({
+    ALERT_WEBHOOK_URL: `http://127.0.0.1:${receiver.port}/hook`,
+    ALERT_RELAY_CRITICAL_CHANNELS: 'webhook',
+    ALERT_ESCALATION_CHANNELS: 'webhook',
+    ALERT_ESCALATION_DELAY_SECONDS: '0.25',
+    ALERT_RELAY_STATE_FILE: stateFile
+  })
+  const firing = structuredClone(payload)
+  firing.alerts[0].fingerprint = 'persist-alert'
+  await fetch(`http://127.0.0.1:${first.port}/alertmanager?route=critical`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(firing)
+  })
+  await new Promise(resolve => {
+    first.child.once('exit', resolve)
+    first.child.kill('SIGTERM')
+    setTimeout(resolve, 1000)
+  })
+  const second = await startRelay({
+    ALERT_WEBHOOK_URL: `http://127.0.0.1:${receiver.port}/hook`,
+    ALERT_RELAY_CRITICAL_CHANNELS: 'webhook',
+    ALERT_ESCALATION_CHANNELS: 'webhook',
+    ALERT_ESCALATION_DELAY_SECONDS: '0.25',
+    ALERT_RELAY_STATE_FILE: stateFile
+  })
+  t.after(async () => {
+    await new Promise(resolve => {
+      second.child.once('exit', resolve)
+      second.child.kill('SIGTERM')
+      setTimeout(resolve, 1000)
+    })
+  })
+  await new Promise(r => setTimeout(r, 450))
+  assert.ok(receiver.requests.length >= 2, '重启后应恢复待升级定时器')
+})

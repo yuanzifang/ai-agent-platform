@@ -1,5 +1,7 @@
 import http from 'node:http'
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import nodemailer from 'nodemailer'
 
 /**
@@ -59,8 +61,11 @@ const CRITICAL_CHANNELS = csv('ALERT_RELAY_CRITICAL_CHANNELS', 'webhook,email')
 const ESCALATION_CHANNELS = csv('ALERT_ESCALATION_CHANNELS', 'sms')
 const ESCALATION_SEVERITIES = csv('ALERT_ESCALATION_SEVERITIES', 'critical')
 const ESCALATION_DELAY_SECONDS = Math.max(0, Number(process.env.ALERT_ESCALATION_DELAY_SECONDS || 0))
+const STATE_FILE = process.env.ALERT_RELAY_STATE_FILE || ''
+const ACK_TOKEN = process.env.ALERT_RELAY_ACK_TOKEN || ''
 const escalationTimers = new Map()
-const escalated = new Set()
+const pendingEscalations = new Map()
+const acked = new Set()
 
 let mailTransport
 
@@ -261,20 +266,71 @@ function alertKey(alert) {
   return `${labels.alertname || 'unknown'}|${labels.instance || ''}|${alert?.startsAt || ''}`
 }
 
+function persistState() {
+  if (!STATE_FILE) return
+  try {
+    const dir = path.dirname(STATE_FILE)
+    fs.mkdirSync(dir, { recursive: true })
+    const temp = `${STATE_FILE}.tmp`
+    fs.writeFileSync(temp, JSON.stringify({
+      pending: Object.fromEntries(pendingEscalations),
+      acked: [...acked]
+    }), { mode: 0o600 })
+    fs.renameSync(temp, STATE_FILE)
+  } catch (error) {
+    console.error('alert relay state write failed:', error.message)
+  }
+}
+
+function loadState() {
+  if (!STATE_FILE) return
+  try {
+    if (!fs.existsSync(STATE_FILE)) return
+    const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))
+    for (const [key, entry] of Object.entries(state.pending || {})) {
+      if (entry && entry.alert && entry.text && entry.dueAt) pendingEscalations.set(key, entry)
+    }
+    for (const key of state.acked || []) acked.add(String(key))
+    console.log(JSON.stringify({ msg: 'alert relay state restored', pending: pendingEscalations.size, acked: acked.size }))
+  } catch (error) {
+    console.error('alert relay state read failed:', error.message)
+  }
+}
+
+async function fireEscalation(key) {
+  const entry = pendingEscalations.get(key)
+  if (!entry) return
+  pendingEscalations.delete(key)
+  escalationTimers.delete(key)
+  persistState()
+  const results = await sendChannels(entry.alert, entry.text, entry.channels || ESCALATION_CHANNELS)
+  console.log(JSON.stringify({ msg: 'alert escalated', key, severity: entry.alert?.labels?.severity, results }))
+}
+
+function armEscalation(entry) {
+  const delay = Math.max(0, Number(entry.dueAt) - Date.now())
+  const timer = setTimeout(() => { void fireEscalation(entry.key) }, delay)
+  timer.unref?.()
+  escalationTimers.set(entry.key, timer)
+}
+
 function scheduleEscalation(alert, text) {
   if (ESCALATION_DELAY_SECONDS <= 0) return
+  if (!ESCALATION_CHANNELS.some(channelEnabled)) return
   const severity = String(alert?.labels?.severity || '').toLowerCase()
   if (!ESCALATION_SEVERITIES.includes(severity)) return
   const key = alertKey(alert)
-  if (escalationTimers.has(key) || escalated.has(key)) return
-  const timer = setTimeout(async () => {
-    escalationTimers.delete(key)
-    escalated.add(key)
-    const results = await sendChannels(alert, text, ESCALATION_CHANNELS)
-    console.log(JSON.stringify({ msg: 'alert escalated', key, severity, results }))
-  }, ESCALATION_DELAY_SECONDS * 1000)
-  timer.unref?.()
-  escalationTimers.set(key, timer)
+  if (acked.has(key) || pendingEscalations.has(key)) return
+  const entry = {
+    key,
+    dueAt: Date.now() + ESCALATION_DELAY_SECONDS * 1000,
+    alert,
+    text,
+    channels: ESCALATION_CHANNELS
+  }
+  pendingEscalations.set(key, entry)
+  persistState()
+  armEscalation(entry)
 }
 
 function cancelEscalation(alert) {
@@ -282,7 +338,33 @@ function cancelEscalation(alert) {
   const timer = escalationTimers.get(key)
   if (timer) clearTimeout(timer)
   escalationTimers.delete(key)
-  escalated.delete(key)
+  pendingEscalations.delete(key)
+  acked.delete(key)
+  persistState()
+}
+
+function acknowledge(key) {
+  const known = pendingEscalations.has(key) || acked.has(key)
+  const timer = escalationTimers.get(key)
+  if (timer) clearTimeout(timer)
+  escalationTimers.delete(key)
+  pendingEscalations.delete(key)
+  acked.add(key)
+  persistState()
+  return known
+}
+
+function ackTokenOk(req) {
+  if (!ACK_TOKEN) return true
+  const supplied = req.headers['x-ack-token'] ||
+    (String(req.headers.authorization || '').toLowerCase().startsWith('bearer ')
+      ? String(req.headers.authorization).slice(7).trim() : '')
+  if (!supplied) return false
+  try {
+    return crypto.timingSafeEqual(Buffer.from(ACK_TOKEN), Buffer.from(String(supplied)))
+  } catch {
+    return false
+  }
 }
 
 async function sendChannels(alert, text, channels) {
@@ -308,6 +390,29 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/healthz') {
     res.writeHead(200, { 'Content-Type': 'text/plain' })
     res.end('ok')
+    return
+  }
+  if (url.pathname === '/ack' && req.method === 'POST') {
+    if (!ackTokenOk(req)) {
+      send(401, { error: 'invalid ack token' })
+      return
+    }
+    try {
+      const chunks = []
+      let size = 0
+      for await (const chunk of req) {
+        size += chunk.length
+        if (size > MAX_BODY) { send(413, { error: 'payload too large' }); return }
+        chunks.push(chunk)
+      }
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
+      const key = String(body.fingerprint || url.searchParams.get('fingerprint') || '')
+      if (!key) { send(400, { error: 'fingerprint required' }); return }
+      const known = acknowledge(key)
+      send(known ? 200 : 404, { acked: known, fingerprint: key })
+    } catch {
+      send(400, { error: 'invalid json' })
+    }
     return
   }
   if (url.pathname !== '/alertmanager' || req.method !== 'POST') {
@@ -359,7 +464,10 @@ const server = http.createServer(async (req, res) => {
   }
 })
 
+loadState()
+
 server.listen(PORT, '0.0.0.0', () => {
+  for (const entry of pendingEscalations.values()) armEscalation(entry)
   console.log(JSON.stringify({
     msg: 'alert-relay started',
     port: PORT,
@@ -372,6 +480,8 @@ server.listen(PORT, '0.0.0.0', () => {
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => {
     for (const timer of escalationTimers.values()) clearTimeout(timer)
+    persistState()
+    server.closeAllConnections?.()
     server.close(() => process.exit(0))
   })
 }
