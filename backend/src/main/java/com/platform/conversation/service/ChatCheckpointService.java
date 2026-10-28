@@ -25,9 +25,15 @@ public class ChatCheckpointService {
     public void save(Long conversationId, String traceId, String status, String content,
                      Long messageId, long inputTokens, long outputTokens,
                      List<Map<String, Object>> citations) {
-        if (conversationId == null) return;
-        Long tenantId = TenantContext.getTenantId();
-        if (tenantId == null) return;
+        save(TenantContext.getTenantId(), conversationId, traceId, status, content,
+                messageId, inputTokens, outputTokens, citations);
+    }
+
+    /** 显式传入租户，供 Reactor/异步回调使用（这些线程可能没有 TenantContext）。 */
+    public void save(Long tenantId, Long conversationId, String traceId, String status, String content,
+                     Long messageId, long inputTokens, long outputTokens,
+                     List<Map<String, Object>> citations) {
+        if (conversationId == null || tenantId == null) return;
         try {
             ChatCheckpoint row = mapper.selectOne(new LambdaQueryWrapper<ChatCheckpoint>()
                     .eq(ChatCheckpoint::getConversationId, conversationId).last("LIMIT 1"));
