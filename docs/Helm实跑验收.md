@@ -38,7 +38,7 @@ Chart 只包含后端/前端；本次使用：
 k3d cluster create aap-helm --servers 1 --agents 0 --wait \
   --k3s-arg '--disable-cloud-controller@server:0' \
   --k3s-arg '--disable=traefik@server:0' \
-  --k3s-arg '--disable=metrics-server@server:0'
+  --k3s-arg '--disable=metrics-server@server:0'  # 首次冒烟关闭；HPA 复测使用默认 metrics-server
 
 k3d image import aap-smoke-backend:latest aap-smoke-frontend:latest -c aap-helm
 
@@ -124,12 +124,17 @@ k3d 实跑（backend 2/2、frontend 2/2）：
 - `helm upgrade --install --wait` 成功
 - `kubectl rollout restart` backend/frontend：滚动完成，2/2 Ready，无 PDB 阻断
 - PDB：minAvailable=1、allowed disruptions=1；drain 一个节点后 Pod 被驱逐并在其他节点恢复 Ready
-- HPA：对象创建成功（min 2 / max 6 / CPU 70%、behavior 已渲染）；本地 `metrics-server` 镜像拉取失败，`cpu: <unknown>`，**HPA 实际扩缩容未完成**，需有可用 metrics-server 的集群复测
+- HPA：**2026-10-28 本地实际扩缩容通过**。k3d 默认 metrics-server 可用；backend HPA 设置 min 1 / max 3 / CPU 5%（仅为快速验证），在 backend Pod 内制造 CPU 负载后：
+  - `1 → 3`，事件 `SuccessfulRescale New size: 3; reason: cpu resource utilization above target`
+  - 停止负载后 `3 → 2 → 1`，事件 `All metrics below target`
+  - `kubectl top pods` 和 HPA `ScalingActive=True/ValidMetricFound` 均正常
+- metrics-server 镜像预载 workaround：Docker Hub 被阻断时，将本地 metrics-server 容器导出为单层镜像，再导入 k3s containerd，并 tag 回 `rancher/mirrored-metrics-server:v0.8.1`；生产应使用正常 metrics-server/托管监控。
+- 本次测试 values：backend autoscaling enabled、min=1/max=3/targetCPU=5%；Chart 默认 70% 未改。测试集群 `aap-hpa` 用完即删。
 
 ## 仍缺
 
 - 真实域名/CA 证书、生产 Ingress Controller 参数（本地 Traefik 自签已通过）
 - 真正托管云 MySQL/Redis/PgVector/MinIO/Ollama 连接验收（本地外部服务已通过）
-- 30 分钟长稳、HPA 实际扩缩容（滚动更新/PDB 本地已通过）
-- 可用 metrics-server 的 K8s 集群（本地镜像拉取失败）
+- 30 分钟长稳（已有 mock 30 分钟；真实模型另需授权）
+- 生产托管 metrics-server/监控（本地 k3d 已打通并完成 HPA 1→3→1）
 - 完全离线环境的镜像清单/预载脚本
