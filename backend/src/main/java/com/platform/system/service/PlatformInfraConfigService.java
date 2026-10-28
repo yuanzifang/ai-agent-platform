@@ -56,6 +56,7 @@ public class PlatformInfraConfigService {
         out.put("esEnabled", Boolean.parseBoolean(env.getProperty("search.es.enabled", "false")));
         out.put("esUrl", env.getProperty("search.es.url", ""));
         out.put("esIndex", env.getProperty("search.es.index", ""));
+        out.put("esAlias", env.getProperty("search.es.alias", ""));
         out.put("esUsername", env.getProperty("search.es.username", ""));
         out.put("qdrantEnabled", Boolean.parseBoolean(env.getProperty("vector.qdrant.enabled", "false")));
         out.put("qdrantUrl", env.getProperty("vector.qdrant.url", ""));
@@ -166,6 +167,7 @@ public class PlatformInfraConfigService {
         es.put("enabled", bool(req.get("esEnabled")));
         es.put("url", value(req, "esUrl"));
         es.put("index", value(req, "esIndex"));
+        es.put("alias", value(req, "esAlias"));
         es.put("username", value(req, "esUsername"));
         es.put("password", encryptedSecret(req, "esPassword", "search.es.password"));
         es.put("api-key", encryptedSecret(req, "esApiKey", "search.es.api-key"));
