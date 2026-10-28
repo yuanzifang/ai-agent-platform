@@ -26,6 +26,14 @@ SSE 生成过程中除了 Redis `chat:live` 快照，再持久化一份数据库
 
 ## 读取
 
+查询最近 checkpoint：
+
+```http
+GET /api/v1/conversations/{id}/checkpoint
+```
+
+断线续传：
+
 `GET /api/v1/conversations/{id}/resume?offset=...`：
 
 1. 优先使用 Redis live state

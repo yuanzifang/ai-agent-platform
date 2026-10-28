@@ -1,6 +1,7 @@
 package com.platform.conversation.controller;
 
 import com.platform.common.response.ApiResponse;
+import com.platform.conversation.service.ChatCheckpointService;
 import com.platform.conversation.service.ChatStreamService;
 import com.platform.conversation.service.ConversationService;
 import com.platform.security.JwtPrincipal;
@@ -39,6 +40,7 @@ public class ConversationController {
 
     private final ConversationService conversationService;
     private final ChatStreamService chatStreamService;
+    private final ChatCheckpointService chatCheckpointService;
 
     @GetMapping
     public ApiResponse<Map<String, Object>> list(@RequestParam(required = false) String keyword,
@@ -58,6 +60,15 @@ public class ConversationController {
     public ApiResponse<Map<String, Object>> detail(@PathVariable Long id,
                                                    @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(conversationService.detail(id, principal));
+    }
+
+    /** 最新持久化 checkpoint；Redis live state 丢失时用于排查/回放。 */
+    @GetMapping("/{id}/checkpoint")
+    public ApiResponse<com.platform.conversation.entity.ChatCheckpoint> checkpoint(
+            @PathVariable Long id,
+            @AuthenticationPrincipal JwtPrincipal principal) {
+        conversationService.owned(id, principal);
+        return ApiResponse.ok(chatCheckpointService.get(id));
     }
 
     @DeleteMapping("/{id}")
