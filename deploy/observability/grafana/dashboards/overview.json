@@ -70,6 +70,84 @@
       "targets": [
         { "expr": "process_cpu_usage", "refId": "A" }
       ]
+    },
+    {
+      "type": "stat",
+      "title": "ES outbox 待处理",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 20 },
+      "targets": [
+        { "expr": "knowledge_search_outbox_pending", "refId": "A" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "type": "stat",
+      "title": "ES outbox 失败",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 20 },
+      "targets": [
+        { "expr": "knowledge_search_outbox_failed", "refId": "A" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "ES outbox 执行中",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 20 },
+      "targets": [
+        { "expr": "knowledge_search_outbox_locked", "refId": "A" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "type": "stat",
+      "title": "ES outbox 最老等待",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 20 },
+      "targets": [
+        { "expr": "knowledge_search_outbox_oldest_pending_seconds", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "type": "timeseries",
+      "title": "ES outbox 趋势",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        { "expr": "knowledge_search_outbox_pending", "legendFormat": "pending", "refId": "A" },
+        { "expr": "knowledge_search_outbox_failed", "legendFormat": "failed", "refId": "B" },
+        { "expr": "knowledge_search_outbox_locked", "legendFormat": "locked", "refId": "C" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Prometheus 触发中告警",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        { "expr": "sum(ALERTS{alertstate=\"firing\"})", "refId": "A" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
     }
   ],
   "refresh": "30s",
