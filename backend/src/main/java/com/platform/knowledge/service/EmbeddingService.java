@@ -177,7 +177,14 @@ public class EmbeddingService {
 
     /** 检索问句 embedding 缓存；只缓存单条查询，不缓存文档批量入库。 */
     public float[] embedQuery(String text, String modelName) {
-        if (text == null || text.isBlank() || queryCacheTtlSeconds <= 0 || queryCacheMaxEntries <= 0) {
+        return embedQuery(text, modelName, (int) Math.min(queryCacheTtlSeconds, 86_400L), queryCacheMaxEntries);
+    }
+
+    /** 知识库可覆盖查询缓存 TTL/容量；ttl=0 关闭缓存。 */
+    public float[] embedQuery(String text, String modelName, int ttlSeconds, int maxEntries) {
+        int ttl = ttlSeconds <= 0 ? 0 : ttlSeconds;
+        int capacity = Math.min(Math.max(1, maxEntries), Math.max(1, queryCacheMaxEntries));
+        if (text == null || text.isBlank() || ttl <= 0 || capacity <= 0) {
             return embedOne(text, modelName);
         }
         String model = modelName == null || modelName.isBlank() ? model() : modelName;
@@ -190,7 +197,7 @@ public class EmbeddingService {
         if (redisQueryCacheEnabled && redis != null) {
             float[] shared = redisGet(key);
             if (shared != null) {
-                putLocal(key, shared, now);
+                putLocal(key, shared, now, ttl, capacity);
                 return shared;
             }
         }
@@ -205,7 +212,7 @@ public class EmbeddingService {
             if (lockToken == null) {
                 float[] shared = awaitRedis(key);
                 if (shared != null) {
-                    putLocal(key, shared, now);
+                    putLocal(key, shared, now, ttl, capacity);
                     mine.complete(shared);
                     queryInFlight.remove(key, mine);
                     return shared;
@@ -215,8 +222,8 @@ public class EmbeddingService {
         try {
             float[] vector = embedOne(text, model);
             if (vector != null) {
-                putLocal(key, vector, now);
-                redisPut(key, vector);
+                putLocal(key, vector, now, ttl, capacity);
+                redisPut(key, vector, ttl);
             }
             mine.complete(vector);
             return vector;
@@ -279,12 +286,12 @@ public class EmbeddingService {
         return null;
     }
 
-    private void putLocal(String key, float[] vector, long now) {
-        if (queryCache.size() >= queryCacheMaxEntries) {
+    private void putLocal(String key, float[] vector, long now, int ttlSeconds, int maxEntries) {
+        if (queryCache.size() >= maxEntries) {
             queryCache.entrySet().removeIf(e -> e.getValue().expiresAt() <= now);
-            if (queryCache.size() >= queryCacheMaxEntries) queryCache.clear();
+            if (queryCache.size() >= maxEntries) queryCache.clear();
         }
-        queryCache.put(key, new QueryCacheEntry(vector, now + queryCacheTtlSeconds * 1000L));
+        queryCache.put(key, new QueryCacheEntry(vector, now + ttlSeconds * 1000L));
     }
 
     private float[] redisGet(String key) {
@@ -297,11 +304,11 @@ public class EmbeddingService {
         }
     }
 
-    private void redisPut(String key, float[] vector) {
-        if (queryCacheTtlSeconds <= 0) return;
+    private void redisPut(String key, float[] vector, int ttlSeconds) {
+        if (ttlSeconds <= 0) return;
         try {
             redis.opsForValue().set("embedding:q:" + key, encodeVector(vector),
-                    Duration.ofSeconds(queryCacheTtlSeconds));
+                    Duration.ofSeconds(ttlSeconds));
         } catch (Exception e) {
             log.debug("写入 Redis query embedding 缓存失败：{}", e.getMessage());
         }

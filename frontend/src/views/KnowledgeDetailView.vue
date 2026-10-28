@@ -382,6 +382,13 @@
         <el-form-item :label="t('knowledgeList.defaultKeywordWeight')">
           <el-input-number v-model="editForm.defaultKeywordWeight" :min="0" :max="1" :step="0.05" />
         </el-form-item>
+        <el-form-item :label="t('knowledgeList.queryCacheTtlSeconds')">
+          <el-input-number v-model="editForm.queryCacheTtlSeconds" :min="0" :max="86400" />
+          <span class="hint">{{ t('knowledgeList.queryCacheHint') }}</span>
+        </el-form-item>
+        <el-form-item :label="t('knowledgeList.queryCacheMaxEntries')">
+          <el-input-number v-model="editForm.queryCacheMaxEntries" :min="0" :max="100000" />
+        </el-form-item>
         <el-form-item :label="t('knowledgeList.graphEnabled')">
           <el-switch v-model="editForm.graphEnabled" />
           <span class="hint">{{ t('knowledgeList.graphHint') }}</span>
@@ -628,7 +635,8 @@ const editSaving = ref(false)
 const editForm = reactive({
   name: '', description: '', graphEnabled: false, searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR',
   defaultTopK: 5, maxTopK: 20, defaultRetrievalMode: 'hybrid', defaultScoreThreshold: 0.5,
-  defaultKeywordWeight: 0.35, parseConfig: {} as Record<string, any>
+  defaultKeywordWeight: 0.35, queryCacheTtlSeconds: 300, queryCacheMaxEntries: 2000,
+  parseConfig: {} as Record<string, any>
 })
 
 // ---- 权限设置 ----
@@ -688,6 +696,8 @@ function openEdit() {
   editForm.defaultRetrievalMode = detail.defaultRetrievalMode || 'hybrid'
   editForm.defaultScoreThreshold = detail.defaultScoreThreshold ?? 0.5
   editForm.defaultKeywordWeight = detail.defaultKeywordWeight ?? 0.35
+  editForm.queryCacheTtlSeconds = detail.queryCacheTtlSeconds ?? 300
+  editForm.queryCacheMaxEntries = detail.queryCacheMaxEntries ?? 2000
   editForm.parseConfig = detail.parseConfig || {}
   editVisible.value = true
 }
@@ -703,7 +713,9 @@ async function saveEdit() {
       defaultTopK: editForm.defaultTopK, maxTopK: editForm.maxTopK,
       defaultRetrievalMode: editForm.defaultRetrievalMode,
       defaultScoreThreshold: editForm.defaultScoreThreshold,
-      defaultKeywordWeight: editForm.defaultKeywordWeight
+      defaultKeywordWeight: editForm.defaultKeywordWeight,
+      queryCacheTtlSeconds: editForm.queryCacheTtlSeconds,
+      queryCacheMaxEntries: editForm.queryCacheMaxEntries
     })
     ElMessage.success(t('kbDetail.saved'))
     editVisible.value = false

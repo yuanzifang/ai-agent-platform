@@ -31,6 +31,10 @@ public class KnowledgeBase {
     private Double defaultScoreThreshold;
     /** 0..1，绑定未配置 hybrid 权重时使用 */
     private Double defaultKeywordWeight;
+    /** query embedding 缓存 TTL；0 关闭 */
+    private Integer queryCacheTtlSeconds;
+    /** query embedding 本地缓存最大条数 */
+    private Integer queryCacheMaxEntries;
     private String indexVersion;
     private LocalDateTime createdAt;
     private String parseConfig; // JSON：解析配置覆盖（KB 默认 / 文档上传时选择）

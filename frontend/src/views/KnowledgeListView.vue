@@ -101,6 +101,13 @@
         <el-form-item :label="t('knowledgeList.defaultKeywordWeight')">
           <el-input-number v-model="editForm.defaultKeywordWeight" :min="0" :max="1" :step="0.05" />
         </el-form-item>
+        <el-form-item :label="t('knowledgeList.queryCacheTtlSeconds')">
+          <el-input-number v-model="editForm.queryCacheTtlSeconds" :min="0" :max="86400" />
+          <span class="hint">{{ t('knowledgeList.queryCacheHint') }}</span>
+        </el-form-item>
+        <el-form-item :label="t('knowledgeList.queryCacheMaxEntries')">
+          <el-input-number v-model="editForm.queryCacheMaxEntries" :min="0" :max="100000" />
+        </el-form-item>
         <el-form-item :label="t('knowledgeList.graphEnabled')">
           <el-switch v-model="editForm.graphEnabled" />
           <span class="hint">{{ t('knowledgeList.graphHint') }}</span>
@@ -168,6 +175,13 @@
         <el-form-item :label="t('knowledgeList.defaultKeywordWeight')">
           <el-input-number v-model="form.defaultKeywordWeight" :min="0" :max="1" :step="0.05" />
         </el-form-item>
+        <el-form-item :label="t('knowledgeList.queryCacheTtlSeconds')">
+          <el-input-number v-model="form.queryCacheTtlSeconds" :min="0" :max="86400" />
+          <span class="hint">{{ t('knowledgeList.queryCacheHint') }}</span>
+        </el-form-item>
+        <el-form-item :label="t('knowledgeList.queryCacheMaxEntries')">
+          <el-input-number v-model="form.queryCacheMaxEntries" :min="0" :max="100000" />
+        </el-form-item>
         <el-form-item :label="t('knowledgeList.graphEnabled')">
           <el-switch v-model="form.graphEnabled" />
           <span class="hint">{{ t('knowledgeList.graphHint') }}</span>
@@ -196,6 +210,7 @@ interface Kb {
   graphEnabled?: boolean; parseConfig?: Record<string, any>
   searchBackend?: string; vectorBackend?: string; defaultTopK?: number; maxTopK?: number
   defaultRetrievalMode?: string; defaultScoreThreshold?: number; defaultKeywordWeight?: number
+  queryCacheTtlSeconds?: number; queryCacheMaxEntries?: number
 }
 
 const userStore = useUserStore()
@@ -216,13 +231,15 @@ const searchBackends = ref<any[]>([{ value: 'MYSQL', label: 'MySQL', available: 
 const vectorBackends = ref<any[]>([{ value: 'PGVECTOR', label: 'pgvector', available: true }])
 const form = reactive({ name: '', description: '', visibility: 'TENANT', embeddingModel: '', graphEnabled: false,
   searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR', defaultTopK: 5, maxTopK: 20,
-  defaultRetrievalMode: 'hybrid', defaultScoreThreshold: 0.5, defaultKeywordWeight: 0.35 })
+  defaultRetrievalMode: 'hybrid', defaultScoreThreshold: 0.5, defaultKeywordWeight: 0.35,
+  queryCacheTtlSeconds: 300, queryCacheMaxEntries: 2000 })
 const editVisible = ref(false)
 const editSaving = ref(false)
 const editForm = reactive({
   id: 0, name: '', description: '', embeddingModel: '', documentCount: 0, graphEnabled: false,
   searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR', defaultTopK: 5, maxTopK: 20,
   defaultRetrievalMode: 'hybrid', defaultScoreThreshold: 0.5, defaultKeywordWeight: 0.35,
+  queryCacheTtlSeconds: 300, queryCacheMaxEntries: 2000,
   parseConfig: {} as Record<string, any>
 })
 
@@ -263,6 +280,8 @@ function openEdit(kb: Kb) {
   editForm.defaultRetrievalMode = kb.defaultRetrievalMode || 'hybrid'
   editForm.defaultScoreThreshold = kb.defaultScoreThreshold ?? 0.5
   editForm.defaultKeywordWeight = kb.defaultKeywordWeight ?? 0.35
+  editForm.queryCacheTtlSeconds = kb.queryCacheTtlSeconds ?? 300
+  editForm.queryCacheMaxEntries = kb.queryCacheMaxEntries ?? 2000
   editForm.parseConfig = kb.parseConfig || {}
   editVisible.value = true
 }
@@ -279,6 +298,8 @@ async function saveEdit() {
       defaultRetrievalMode: editForm.defaultRetrievalMode,
       defaultScoreThreshold: editForm.defaultScoreThreshold,
       defaultKeywordWeight: editForm.defaultKeywordWeight,
+      queryCacheTtlSeconds: editForm.queryCacheTtlSeconds,
+      queryCacheMaxEntries: editForm.queryCacheMaxEntries,
       parseConfig: editForm.parseConfig
     })
     ElMessage.success(t('knowledgeList.savedMsg'))
@@ -320,7 +341,9 @@ async function create() {
       defaultTopK: form.defaultTopK, maxTopK: form.maxTopK,
       defaultRetrievalMode: form.defaultRetrievalMode,
       defaultScoreThreshold: form.defaultScoreThreshold,
-      defaultKeywordWeight: form.defaultKeywordWeight
+      defaultKeywordWeight: form.defaultKeywordWeight,
+      queryCacheTtlSeconds: form.queryCacheTtlSeconds,
+      queryCacheMaxEntries: form.queryCacheMaxEntries
     })
     ElMessage.success(t('knowledgeList.createdMsg'))
     createVisible.value = false
@@ -333,6 +356,8 @@ async function create() {
     form.defaultRetrievalMode = 'hybrid'
     form.defaultScoreThreshold = 0.5
     form.defaultKeywordWeight = 0.35
+    form.queryCacheTtlSeconds = 300
+    form.queryCacheMaxEntries = 2000
     form.vectorBackend = 'PGVECTOR'
     await load()
   } finally {
