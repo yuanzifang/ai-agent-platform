@@ -41,4 +41,13 @@ class SecretRedactionHookTest {
         String output = "sk-1234567890abcdefghijklmn";
         assertEquals(output, hook.afterTool(context, output, "SUCCESS"));
     }
+
+    @Test
+    void appliesCustomPatternsAndSkipsInvalidRegex() {
+        AgentHook.ToolContext context = new AgentHook.ToolContext(
+                "t", "T", "API", "{}", new ToolCallCollector(),
+                java.util.Map.of("redactPatterns", java.util.List.of("secret-\\d+", "[")));
+        String output = "secret-123 normal";
+        assertEquals("[REDACTED] normal", hook.afterTool(context, output, "SUCCESS"));
+    }
 }
