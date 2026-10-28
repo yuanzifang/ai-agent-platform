@@ -6,7 +6,8 @@
 //               PERF_RATE / PERF_DURATION / PERF_PRE_VUS / PERF_MAX_VUS /
 //               PERF_VUS / PERF_THINK_SECONDS / PERF_MODEL / PERF_KB_ID /
 //               PERF_MESSAGE / PERF_WARN_WORD / PERF_RECYCLE_EVERY /
-//               PERF_TOKEN_REFRESH_SECONDS
+//               PERF_TOKEN_REFRESH_SECONDS / PERF_TEARDOWN_TIMEOUT /
+//               PERF_SKIP_TEARDOWN（长稳测试建议跳过删除 Agent，避免清理耗时影响退出码）
 // 注意：真实模型（deepseek/gpt/claude 等）会被直接拒绝；验证只用 mock/本地模型。
 import http from 'k6/http'
 import { check, sleep } from 'k6'
@@ -47,6 +48,7 @@ const scenario = VUS > 0
 
 export const options = {
   discardResponseBodies: false,
+  teardownTimeout: __ENV.PERF_TEARDOWN_TIMEOUT || '2m',
   scenarios: { chat_stream: scenario },
   thresholds: {
     http_req_failed: ['rate<0.01'],
@@ -176,7 +178,7 @@ export function chat(data) {
 }
 
 export function teardown(data) {
-  if (!data || !data.agentId) return
+  if (!data || !data.agentId || __ENV.PERF_SKIP_TEARDOWN === '1') return
   http.del(`${BASE}/api/v1/agent/${data.agentId}`, null, {
     headers: authHeaders(data.token),
     tags: { endpoint: 'teardown_agent' },
