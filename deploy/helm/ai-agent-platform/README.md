@@ -72,6 +72,22 @@ Secret key 名称固定为：
 `MYSQL_PASSWORD`、`REDIS_PASSWORD`、`PG_PASSWORD`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、
 `JWT_SECRET`、`AES_KEY`、`DEEPSEEK_API_KEY`、`PLATFORM_ADMIN_PASSWORD`、`SMTP_USERNAME`、`SMTP_PASSWORD`。
 
+### 平台基础设施配置
+
+平台页保存的 `application-platform.yml` 可用只读 Secret 挂载，避免多副本各自持有不同配置：
+
+```bash
+kubectl -n ai-agent create secret generic ai-agent-infra \
+  --from-file=application-platform.yml=/path/to/application-platform.yml
+
+helm upgrade --install ai-agent deploy/helm/ai-agent-platform \
+  -n ai-agent \
+  --set platformInfra.existingSecret=ai-agent-infra ...
+```
+
+文件会挂载到 `/app/config/application-platform.yml`，后端启动时解密其中的 `v1:` 密文。
+该文件必须与同一个 `AES_KEY` 配套；多副本场景平台页的保存按钮无法写只读挂载，配置变更应更新 Secret 后滚动重启。
+
 ## 4. Ingress / TLS
 
 `values.yaml` 默认开启 Ingress，`/api` 直接转发后端，`/` 转发前端：

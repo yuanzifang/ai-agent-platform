@@ -103,8 +103,19 @@ spec:
               mountPath: /tmp
             - name: logs
               mountPath: /app/logs
+            {{- if .Values.platformInfra.existingSecret }}
+            - name: platform-infra
+              mountPath: /app/config
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
         - name: logs
           emptyDir: {}
+        {{- if .Values.platformInfra.existingSecret }}
+        - name: platform-infra
+          secret:
+            secretName: {{ .Values.platformInfra.existingSecret | quote }}
+            defaultMode: 0440
+        {{- end }}
