@@ -45,6 +45,9 @@ public class WebhookAlertSender implements AlertSender {
     @Value("${alert.webhook.type:auto}")
     private String type;
 
+    @Value("${alert.webhook.keyword:告警}")
+    private String keyword;
+
     @Override
     public String name() {
         return "webhook";
@@ -58,6 +61,10 @@ public class WebhookAlertSender implements AlertSender {
     @Override
     public boolean send(String title, String text) {
         try {
+            // 钉钉/企微/飞书自定义机器人常用关键词校验；统一自动补前缀。
+            if (keyword != null && !keyword.isBlank() && (text == null || !text.contains(keyword))) {
+                text = "【" + keyword + "】" + (text == null ? "" : text);
+            }
             WebhookKind kind = detectKind();
             Map<String, Object> body = switch (kind) {
                 case FEISHU -> feishuBody(text);

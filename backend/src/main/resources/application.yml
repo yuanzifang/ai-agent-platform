@@ -419,6 +419,8 @@ alert:
     env: ${ALERT_WEBHOOK_ENV:dev}
     # auto=按 URL 自动识别钉钉/企微/飞书；自建代理地址时显式指定 dingtalk/wecom/feishu
     type: ${ALERT_WEBHOOK_TYPE:auto}
+    # 自定义机器人关键词安全设置；消息不包含时会自动加前缀
+    keyword: ${ALERT_WEBHOOK_KEYWORD:告警}
   email:
     # 复用 spring.mail.*；未配置 JavaMailSender 时静默跳过
     enabled: ${ALERT_EMAIL_ENABLED:false}

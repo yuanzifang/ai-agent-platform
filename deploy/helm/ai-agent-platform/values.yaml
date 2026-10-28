@@ -121,6 +121,7 @@ config:
   # 入站 /internal/alertmanager 共享 token；生产建议设置
   alertWebhookInternalToken: ""
   alertWebhookEnv: "prod"
+  alertWebhookKeyword: "告警"
   alertRelayBaseUrl: ""
   alertWebhookType: "auto"
   alertEmailEnabled: "false"
