@@ -33,6 +33,7 @@ class ToolRuntimeServiceValidationTest {
         ReflectionTestUtils.setField(service, "objectMapper", new ObjectMapper());
         ReflectionTestUtils.setField(service, "inputValidator", new ToolInputValidator(new ObjectMapper()));
         ReflectionTestUtils.setField(service, "maxInputValidationAttempts", 2);
+        ReflectionTestUtils.setField(service, "idempotencyKey", new ThreadLocal<String>());
         return service;
     }
 
