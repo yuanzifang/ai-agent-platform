@@ -354,7 +354,7 @@ public class WorkflowService {
         auditService.record(principal.userId(), "workflow.run", "workflow_run",
                 String.valueOf(run.getId()), "SUCCESS", Map.of("agentId", agentId));
         execute(run, "start", principal);
-        return runView(runMapper.selectById(run.getId()));
+        return runDetail(run.getId());
     }
 
     public Map<String, Object> decide(Long approvalId, boolean approve, String comment, JwtPrincipal principal) {
