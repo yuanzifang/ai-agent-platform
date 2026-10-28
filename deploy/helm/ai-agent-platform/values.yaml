@@ -160,6 +160,12 @@ secrets:
   smtpUsername: ""
   smtpPassword: ""
 
+# 可选：把平台基础设施配置以只读 Secret 挂载到 /app/config/application-platform.yml。
+# Secret 必须包含 key: application-platform.yml（建议使用平台页导出的加密文件）。
+# 多副本下平台页无法写只读挂载，配置变更应更新 Secret 后滚动重启。
+platformInfra:
+  existingSecret: ""
+
 ingress:
   enabled: true
   className: nginx
