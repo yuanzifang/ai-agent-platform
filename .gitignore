@@ -35,3 +35,5 @@ config/application-platform.yml
 backend/config/application-platform.yml
 config/application-platform.yml.*
 backend/config/application-platform.yml.*
+
+runtime/alert-relay/node_modules/
