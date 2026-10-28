@@ -92,6 +92,7 @@
         <el-form-item label="Enabled"><el-switch v-model="form.esEnabled" /></el-form-item>
         <el-form-item label="URL"><el-input v-model="form.esUrl" /></el-form-item>
         <el-form-item label="Index"><el-input v-model="form.esIndex" /></el-form-item>
+        <el-form-item label="Alias"><el-input v-model="form.esAlias" /></el-form-item>
         <el-form-item label="Username"><el-input v-model="form.esUsername" /></el-form-item>
         <el-form-item label="Password">
           <el-input v-model="form.esPassword" type="password" show-password
@@ -185,7 +186,7 @@ const form = reactive<any>({
   redisHost: '', redisPort: '6379', redisPassword: '',
   pgUrl: '', pgUsername: '', pgPassword: '',
   minioEndpoint: '', minioAccessKey: '', minioSecret: '', minioBucket: '',
-  esEnabled: false, esUrl: '', esIndex: '', esUsername: '', esPassword: '', esApiKey: '',
+  esEnabled: false, esUrl: '', esIndex: '', esAlias: '', esUsername: '', esPassword: '', esApiKey: '',
   qdrantEnabled: false, qdrantUrl: '', qdrantCollectionPrefix: 'aap', qdrantApiKey: ''
 })
 
@@ -201,7 +202,7 @@ async function load() {
     minioEndpoint: data.minioEndpoint || '', minioAccessKey: data.minioAccessKey || '',
     minioSecret: '', minioBucket: data.minioBucket || '',
     esEnabled: !!data.esEnabled, esUrl: data.esUrl || '', esIndex: data.esIndex || '',
-    esUsername: data.esUsername || '', esPassword: '', esApiKey: '',
+    esAlias: data.esAlias || '', esUsername: data.esUsername || '', esPassword: '', esApiKey: '',
     qdrantEnabled: !!data.qdrantEnabled, qdrantUrl: data.qdrantUrl || '',
     qdrantCollectionPrefix: data.qdrantCollectionPrefix || 'aap', qdrantApiKey: ''
   })

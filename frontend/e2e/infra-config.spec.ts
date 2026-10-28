@@ -31,6 +31,7 @@ test('平台基础设施页与资源 Profile', async ({ page }) => {
   await expect(page.getByText('基础设施配置')).toBeVisible()
   await expect(page.getByText('MySQL 主数据库')).toBeVisible()
   await expect(page.getByText('Elasticsearch')).toBeVisible()
+  await expect(page.getByText('Alias', { exact: true })).toBeVisible()
   await expect(page.getByText('资源 Profile', { exact: true })).toBeVisible()
   await expect(page.getByText('默认检索资源', { exact: true })).toBeVisible()
 })

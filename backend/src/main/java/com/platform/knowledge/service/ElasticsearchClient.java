@@ -33,6 +33,8 @@ public class ElasticsearchClient {
     private String baseUrl;
     @Value("${search.es.index:aap_knowledge_chunks_v1}")
     private String index;
+    @Value("${search.es.alias:aap_knowledge_chunks}")
+    private String alias;
     @Value("${search.es.api-key:}")
     private String apiKey;
     @Value("${search.es.username:}")
@@ -40,43 +42,90 @@ public class ElasticsearchClient {
     @Value("${search.es.password:}")
     private String password;
 
+    private volatile boolean ready;
+    private volatile String searchTarget;
+
     public String index() {
         return index;
     }
 
     public void ensureIndex() {
+        if (ready) return;
+        synchronized (this) {
+            if (ready) return;
+            try {
+                request("PUT", "/" + index, Map.of(
+                        "settings", Map.of("number_of_shards", 1, "number_of_replicas", 0,
+                                "analysis", Map.of(
+                                        "tokenizer", Map.of("ngram_tokenizer", Map.of(
+                                                "type", "ngram", "min_gram", 2, "max_gram", 3,
+                                                "token_chars", java.util.List.of("letter", "digit"))),
+                                        "analyzer", Map.of("ngram_analyzer", Map.of(
+                                                "type", "custom", "tokenizer", "ngram_tokenizer",
+                                                "filter", java.util.List.of("lowercase"))))),
+                        "mappings", Map.of("properties", Map.ofEntries(
+                                Map.entry("content", Map.of("type", "text",
+                                        "analyzer", "ngram_analyzer", "search_analyzer", "ngram_analyzer")),
+                                Map.entry("tenant_id", Map.of("type", "long")),
+                                Map.entry("knowledge_base_id", Map.of("type", "keyword")),
+                                Map.entry("document_id", Map.of("type", "keyword")),
+                                Map.entry("chunk_id", Map.of("type", "long")),
+                                Map.entry("allowed_users", Map.of("type", "keyword")),
+                                Map.entry("tenant_visible", Map.of("type", "boolean")),
+                                Map.entry("effective_from", Map.of("type", "date")),
+                                Map.entry("effective_to", Map.of("type", "date")),
+                                Map.entry("document_type", Map.of("type", "keyword")),
+                                Map.entry("section_type", Map.of("type", "keyword")),
+                                Map.entry("relevance_score", Map.of("type", "double"))))));
+            } catch (Exception e) {
+                if (String.valueOf(e.getMessage()).contains("resource_already_exists_exception")
+                        || String.valueOf(e.getMessage()).contains("400")) {
+                    log.debug("ES index 已存在：{}", index);
+                } else {
+                    log.warn("ES index 创建失败 index={} err={}", index, e.getMessage());
+                    return;
+                }
+            }
+            try {
+                if (alias != null && !alias.isBlank() && !alias.equals(index)) {
+                    ensureAlias();
+                    searchTarget = alias;
+                } else {
+                    searchTarget = index;
+                }
+            } catch (Exception e) {
+                // 没有 alias 管理权限时退回具体索引，不能让检索完全不可用。
+                log.warn("ES alias 创建失败，退回索引 {}：{}", index, e.getMessage());
+                searchTarget = index;
+            }
+            ready = true;
+        }
+    }
+
+    private void ensureAlias() {
+        JsonNode current = null;
         try {
-            request("PUT", "/" + index, Map.of(
-                    "settings", Map.of("number_of_shards", 1, "number_of_replicas", 0,
-                            "analysis", Map.of(
-                                    "tokenizer", Map.of("ngram_tokenizer", Map.of(
-                                            "type", "ngram", "min_gram", 2, "max_gram", 3,
-                                            "token_chars", java.util.List.of("letter", "digit"))),
-                                    "analyzer", Map.of("ngram_analyzer", Map.of(
-                                            "type", "custom", "tokenizer", "ngram_tokenizer",
-                                            "filter", java.util.List.of("lowercase"))))),
-                    "mappings", Map.of("properties", Map.ofEntries(
-                            Map.entry("content", Map.of("type", "text",
-                                    "analyzer", "ngram_analyzer", "search_analyzer", "ngram_analyzer")),
-                            Map.entry("tenant_id", Map.of("type", "long")),
-                            Map.entry("knowledge_base_id", Map.of("type", "keyword")),
-                            Map.entry("document_id", Map.of("type", "keyword")),
-                            Map.entry("chunk_id", Map.of("type", "long")),
-                            Map.entry("allowed_users", Map.of("type", "keyword")),
-                            Map.entry("tenant_visible", Map.of("type", "boolean")),
-                            Map.entry("effective_from", Map.of("type", "date")),
-                            Map.entry("effective_to", Map.of("type", "date")),
-                            Map.entry("document_type", Map.of("type", "keyword")),
-                            Map.entry("section_type", Map.of("type", "keyword")),
-                            Map.entry("relevance_score", Map.of("type", "double"))))));
+            current = request("GET", "/_alias/" + alias, null);
         } catch (Exception e) {
-            if (String.valueOf(e.getMessage()).contains("resource_already_exists_exception")
-                    || String.valueOf(e.getMessage()).contains("400")) {
-                log.debug("ES index 已存在：{}", index);
-            } else {
-                log.warn("ES index 创建失败 index={} err={}", index, e.getMessage());
+            if (!String.valueOf(e.getMessage()).contains("404")) throw e;
+        }
+
+        java.util.List<Map<String, Object>> actions = new java.util.ArrayList<>();
+        boolean pointsHere = false;
+        if (current != null) {
+            java.util.Iterator<String> names = current.fieldNames();
+            while (names.hasNext()) {
+                String existing = names.next();
+                if (existing.equals(index)) {
+                    pointsHere = true;
+                } else {
+                    actions.add(Map.of("remove", Map.of("index", existing, "alias", alias)));
+                }
             }
         }
+        if (pointsHere && actions.isEmpty()) return;
+        actions.add(Map.of("add", Map.of("index", index, "alias", alias)));
+        request("POST", "/_aliases", Map.of("actions", actions));
     }
 
     public void indexDocument(String id, Map<String, Object> source) {
@@ -97,7 +146,18 @@ public class ElasticsearchClient {
     }
 
     public JsonNode search(Map<String, Object> body) {
-        return request("POST", "/" + index + "/_search", body);
+        ensureIndex();
+        String target = searchTarget == null ? index : searchTarget;
+        try {
+            return request("POST", "/" + target + "/_search", body);
+        } catch (Exception e) {
+            if (!target.equals(index)) {
+                log.warn("ES alias 查询失败，退回索引 {}：{}", index, e.getMessage());
+                searchTarget = index;
+                return request("POST", "/" + index + "/_search", body);
+            }
+            throw e;
+        }
     }
 
     private JsonNode request(String method, String path, Object body) {
