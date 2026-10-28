@@ -85,3 +85,43 @@ groups:
         annotations:
           summary: "LLM 异步队列积压"
           description: "llmTaskExecutor 排队任务 {{ $value }}，检查模型延迟/下游限流。"
+
+      - alert: AiAgentKnowledgeSearchOutboxFailed
+        expr: knowledge_search_outbox_failed > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "ES 搜索 outbox 存在失败任务"
+          description: "已有 {{ $value }} 条 outbox 在 5 次重试后终止，检查 Elasticsearch 和 outbox.last_error。"
+
+      - alert: AiAgentKnowledgeSearchOutboxBacklog
+        expr: knowledge_search_outbox_pending > 1000
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "ES 搜索 outbox 积压超过 1000"
+          description: "当前待处理 {{ $value }} 条，检查 outbox worker、Elasticsearch 写入延迟和数据库连接。"
+
+      - alert: AiAgentKnowledgeSearchOutboxStalled
+        expr: knowledge_search_outbox_pending > 0 and knowledge_search_outbox_oldest_pending_seconds > 300
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "ES 搜索 outbox 超过 5 分钟未消费"
+          description: "最老待处理任务已等待 {{ $value }} 秒，worker 可能停滞或 Elasticsearch 不可用。"
+
+      - alert: AiAgentKnowledgeSearchOutboxUnavailable
+        expr: knowledge_search_outbox_available == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "ES 搜索 outbox 状态查询失败"
+          description: "后端无法查询 knowledge_search_outbox，检查 MySQL 连接和迁移状态。"
