@@ -431,6 +431,10 @@ alert:
     sign-name: ${ALERT_SMS_SIGN_NAME:}
     template-code: ${ALERT_SMS_TEMPLATE_CODE:}
     phone-numbers: ${ALERT_SMS_PHONE_NUMBERS:}
+  relay:
+    # 平台 ACK 页面的后端代理目标；Compose 默认指向 alert-relay
+    base-url: ${ALERT_RELAY_BASE_URL:}
+    ack-token: ${ALERT_RELAY_ACK_TOKEN:}
 
 chat:
   stream:

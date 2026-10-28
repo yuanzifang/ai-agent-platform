@@ -8,7 +8,7 @@ const messages = {
       templates: '模板库', knowledge: '知识库', skills: '技能管理', tools: '工具管理',
       mcp: 'MCP Server', approvals: '审批箱', prompts: 'Prompt 模板', provider: '模型接入',
       usage: '用量看板', billing: '计费管理', users: '成员管理', tenant: '租户设置',
-      metrics: '监控统计', observability: '可观测', audit: '审计日志', eval: '评测中心', platform: '平台管理', settings: '系统设置', infra: '基础设施', gateway: '开放平台网关', i18n: '国际化字段'
+      metrics: '监控统计', observability: '可观测', audit: '审计日志', alertAck: '告警 ACK', eval: '评测中心', platform: '平台管理', settings: '系统设置', infra: '基础设施', gateway: '开放平台网关', i18n: '国际化字段'
     },
     agentList: {
       search: '搜索 Agent 名称', fromTemplate: '从模板创建', create: '新建 Agent',
@@ -172,6 +172,13 @@ const messages = {
       result: '结果', detail: '详情', chain: '链指纹', userId: '用户 ID', totalRecords: '总记录 ',
       checkedV2: ' 条；已校验 V2 ', skippedV1: ' 条；跳过历史 V1 ', brokenAt: '断裂位置：记录 #',
       pass: '哈希链校验通过', fail: '哈希链校验失败', know: '知道了'
+    },
+    alertAck: {
+      title: '告警值班 ACK', refresh: '刷新', pending: '待升级告警', acked: '已 ACK',
+      empty: '当前没有待升级告警', fingerprint: '指纹', alert: '告警', severity: '级别',
+      dueAt: '计划升级', channels: '升级通道', ack: 'ACK', ackConfirm: '确认 ACK 这条告警并取消升级？',
+      ackedMsg: '已 ACK，后续升级已取消', shared: 'Redis 共享状态', local: '本地文件状态（单实例）',
+      relayDown: '告警 relay 不可用，请检查 ALERT_RELAY_BASE_URL'
     },
     usage: {
       last7: '近 7 天', last30: '近 30 天', last90: '近 90 天', requests: '请求次数',
@@ -965,14 +972,14 @@ const messages = {
     },
     page: {
       agents: 'Agent 列表', agentEdit: '编辑 Agent', chat: '对话', square: 'Agent 广场',
-      templates: '模板库', approvals: '人工审批箱', audit: '审计日志', billing: '计费管理',
+      templates: '模板库', approvals: '人工审批箱', audit: '审计日志', alertAck: '告警值班 ACK', billing: '计费管理',
       cases: '对话用例库', eval: 'Agent 结果评测', knowledge: '知识库', mcp: 'MCP Server',
       memories: '长期记忆', metrics: '监控统计', observability: '可观测', platform: '平台管理 · 租户',
       prompts: 'Prompt 模板', provider: '模型接入', skills: '技能管理', settings: '系统设置（平台级）',
       tenant: '租户设置', tools: '工具管理', usage: '用量看板', users: '成员管理', gateway: '开放平台网关'
     },
     common: {
-      user: '用户', notifications: '通知', markAllRead: '全部已读', noNotifications: '暂无通知',
+      user: '用户', notifications: '通知', markAllRead: '全部已读', noNotifications: '暂无通知', cancel: '取消',
       security: '安全设置', logout: '退出登录', language: '语言', chinese: '中文', english: 'English'
     },
     login: {
@@ -990,7 +997,7 @@ const messages = {
       mcp: 'MCP Server', approvals: 'Approvals', prompts: 'Prompt Templates', provider: 'Model Providers',
       usage: 'Usage', billing: 'Billing', users: 'Members', tenant: 'Tenant Settings',
       gateway: 'API Gateway',
-      metrics: 'Metrics', observability: 'Observability', audit: 'Audit Log', eval: 'Evaluation', platform: 'Platform Admin', settings: 'System Settings', infra: 'Infrastructure', i18n: 'I18n Fields'
+      metrics: 'Metrics', observability: 'Observability', audit: 'Audit Log', alertAck: 'Alert ACK', eval: 'Evaluation', platform: 'Platform Admin', settings: 'System Settings', infra: 'Infrastructure', i18n: 'I18n Fields'
     },
     agentList: {
       search: 'Search agents', fromTemplate: 'From template', create: 'New Agent',
@@ -1154,6 +1161,13 @@ const messages = {
       result: 'Result', detail: 'Details', chain: 'Chain fingerprint', userId: 'User ID', totalRecords: 'Total ',
       checkedV2: ' records; verified V2 ', skippedV1: '; skipped legacy V1 ', brokenAt: 'Broken at record #',
       pass: 'Hash chain verified', fail: 'Hash chain verification failed', know: 'OK'
+    },
+    alertAck: {
+      title: 'Alert ACK', refresh: 'Refresh', pending: 'Pending escalations', acked: 'ACKed',
+      empty: 'No pending escalations', fingerprint: 'Fingerprint', alert: 'Alert', severity: 'Severity',
+      dueAt: 'Escalate at', channels: 'Channels', ack: 'ACK', ackConfirm: 'ACK this alert and cancel escalation?',
+      ackedMsg: 'ACKed; escalation cancelled', shared: 'Redis shared state', local: 'Local file state (single instance)',
+      relayDown: 'Alert relay unavailable; check ALERT_RELAY_BASE_URL'
     },
     usage: {
       last7: 'Last 7 days', last30: 'Last 30 days', last90: 'Last 90 days', requests: 'Requests',
@@ -1951,14 +1965,14 @@ const messages = {
     },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',
-      templates: 'Templates', approvals: 'Approvals', audit: 'Audit Log', billing: 'Billing',
+      templates: 'Templates', approvals: 'Approvals', audit: 'Audit Log', alertAck: 'Alert ACK', billing: 'Billing',
       cases: 'Case Library', eval: 'Agent Evaluation', knowledge: 'Knowledge Base', mcp: 'MCP Server',
       memories: 'Long-term Memory', metrics: 'Metrics', observability: 'Observability', platform: 'Platform · Tenants',
       prompts: 'Prompt Templates', provider: 'Model Providers', skills: 'Skills', settings: 'System Settings (Platform)',
       tenant: 'Tenant Settings', tools: 'Tools', usage: 'Usage', users: 'Members', gateway: 'Open Platform Gateway'
     },
     common: {
-      user: 'User', notifications: 'Notifications', markAllRead: 'Mark all read', noNotifications: 'No notifications',
+      user: 'User', notifications: 'Notifications', markAllRead: 'Mark all read', noNotifications: 'No notifications', cancel: 'Cancel',
       security: 'Security', logout: 'Sign out', language: 'Language', chinese: '中文', english: 'English'
     },
     login: {
