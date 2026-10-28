@@ -22,11 +22,18 @@ public class PlatformInfraController {
 
     private final PlatformAdminService platformAdminService;
     private final PlatformInfraConfigService configService;
+    private final com.platform.system.service.SearchOutboxStatusService outboxStatusService;
 
     @GetMapping
     public ApiResponse<Map<String, Object>> get(@AuthenticationPrincipal JwtPrincipal principal) {
         platformAdminService.requirePlatformAdmin(principal);
         return ApiResponse.ok(configService.current());
+    }
+
+    @GetMapping("/search-outbox")
+    public ApiResponse<Map<String, Object>> outbox(@AuthenticationPrincipal JwtPrincipal principal) {
+        platformAdminService.requirePlatformAdmin(principal);
+        return ApiResponse.ok(outboxStatusService.status());
     }
 
     @org.springframework.web.bind.annotation.PostMapping("/test")
