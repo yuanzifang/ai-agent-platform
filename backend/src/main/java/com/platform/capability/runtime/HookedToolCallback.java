@@ -12,15 +12,18 @@ public class HookedToolCallback implements ToolCallback {
     private final String toolKey;
     private final String toolName;
     private final String toolType;
+    private final java.util.Map<String, Object> capabilities;
 
     public HookedToolCallback(ToolCallback delegate, AgentHookRegistry hooks, ToolCallCollector collector,
-                              String toolKey, String toolName, String toolType) {
+                              String toolKey, String toolName, String toolType,
+                              java.util.Map<String, Object> capabilities) {
         this.delegate = delegate;
         this.hooks = hooks;
         this.collector = collector;
         this.toolKey = toolKey;
         this.toolName = toolName;
         this.toolType = toolType;
+        this.capabilities = capabilities == null ? java.util.Map.of() : capabilities;
     }
 
     @Override
@@ -31,7 +34,7 @@ public class HookedToolCallback implements ToolCallback {
     @Override
     public String call(String toolInput) {
         AgentHook.ToolContext context = new AgentHook.ToolContext(toolKey, toolName, toolType,
-                toolInput, collector);
+                toolInput, collector, capabilities);
         AgentHook.Decision decision = hooks.beforeTool(context);
         if (!decision.allowed()) {
             String output = "{\"ok\":false,\"error\":\"" + decision.code() + "\",\"retryable\":"

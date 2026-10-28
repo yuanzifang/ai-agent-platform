@@ -17,11 +17,22 @@ public class ToolCallLimitHook implements AgentHook {
 
     @Override
     public Decision beforeTool(ToolContext context) {
-        if (maxToolCalls <= 0) return Decision.allow();
+        int limit = maxToolCalls;
+        Object configured = context.capabilities() == null ? null : context.capabilities().get("maxToolCalls");
+        if (configured instanceof Number number) {
+            limit = number.intValue();
+        } else if (configured != null) {
+            try {
+                limit = Integer.parseInt(String.valueOf(configured));
+            } catch (NumberFormatException ignored) {
+                // 配置非法时使用全局默认
+            }
+        }
+        if (limit <= 0) return Decision.allow();
         int used = context.collector() == null ? 0 : context.collector().events().size();
-        if (used >= maxToolCalls) {
+        if (used >= limit) {
             return Decision.deny("TOOL_CALL_LIMIT",
-                    "本轮工具调用次数已达上限（" + maxToolCalls + "），请基于已有结果回答或询问用户");
+                    "本轮工具调用次数已达上限（" + limit + "），请基于已有结果回答或询问用户");
         }
         return Decision.allow();
     }

@@ -29,7 +29,11 @@ public class SecretRedactionHook implements AgentHook {
 
     @Override
     public String afterTool(ToolContext context, String output, String status) {
-        if (!enabled || output == null || output.isEmpty()) return output;
+        boolean agentEnabled = enabled;
+        Object configured = context.capabilities() == null ? null : context.capabilities().get("redactSecrets");
+        if (configured instanceof Boolean value) agentEnabled = value;
+        else if (configured != null) agentEnabled = !"false".equalsIgnoreCase(String.valueOf(configured));
+        if (!agentEnabled || output == null || output.isEmpty()) return output;
         String redacted = output;
         for (Pattern pattern : PATTERNS) {
             redacted = pattern.matcher(redacted).replaceAll("[REDACTED]");

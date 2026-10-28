@@ -98,6 +98,14 @@
             <el-form label-width="90px">
               <el-form-item :label="t('agentEdit.stream')"><el-switch v-model="form.capabilities.streamOutput" /></el-form-item>
               <el-form-item :label="t('agentEdit.functionCall')"><el-switch v-model="form.capabilities.functionCall" /></el-form-item>
+              <el-form-item :label="t('agentEdit.maxToolCalls')">
+                <el-input-number v-model="form.capabilities.maxToolCalls" :min="0" :max="100" />
+                <span class="hint">{{ t('agentEdit.maxToolCallsHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('agentEdit.redactSecrets')">
+                <el-switch v-model="form.capabilities.redactSecrets" />
+                <span class="hint">{{ t('agentEdit.redactSecretsHint') }}</span>
+              </el-form-item>
               <el-form-item :label="t('agentEdit.selfCorrection')">
                 <el-switch v-model="form.capabilities.selfCorrection" />
                 <span class="hint">{{ t('agentEdit.correctionHint') }}</span>
@@ -1311,7 +1319,8 @@ const form = reactive({
   modelName: '', fallbackModelName: '', temperature: 0.7,
   thinking: false, reasoningEffort: 'medium',
   systemPrompt: '', openingStatement: '',
-  capabilities: { streamOutput: true, functionCall: false, multimodal: false, selfCorrection: false,
+  capabilities: { streamOutput: true, functionCall: false, maxToolCalls: 0, redactSecrets: true,
+    multimodal: false, selfCorrection: false,
     selfCorrectionRounds: 1, writeToolPolicy: 'ALLOW_ALL', allowedWriteToolIds: [] as number[], writeToolMaxArgs: 16384 },
   memory: { enabled: true, windowSize: 10, autoExtract: true },
   variables: [] as VariableRow[],
@@ -1549,6 +1558,8 @@ onMounted(async () => {
   form.resourceProfileId = detail.resourceProfileId || null
   const caps = detail.agentCapabilities || {}
   form.capabilities = { ...caps, streamOutput: caps.streamOutput !== false, functionCall: !!caps.functionCall,
+    maxToolCalls: Number.isFinite(Number(caps.maxToolCalls)) ? Number(caps.maxToolCalls) : 0,
+    redactSecrets: caps.redactSecrets !== false,
     multimodal: !!caps.multimodal, selfCorrection: !!caps.selfCorrection,
     selfCorrectionRounds: caps.selfCorrectionRounds ?? 1,
     writeToolPolicy: caps.writeToolPolicy || 'ALLOW_ALL',

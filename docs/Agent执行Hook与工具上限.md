@@ -17,14 +17,19 @@ Hook 异常默认记录日志后放行，避免扩展点故障影响主链路；
 
 ## 已实现：单轮工具调用上限
 
-配置：
+配置已提升到 **Agent 编辑页 → 能力**：
+
+- `单轮工具调用上限`：0 表示不限制
+- `工具输出脱敏`：默认开启
+
+全局兜底仍支持环境变量：
 
 ```env
 AGENT_TOOL_MAX_CALLS_PER_TURN=0
+AGENT_HOOK_REDACT_SECRETS_ENABLED=true
 ```
 
-- `0`：不限制，保持原行为
-- `>0`：同一轮对话最多执行该数量的工具调用
+优先级：Agent 的 `agentCapabilities.maxToolCalls` / `agentCapabilities.redactSecrets` 覆盖全局默认值。
 - 超过上限返回：
 
 ```json
@@ -59,12 +64,6 @@ AGENT_TOOL_MAX_CALLS_PER_TURN=0
 - JWT
 - PEM 私钥
 
-配置：
-
-```env
-AGENT_HOOK_REDACT_SECRETS_ENABLED=true
-```
-
-`0` 条规则外的正常输出保持不变；需要关闭时设置 `false`。
+Agent 页面可单独关闭该 Agent 的工具输出脱敏；全局默认由 `AGENT_HOOK_REDACT_SECRETS_ENABLED` 控制。
 
 当前已落地工具调用上限和敏感信息脱敏，其余作为后续可插拔策略。

@@ -4,7 +4,7 @@ package com.platform.capability.runtime;
 public interface AgentHook {
 
     record ToolContext(String toolKey, String toolName, String toolType, String input,
-                       ToolCallCollector collector) {
+                       ToolCallCollector collector, java.util.Map<String, Object> capabilities) {
     }
 
     record Decision(boolean allowed, boolean retryable, String code, String message) {
