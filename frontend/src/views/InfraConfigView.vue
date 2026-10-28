@@ -7,9 +7,21 @@
       </div>
       <div>
         <el-button @click="load">{{ t('infraPage.reload') }}</el-button>
+        <el-button :loading="testing" @click="testConnections">{{ t('infraPage.test') }}</el-button>
         <el-button type="primary" :loading="saving" @click="save">{{ t('infraPage.save') }}</el-button>
       </div>
     </div>
+
+    <el-card v-if="testResults" shadow="never" class="section">
+      <template #header>{{ t('infraPage.testResults') }}</template>
+      <el-table :data="testRows" size="small">
+        <el-table-column prop="name" :label="t('infraPage.component')" width="140" />
+        <el-table-column :label="t('infraPage.result')" width="100">
+          <template #default="{ row }"><el-tag :type="row.ok ? 'success' : 'danger'" size="small">{{ row.ok ? 'OK' : 'FAIL' }}</el-tag></template>
+        </el-table-column>
+        <el-table-column prop="message" :label="t('infraPage.message')" />
+      </el-table>
+    </el-card>
 
     <el-alert type="warning" :closable="false" show-icon class="mb">
       {{ t('infraPage.restartHint') }}
@@ -146,7 +158,10 @@ import http from '../api/http'
 
 const { t } = useI18n()
 const saving = ref(false)
+const testing = ref(false)
+const testResults = ref<any>(null)
 const configFile = ref('')
+const testRows = reactive<any[]>([])
 const maskHint = reactive({
   mysqlPassword: '', redisPassword: '', pgPassword: '', minioSecret: '',
   esPassword: '', esApiKey: '', qdrantApiKey: ''
@@ -219,6 +234,16 @@ async function removeProfile(row: any) {
   await http.delete(`/platform/resource-profiles/${row.id}`)
   ElMessage.success(t('infraPage.deleted'))
   await loadProfiles()
+}
+
+async function testConnections() {
+  testing.value = true
+  try {
+    testResults.value = await http.post('/platform/infrastructure/test', { ...form }) as any
+    testRows.splice(0, testRows.length, ...Object.entries(testResults.value).map(([name, v]: any) => ({
+      name, ok: !!v.ok, message: v.message || ''
+    })))
+  } finally { testing.value = false }
 }
 
 async function save() {

@@ -279,7 +279,7 @@ const messages = {
       profileTitle: '资源 Profile', addProfile: '新建 Profile', editProfile: '编辑 Profile', profileName: '名称',
       profileNameRequired: 'Profile 名称必填', description: '描述', status: '状态', actions: '操作',
       edit: '编辑', delete: '删除', deleteProfile: '删除 Profile ', deleted: '已删除', cancel: '取消',
-      reload: '重新加载', save: '保存配置', restartHint: '配置保存到本地文件，重启后端后生效。',
+      reload: '重新加载', save: '保存配置', test: '测试连接', testResults: '连接测试', component: '组件', result: '结果', message: '信息', restartHint: '配置保存到本地文件，重启后端后生效。',
       configFile: '配置文件', keepSecret: '已配置，留空保持不变',
       mysql: 'MySQL 主数据库', redis: 'Redis', pg: 'PostgreSQL / pgvector', minio: 'MinIO',
       es: 'Elasticsearch', qdrant: 'Qdrant', saved: '配置已保存', savedRestart: '配置已保存，请重启后端生效'
@@ -665,7 +665,7 @@ const messages = {
       statuses: { RUNNING: '运行中', STOPPED: '已停止', FAILED: '失败', PENDING: '部署中' }
     },
     agentEdit: {
-      resourceProfile: '资源 Profile', resourceProfilePh: '选择平台维护的检索资源组合', resourceProfileHint: '只引用平台 Profile，不包含数据库地址或密码',
+      resourceProfile: '资源 Profile', resourceProfilePh: '选择平台维护的检索资源组合', resourceProfileHint: '只引用平台 Profile，不包含数据库地址或密码', resourceMismatch: '与所选 Profile 后端不一致',
       back: '返回列表', published: '已发布', draft: '草稿', versions: '版本', integration: '集成',
       channels: '渠道', schedules: '定时', credentials: '凭证', eval: '评测', publish: '发布', save: '保存',
       basic: '基本信息', name: '名称', desc: '描述', category: '分类', categoryPh: '如：客服', tags: '标签',
@@ -1243,7 +1243,7 @@ const messages = {
       profileTitle: 'Resource profiles', addProfile: 'New profile', editProfile: 'Edit profile', profileName: 'Name',
       profileNameRequired: 'Profile name is required', description: 'Description', status: 'Status', actions: 'Actions',
       edit: 'Edit', delete: 'Delete', deleteProfile: 'Delete profile ', deleted: 'Deleted', cancel: 'Cancel',
-      reload: 'Reload', save: 'Save', restartHint: 'Saved to a local file; restart the backend to apply.',
+      reload: 'Reload', save: 'Save', test: 'Test connections', testResults: 'Connection test', component: 'Component', result: 'Result', message: 'Message', restartHint: 'Saved to a local file; restart the backend to apply.',
       configFile: 'Config file', keepSecret: 'Configured; leave blank to keep',
       mysql: 'MySQL primary database', redis: 'Redis', pg: 'PostgreSQL / pgvector', minio: 'MinIO',
       es: 'Elasticsearch', qdrant: 'Qdrant', saved: 'Configuration saved', savedRestart: 'Configuration saved; restart the backend to apply'
@@ -1630,7 +1630,7 @@ const messages = {
       statuses: { RUNNING: 'Running', STOPPED: 'Stopped', FAILED: 'Failed', PENDING: 'Deploying' }
     },
     agentEdit: {
-      resourceProfile: 'Resource profile', resourceProfilePh: 'Select a platform-maintained retrieval resource profile', resourceProfileHint: 'References a platform profile; no database endpoint or password is stored here',
+      resourceProfile: 'Resource profile', resourceProfilePh: 'Select a platform-maintained retrieval resource profile', resourceProfileHint: 'References a platform profile; no database endpoint or password is stored here', resourceMismatch: 'Backend does not match the selected profile',
       back: 'Back to list', published: 'Published', draft: 'Draft', versions: 'Versions', integration: 'Integration',
       channels: 'Channels', schedules: 'Schedules', credentials: 'Credentials', eval: 'Evaluation', publish: 'Publish', save: 'Save',
       basic: 'Basic info', name: 'Name', desc: 'Description', category: 'Category', categoryPh: 'e.g. Support', tags: 'Tags',

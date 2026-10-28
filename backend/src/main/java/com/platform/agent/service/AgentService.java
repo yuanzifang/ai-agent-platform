@@ -61,6 +61,8 @@ public class AgentService {
     private final QuotaService quotaService;
     private final ObjectMapper objectMapper;
     private final com.platform.model.mapper.ModelMapper modelMapper;
+    private final com.platform.system.mapper.ResourceProfileMapper resourceProfileMapper;
+    private final com.platform.knowledge.mapper.KnowledgeBaseMapper knowledgeBaseMapper;
 
     /** 列表页"配置完整度"标志：批量查绑定，避免 N+1。published 且零能力 → 前端提示角标。 */
     public Map<Long, Map<String, Object>> capabilityFlags(java.util.List<Long> agentIds) {
@@ -171,6 +173,7 @@ public class AgentService {
             throw new BusinessException(400, "必须选择模型（modelConfig.modelName）");
         }
         validateAgentModel(modelConfig, principal.tenantId());
+        validateResourceProfile(toLong(req.get("resourceProfileId")), req.get("knowledgeBases"));
         quotaService.checkAgentCreate();
         AgentRegistry agent = new AgentRegistry();
         agent.setAgentKey(UUID.randomUUID().toString().replace("-", ""));
@@ -209,6 +212,10 @@ public class AgentService {
     public Map<String, Object> update(Long id, Map<String, Object> req, String ifMatch,
                                       JwtPrincipal principal) {
         AgentRegistry current = get(id); // 存在性 + 租户过滤（插件自动注入 tenant_id）
+        Long effectiveProfileId = req.containsKey("resourceProfileId")
+                ? toLong(req.get("resourceProfileId")) : current.getResourceProfileId();
+        Object effectiveKbs = req.containsKey("knowledgeBases") ? req.get("knowledgeBases") : knowledgeBases(id);
+        validateResourceProfile(effectiveProfileId, effectiveKbs);
         Map<String, Object> beforePolicy = writePolicySnapshot(asMap(fromJson(current.getAgentCapabilities())));
         LocalDateTime expected = parseIfMatch(ifMatch);
         if (req.containsKey("modelConfig")) {
@@ -396,6 +403,31 @@ public class AgentService {
         auditService.record(principal.userId(), "agent.rollback", "agent", String.valueOf(id),
                 "SUCCESS", Map.of("from", version, "newVersion", newVersion));
         return Map.of("version", newVersion, "rolledBackFrom", version);
+    }
+
+    private void validateResourceProfile(Long profileId, Object knowledgeBases) {
+        if (profileId == null) return;
+        com.platform.system.entity.ResourceProfile profile = resourceProfileMapper.selectById(profileId);
+        if (profile == null || !"ENABLED".equalsIgnoreCase(profile.getStatus())) {
+            throw new BusinessException(400, "资源 Profile 不存在或已停用");
+        }
+        String search = profile.getSearchBackend() == null ? "MYSQL" : profile.getSearchBackend();
+        String vector = profile.getVectorBackend() == null ? "PGVECTOR" : profile.getVectorBackend();
+        if (!(knowledgeBases instanceof java.util.List<?> list)) return;
+        for (Object item : list) {
+            Map<String, Object> binding = asMap(item);
+            Long kbId = toLong(binding.get("knowledgeBaseId"));
+            if (kbId == null) continue;
+            com.platform.knowledge.entity.KnowledgeBase kb = knowledgeBaseMapper.selectById(kbId);
+            if (kb == null) throw new BusinessException(400, "绑定的知识库不存在：" + kbId);
+            String kbSearch = kb.getSearchBackend() == null ? "MYSQL" : kb.getSearchBackend();
+            String kbVector = kb.getVectorBackend() == null ? "PGVECTOR" : kb.getVectorBackend();
+            if (!search.equalsIgnoreCase(kbSearch) || !vector.equalsIgnoreCase(kbVector)) {
+                throw new BusinessException(400, "知识库「" + kb.getName() + "」后端为 "
+                        + kbSearch + "/" + kbVector + "，与资源 Profile 的 "
+                        + search + "/" + vector + " 不一致");
+            }
+        }
     }
 
     // ---- helpers ----
