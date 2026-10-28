@@ -6,6 +6,7 @@ import com.platform.agent.mapper.AgentVersionMapper;
 import com.platform.agent.service.ApiKeyService;
 import com.platform.common.exception.BusinessException;
 import com.platform.common.security.CryptoService;
+import com.platform.deploy.entity.AgentDeployProfile;
 import com.platform.deploy.entity.AgentDeployment;
 import com.platform.deploy.entity.AgentDeploymentEvent;
 import com.platform.deploy.mapper.AgentDeploymentEventMapper;
@@ -42,6 +43,7 @@ class AgentDeploymentServiceLifecycleTest {
     private ApiKeyService apiKeyService;
     private AuditService auditService;
     private ContainerRuntime runtime;
+    private AgentDeployProfileService deployProfileService;
     private SimpleMeterRegistry meterRegistry;
     private AgentDeploymentService service;
     private AgentDeployment deployment;
@@ -58,9 +60,11 @@ class AgentDeploymentServiceLifecycleTest {
         apiKeyService = mock(ApiKeyService.class);
         auditService = mock(AuditService.class);
         runtime = mock(ContainerRuntime.class);
+        deployProfileService = mock(AgentDeployProfileService.class);
         meterRegistry = new SimpleMeterRegistry();
         service = new AgentDeploymentService(deploymentMapper, runtimeKeyService, cryptoService, eventMapper,
-                agentMapper, versionMapper, apiKeyService, auditService, runtime, meterRegistry);
+                agentMapper, versionMapper, apiKeyService, auditService, runtime,
+                deployProfileService, meterRegistry);
 
         deployment = new AgentDeployment();
         deployment.setId(5L);
@@ -205,6 +209,41 @@ class AgentDeploymentServiceLifecycleTest {
         assertEquals(400, error.getCode());
         assertEquals("多副本部署需要 gateway 运行时并配置 agent.deploy.redis-url（共享限流/配额/用量）",
                 error.getMessage());
+        verify(runtime, never()).create(any());
+    }
+
+    @Test
+    void deployProfileOverridesContainerLimits() {
+        AgentDeployProfile profile = new AgentDeployProfile();
+        profile.setCpuLimit("0.5");
+        profile.setMemoryLimit("384m");
+        profile.setPidsLimit(128);
+
+        assertEquals(List.of("--cpus", "0.5", "--memory", "384m",
+                        "--pids-limit", "128", "--security-opt", "no-new-privileges"),
+                service.containerLimits(profile));
+    }
+
+    @Test
+    void deployRejectsReplicasAboveProfileMaximum() {
+        when(runtime.available()).thenReturn(true);
+        AgentRegistry agent = new AgentRegistry();
+        agent.setId(1L);
+        agent.setTenantId(1L);
+        agent.setStatus("PUBLISHED");
+        when(agentMapper.selectById(1L)).thenReturn(agent);
+        when(deploymentMapper.selectOne(any())).thenReturn(null);
+        AgentDeployProfile profile = new AgentDeployProfile();
+        profile.setId(9L);
+        profile.setMaxReplicas(2);
+        profile.setDefaultReplicas(1);
+        when(deployProfileService.resolve(9L)).thenReturn(profile);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.deploy(1L, 3, 9L, principal));
+
+        assertEquals(400, error.getCode());
+        assertTrue(error.getMessage().contains("上限"));
         verify(runtime, never()).create(any());
     }
 }

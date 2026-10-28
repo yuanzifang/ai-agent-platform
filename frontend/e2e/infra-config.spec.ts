@@ -34,6 +34,8 @@ test('平台基础设施页与资源 Profile', async ({ page }) => {
   await expect(page.getByText('Alias', { exact: true })).toBeVisible()
   await expect(page.getByText('资源 Profile', { exact: true })).toBeVisible()
   await expect(page.getByText('默认检索资源', { exact: true })).toBeVisible()
+  await expect(page.getByText('部署资源 Profile', { exact: true })).toBeVisible()
+  await expect(page.getByText('标准部署', { exact: true })).toBeVisible()
 })
 
 test('Agent 编辑页资源 Profile 与知识库绑定区', async ({ page, request }) => {
@@ -66,6 +68,12 @@ test('Agent 编辑页资源 Profile 与知识库绑定区', async ({ page, reque
     await knowledgeHeader.click()
     await expect(page.getByText('资源 Profile', { exact: true })).toBeVisible()
     await expect(page.getByText('默认检索资源', { exact: false }).first()).toBeVisible()
+
+    await page.getByRole('button', { name: '部署到容器' }).click()
+    const deployDialog = page.locator('.el-dialog:visible').filter({ hasText: '容器部署' })
+    await expect(deployDialog.getByText('部署资源 Profile', { exact: true })).toBeVisible()
+    await expect(deployDialog.getByText('标准部署', { exact: false }).first()).toBeVisible()
+    await page.keyboard.press('Escape')
   } finally {
     if (agentId) {
       await request.delete(`${BACKEND}/api/v1/agent/${agentId}`, {

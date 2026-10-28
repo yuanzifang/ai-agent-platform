@@ -140,6 +140,34 @@
       </el-table>
     </el-card>
 
+    <el-card shadow="never" class="section">
+      <template #header>
+        <div class="card-head">
+          <span>{{ t('infraPage.deployProfileTitle') }}</span>
+          <el-button size="small" type="primary" @click="openDeployProfile()">
+            {{ t('infraPage.addDeployProfile') }}
+          </el-button>
+        </div>
+      </template>
+      <el-table :data="deployProfiles" size="small">
+        <el-table-column prop="name" :label="t('infraPage.profileName')" width="160" />
+        <el-table-column prop="cpuLimit" label="CPU" width="80" />
+        <el-table-column prop="memoryLimit" label="Memory" width="100" />
+        <el-table-column prop="pidsLimit" label="PID" width="80" />
+        <el-table-column :label="t('infraPage.deployReplicas')" width="110">
+          <template #default="{ row }">{{ row.defaultReplicas }}-{{ row.maxReplicas }}</template>
+        </el-table-column>
+        <el-table-column prop="status" :label="t('infraPage.status')" width="100" />
+        <el-table-column prop="description" :label="t('infraPage.description')" min-width="150" />
+        <el-table-column :label="t('infraPage.actions')" width="140">
+          <template #default="{ row }">
+            <el-button size="small" text @click="openDeployProfile(row)">{{ t('infraPage.edit') }}</el-button>
+            <el-button size="small" text type="danger" @click="removeDeployProfile(row)">{{ t('infraPage.delete') }}</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <el-dialog v-model="profileVisible" :title="profileForm.id ? t('infraPage.editProfile') : t('infraPage.addProfile')" width="520px">
       <el-form label-width="130px">
         <el-form-item :label="t('infraPage.profileName')" required><el-input v-model="profileForm.name" /></el-form-item>
@@ -155,6 +183,43 @@
       <template #footer>
         <el-button @click="profileVisible = false">{{ t('infraPage.cancel') }}</el-button>
         <el-button type="primary" :loading="profileSaving" @click="saveProfile">{{ t('infraPage.save') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="deployProfileVisible"
+               :title="deployProfileForm.id ? t('infraPage.editDeployProfile') : t('infraPage.addDeployProfile')"
+               width="520px">
+      <el-form label-width="140px">
+        <el-form-item :label="t('infraPage.profileName')" required>
+          <el-input v-model="deployProfileForm.name" />
+        </el-form-item>
+        <el-form-item :label="t('infraPage.description')">
+          <el-input v-model="deployProfileForm.description" type="textarea" :rows="2" />
+        </el-form-item>
+        <el-form-item label="CPU limit">
+          <el-input v-model="deployProfileForm.cpuLimit" placeholder="1" />
+        </el-form-item>
+        <el-form-item label="Memory limit">
+          <el-input v-model="deployProfileForm.memoryLimit" placeholder="512m" />
+        </el-form-item>
+        <el-form-item label="PID limit">
+          <el-input-number v-model="deployProfileForm.pidsLimit" :min="16" :max="4096" />
+        </el-form-item>
+        <el-form-item :label="t('infraPage.defaultReplicas')">
+          <el-input-number v-model="deployProfileForm.defaultReplicas" :min="1" :max="deployProfileForm.maxReplicas" />
+        </el-form-item>
+        <el-form-item :label="t('infraPage.maxReplicas')">
+          <el-input-number v-model="deployProfileForm.maxReplicas" :min="1" :max="5" />
+        </el-form-item>
+        <el-form-item :label="t('infraPage.status')">
+          <el-switch v-model="deployProfileForm.enabled" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="deployProfileVisible = false">{{ t('infraPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="deployProfileSaving" @click="saveDeployProfile">
+          {{ t('infraPage.save') }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -181,6 +246,13 @@ const profiles = ref<any[]>([])
 const profileVisible = ref(false)
 const profileSaving = ref(false)
 const profileForm = reactive<any>({ id: null, name: '', description: '', searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR', enabled: true })
+const deployProfiles = ref<any[]>([])
+const deployProfileVisible = ref(false)
+const deployProfileSaving = ref(false)
+const deployProfileForm = reactive<any>({
+  id: null, name: '', description: '', cpuLimit: '1', memoryLimit: '512m',
+  pidsLimit: 256, defaultReplicas: 1, maxReplicas: 5, enabled: true
+})
 const form = reactive<any>({
   mysqlUrl: '', mysqlUsername: '', mysqlPassword: '',
   redisHost: '', redisPort: '6379', redisPassword: '',
@@ -190,7 +262,7 @@ const form = reactive<any>({
   qdrantEnabled: false, qdrantUrl: '', qdrantCollectionPrefix: 'aap', qdrantApiKey: ''
 })
 
-onMounted(async () => { await load(); await loadProfiles() })
+onMounted(async () => { await load(); await loadProfiles(); await loadDeployProfiles() })
 
 async function load() {
   const data = await http.get('/platform/infrastructure') as any
@@ -245,6 +317,54 @@ async function removeProfile(row: any) {
   await http.delete(`/platform/resource-profiles/${row.id}`)
   ElMessage.success(t('infraPage.deleted'))
   await loadProfiles()
+}
+
+async function loadDeployProfiles() {
+  try {
+    deployProfiles.value = await http.get('/platform/deploy-resource-profiles') as any || []
+  } catch { deployProfiles.value = [] }
+}
+
+function openDeployProfile(row?: any) {
+  Object.assign(deployProfileForm, row ? {
+    id: row.id, name: row.name, description: row.description || '',
+    cpuLimit: row.cpuLimit || '1', memoryLimit: row.memoryLimit || '512m',
+    pidsLimit: row.pidsLimit || 256, defaultReplicas: row.defaultReplicas || 1,
+    maxReplicas: row.maxReplicas || 5, enabled: row.status !== 'DISABLED'
+  } : {
+    id: null, name: '', description: '', cpuLimit: '1', memoryLimit: '512m',
+    pidsLimit: 256, defaultReplicas: 1, maxReplicas: 5, enabled: true
+  })
+  deployProfileVisible.value = true
+}
+
+async function saveDeployProfile() {
+  if (!deployProfileForm.name.trim()) {
+    ElMessage.warning(t('infraPage.profileNameRequired'))
+    return
+  }
+  deployProfileSaving.value = true
+  try {
+    const body = {
+      name: deployProfileForm.name, description: deployProfileForm.description,
+      cpuLimit: deployProfileForm.cpuLimit, memoryLimit: deployProfileForm.memoryLimit,
+      pidsLimit: deployProfileForm.pidsLimit, defaultReplicas: deployProfileForm.defaultReplicas,
+      maxReplicas: deployProfileForm.maxReplicas,
+      status: deployProfileForm.enabled ? 'ENABLED' : 'DISABLED'
+    }
+    if (deployProfileForm.id) await http.put(`/platform/deploy-resource-profiles/${deployProfileForm.id}`, body)
+    else await http.post('/platform/deploy-resource-profiles', body)
+    ElMessage.success(t('infraPage.saved'))
+    deployProfileVisible.value = false
+    await loadDeployProfiles()
+  } finally { deployProfileSaving.value = false }
+}
+
+async function removeDeployProfile(row: any) {
+  await ElMessageBox.confirm(`${t('infraPage.deleteProfile')}${row.name}?`, t('infraPage.delete'), { type: 'warning' })
+  await http.delete(`/platform/deploy-resource-profiles/${row.id}`)
+  ElMessage.success(t('infraPage.deleted'))
+  await loadDeployProfiles()
 }
 
 async function loadOutbox() {
