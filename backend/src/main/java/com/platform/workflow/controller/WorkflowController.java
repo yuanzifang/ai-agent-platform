@@ -98,6 +98,19 @@ public class WorkflowController {
         return ApiResponse.ok(workflowService.runDetail(runId));
     }
 
+    @GetMapping("/workflow/runs/{runId}/checkpoints")
+    public ApiResponse<List<com.platform.workflow.entity.WorkflowCheckpoint>> checkpoints(
+            @PathVariable Long runId) {
+        return ApiResponse.ok(workflowService.checkpoints(runId));
+    }
+
+    @PostMapping("/workflow/runs/{runId}/resume")
+    @PreAuthorize("hasAuthority('agent:edit')")
+    public ApiResponse<Map<String, Object>> resume(@PathVariable Long runId,
+                                                   @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(workflowService.resume(runId, principal));
+    }
+
     @GetMapping("/workflow/approvals")
     public ApiResponse<Map<String, Object>> approvals(@RequestParam(required = false) String status,
                                                       @RequestParam(defaultValue = "1") long page,

@@ -20,10 +20,12 @@ import com.platform.system.service.AuditService;
 import com.platform.workflow.entity.AgentWorkflow;
 import com.platform.workflow.entity.AgentWorkflowVersion;
 import com.platform.workflow.entity.WorkflowApproval;
+import com.platform.workflow.entity.WorkflowCheckpoint;
 import com.platform.workflow.entity.WorkflowNodeRun;
 import com.platform.workflow.entity.WorkflowRun;
 import com.platform.workflow.mapper.AgentWorkflowMapper;
 import com.platform.workflow.mapper.WorkflowApprovalMapper;
+import com.platform.workflow.mapper.WorkflowCheckpointMapper;
 import com.platform.workflow.mapper.WorkflowNodeRunMapper;
 import com.platform.workflow.mapper.WorkflowRunMapper;
 import lombok.RequiredArgsConstructor;
@@ -57,6 +59,7 @@ public class WorkflowService {
     private final AgentWorkflowMapper workflowMapper;
     private final WorkflowRunMapper runMapper;
     private final WorkflowNodeRunMapper nodeRunMapper;
+    private final WorkflowCheckpointMapper checkpointMapper;
     private final WorkflowApprovalMapper approvalMapper;
     private final com.platform.workflow.mapper.AgentWorkflowVersionMapper versionMapper;
     private final AgentRegistryMapper agentMapper;
@@ -516,6 +519,7 @@ public class WorkflowService {
                     run.setUpdatedAt(LocalDateTime.now());
                     run.setContextJson(contextJson(outputs, state));
                     runMapper.updateById(run);
+                    saveCheckpoint(run, nodeId, null, "SUCCESS", outputs, state, lastOutput);
                     return;
                 }
                 WorkflowNodeRun nr = new WorkflowNodeRun();
@@ -685,10 +689,12 @@ public class WorkflowService {
                 run.setUpdatedAt(LocalDateTime.now());
                 run.setContextJson(contextJson(outputs, state));
                 runMapper.updateById(run);
+                saveCheckpoint(run, nodeId, next, "RUNNING", outputs, state, lastOutput);
                 if (next == null || next.isBlank()) {
                     run.setStatus("SUCCESS");
                     run.setUpdatedAt(LocalDateTime.now());
                     runMapper.updateById(run);
+                    saveCheckpoint(run, nodeId, null, "SUCCESS", outputs, state, lastOutput);
                     return;
                 }
                 nodeId = next;
@@ -1382,7 +1388,41 @@ public class WorkflowService {
     public Map<String, Object> runDetail(Long runId) {
         WorkflowRun run = runMapper.selectById(runId);
         if (run == null) throw new BusinessException(404, "运行记录不存在");
-        return runView(run);
+        Map<String, Object> view = new LinkedHashMap<>(runView(run));
+        view.put("checkpoints", checkpoints(runId));
+        return view;
+    }
+
+    public List<WorkflowCheckpoint> checkpoints(Long runId) {
+        WorkflowRun run = runMapper.selectById(runId);
+        if (run == null || !Objects.equals(run.getTenantId(), TenantContext.getTenantId())) {
+            throw new BusinessException(404, "运行记录不存在");
+        }
+        return checkpointMapper.selectList(new LambdaQueryWrapper<WorkflowCheckpoint>()
+                .eq(WorkflowCheckpoint::getRunId, runId)
+                .orderByDesc(WorkflowCheckpoint::getId));
+    }
+
+    /** 从最后一次失败检查点继续；不重放已完成节点，只从 currentNode 重新执行。 */
+    public Map<String, Object> resume(Long runId, JwtPrincipal principal) {
+        WorkflowRun run = runMapper.selectById(runId);
+        if (run == null || !Objects.equals(run.getTenantId(), TenantContext.getTenantId())) {
+            throw new BusinessException(404, "运行记录不存在");
+        }
+        if (!"FAILED".equals(run.getStatus())) {
+            throw new BusinessException(409, "只有 FAILED 运行可以恢复");
+        }
+        if (run.getCurrentNode() == null || run.getCurrentNode().isBlank()) {
+            throw new BusinessException(409, "运行没有可恢复的节点");
+        }
+        run.setStatus("RUNNING");
+        run.setErrorMessage(null);
+        run.setUpdatedAt(LocalDateTime.now());
+        runMapper.updateById(run);
+        auditService.record(principal.userId(), "workflow.resume", "workflow_run",
+                String.valueOf(runId), "SUCCESS", Map.of("node", run.getCurrentNode()));
+        execute(run, run.getCurrentNode(), principal);
+        return runDetail(runId);
     }
 
     public Map<String, Object> runs(Long agentId, long page, long pageSize) {
@@ -1732,11 +1772,41 @@ public class WorkflowService {
         return true;
     }
 
+    private void saveCheckpoint(WorkflowRun run, String nodeId, String nextNodeId, String status,
+                                List<Map<String, Object>> outputs, Map<String, Object> state,
+                                String outputText) {
+        try {
+            WorkflowCheckpoint cp = new WorkflowCheckpoint();
+            cp.setRunId(run.getId());
+            cp.setTenantId(run.getTenantId());
+            cp.setNodeId(nodeId);
+            cp.setNextNodeId(nextNodeId);
+            cp.setStatus(status);
+            cp.setContextJson(contextJson(outputs, state));
+            cp.setOutputText(truncate(outputText, 20000));
+            cp.setInputTokens(nz(run.getInputTokens()));
+            cp.setOutputTokens(nz(run.getOutputTokens()));
+            cp.setCreatedAt(LocalDateTime.now());
+            checkpointMapper.insert(cp);
+        } catch (Exception e) {
+            log.debug("工作流 checkpoint 写入失败 run={}：{}", run.getId(), e.getMessage());
+        }
+    }
+
     private void fail(WorkflowRun run, String error) {
         run.setStatus("FAILED");
         run.setErrorMessage(truncate(error, 1000));
         run.setUpdatedAt(LocalDateTime.now());
         runMapper.updateById(run);
+        try {
+            Map<String, Object> ctx = run.getContextJson() == null ? Map.of() : parseMap(run.getContextJson());
+            List<Map<String, Object>> outputs = new ArrayList<>();
+            if (ctx.get("outputs") instanceof List<?> list) {
+                for (Object o : list) if (o instanceof Map<?, ?> m) outputs.add(castMap(m));
+            }
+            Map<String, Object> state = ctx.get("state") instanceof Map<?, ?> sm ? castMap(sm) : Map.of();
+            saveCheckpoint(run, run.getCurrentNode(), null, "FAILED", outputs, state, run.getOutputText());
+        } catch (Exception ignored) { }
     }
 
     private Map<String, Object> defaultDefinition() {
