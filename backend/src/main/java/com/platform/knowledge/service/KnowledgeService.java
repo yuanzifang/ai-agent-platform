@@ -155,7 +155,20 @@ public class KnowledgeService {
                                       String embeddingModel, Boolean graphEnabled,
                                       String searchBackend, String vectorBackend,
                                       Integer defaultTopK, Integer maxTopK, Long userId) {
+        return create(name, description, visibility, embeddingModel, graphEnabled, searchBackend,
+                vectorBackend, defaultTopK, maxTopK, null, null, null, userId);
+    }
+
+    public Map<String, Object> create(String name, String description, String visibility,
+                                      String embeddingModel, Boolean graphEnabled,
+                                      String searchBackend, String vectorBackend,
+                                      Integer defaultTopK, Integer maxTopK,
+                                      String defaultRetrievalMode, Double defaultScoreThreshold,
+                                      Double defaultKeywordWeight, Long userId) {
         int[] topK = normalizeTopK(defaultTopK, maxTopK);
+        String retrievalMode = normalizeRetrievalMode(defaultRetrievalMode);
+        double scoreThreshold = normalizeScoreThreshold(defaultScoreThreshold, 0.5);
+        double keywordWeight = normalizeKeywordWeight(defaultKeywordWeight, 0.35);
         quotaService.checkKnowledgeBaseCreate();
         String search = normalizeBackend(searchBackend, defaultSearchBackend,
                 java.util.Set.of("MYSQL", "ES"));
@@ -180,6 +193,9 @@ public class KnowledgeService {
         kb.setVectorBackend(vector);
         kb.setDefaultTopK(topK[0]);
         kb.setMaxTopK(topK[1]);
+        kb.setDefaultRetrievalMode(retrievalMode);
+        kb.setDefaultScoreThreshold(scoreThreshold);
+        kb.setDefaultKeywordWeight(keywordWeight);
         kb.setIndexVersion("v1");
         kb.setCreatedAt(LocalDateTime.now());
         kbMapper.insert(kb);
@@ -210,6 +226,24 @@ public class KnowledgeService {
         }
     }
 
+    private String normalizeRetrievalMode(String mode) {
+        String value = mode == null || mode.isBlank() ? "hybrid" : mode.trim().toLowerCase(java.util.Locale.ROOT);
+        if (!java.util.Set.of("hybrid", "vector", "keyword").contains(value)) {
+            throw new BusinessException(400, "不支持的检索模式：" + mode);
+        }
+        return value;
+    }
+
+    private double normalizeScoreThreshold(Double value, double fallback) {
+        if (value == null) return fallback;
+        return Math.max(0, Math.min(1, value));
+    }
+
+    private double normalizeKeywordWeight(Double value, double fallback) {
+        if (value == null) return fallback;
+        return Math.max(0, Math.min(1, value));
+    }
+
     private int[] normalizeTopK(Integer defaultTopK, Integer maxTopK) {
         int def = defaultTopK == null ? 5 : Math.max(1, Math.min(defaultTopK, 50));
         int max = maxTopK == null ? 20 : Math.max(1, Math.min(maxTopK, 50));
@@ -229,6 +263,17 @@ public class KnowledgeService {
                        Boolean graphEnabled, Map<String, Object> parseConfig,
                        String searchBackend, String vectorBackend,
                        Integer defaultTopK, Integer maxTopK,
+                       KnowledgePermissionService.Viewer viewer) {
+        update(id, name, description, embeddingModel, graphEnabled, parseConfig, searchBackend,
+                vectorBackend, defaultTopK, maxTopK, null, null, null, viewer);
+    }
+
+    public void update(Long id, String name, String description, String embeddingModel,
+                       Boolean graphEnabled, Map<String, Object> parseConfig,
+                       String searchBackend, String vectorBackend,
+                       Integer defaultTopK, Integer maxTopK,
+                       String defaultRetrievalMode, Double defaultScoreThreshold,
+                       Double defaultKeywordWeight,
                        KnowledgePermissionService.Viewer viewer) {
         String parseConfigJson;
         try {
@@ -257,6 +302,14 @@ public class KnowledgeService {
         int[] topK = normalizeTopK(
                 defaultTopK == null ? kb.getDefaultTopK() : defaultTopK,
                 maxTopK == null ? kb.getMaxTopK() : maxTopK);
+        String retrievalMode = defaultRetrievalMode == null || defaultRetrievalMode.isBlank()
+                ? normalizeRetrievalMode(kb.getDefaultRetrievalMode()) : normalizeRetrievalMode(defaultRetrievalMode);
+        double scoreThreshold = defaultScoreThreshold == null
+                ? normalizeScoreThreshold(kb.getDefaultScoreThreshold(), 0.5)
+                : normalizeScoreThreshold(defaultScoreThreshold, 0.5);
+        double keywordWeight = defaultKeywordWeight == null
+                ? normalizeKeywordWeight(kb.getDefaultKeywordWeight(), 0.35)
+                : normalizeKeywordWeight(defaultKeywordWeight, 0.35);
         if (!newVector.equalsIgnoreCase(oldVector) && chunkCount > 0) {
             throw new BusinessException(400, "已有文档时不能切换向量后端；请先清空文档或新建知识库");
         }
@@ -290,6 +343,9 @@ public class KnowledgeService {
                 .set(KnowledgeBase::getVectorBackend, newVector)
                 .set(KnowledgeBase::getDefaultTopK, topK[0])
                 .set(KnowledgeBase::getMaxTopK, topK[1])
+                .set(KnowledgeBase::getDefaultRetrievalMode, retrievalMode)
+                .set(KnowledgeBase::getDefaultScoreThreshold, scoreThreshold)
+                .set(KnowledgeBase::getDefaultKeywordWeight, keywordWeight)
                 .set(graphEnabled != null, KnowledgeBase::getGraphEnabled, graphEnabled)
                 // null = 保留原解析配置；空对象 = 清除覆盖并回退默认
                 .set(parseConfig != null, KnowledgeBase::getParseConfig, parseConfigValue));
@@ -389,6 +445,12 @@ public class KnowledgeService {
         m.put("vectorBackend", kb.getVectorBackend() == null ? "PGVECTOR" : kb.getVectorBackend());
         m.put("defaultTopK", kb.getDefaultTopK() == null ? 5 : kb.getDefaultTopK());
         m.put("maxTopK", kb.getMaxTopK() == null ? 20 : kb.getMaxTopK());
+        m.put("defaultRetrievalMode", kb.getDefaultRetrievalMode() == null
+                ? "hybrid" : kb.getDefaultRetrievalMode());
+        m.put("defaultScoreThreshold", kb.getDefaultScoreThreshold() == null
+                ? 0.5 : kb.getDefaultScoreThreshold());
+        m.put("defaultKeywordWeight", kb.getDefaultKeywordWeight() == null
+                ? 0.35 : kb.getDefaultKeywordWeight());
         m.put("indexVersion", kb.getIndexVersion());
         m.put("graphEnabled", !Boolean.FALSE.equals(kb.getGraphEnabled()));
         m.put("createdAt", kb.getCreatedAt());
@@ -1527,7 +1589,12 @@ public class KnowledgeService {
         }
         Long tenantId = TenantContext.getTenantId();
         Map<String, Object> retrievalConfig = new LinkedHashMap<>();
-        if (mode != null && !mode.isBlank()) retrievalConfig.put("mode", mode);
+        String effectiveMode = mode != null && !mode.isBlank()
+                ? mode : (kb.getDefaultRetrievalMode() == null ? "hybrid" : kb.getDefaultRetrievalMode());
+        retrievalConfig.put("mode", effectiveMode);
+        if (kb.getDefaultKeywordWeight() != null) {
+            retrievalConfig.putIfAbsent("keywordWeight", kb.getDefaultKeywordWeight());
+        }
         if (documentType != null && !documentType.isBlank()) retrievalConfig.put("documentType", documentType);
         if (sectionType != null && !sectionType.isBlank()) retrievalConfig.put("sectionType", sectionType);
         if (regulatoryCategory != null && !regulatoryCategory.isBlank()) {
@@ -1535,9 +1602,11 @@ public class KnowledgeService {
         }
         if (chunkLevel != null) retrievalConfig.put("chunkLevel", chunkLevel);
         if (minRelevance != null) retrievalConfig.put("minRelevance", minRelevance);
+        double effectiveThreshold = threshold == null
+                ? (kb.getDefaultScoreThreshold() == null ? 0.5 : kb.getDefaultScoreThreshold())
+                : threshold;
         List<Map<String, Object>> hits = new ArrayList<>(hybridRetrieval.search(tenantId, query, kbId,
-                effectiveTopK,
-                threshold == null ? 0.5 : threshold, retrievalConfig,
+                effectiveTopK, effectiveThreshold, retrievalConfig,
                 viewer.userId(), permissionService.tenantWide(viewer), effectiveAfter, effectiveBefore).hits());
         // 图谱扩展分段没有完整元数据/有效期约束；有筛选时跳过，避免返回不匹配内容。
         boolean metadataFilter = documentType != null || sectionType != null

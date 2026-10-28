@@ -1144,13 +1144,24 @@ public class ToolRuntimeService {
         for (Map<String, Object> binding : bindings) {
             Long kbId = toLong(binding.get("knowledgeBaseId"));
             if (kbId == null || Boolean.FALSE.equals(binding.get("enabled"))) continue;
-            if (permissionService.findVisible(kbId, viewer) == null) continue;
-            Map<String, Object> rc = asMap(binding.get("retrievalConfig"));
-            int topK = toInt(rc.get("topK"), 5);
-            double threshold = toDouble(rc.get("scoreThreshold"), 0.5);
+            com.platform.knowledge.entity.KnowledgeBase kb = permissionService.findVisible(kbId, viewer);
+            if (kb == null) continue;
+            Map<String, Object> rc = new LinkedHashMap<>(asMap(binding.get("retrievalConfig")));
+            if (kb.getDefaultRetrievalMode() != null && !kb.getDefaultRetrievalMode().isBlank()) {
+                rc.putIfAbsent("mode", kb.getDefaultRetrievalMode());
+            }
+            if (kb.getDefaultKeywordWeight() != null) {
+                rc.putIfAbsent("keywordWeight", kb.getDefaultKeywordWeight());
+            }
+            int topK = Math.min(Math.max(1, toInt(rc.get("topK"),
+                    kb.getDefaultTopK() == null ? 5 : kb.getDefaultTopK())),
+                    Math.max(1, kb.getMaxTopK() == null ? 20 : kb.getMaxTopK()));
+            double threshold = toDouble(rc.get("scoreThreshold"),
+                    kb.getDefaultScoreThreshold() == null ? 0.5 : kb.getDefaultScoreThreshold());
+            rc.putIfAbsent("scoreThreshold", threshold);
             try {
                 for (Map<String, Object> hit : hybridRetrieval.search(tenantId, query, kbId, topK, threshold,
-                        Map.of(), viewer.userId(), permissionService.tenantWide(viewer)).hits()) {
+                        rc, viewer.userId(), permissionService.tenantWide(viewer)).hits()) {
                     String content = String.valueOf(hit.get("content"));
                     // 技能/子 Agent 的 RAG 同样可能被知识库投毒：高置信注入分段直接隔离。
                     List<ModerationService.Hit> injectionHits = promptInjection.check("IN", content);

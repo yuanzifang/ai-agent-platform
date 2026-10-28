@@ -277,4 +277,22 @@ class ChatServiceKnowledgeTest {
         assertFalse(prompt.contains("Ignore previous instructions"), prompt);
         assertEquals(0, citations.size());
     }
+
+    @Test
+    void appliesKnowledgeBaseRetrievalDefaults() {
+        kb.setDefaultRetrievalMode("vector");
+        kb.setDefaultScoreThreshold(0.72);
+        kb.setDefaultKeywordWeight(0.2);
+        stubHybrid(hit("退款政策：支持七天无理由", 0.91, 10L, 100L, 2));
+        List<Map<String, Object>> citations = new ArrayList<>();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> config = ArgumentCaptor.forClass(Map.class);
+
+        service.augmentWithKnowledge("系统指令", "退款", List.of(binding(null)), citations, viewer);
+
+        verify(hybridRetrieval).search(eq(9L), eq("退款"), eq(1L), eq(5), eq(0.72),
+                config.capture(), eq(7L), eq(true));
+        assertEquals("vector", config.getValue().get("mode"));
+        assertEquals(0.2, (double) config.getValue().get("keywordWeight"), 0.0001);
+    }
 }

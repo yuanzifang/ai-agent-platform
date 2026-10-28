@@ -25,6 +25,12 @@ public class KnowledgeBase {
     private String vectorBackend;
     private Integer defaultTopK;
     private Integer maxTopK;
+    /** hybrid / vector / keyword */
+    private String defaultRetrievalMode;
+    /** 0..1，绑定未配置时使用 */
+    private Double defaultScoreThreshold;
+    /** 0..1，绑定未配置 hybrid 权重时使用 */
+    private Double defaultKeywordWeight;
     private String indexVersion;
     private LocalDateTime createdAt;
     private String parseConfig; // JSON：解析配置覆盖（KB 默认 / 文档上传时选择）
