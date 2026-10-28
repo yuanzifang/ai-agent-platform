@@ -103,6 +103,7 @@ public class ToolRuntimeService {
     private final com.platform.capability.service.ToolApprovalService toolApprovalService;
     private final KnowledgePermissionService permissionService;
     private final ToolInputValidator inputValidator;
+    private final AgentHookRegistry agentHooks;
     private final PromptInjectionModerationProvider promptInjection;
     private final ObjectMapper objectMapper;
 
@@ -213,10 +214,15 @@ public class ToolRuntimeService {
             }
         }
 
+        List<ToolCallback> hooked = new ArrayList<>(callbacks.size());
+        for (ToolCallback callback : callbacks) {
+            String name = callback.getToolDefinition() == null ? "tool" : callback.getToolDefinition().name();
+            hooked.add(new HookedToolCallback(callback, agentHooks, collector, name, name, "TOOL"));
+        }
         log.debug("Agent 运行时工具装配 agent={} functionCall={} callbacks={} names={} skillPrompt={} kbDeps={}",
-                agentId, functionCall, callbacks.size(), names,
+                agentId, functionCall, hooked.size(), names,
                 skillPrompt.isEmpty() ? "none" : "yes", kbIds);
-        return new RuntimeTools(callbacks, skillPrompt.isEmpty() ? null : skillPrompt.toString(), kbIds);
+        return new RuntimeTools(hooked, skillPrompt.isEmpty() ? null : skillPrompt.toString(), kbIds);
     }
 
     private void addTool(List<ToolCallback> callbacks, Set<String> names, Long toolId, Long agentId,
