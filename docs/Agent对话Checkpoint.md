@@ -32,6 +32,14 @@ SSE 生成过程中除了 Redis `chat:live` 快照，再持久化一份数据库
 GET /api/v1/conversations/{id}/checkpoint
 ```
 
+从部分 checkpoint 继续生成（非流式、best-effort）：
+
+```http
+POST /api/v1/conversations/{id}/checkpoint/continue
+```
+
+会基于用户原始问题和已生成部分调用模型继续，新建一条助手消息；不保证模型不重复已有内容，生产环境建议优先使用正常 SSE 续传。
+
 断线续传：
 
 `GET /api/v1/conversations/{id}/resume?offset=...`：
