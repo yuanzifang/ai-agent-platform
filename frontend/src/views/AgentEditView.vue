@@ -2005,6 +2005,7 @@ async function refreshDeploy() {
     deployment.value = data.deployment || null
     deployReplicas.value = deployment.value?.replicaCount || 1
     deployProfileId.value = deployment.value?.deployProfileId || deployProfiles.value[0]?.id || null
+    if (deployReplicas.value > deployMaxReplicas.value) deployReplicas.value = deployMaxReplicas.value
     runtimeToken.value = ''
     if (deployment.value?.hasToken) {
       try {

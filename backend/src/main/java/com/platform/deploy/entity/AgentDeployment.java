@@ -18,6 +18,7 @@ public class AgentDeployment {
     private String containerName;
     private String containerId;
     private String image;
+    private Long deployProfileId;
     private Integer hostPort;
     private Integer replicaCount;
     private String replicasJson;

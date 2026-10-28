@@ -66,6 +66,7 @@ public class AgentDeploymentService {
     private final ApiKeyService apiKeyService;
     private final AuditService auditService;
     private final ContainerRuntime runtime;
+    private final AgentDeployProfileService deployProfileService;
     private final MeterRegistry meterRegistry;
 
     private final Map<String, AtomicInteger> deploymentGauges = new ConcurrentHashMap<>();
@@ -207,12 +208,18 @@ public class AgentDeploymentService {
 
     @Transactional
     public Map<String, Object> deploy(Long agentId, JwtPrincipal principal) {
-        return deploy(agentId, null, principal);
+        return deploy(agentId, null, null, principal);
     }
 
-    /** 部署/重新部署：按 replicas 创建多个容器（1-5），共享 Redis 中的限流/配额/用量。 */
     @Transactional
     public Map<String, Object> deploy(Long agentId, Integer requestedReplicas, JwtPrincipal principal) {
+        return deploy(agentId, requestedReplicas, null, principal);
+    }
+
+    /** 部署/重新部署：按部署资源 Profile 创建容器，未选择时沿用上次部署或默认 Profile。 */
+    @Transactional
+    public Map<String, Object> deploy(Long agentId, Integer requestedReplicas,
+                                      Long deployProfileId, JwtPrincipal principal) {
         AgentRegistry agent = requireAgent(agentId);
         if (!"PUBLISHED".equals(agent.getStatus())) {
             throw new BusinessException(400, "请先发布 Agent，再部署到容器");
@@ -233,10 +240,19 @@ public class AgentDeploymentService {
             deployment.setStatus("PENDING");
             deployment.setReplicaCount(1);
         }
+        Long effectiveProfileId = deployProfileId != null ? deployProfileId : deployment.getDeployProfileId();
+        com.platform.deploy.entity.AgentDeployProfile deployProfile =
+                deployProfileService.resolve(effectiveProfileId);
+        int maxReplicas = deployProfile == null ? 5 : deployProfile.getMaxReplicas();
+        int defaultProfileReplicas = deployProfile == null ? defaultReplicas : deployProfile.getDefaultReplicas();
         int replicas = requestedReplicas != null ? requestedReplicas
                 : (deployment.getReplicaCount() != null && deployment.getReplicaCount() > 0
-                    ? deployment.getReplicaCount() : defaultReplicas);
-        replicas = Math.max(1, Math.min(5, replicas));
+                    ? deployment.getReplicaCount() : defaultProfileReplicas);
+        if (requestedReplicas != null && requestedReplicas > maxReplicas) {
+            throw new BusinessException(400, "副本数超过部署资源 Profile 上限：" + maxReplicas);
+        }
+        replicas = Math.max(1, Math.min(maxReplicas, replicas));
+        deployment.setDeployProfileId(deployProfile == null ? null : deployProfile.getId());
         if (replicas > 1 && (!gatewayRuntime() || redisUrl == null || redisUrl.isBlank())) {
             throw new BusinessException(400, "多副本部署需要 gateway 运行时并配置 agent.deploy.redis-url（共享限流/配额/用量）");
         }
@@ -311,6 +327,7 @@ public class AgentDeploymentService {
                 mounts = List.of(templateDir().toString() + ":/etc/nginx/templates:ro");
             }
 
+            List<String> limits = containerLimits(deployProfile);
             Set<Integer> reserved = new HashSet<>();
             for (int i = 0; i < replicas; i++) {
                 String name = baseName + (i == 0 ? "" : "-r" + (i + 1));
@@ -327,7 +344,7 @@ public class AgentDeploymentService {
                                 "aap.tenant_id", String.valueOf(agent.getTenantId()),
                                 "aap.managed_by", "ai-agent-platform"),
                         mounts,
-                        containerLimits());
+                        limits);
                 String containerId = runtime.create(request);
                 runtime.start(containerId);
                 waitForHealthy(port);
@@ -879,12 +896,21 @@ public class AgentDeploymentService {
         return best == null ? "http://localhost" : best;
     }
 
-    /** Docker 资源边界：CPU、内存、PID 上限，并禁止提权。 */
     List<String> containerLimits() {
+        return containerLimits(null);
+    }
+
+    /** Docker 资源边界：优先使用部署资源 Profile，未配置时回退全局默认。 */
+    List<String> containerLimits(com.platform.deploy.entity.AgentDeployProfile profile) {
+        String cpu = profile == null || profile.getCpuLimit() == null || profile.getCpuLimit().isBlank()
+                ? cpuLimit : profile.getCpuLimit();
+        String memory = profile == null || profile.getMemoryLimit() == null || profile.getMemoryLimit().isBlank()
+                ? memoryLimit : profile.getMemoryLimit();
+        int pids = profile == null || profile.getPidsLimit() == null ? pidsLimit : profile.getPidsLimit();
         List<String> args = new ArrayList<>();
-        if (cpuLimit != null && !cpuLimit.isBlank()) args.addAll(List.of("--cpus", cpuLimit.trim()));
-        if (memoryLimit != null && !memoryLimit.isBlank()) args.addAll(List.of("--memory", memoryLimit.trim()));
-        if (pidsLimit > 0) args.addAll(List.of("--pids-limit", String.valueOf(pidsLimit)));
+        if (cpu != null && !cpu.isBlank()) args.addAll(List.of("--cpus", cpu.trim()));
+        if (memory != null && !memory.isBlank()) args.addAll(List.of("--memory", memory.trim()));
+        if (pids > 0) args.addAll(List.of("--pids-limit", String.valueOf(pids)));
         args.addAll(List.of("--security-opt", "no-new-privileges"));
         if (logMaxSize != null && !logMaxSize.isBlank()) {
             args.addAll(List.of("--log-driver", "json-file",
@@ -1070,6 +1096,7 @@ public class AgentDeploymentService {
         m.put("containerName", deployment.getContainerName());
         m.put("containerId", deployment.getContainerId());
         m.put("image", deployment.getImage());
+        m.put("deployProfileId", deployment.getDeployProfileId());
         m.put("hostPort", deployment.getHostPort());
         m.put("endpoint", deployment.getEndpoint());
         m.put("localEndpoint", deployment.getLocalEndpoint());

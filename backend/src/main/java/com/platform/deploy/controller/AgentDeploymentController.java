@@ -35,7 +35,9 @@ public class AgentDeploymentController {
                                                    @RequestBody(required = false) Map<String, Object> body,
                                                    @AuthenticationPrincipal JwtPrincipal principal) {
         Integer replicas = body != null && body.get("replicas") instanceof Number n ? n.intValue() : null;
-        return ApiResponse.ok(deploymentService.deploy(agentId, replicas, principal));
+        Long deployProfileId = body != null && body.get("deployProfileId") instanceof Number n
+                ? n.longValue() : null;
+        return ApiResponse.ok(deploymentService.deploy(agentId, replicas, deployProfileId, principal));
     }
 
     @PostMapping("/start")
