@@ -112,6 +112,9 @@ public class ToolRuntimeService {
             .connectTimeout(Duration.ofSeconds(5))
             .build();
 
+    /** 工作流节点级幂等键；仅当前执行线程可见，透传给支持 Idempotency-Key 的 API 工具。 */
+    private final ThreadLocal<String> idempotencyKey = new ThreadLocal<>();
+
     /** 装配结果：工具回调 + 技能提示词 + 技能依赖的知识库。 */
     public record RuntimeTools(List<ToolCallback> callbacks, String skillPrompt, List<Long> knowledgeBaseIds) {
         public static RuntimeTools empty() {
@@ -381,6 +384,12 @@ public class ToolRuntimeService {
 
     /** 工作流工具节点：按 Agent 解析凭证后执行一次工具。 */
     public Map<String, Object> executeToolForWorkflow(Long agentId, Long toolId, String argsJson) {
+        return executeToolForWorkflow(agentId, toolId, argsJson, null);
+    }
+
+    /** idempotencyKey 会作为 Idempotency-Key 传给 API 工具，重试/恢复时由下游去重。 */
+    public Map<String, Object> executeToolForWorkflow(Long agentId, Long toolId, String argsJson,
+                                                      String idempotencyKey) {
         ToolRegistry tool = toolMapper.findVisible(toolId, TenantContext.getTenantId());
         if (tool == null || !"ENABLED".equals(tool.getStatus())) {
             throw new IllegalArgumentException("工具不存在或未启用");
@@ -395,7 +404,13 @@ public class ToolRuntimeService {
         };
         if (callback == null) throw new IllegalArgumentException("暂不支持该工具类型");
         long start = System.currentTimeMillis();
-        String output = callback.call(argsJson == null || argsJson.isBlank() ? "{}" : argsJson);
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) this.idempotencyKey.set(idempotencyKey);
+        String output;
+        try {
+            output = callback.call(argsJson == null || argsJson.isBlank() ? "{}" : argsJson);
+        } finally {
+            this.idempotencyKey.remove();
+        }
         return Map.of("output", output == null ? "" : output,
                 "latencyMs", System.currentTimeMillis() - start,
                 "toolCalls", collector.events());
@@ -836,6 +851,11 @@ public class ToolRuntimeService {
             }
         } else {
             applyAuth(builder, decryptAuth(asMap(cfg.get("auth"))));
+        }
+        String idem = idempotencyKey.get();
+        if (idem != null && !idem.isBlank()
+                && headers.keySet().stream().noneMatch(k -> "idempotency-key".equalsIgnoreCase(k))) {
+            builder.header("Idempotency-Key", idem);
         }
         if (body != null) {
             if (headers.keySet().stream().noneMatch(k -> "content-type".equalsIgnoreCase(k))) {
