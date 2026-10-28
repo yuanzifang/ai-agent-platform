@@ -124,6 +124,19 @@
           </el-tag>
         </div>
       </div>
+      <div v-if="run?.checkpoints?.length" class="mt12">
+        <div class="hint">{{ t('approval.checkpoints') }}</div>
+        <div v-for="cp in run.checkpoints.slice(0, 8)" :key="cp.id" class="node-line">
+          <el-tag size="small">{{ cp.status }}</el-tag>
+          <span>{{ cp.nodeId || '-' }} → {{ cp.nextNodeId || '-' }}</span>
+          <span class="hint">{{ fmt(cp.createdAt) }}</span>
+        </div>
+      </div>
+      <div v-if="run?.status === 'FAILED'" class="mt12">
+        <el-button size="small" type="warning" :loading="runResuming" @click="resumeRun">
+          {{ t('approval.resume') }}
+        </el-button>
+      </div>
     </el-drawer>
   </div>
 </template>
@@ -148,6 +161,7 @@ const comment = ref('')
 const current = reactive<any>({})
 const runVisible = ref(false)
 const run = ref<any>(null)
+const runResuming = ref(false)
 const toolApprovals = ref<any[]>([])
 const toolLoading = ref(false)
 const toolTotal = ref(0)
@@ -226,6 +240,17 @@ async function decideTool(row: any, approve: boolean) {
 async function viewRun(row: any) {
   run.value = await http.get(`/workflow/runs/${row.runId}`) as any
   runVisible.value = true
+}
+
+async function resumeRun() {
+  if (!run.value?.id) return
+  runResuming.value = true
+  try {
+    run.value = await http.post(`/workflow/runs/${run.value.id}/resume`, {}) as any
+    ElMessage.success(t('approval.resumed'))
+  } finally {
+    runResuming.value = false
+  }
 }
 
 function statusText(s: string) {
