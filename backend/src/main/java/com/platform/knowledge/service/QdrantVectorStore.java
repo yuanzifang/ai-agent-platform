@@ -16,9 +16,11 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Qdrant 向量存储适配器（REST，无额外 SDK 依赖）。
@@ -43,6 +45,7 @@ public class QdrantVectorStore implements VectorStore {
     private String apiKey;
     @Value("${vector.qdrant.collection-prefix:aap}")
     private String collectionPrefix = "aap";
+    private final AtomicInteger urlCursor = new AtomicInteger();
 
     @Override
     public String provider() {
@@ -361,22 +364,46 @@ public class QdrantVectorStore implements VectorStore {
     }
 
     private JsonNode request(String method, String path, Object body) {
+        List<String> urls = Arrays.stream(baseUrl.split(","))
+                .map(String::trim).filter(value -> !value.isBlank()).toList();
+        if (urls.isEmpty()) throw new IllegalStateException("Qdrant URL 为空");
+        String payload;
         try {
-            HttpRequest.Builder builder = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl.replaceAll("/+$", "") + path))
-                    .timeout(Duration.ofSeconds(30))
-                    .header("Content-Type", "application/json");
-            if (apiKey != null && !apiKey.isBlank()) builder.header("api-key", apiKey);
-            HttpRequest request = builder.method(method, HttpRequest.BodyPublishers.ofString(
-                    objectMapper.writeValueAsString(body))).build();
-            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 300) {
-                throw new IllegalStateException("Qdrant " + response.statusCode() + ": " + response.body());
-            }
-            return objectMapper.readTree(response.body());
+            payload = objectMapper.writeValueAsString(body);
         } catch (Exception e) {
-            throw new IllegalStateException("Qdrant 请求失败 " + path + ": " + e.getMessage(), e);
+            throw new IllegalStateException("Qdrant 请求序列化失败 " + path, e);
         }
+        int start = Math.floorMod(urlCursor.getAndIncrement(), urls.size());
+        Exception last = null;
+        for (int i = 0; i < urls.size(); i++) {
+            String base = urls.get((start + i) % urls.size()).replaceAll("/+$", "");
+            try {
+                HttpRequest.Builder builder = HttpRequest.newBuilder()
+                        .uri(URI.create(base + path))
+                        .timeout(Duration.ofSeconds(30))
+                        .header("Content-Type", "application/json");
+                if (apiKey != null && !apiKey.isBlank()) builder.header("api-key", apiKey);
+                HttpRequest request = builder.method(method,
+                        HttpRequest.BodyPublishers.ofString(payload)).build();
+                HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() >= 300) {
+                    String message = "Qdrant " + response.statusCode() + ": " + response.body();
+                    if (response.statusCode() == 429 || response.statusCode() >= 500) {
+                        last = new IllegalStateException(message);
+                        continue;
+                    }
+                    throw new IllegalStateException(message);
+                }
+                return objectMapper.readTree(response.body());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Qdrant 请求被中断 " + path, e);
+            } catch (Exception e) {
+                last = e;
+            }
+        }
+        throw new IllegalStateException("Qdrant 请求失败 " + path + "（所有 URL 均不可用）: "
+                + (last == null ? "unknown" : last.getMessage()), last);
     }
 
     private String collection(Long tenantId, int dimensions) {

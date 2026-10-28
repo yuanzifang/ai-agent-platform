@@ -15,8 +15,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** 轻量 Elasticsearch 8 REST 客户端，避免为单个适配器引入额外 SDK。 */
 @Slf4j
@@ -44,6 +47,7 @@ public class ElasticsearchClient {
 
     private volatile boolean ready;
     private volatile String searchTarget;
+    private final AtomicInteger urlCursor = new AtomicInteger();
 
     public String index() {
         return index;
@@ -145,6 +149,11 @@ public class ElasticsearchClient {
         }
     }
 
+    /** 快照状态；由快照监控任务调用。 */
+    public JsonNode snapshots(String repo) {
+        return request("GET", "/_snapshot/" + repo + "/_all", null);
+    }
+
     public JsonNode search(Map<String, Object> body) {
         ensureIndex();
         String target = searchTarget == null ? index : searchTarget;
@@ -161,29 +170,53 @@ public class ElasticsearchClient {
     }
 
     private JsonNode request(String method, String path, Object body) {
+        List<String> urls = Arrays.stream(baseUrl.split(","))
+                .map(String::trim).filter(value -> !value.isBlank()).toList();
+        if (urls.isEmpty()) throw new IllegalStateException("ES URL 为空");
+        String payload;
         try {
-            HttpRequest.Builder builder = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl.replaceAll("/+$", "") + path))
-                    .timeout(Duration.ofSeconds(30))
-                    .header("Content-Type", "application/json");
-            if (apiKey != null && !apiKey.isBlank()) {
-                builder.header("Authorization", "ApiKey " + apiKey);
-            } else if (username != null && !username.isBlank()) {
-                String basic = Base64.getEncoder().encodeToString(
-                        (username + ":" + (password == null ? "" : password)).getBytes(StandardCharsets.UTF_8));
-                builder.header("Authorization", "Basic " + basic);
-            }
-            HttpRequest.BodyPublisher publisher = body == null
-                    ? HttpRequest.BodyPublishers.noBody()
-                    : HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body));
-            HttpRequest request = builder.method(method, publisher).build();
-            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 300) {
-                throw new IllegalStateException("ES " + response.statusCode() + ": " + response.body());
-            }
-            return objectMapper.readTree(response.body());
+            payload = body == null ? null : objectMapper.writeValueAsString(body);
         } catch (Exception e) {
-            throw new IllegalStateException("ES 请求失败 " + path + ": " + e.getMessage(), e);
+            throw new IllegalStateException("ES 请求序列化失败 " + path, e);
         }
+        int start = Math.floorMod(urlCursor.getAndIncrement(), urls.size());
+        Exception last = null;
+        for (int i = 0; i < urls.size(); i++) {
+            String base = urls.get((start + i) % urls.size()).replaceAll("/+$", "");
+            try {
+                HttpRequest.Builder builder = HttpRequest.newBuilder()
+                        .uri(URI.create(base + path))
+                        .timeout(Duration.ofSeconds(30))
+                        .header("Content-Type", "application/json");
+                if (apiKey != null && !apiKey.isBlank()) {
+                    builder.header("Authorization", "ApiKey " + apiKey);
+                } else if (username != null && !username.isBlank()) {
+                    String basic = Base64.getEncoder().encodeToString(
+                            (username + ":" + (password == null ? "" : password))
+                                    .getBytes(StandardCharsets.UTF_8));
+                    builder.header("Authorization", "Basic " + basic);
+                }
+                HttpRequest request = builder.method(method, payload == null
+                        ? HttpRequest.BodyPublishers.noBody()
+                        : HttpRequest.BodyPublishers.ofString(payload)).build();
+                HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() >= 300) {
+                    String message = "ES " + response.statusCode() + ": " + response.body();
+                    if (response.statusCode() == 429 || response.statusCode() >= 500) {
+                        last = new IllegalStateException(message);
+                        continue;
+                    }
+                    throw new IllegalStateException(message);
+                }
+                return objectMapper.readTree(response.body());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("ES 请求被中断 " + path, e);
+            } catch (Exception e) {
+                last = e;
+            }
+        }
+        throw new IllegalStateException("ES 请求失败 " + path + "（所有 URL 均不可用）: "
+                + (last == null ? "unknown" : last.getMessage()), last);
     }
 }

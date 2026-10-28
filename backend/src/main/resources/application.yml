@@ -235,6 +235,8 @@ search:
     index: ${ELASTICSEARCH_INDEX:aap_knowledge_chunks_v1}
     # 读别名；切换索引/重建时可原子指向新索引，写入仍走上面的具体索引
     alias: ${ELASTICSEARCH_ALIAS:aap_knowledge_chunks}
+    snapshot-repo: ${ES_SNAPSHOT_REPO:aap_local}
+    snapshot-metrics-interval-ms: ${ES_SNAPSHOT_METRICS_INTERVAL_MS:300000}
     api-key: ${ELASTICSEARCH_API_KEY:}
     username: ${ELASTICSEARCH_USERNAME:}
     password: ${ELASTICSEARCH_PASSWORD:}
