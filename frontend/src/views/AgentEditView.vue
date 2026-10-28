@@ -1024,6 +1024,17 @@
           {{ t('wf.nodes') }}
           {{ workflowRunResult.nodeRuns.map((x: any) => `${x.name || x.nodeId}(${x.status})`).join(' → ') }}
         </div>
+        <div v-if="workflowRunResult.checkpoints?.length" class="hint mt8">
+          {{ t('wf.checkpoints') }}
+          <div v-for="cp in workflowRunResult.checkpoints.slice(0, 8)" :key="cp.id">
+            {{ cp.nodeId || '-' }} → {{ cp.nextNodeId || '-' }} · {{ cp.status }} · {{ cp.createdAt }}
+          </div>
+        </div>
+        <div v-if="workflowRunResult.status === 'FAILED'" class="mt8">
+          <el-button size="small" type="warning" :loading="workflowResuming" @click="resumeWorkflow">
+            {{ t('wf.resume') }}
+          </el-button>
+        </div>
         <div v-if="workflowRunResult.nodeRuns?.length" class="wf-replay">
           <div class="wf-replay-bar">
             <el-button size="small" type="primary" plain @click="toggleReplay">
@@ -1114,6 +1125,15 @@
                 :title="t('deploy.publishedOnly')" class="mb8" />
       <el-alert v-if="!deployInfo.dockerAvailable" type="error" :closable="false"
                 :title="t('deploy.dockerMissing')" class="mb8" />
+      <div class="deploy-replicas">
+        <span>{{ t('deploy.resourceProfile') }}</span>
+        <el-select v-model="deployProfileId" size="small" style="width: 250px"
+                   :placeholder="t('deploy.resourceProfilePh')">
+          <el-option v-for="p in deployProfiles" :key="p.id" :value="p.id"
+                     :label="`${p.name} · ${p.cpuLimit}C / ${p.memoryLimit} · ${p.defaultReplicas}-${p.maxReplicas} 副本`" />
+        </el-select>
+        <span class="hint">{{ t('deploy.resourceProfileHint') }}</span>
+      </div>
       <template v-if="deployment">
         <el-descriptions :column="1" border size="small">
           <el-descriptions-item :label="t('deploy.status')">
@@ -1149,7 +1169,7 @@
                   :title="deployment.lastError" class="mt8" />
         <div class="deploy-replicas">
           <span>{{ t('deploy.replicas') }}</span>
-          <el-input-number v-model="deployReplicas" :min="1" :max="5" size="small" />
+          <el-input-number v-model="deployReplicas" :min="1" :max="deployMaxReplicas" size="small" />
           <span class="hint">{{ t('deploy.replicasHint') }}</span>
         </div>
         <el-table v-if="(deployment.replicas || []).length > 1" :data="deployment.replicas" size="small" class="mt8">
@@ -1319,6 +1339,14 @@ const runtimeToken = ref('')
 const runtimeKeys = ref<any[]>([])
 const runtimeStats = ref<any>({ callers: [] })
 const deployReplicas = ref(1)
+const deployProfileId = ref<number | null>(null)
+const deployProfiles = ref<any[]>([])
+const selectedDeployProfile = computed(() =>
+  deployProfiles.value.find((p: any) => p.id === deployProfileId.value))
+const deployMaxReplicas = computed(() => selectedDeployProfile.value?.maxReplicas || 5)
+watch(deployMaxReplicas, (max) => {
+  if (deployReplicas.value > max) deployReplicas.value = max
+})
 const runtimeKeyDialogVisible = ref(false)
 const runtimeKeySaving = ref(false)
 const runtimeKeyForm = reactive({ id: 0, name: '', dailyQuota: 0 })
@@ -1453,6 +1481,7 @@ const workflowVisible = ref(false)
 const workflowConfigured = ref(false)
 const workflowSaving = ref(false)
 const workflowRunning = ref(false)
+const workflowResuming = ref(false)
 const wfAddType = ref('LLM')
 const wfTypes = [
   { label: t('wf.typeLlm'), value: 'LLM' },
@@ -1958,14 +1987,24 @@ async function openDeploy() {
   await refreshDeploy()
 }
 
+async function loadDeployProfiles() {
+  try {
+    deployProfiles.value = await http.get('/deploy-resource-profiles') as any || []
+  } catch {
+    deployProfiles.value = []
+  }
+}
+
 async function refreshDeploy() {
   try {
+    if (!deployProfiles.value.length) await loadDeployProfiles()
     const data = await http.get(`/agent/${agentId}/deployment`) as any
     deployInfo.dockerAvailable = !!data.dockerAvailable
     deployInfo.dockerVersion = data.dockerVersion || ''
     deployInfo.image = data.image || ''
     deployment.value = data.deployment || null
     deployReplicas.value = deployment.value?.replicaCount || 1
+    deployProfileId.value = deployment.value?.deployProfileId || deployProfiles.value[0]?.id || null
     runtimeToken.value = ''
     if (deployment.value?.hasToken) {
       try {
@@ -1988,7 +2027,9 @@ async function doDeploy() {
   }
   deploying.value = true
   try {
-    deployment.value = await http.post(`/agent/${agentId}/deployment`, { replicas: deployReplicas.value }) as any
+    deployment.value = await http.post(`/agent/${agentId}/deployment`, {
+      replicas: deployReplicas.value, deployProfileId: deployProfileId.value
+    }) as any
     await refreshDeploy()
     ElMessage.success(t('deploy.ok'))
   } finally {
@@ -2119,7 +2160,9 @@ async function applyRuntimeKeys() {
   if (deployment.value) {
     deploying.value = true
     try {
-      deployment.value = await http.post(`/agent/${agentId}/deployment`, { replicas: deployReplicas.value }) as any
+      deployment.value = await http.post(`/agent/${agentId}/deployment`, {
+        replicas: deployReplicas.value, deployProfileId: deployProfileId.value
+      }) as any
       await refreshDeploy()
       ElMessage.success(t('deploy.keySynced'))
     } finally {
@@ -2133,7 +2176,9 @@ async function applyRuntimeKeys() {
 
 async function rotateDeployToken() {
   await ElMessageBox.confirm(t('deploy.rotateConfirm'), t('deploy.rotateToken'), { type: 'warning' })
-  deployment.value = await http.post(`/agent/${agentId}/deployment/token/rotate`, { replicas: deployReplicas.value }) as any
+  deployment.value = await http.post(`/agent/${agentId}/deployment/token/rotate`, {
+    replicas: deployReplicas.value, deployProfileId: deployProfileId.value
+  }) as any
   await refreshDeploy()
   ElMessage.success(t('deploy.rotated'))
 }
@@ -3182,6 +3227,18 @@ async function rollbackWorkflow(version: string) {
   ensureWorkflowPositions()
   workflowPublishedVersion.value = data.publishedVersion || ''
   workflowHasUnpublishedChanges.value = !!data.hasUnpublishedChanges
+}
+
+async function resumeWorkflow() {
+  if (!workflowRunResult.value?.id) return
+  workflowResuming.value = true
+  try {
+    await http.post(`/workflow/runs/${workflowRunResult.value.id}/resume`, {})
+    workflowRunResult.value = await http.get(`/workflow/runs/${workflowRunResult.value.id}`) as any
+    ElMessage.success(t('wf.resumed'))
+  } finally {
+    workflowResuming.value = false
+  }
 }
 
 async function runWorkflow() {
