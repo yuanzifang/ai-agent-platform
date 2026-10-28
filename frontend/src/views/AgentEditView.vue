@@ -102,6 +102,10 @@
                 <el-input-number v-model="form.capabilities.maxToolCalls" :min="0" :max="100" />
                 <span class="hint">{{ t('agentEdit.maxToolCallsHint') }}</span>
               </el-form-item>
+              <el-form-item :label="t('agentEdit.maxInputValidationAttempts')">
+                <el-input-number v-model="form.capabilities.maxInputValidationAttempts" :min="1" :max="20" />
+                <span class="hint">{{ t('agentEdit.maxInputValidationHint') }}</span>
+              </el-form-item>
               <el-form-item :label="t('agentEdit.redactSecrets')">
                 <el-switch v-model="form.capabilities.redactSecrets" />
                 <span class="hint">{{ t('agentEdit.redactSecretsHint') }}</span>
@@ -1320,7 +1324,7 @@ const form = reactive({
   thinking: false, reasoningEffort: 'medium',
   systemPrompt: '', openingStatement: '',
   capabilities: { streamOutput: true, functionCall: false, maxToolCalls: 0, redactSecrets: true,
-    multimodal: false, selfCorrection: false,
+    maxInputValidationAttempts: 3, multimodal: false, selfCorrection: false,
     selfCorrectionRounds: 1, writeToolPolicy: 'ALLOW_ALL', allowedWriteToolIds: [] as number[], writeToolMaxArgs: 16384 },
   memory: { enabled: true, windowSize: 10, autoExtract: true },
   variables: [] as VariableRow[],
@@ -1560,6 +1564,8 @@ onMounted(async () => {
   form.capabilities = { ...caps, streamOutput: caps.streamOutput !== false, functionCall: !!caps.functionCall,
     maxToolCalls: Number.isFinite(Number(caps.maxToolCalls)) ? Number(caps.maxToolCalls) : 0,
     redactSecrets: caps.redactSecrets !== false,
+    maxInputValidationAttempts: Number.isFinite(Number(caps.maxInputValidationAttempts))
+      ? Number(caps.maxInputValidationAttempts) : 3,
     multimodal: !!caps.multimodal, selfCorrection: !!caps.selfCorrection,
     selfCorrectionRounds: caps.selfCorrectionRounds ?? 1,
     writeToolPolicy: caps.writeToolPolicy || 'ALLOW_ALL',

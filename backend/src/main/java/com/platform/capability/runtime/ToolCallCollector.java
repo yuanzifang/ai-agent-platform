@@ -27,6 +27,7 @@ public class ToolCallCollector {
     private final Consumer<ToolCallStart> startListener;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private final Map<String, AtomicInteger> validationFailures = new ConcurrentHashMap<>();
+    private volatile Integer inputValidationMaxAttempts;
 
     public ToolCallCollector() {
         this(null, null);
@@ -76,6 +77,15 @@ public class ToolCallCollector {
     /** 同一轮对话内按工具累计入参校验失败次数，供模型纠正参数并设置重试上限。 */
     public int recordValidationFailure(String toolKey) {
         return validationFailures.computeIfAbsent(toolKey, k -> new AtomicInteger()).incrementAndGet();
+    }
+
+    public void setInputValidationMaxAttempts(Integer value) {
+        if (value == null) return;
+        this.inputValidationMaxAttempts = Math.max(1, Math.min(value, 20));
+    }
+
+    public int inputValidationMaxAttempts(int fallback) {
+        return inputValidationMaxAttempts == null ? Math.max(1, fallback) : inputValidationMaxAttempts;
     }
 
     public List<ToolCallEvent> events() {

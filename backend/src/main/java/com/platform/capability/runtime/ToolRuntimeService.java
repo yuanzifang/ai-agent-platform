@@ -143,6 +143,18 @@ public class ToolRuntimeService {
         if (tenantId == null) return RuntimeTools.empty();
 
         Map<String, Object> caps = asMap(config == null ? null : config.get("agentCapabilities"));
+        if (depth == 0) {
+            Object maxAttempts = caps.get("maxInputValidationAttempts");
+            if (maxAttempts instanceof Number number) {
+                collector.setInputValidationMaxAttempts(number.intValue());
+            } else if (maxAttempts != null) {
+                try {
+                    collector.setInputValidationMaxAttempts(Integer.parseInt(String.valueOf(maxAttempts)));
+                } catch (NumberFormatException ignored) {
+                    // 使用全局默认
+                }
+            }
+        }
         boolean functionCall = Boolean.TRUE.equals(caps.get("functionCall"))
                 || "true".equals(String.valueOf(caps.get("functionCall")));
         boolean hasTools = functionCall && depth < MAX_SUB_AGENT_DEPTH + 1;
@@ -1249,7 +1261,7 @@ public class ToolRuntimeService {
         ToolInputValidator.Result result = inputValidator.validate(schema, args);
         if (result.valid()) return null;
         int attempt = collector.recordValidationFailure(toolKey);
-        int limit = Math.max(1, maxInputValidationAttempts);
+        int limit = collector.inputValidationMaxAttempts(maxInputValidationAttempts);
         boolean retryable = attempt < limit;
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("ok", false);
@@ -1277,7 +1289,7 @@ public class ToolRuntimeService {
     private String invalidJson(String toolKey, String displayName, String type,
                                ToolCallCollector collector, String toolInput) {
         int attempt = collector.recordValidationFailure(toolKey);
-        int limit = Math.max(1, maxInputValidationAttempts);
+        int limit = collector.inputValidationMaxAttempts(maxInputValidationAttempts);
         boolean retryable = attempt < limit;
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("ok", false);
