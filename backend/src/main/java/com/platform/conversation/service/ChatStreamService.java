@@ -369,7 +369,7 @@ public class ChatStreamService {
         String[] selfCorrectionOriginal = {null};
         String[] selfCorrectionIssues = {null};
         liveState.start(conv.getId(), traceId);
-        checkpointService.save(conv.getId(), traceId, "RUNNING", "", null, 0, 0, citations);
+        checkpointService.save(tenantId, conv.getId(), traceId, "RUNNING", "", null, 0, 0, citations);
         ScheduledFuture<?> heartbeat = heartbeatScheduler.scheduleAtFixedRate(() -> {
             try {
                 liveState.touch(conv.getId(), traceId);
@@ -480,7 +480,7 @@ public class ChatStreamService {
                     usageExtras[0], usageExtras[1], usageExtras[2], source);
             liveState.finish(conv.getId(), traceId, ai.getContent(), ai.getStatus(), ai.getId(),
                     tokens[0], tokens[1], citations);
-            checkpointService.save(conv.getId(), traceId, ai.getStatus(), ai.getContent(), ai.getId(),
+            checkpointService.save(tenantId, conv.getId(), traceId, ai.getStatus(), ai.getContent(), ai.getId(),
                     tokens[0], tokens[1], citations);
             heartbeat.cancel(false);
             if (!outputBlocked[0]) {
@@ -528,7 +528,7 @@ public class ChatStreamService {
                             lastLiveWrite[0] = now;
                         }
                         if (now - lastCheckpointWrite[0] > 2000) {
-                            checkpointService.save(conv.getId(), traceId, "RUNNING", acc.toString(),
+                            checkpointService.save(tenantId, conv.getId(), traceId, "RUNNING", acc.toString(),
                                     null, tokens[0], tokens[1], citations);
                             lastCheckpointWrite[0] = now;
                         }
@@ -564,7 +564,7 @@ public class ChatStreamService {
                                         usageExtras[0], usageExtras[1], usageExtras[2], source);
                                 liveState.finish(conv.getId(), traceId, acc.toString(), "STOPPED", ai.getId(),
                                         tokens[0], tokens[1], citations);
-                                checkpointService.save(conv.getId(), traceId, "STOPPED", acc.toString(),
+                                checkpointService.save(tenantId, conv.getId(), traceId, "STOPPED", acc.toString(),
                                         ai.getId(), tokens[0], tokens[1], citations);
                                 traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                                         conv.getAgentId(), conv.getUserId(), agent.getName(), "STOPPED",
@@ -594,7 +594,7 @@ public class ChatStreamService {
                                 "AUTO_ERROR", "生成失败：" + err.getMessage(), traceId, conv.getUserId());
                         liveState.finish(conv.getId(), traceId, acc.toString(), "ERROR", ai.getId(),
                                 tokens[0], tokens[1], citations);
-                        checkpointService.save(conv.getId(), traceId, "ERROR", acc.toString(), ai.getId(),
+                        checkpointService.save(tenantId, conv.getId(), traceId, "ERROR", acc.toString(), ai.getId(),
                                 tokens[0], tokens[1], citations);
                         traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                                 conv.getAgentId(), conv.getUserId(), agent.getName(), "ERROR",
@@ -651,7 +651,7 @@ public class ChatStreamService {
                             usageExtras[0], usageExtras[1], usageExtras[2], source);
                     liveState.finish(conv.getId(), traceId, acc.toString(), "STOPPED", ai.getId(),
                             tokens[0], tokens[1], citations);
-                    checkpointService.save(conv.getId(), traceId, "STOPPED", acc.toString(), ai.getId(),
+                    checkpointService.save(tenantId, conv.getId(), traceId, "STOPPED", acc.toString(), ai.getId(),
                             tokens[0], tokens[1], citations);
                     traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                             conv.getAgentId(), conv.getUserId(), agent.getName(), "STOPPED",
