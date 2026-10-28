@@ -163,9 +163,10 @@
             </el-form-item>
             <div v-if="kbRows.length === 0" class="hint">{{ t('agentEdit.noKb') }}</div>
             <div v-for="kb in kbRows" :key="kb.knowledgeBaseId" class="kb-row">
-              <el-switch v-model="kb.enabled" :disabled="kb.missing" />
+              <el-switch v-model="kb.enabled" :disabled="kb.missing || !kbCompatible(kb)" />
               <div class="kb-name">{{ kb.name }}</div>
               <el-tag v-if="kb.missing" size="small" type="danger">{{ t('agentEdit.invalid') }}</el-tag>
+              <el-tag v-else-if="!kbCompatible(kb)" size="small" type="warning">{{ t('agentEdit.resourceMismatch') }}</el-tag>
               <div class="kb-params" v-if="kb.enabled">
                 {{ t('agentEdit.mode') }}
                 <el-select v-model="kb.mode" size="small" style="width: 100px">
@@ -1320,6 +1321,13 @@ const tagsStr = ref('')
 const writeToolPatternsText = ref('')
 const writeToolAmountLimitsText = ref('')
 const enabledKbCount = computed(() => kbRows.value.filter(k => k.enabled).length)
+const selectedProfile = computed(() => resourceProfiles.value.find((p: any) => p.id === form.resourceProfileId))
+function kbCompatible(kb: KbRow) {
+  const p = selectedProfile.value
+  if (!p) return true
+  return (kb.searchBackend || 'MYSQL') === p.searchBackend
+    && (kb.vectorBackend || 'PGVECTOR') === p.vectorBackend
+}
 
 /** 模型能力（capabilities 可能是 JSON 字符串）：决定是否允许开启思考、以及可选思考级别 */
 function modelCaps(m: any): Record<string, any> {
@@ -1354,7 +1362,8 @@ const sectionOptions = ['abstract', 'introduction', 'methods', 'results', 'discu
 interface KbRow {
   knowledgeBaseId: number; name: string; enabled: boolean; topK: number; scoreThreshold: number; mode: string
   documentType?: string; sectionType?: string; regulatoryCategory?: string
-  chunkLevel?: number; minRelevance?: number; defaultTopK?: number; maxTopK?: number; missing?: boolean
+  chunkLevel?: number; minRelevance?: number; defaultTopK?: number; maxTopK?: number
+  searchBackend?: string; vectorBackend?: string; missing?: boolean
 }
 interface RefRow { id: number; name: string; description?: string; type?: string; isBuiltin?: boolean; enabled: boolean; missing?: boolean }
 type RefType = 'skill' | 'tool' | 'sub'
@@ -1566,6 +1575,7 @@ onMounted(async () => {
       enabled: b ? b.enabled !== false : false,
       topK: rc.topK ?? kb.defaultTopK ?? 5, scoreThreshold: rc.scoreThreshold ?? 0.5, mode: rc.mode || 'hybrid',
       defaultTopK: kb.defaultTopK ?? 5, maxTopK: kb.maxTopK ?? 20,
+      searchBackend: kb.searchBackend || 'MYSQL', vectorBackend: kb.vectorBackend || 'PGVECTOR',
       documentType: rc.documentType || undefined, sectionType: rc.sectionType || undefined,
       regulatoryCategory: rc.regulatoryCategory || undefined, chunkLevel: rc.chunkLevel,
       minRelevance: rc.minRelevance

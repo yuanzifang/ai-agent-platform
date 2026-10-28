@@ -8,6 +8,13 @@ import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.IOException;
+import java.net.Socket;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.sql.Connection;
+import java.sql.DriverManager;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -59,6 +66,63 @@ public class PlatformInfraConfigService {
         out.put("esPasswordSet", has(env.getProperty("search.es.password")));
         out.put("qdrantApiKeySet", has(env.getProperty("vector.qdrant.api-key")));
         return out;
+    }
+
+    /** 保存前预检；返回每个组件的连接结果，不写配置。 */
+    public Map<String, Object> test(Map<String, Object> req) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("mysql", testJdbc(value(req, "mysqlUrl"), value(req, "mysqlUsername"),
+                secret(req, "mysqlPassword", "spring.datasource.password"), "MySQL"));
+        result.put("pg", testJdbc(value(req, "pgUrl"), value(req, "pgUsername"),
+                secret(req, "pgPassword", "pgvector.password"), "PostgreSQL"));
+        result.put("redis", testTcp(value(req, "redisHost"), value(req, "redisPort")));
+        result.put("minio", testHttp(value(req, "minioEndpoint") + "/minio/health/live", null, null));
+        result.put("es", testHttp(value(req, "esUrl") + "/_cluster/health", null, null));
+        result.put("qdrant", testHttp(value(req, "qdrantUrl") + "/collections", null, null));
+        return result;
+    }
+
+    private Map<String, Object> testJdbc(String url, String username, String password, String label) {
+        if (url == null || url.isBlank()) return Map.of("ok", false, "message", label + " URL 为空");
+        try {
+            DriverManager.setLoginTimeout(5);
+            try (Connection ignored = DriverManager.getConnection(url, username, password)) {
+                return Map.of("ok", true, "message", label + " 连接成功");
+            }
+        } catch (Exception e) {
+            return Map.of("ok", false, "message", label + " 连接失败：" + root(e));
+        }
+    }
+
+    private Map<String, Object> testTcp(String host, String port) {
+        try (Socket socket = new Socket()) {
+            socket.connect(new java.net.InetSocketAddress(host,
+                    Integer.parseInt(port == null || port.isBlank() ? "6379" : port)), 3000);
+            return Map.of("ok", true, "message", "Redis 端口可达");
+        } catch (Exception e) {
+            return Map.of("ok", false, "message", "Redis 连接失败：" + root(e));
+        }
+    }
+
+    private Map<String, Object> testHttp(String url, String apiKey, String basic) {
+        if (url == null || url.isBlank()) return Map.of("ok", false, "message", "URL 为空");
+        try {
+            HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(java.time.Duration.ofSeconds(5)).GET();
+            if (apiKey != null && !apiKey.isBlank()) b.header("Authorization", "ApiKey " + apiKey);
+            HttpResponse<String> r = HttpClient.newHttpClient().send(b.build(),
+                    HttpResponse.BodyHandlers.ofString());
+            boolean ok = r.statusCode() >= 200 && r.statusCode() < 400;
+            return Map.of("ok", ok, "message", "HTTP " + r.statusCode());
+        } catch (Exception e) {
+            return Map.of("ok", false, "message", "连接失败：" + root(e));
+        }
+    }
+
+    private String root(Exception e) {
+        Throwable t = e;
+        while (t.getCause() != null) t = t.getCause();
+        return t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
     }
 
     public synchronized Map<String, Object> save(Map<String, Object> req) {
@@ -120,6 +184,10 @@ public class PlatformInfraConfigService {
             Path path = Path.of(configPath());
             Files.createDirectories(path.getParent());
             Path tmp = path.resolveSibling(path.getFileName() + ".tmp");
+            Path backup = path.resolveSibling(path.getFileName() + ".bak");
+            if (Files.isRegularFile(path)) {
+                Files.copy(path, backup, StandardCopyOption.REPLACE_EXISTING);
+            }
             DumperOptions options = new DumperOptions();
             options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
             Files.writeString(tmp, new Yaml(options).dump(yaml));
