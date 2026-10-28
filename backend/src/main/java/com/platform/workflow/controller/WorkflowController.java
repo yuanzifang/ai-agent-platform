@@ -107,8 +107,9 @@ public class WorkflowController {
     @PostMapping("/workflow/runs/{runId}/resume")
     @PreAuthorize("hasAuthority('agent:edit')")
     public ApiResponse<Map<String, Object>> resume(@PathVariable Long runId,
+                                                   @RequestParam(defaultValue = "false") boolean allowSideEffects,
                                                    @AuthenticationPrincipal JwtPrincipal principal) {
-        return ApiResponse.ok(workflowService.resume(runId, principal));
+        return ApiResponse.ok(workflowService.resume(runId, principal, allowSideEffects));
     }
 
     @GetMapping("/workflow/approvals")

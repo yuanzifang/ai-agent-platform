@@ -88,6 +88,7 @@ public class ChatStreamService {
     private final com.platform.system.service.AuditService auditService;
     private final StreamRegistryService streamRegistry;
     private final ChatLiveStateService liveState;
+    private final ChatCheckpointService checkpointService;
     private final com.platform.agent.service.UserMemoryService userMemoryService;
     private final SelfCorrectionService selfCorrectionService;
     private final MemoryExtractionService memoryExtractionService;
@@ -362,11 +363,13 @@ public class ChatStreamService {
         long[] tokens = {0, 0};
         long[] usageExtras = {0, 0, 0}; // cachedInput, cacheWrite, reasoning
         long[] lastLiveWrite = {0};
+        long[] lastCheckpointWrite = {0};
         StringBuilder pendingModeration = new StringBuilder();
         boolean[] outputBlocked = {false};
         String[] selfCorrectionOriginal = {null};
         String[] selfCorrectionIssues = {null};
         liveState.start(conv.getId(), traceId);
+        checkpointService.save(conv.getId(), traceId, "RUNNING", "", null, 0, 0, citations);
         ScheduledFuture<?> heartbeat = heartbeatScheduler.scheduleAtFixedRate(() -> {
             try {
                 liveState.touch(conv.getId(), traceId);
@@ -477,6 +480,8 @@ public class ChatStreamService {
                     usageExtras[0], usageExtras[1], usageExtras[2], source);
             liveState.finish(conv.getId(), traceId, ai.getContent(), ai.getStatus(), ai.getId(),
                     tokens[0], tokens[1], citations);
+            checkpointService.save(conv.getId(), traceId, ai.getStatus(), ai.getContent(), ai.getId(),
+                    tokens[0], tokens[1], citations);
             heartbeat.cancel(false);
             if (!outputBlocked[0]) {
                 moderationService.moderate("OUT", acc.toString(), conv.getId(), ai.getId());
@@ -522,6 +527,11 @@ public class ChatStreamService {
                             liveState.running(conv.getId(), traceId, acc.toString(), tokens[0], tokens[1]);
                             lastLiveWrite[0] = now;
                         }
+                        if (now - lastCheckpointWrite[0] > 2000) {
+                            checkpointService.save(conv.getId(), traceId, "RUNNING", acc.toString(),
+                                    null, tokens[0], tokens[1], citations);
+                            lastCheckpointWrite[0] = now;
+                        }
                     }
                     if (resp.getMetadata() != null && resp.getMetadata().getUsage() != null) {
                         var m = com.platform.model.service.UsageMetrics.of(resp.getMetadata().getUsage());
@@ -554,6 +564,8 @@ public class ChatStreamService {
                                         usageExtras[0], usageExtras[1], usageExtras[2], source);
                                 liveState.finish(conv.getId(), traceId, acc.toString(), "STOPPED", ai.getId(),
                                         tokens[0], tokens[1], citations);
+                                checkpointService.save(conv.getId(), traceId, "STOPPED", acc.toString(),
+                                        ai.getId(), tokens[0], tokens[1], citations);
                                 traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                                         conv.getAgentId(), conv.getUserId(), agent.getName(), "STOPPED",
                                         modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
@@ -581,6 +593,8 @@ public class ChatStreamService {
                                 ai.getId(), userMsg.getContent(), ai.getContent(), null, "BAD",
                                 "AUTO_ERROR", "生成失败：" + err.getMessage(), traceId, conv.getUserId());
                         liveState.finish(conv.getId(), traceId, acc.toString(), "ERROR", ai.getId(),
+                                tokens[0], tokens[1], citations);
+                        checkpointService.save(conv.getId(), traceId, "ERROR", acc.toString(), ai.getId(),
                                 tokens[0], tokens[1], citations);
                         traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                                 conv.getAgentId(), conv.getUserId(), agent.getName(), "ERROR",
@@ -636,6 +650,8 @@ public class ChatStreamService {
                     recordUsage(tenantId, conv.getAgentId(), conv.getUserId(), usedModel.get(), tokens[0], tokens[1],
                             usageExtras[0], usageExtras[1], usageExtras[2], source);
                     liveState.finish(conv.getId(), traceId, acc.toString(), "STOPPED", ai.getId(),
+                            tokens[0], tokens[1], citations);
+                    checkpointService.save(conv.getId(), traceId, "STOPPED", acc.toString(), ai.getId(),
                             tokens[0], tokens[1], citations);
                     traceService.record(tenantId, traceId, conv.getId(), conv.getSessionId(),
                             conv.getAgentId(), conv.getUserId(), agent.getName(), "STOPPED",
@@ -872,6 +888,32 @@ public class ChatStreamService {
                 while (System.currentTimeMillis() < deadline) {
                     ChatLiveStateService.LiveState state = liveState.get(conversationId);
                     if (state == null) {
+                        com.platform.conversation.entity.ChatCheckpoint checkpoint =
+                                checkpointService.get(conversationId);
+                        if (checkpoint != null) {
+                            String content = checkpoint.getContent() == null ? "" : checkpoint.getContent();
+                            int safeCursor = Math.min(cursor, content.length());
+                            Map<String, Object> meta = new LinkedHashMap<>();
+                            meta.put("conversationId", conversationId);
+                            meta.put("traceId", checkpoint.getTraceId());
+                            meta.put("resumed", true);
+                            meta.put("source", "checkpoint");
+                            sendOrThrow(emitter, "meta", meta);
+                            if (content.length() > safeCursor) {
+                                sendOrThrow(emitter, "delta", Map.of("content", content.substring(safeCursor)));
+                            }
+                            String status = "RUNNING".equalsIgnoreCase(checkpoint.getStatus())
+                                    ? "UNKNOWN" : checkpoint.getStatus();
+                            Map<String, Object> done = new LinkedHashMap<>();
+                            done.put("traceId", checkpoint.getTraceId());
+                            done.put("status", status);
+                            done.put("messageId", checkpoint.getMessageId());
+                            done.put("usage", Map.of("inputTokens", checkpoint.getInputTokens() == null ? 0 : checkpoint.getInputTokens(),
+                                    "outputTokens", checkpoint.getOutputTokens() == null ? 0 : checkpoint.getOutputTokens()));
+                            sendOrThrow(emitter, "done", done);
+                            emitter.complete();
+                            return;
+                        }
                         if (System.currentTimeMillis() - missingSince > 5000) {
                             Map<String, Object> done = new LinkedHashMap<>();
                             done.put("status", "UNKNOWN");

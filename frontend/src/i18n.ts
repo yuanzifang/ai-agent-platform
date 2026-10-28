@@ -59,7 +59,8 @@ const messages = {
       approveTitle: '通过审批', rejectTitle: '拒绝审批', item: '审批事项', comment: '审批意见',
       commentApprovePh: '可选，如：同意退款', commentRejectPh: '必填，如：金额超限，转人工',
       cancel: '取消', confirmApprove: '确认通过', confirmReject: '确认拒绝',
-      runDetail: '运行详情', checkpoints: 'Checkpoints', resume: '恢复运行', resumed: '运行已恢复', runId: '运行 ID', currentNode: '当前节点', input: '输入', output: '输出',
+      runDetail: '运行详情', checkpoints: 'Checkpoints', resume: '恢复运行', resumed: '运行已恢复',
+      resumeTitle: '确认恢复运行', resumeConfirm: '当前节点可能产生外部副作用，确认允许恢复并可能重复执行？', runId: '运行 ID', currentNode: '当前节点', input: '输入', output: '输出',
       track: '节点轨迹', rejectReason: '拒绝时请填写原因', approvedToast: '已通过，运行状态：', rejectedToast: '已拒绝'
     },
     tpl: {
@@ -763,6 +764,7 @@ const messages = {
       runTest: '运行测试', runInputPh: '输入测试内容', runHint: '运行优先使用已发布版本；未发布时使用当前草稿。',
       run: '运行', waitingApproval: '待审批，去审批箱处理', status: '状态：', currentNode: ' · 当前节点：',
       checkpoints: 'Checkpoints', resume: '从失败 checkpoint 恢复', resumed: '已从 checkpoint 恢复运行',
+      resumeTitle: '确认恢复运行', resumeConfirm: '当前节点可能产生外部副作用（工具/Agent/Handoff），确认允许恢复并可能重复执行？',
       nodes: '节点：', close: '关闭', saveWorkflow: '保存工作流', versionTitle: '工作流版本',
       noVersions: '暂无已发布版本', versionCol: '版本', name: '名称', publishedAt: '发布时间',
       compare: '对比', rollback: '回滚', templateTitle: '工作流模板', templateCol: '模板',
@@ -1039,7 +1041,8 @@ const messages = {
       approveTitle: 'Approve', rejectTitle: 'Reject', item: 'Approval', comment: 'Comment',
       commentApprovePh: 'Optional, e.g. approved', commentRejectPh: 'Required, e.g. amount exceeds limit',
       cancel: 'Cancel', confirmApprove: 'Confirm approve', confirmReject: 'Confirm reject',
-      runDetail: 'Run details', checkpoints: 'Checkpoints', resume: 'Resume run', resumed: 'Run resumed', runId: 'Run ID', currentNode: 'Current node', input: 'Input', output: 'Output',
+      runDetail: 'Run details', checkpoints: 'Checkpoints', resume: 'Resume run', resumed: 'Run resumed',
+      resumeTitle: 'Confirm resume', resumeConfirm: 'The current node may cause external side effects. Allow resume and possible duplicate execution?', runId: 'Run ID', currentNode: 'Current node', input: 'Input', output: 'Output',
       track: 'Node timeline', rejectReason: 'Please provide a rejection reason', approvedToast: 'Approved, run status: ', rejectedToast: 'Rejected'
     },
     tpl: {
@@ -1747,6 +1750,7 @@ const messages = {
       runTest: 'Run test', runInputPh: 'Test input', runHint: 'Runs the published version first; otherwise the draft.',
       run: 'Run', waitingApproval: 'Waiting for approval; open Approvals', status: 'Status: ', currentNode: ' · Current node: ',
       checkpoints: 'Checkpoints', resume: 'Resume from failed checkpoint', resumed: 'Workflow resumed from checkpoint',
+      resumeTitle: 'Confirm resume', resumeConfirm: 'The current node may cause external side effects (tool/agent/handoff). Allow resume and possible duplicate execution?',
       nodes: 'Nodes: ', close: 'Close', saveWorkflow: 'Save workflow', versionTitle: 'Workflow versions',
       noVersions: 'No published versions', versionCol: 'Version', name: 'Name', publishedAt: 'Published',
       compare: 'Compare', rollback: 'Rollback', templateTitle: 'Workflow templates', templateCol: 'Template',

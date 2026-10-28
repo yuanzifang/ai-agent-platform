@@ -3232,9 +3232,14 @@ async function rollbackWorkflow(version: string) {
 
 async function resumeWorkflow() {
   if (!workflowRunResult.value?.id) return
+  try {
+    await ElMessageBox.confirm(t('wf.resumeConfirm'), t('wf.resumeTitle'), { type: 'warning' })
+  } catch {
+    return
+  }
   workflowResuming.value = true
   try {
-    await http.post(`/workflow/runs/${workflowRunResult.value.id}/resume`, {})
+    await http.post(`/workflow/runs/${workflowRunResult.value.id}/resume?allowSideEffects=true`, {})
     workflowRunResult.value = await http.get(`/workflow/runs/${workflowRunResult.value.id}`) as any
     ElMessage.success(t('wf.resumed'))
   } finally {
