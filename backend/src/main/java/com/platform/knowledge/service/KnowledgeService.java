@@ -36,6 +36,11 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
+import okhttp3.Dns;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -50,9 +55,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
@@ -826,46 +829,55 @@ public class KnowledgeService {
     private Fetched fetch(String url, int depth) throws Exception {
         if (depth > 3) throw new BusinessException(400, "URL 重定向次数过多");
         networkPolicy.validatePublicHttpUrl(url, "URL");
-        HttpClient client = HttpClient.newBuilder()
+        OkHttpClient client = new OkHttpClient.Builder()
                 .connectTimeout(Duration.ofSeconds(10))
-                .followRedirects(HttpClient.Redirect.NEVER)
+                .readTimeout(Duration.ofSeconds(20))
+                .callTimeout(Duration.ofSeconds(20))
+                // 禁止代理绕过 Dns 校验（需要代理时另行做受控出口）
+                .proxy(java.net.Proxy.NO_PROXY)
+                .followRedirects(false)
+                .followSslRedirects(false)
+                // 关键：DNS 在真正建连前再校验一次，阻断校验后 DNS 改指向内网的 rebinding。
+                .dns(hostname -> {
+                    try {
+                        return networkPolicy.resolvePublicHost(hostname);
+                    } catch (BusinessException e) {
+                        throw new UnknownHostException(e.getMessage());
+                    }
+                })
                 .build();
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofSeconds(20))
+        Request request = new Request.Builder().url(url)
                 .header("User-Agent", "AI-Agent-Platform/1.0")
                 .header("Accept", "text/html,text/plain,application/pdf,application/json,text/csv;q=0.9,*/*;q=0.1")
-                .GET().build();
-        // 使用流式响应，避免在检查大小前把超大文件完整读入内存（诚实的 Content-Length 仅作快速失败）。
-        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
-        int status = response.statusCode();
-        if (status >= 300 && status < 400) {
-            closeQuietly(response.body());
-            String location = response.headers().firstValue("location").orElse(null);
-            if (location == null || location.isBlank()) {
-                throw new BusinessException(502, "URL 返回重定向但缺少 Location");
+                .get().build();
+        // 流式读取，避免检查大小前把超大文件完整读入内存。
+        try (Response response = client.newCall(request).execute()) {
+            int status = response.code();
+            if (status >= 300 && status < 400) {
+                String location = response.header("Location");
+                if (location == null || location.isBlank()) {
+                    throw new BusinessException(502, "URL 返回重定向但缺少 Location");
+                }
+                String next = URI.create(url).resolve(location).toString();
+                return fetch(next, depth + 1);
             }
-            String next = URI.create(url).resolve(location).toString();
-            return fetch(next, depth + 1);
-        }
-        if (status < 200 || status >= 300) {
-            closeQuietly(response.body());
-            throw new BusinessException(502, "URL 抓取失败：HTTP " + status);
-        }
-        long contentLength = response.headers().firstValueAsLong("content-length").orElse(-1);
-        if (contentLength > importMaxBytes) {
-            closeQuietly(response.body());
-            throw tooLarge();
-        }
-        String contentType = response.headers().firstValue("content-type")
-                .orElse("text/html").toLowerCase().split(";")[0].trim();
-        if (!(contentType.startsWith("text/") || contentType.equals("application/pdf")
-                || contentType.equals("application/json")
-                || contentType.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document"))) {
-            closeQuietly(response.body());
-            throw new BusinessException(400, "URL 内容类型不支持：" + contentType);
-        }
-        try (InputStream body = response.body()) {
-            return new Fetched(readBounded(body), contentType, url);
+            if (status < 200 || status >= 300) {
+                throw new BusinessException(502, "URL 抓取失败：HTTP " + status);
+            }
+            ResponseBody responseBody = response.body();
+            long contentLength = responseBody == null ? -1 : responseBody.contentLength();
+            if (contentLength > importMaxBytes) throw tooLarge();
+            String contentType = response.header("Content-Type", "text/html")
+                    .toLowerCase().split(";")[0].trim();
+            if (!(contentType.startsWith("text/") || contentType.equals("application/pdf")
+                    || contentType.equals("application/json")
+                    || contentType.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document"))) {
+                throw new BusinessException(400, "URL 内容类型不支持：" + contentType);
+            }
+            if (responseBody == null) throw new BusinessException(502, "URL 响应体为空");
+            try (InputStream body = responseBody.byteStream()) {
+                return new Fetched(readBounded(body), contentType, url);
+            }
         }
     }
 
@@ -887,14 +899,6 @@ public class KnowledgeService {
     private BusinessException tooLarge() {
         return new BusinessException(413,
                 "URL 内容超过 " + (importMaxBytes / 1024 / 1024) + "MB 限制");
-    }
-
-    private void closeQuietly(InputStream body) {
-        if (body == null) return;
-        try {
-            body.close();
-        } catch (Exception ignored) {
-        }
     }
 
     private String fileNameFor(String url, String contentType) {

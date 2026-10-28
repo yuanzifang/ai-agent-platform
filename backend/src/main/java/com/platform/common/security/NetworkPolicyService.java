@@ -55,16 +55,25 @@ public class NetworkPolicyService {
         }
         if (allowPrivate) return;
 
+        resolvePublicHost(host);
+    }
+
+    /** URL 抓取器在真正建立连接前调用的 DNS 钉扎：所有解析结果必须是公网地址。 */
+    public List<InetAddress> resolvePublicHost(String host) {
+        if (host == null || host.isBlank()) throw new BusinessException(400, "缺少主机名");
         try {
-            for (InetAddress address : InetAddress.getAllByName(host)) {
+            List<InetAddress> addresses = Arrays.asList(InetAddress.getAllByName(host));
+            if (addresses.isEmpty()) throw new BusinessException(400, "域名解析为空：" + host);
+            for (InetAddress address : addresses) {
                 if (isPrivate(address)) {
-                    throw new BusinessException(400, label + "不允许访问内网/环回/链路本地地址：" + host);
+                    throw new BusinessException(400, "不允许访问内网/环回/链路本地地址：" + host);
                 }
             }
+            return addresses;
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new BusinessException(400, label + "域名解析失败：" + host);
+            throw new BusinessException(400, "域名解析失败：" + host);
         }
     }
 
