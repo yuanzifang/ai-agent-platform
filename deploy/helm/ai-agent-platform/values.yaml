@@ -121,6 +121,7 @@ config:
   # 入站 /internal/alertmanager 共享 token；生产建议设置
   alertWebhookInternalToken: ""
   alertWebhookEnv: "prod"
+  alertRelayBaseUrl: ""
   alertWebhookType: "auto"
   alertEmailEnabled: "false"
   alertEmailFrom: ""
@@ -172,6 +173,7 @@ secrets:
   smtpPassword: ""
   alertSmsAccessKeyId: ""
   alertSmsAccessKeySecret: ""
+  alertRelayAckToken: ""
 
 # 可选：把平台基础设施配置以只读 Secret 挂载到 /app/config/application-platform.yml。
 # Secret 必须包含 key: application-platform.yml（建议使用平台页导出的加密文件）。

@@ -36,6 +36,7 @@ const router = createRouter({
         { path: 'observability/:agentId?', component: () => import('../views/ObservabilityView.vue') },
         { path: 'metrics/:agentId?', component: () => import('../views/MetricsView.vue') },
         { path: 'audit', component: () => import('../views/AuditView.vue') },
+        { path: 'alert-ack', component: () => import('../views/AlertAckView.vue') },
         { path: 'admin/settings', component: () => import('../views/SysConfigView.vue') },
         { path: 'admin/infrastructure', component: () => import('../views/InfraConfigView.vue') },
         { path: 'admin/i18n', component: () => import('../views/I18nAdminView.vue') },

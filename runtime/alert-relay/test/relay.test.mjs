@@ -4,6 +4,7 @@ import http from 'node:http'
 import net from 'node:net'
 import crypto from 'node:crypto'
 import { spawn } from 'node:child_process'
+import Redis from 'ioredis'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -317,4 +318,50 @@ test('升级状态文件可跨 relay 重启恢复', async (t) => {
   })
   await new Promise(r => setTimeout(r, 450))
   assert.ok(receiver.requests.length >= 2, '重启后应恢复待升级定时器')
+})
+
+
+test('多副本共享 Redis 状态：B 能看到并 ACK A 的待升级告警', async (t) => {
+  const redisUrl = process.env.ALERT_RELAY_TEST_REDIS_URL
+  if (!redisUrl) {
+    t.skip('未设置 ALERT_RELAY_TEST_REDIS_URL')
+    return
+  }
+  const receiver = await startReceiver()
+  const prefix = `relay-test-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  const redis = new Redis(redisUrl)
+  t.after(async () => {
+    try {
+      const keys = await redis.keys(`${prefix}*`)
+      if (keys.length) await redis.del(...keys)
+      await redis.quit()
+    } catch {}
+  })
+  const env = {
+    ALERT_WEBHOOK_URL: `http://127.0.0.1:${receiver.port}/hook`,
+    ALERT_RELAY_CRITICAL_CHANNELS: 'webhook',
+    ALERT_ESCALATION_CHANNELS: 'webhook',
+    ALERT_ESCALATION_DELAY_SECONDS: '0.35',
+    ALERT_RELAY_REDIS_URL: redisUrl,
+    ALERT_RELAY_REDIS_PREFIX: prefix
+  }
+  const a = await startRelay(env)
+  const b = await startRelay(env)
+  t.after(() => { a.child.kill('SIGTERM'); b.child.kill('SIGTERM'); receiver.server.close() })
+  const firing = structuredClone(payload)
+  firing.alerts[0].fingerprint = 'shared-alert'
+  await fetch(`http://127.0.0.1:${a.port}/alertmanager?route=critical`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(firing)
+  })
+  await new Promise(r => setTimeout(r, 120))
+  const state = await (await fetch(`http://127.0.0.1:${b.port}/state`)).json()
+  assert.equal(state.sharedState, true)
+  assert.ok(state.pending.some(p => p.fingerprint === 'shared-alert'), 'B 应看到 A 写入的 pending')
+  const ack = await fetch(`http://127.0.0.1:${b.port}/ack`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fingerprint: 'shared-alert' })
+  })
+  assert.equal(ack.status, 200)
+  await new Promise(r => setTimeout(r, 500))
+  assert.equal(receiver.requests.length, 1, 'ACK 后两个副本都不应再升级')
 })

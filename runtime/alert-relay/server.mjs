@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import nodemailer from 'nodemailer'
+import Redis from 'ioredis'
 
 /**
  * Alertmanager → 多通道告警中继（零业务依赖，邮件使用 nodemailer）：
@@ -63,6 +64,13 @@ const ESCALATION_SEVERITIES = csv('ALERT_ESCALATION_SEVERITIES', 'critical')
 const ESCALATION_DELAY_SECONDS = Math.max(0, Number(process.env.ALERT_ESCALATION_DELAY_SECONDS || 0))
 const STATE_FILE = process.env.ALERT_RELAY_STATE_FILE || ''
 const ACK_TOKEN = process.env.ALERT_RELAY_ACK_TOKEN || ''
+const INSTANCE_ID = crypto.randomUUID().slice(0, 8)
+const REDIS_PREFIX = process.env.ALERT_RELAY_REDIS_PREFIX || 'alert-relay'
+const REDIS_PENDING_KEY = `${REDIS_PREFIX}:pending`
+const REDIS_ACKED_KEY = `${REDIS_PREFIX}:acked`
+const REDIS_LOCK_PREFIX = `${REDIS_PREFIX}:lock:`
+const REDIS_LOCK_SECONDS = Math.max(30, Number(process.env.ALERT_RELAY_REDIS_LOCK_SECONDS || 300))
+let redis = null
 const escalationTimers = new Map()
 const pendingEscalations = new Map()
 const acked = new Set()
@@ -266,6 +274,99 @@ function alertKey(alert) {
   return `${labels.alertname || 'unknown'}|${labels.instance || ''}|${alert?.startsAt || ''}`
 }
 
+function redisUrl() {
+  if (process.env.ALERT_RELAY_REDIS_URL) return process.env.ALERT_RELAY_REDIS_URL
+  const host = process.env.REDIS_HOST || ''
+  if (!host) return ''
+  const port = process.env.REDIS_PORT || '6379'
+  const db = process.env.REDIS_DB || '0'
+  const pass = process.env.REDIS_PASSWORD
+    ? `:${encodeURIComponent(process.env.REDIS_PASSWORD)}@` : ''
+  return `redis://${pass}${host}:${port}/${db}`
+}
+
+async function initRedis() {
+  const url = redisUrl()
+  if (!url) return
+  try {
+    redis = new Redis(url, { lazyConnect: true, maxRetriesPerRequest: 1, connectTimeout: 2000 })
+    await redis.connect()
+    await redis.ping()
+    console.log(JSON.stringify({ msg: 'alert relay redis connected', prefix: REDIS_PREFIX }))
+  } catch (error) {
+    console.error('alert relay redis unavailable, fallback to local state:', error.message)
+    try { redis?.disconnect() } catch {}
+    redis = null
+  }
+}
+
+async function redisPendingMap() {
+  if (!redis) return null
+  const raw = await redis.hgetall(REDIS_PENDING_KEY)
+  const map = new Map()
+  for (const [key, value] of Object.entries(raw || {})) {
+    try { map.set(key, JSON.parse(value)) } catch {}
+  }
+  return map
+}
+
+async function syncFromRedis() {
+  if (!redis) return
+  const remote = await redisPendingMap()
+  if (!remote) return
+  for (const [key, entry] of remote) {
+    if (!pendingEscalations.has(key)) {
+      pendingEscalations.set(key, entry)
+      armEscalation(entry)
+    }
+  }
+  for (const key of [...pendingEscalations.keys()]) {
+    if (!remote.has(key)) {
+      const timer = escalationTimers.get(key)
+      if (timer) clearTimeout(timer)
+      escalationTimers.delete(key)
+      pendingEscalations.delete(key)
+    }
+  }
+  const remoteAcked = await redis.smembers(REDIS_ACKED_KEY)
+  acked.clear()
+  for (const key of remoteAcked) acked.add(key)
+}
+
+async function redisPutPending(entry) {
+  if (!redis) return
+  try { await redis.hset(REDIS_PENDING_KEY, entry.key, JSON.stringify(entry)) } catch (e) {
+    console.error('alert relay redis pending write failed:', e.message)
+  }
+}
+
+async function redisDeletePending(key) {
+  if (!redis) return 0
+  try { return await redis.hdel(REDIS_PENDING_KEY, key) } catch { return 0 }
+}
+
+async function redisAck(key) {
+  if (!redis) return false
+  try {
+    const n = await redis.hdel(REDIS_PENDING_KEY, key)
+    if (n > 0) await redis.sadd(REDIS_ACKED_KEY, key)
+    return n > 0
+  } catch (e) {
+    console.error('alert relay redis ack failed:', e.message)
+    return false
+  }
+}
+
+async function redisResolve(key) {
+  if (!redis) return
+  try {
+    await redis.hdel(REDIS_PENDING_KEY, key)
+    await redis.srem(REDIS_ACKED_KEY, key)
+  } catch (e) {
+    console.error('alert relay redis resolve failed:', e.message)
+  }
+}
+
 function persistState() {
   if (!STATE_FILE) return
   try {
@@ -300,9 +401,22 @@ function loadState() {
 async function fireEscalation(key) {
   const entry = pendingEscalations.get(key)
   if (!entry) return
+  if (redis) {
+    try {
+      const claimed = await redis.set(`${REDIS_LOCK_PREFIX}${key}`, INSTANCE_ID,
+        'NX', 'EX', REDIS_LOCK_SECONDS)
+      if (!claimed) return
+      const raw = await redis.hget(REDIS_PENDING_KEY, key)
+      if (!raw) return
+    } catch (e) {
+      console.error('alert relay escalation claim failed:', e.message)
+      return
+    }
+  }
   pendingEscalations.delete(key)
   escalationTimers.delete(key)
   persistState()
+  await redisDeletePending(key)
   const results = await sendChannels(entry.alert, entry.text, entry.channels || ESCALATION_CHANNELS)
   console.log(JSON.stringify({ msg: 'alert escalated', key, severity: entry.alert?.labels?.severity, results }))
 }
@@ -330,6 +444,7 @@ function scheduleEscalation(alert, text) {
   }
   pendingEscalations.set(key, entry)
   persistState()
+  void redisPutPending(entry)
   armEscalation(entry)
 }
 
@@ -341,17 +456,20 @@ function cancelEscalation(alert) {
   pendingEscalations.delete(key)
   acked.delete(key)
   persistState()
+  void redisResolve(key)
 }
 
-function acknowledge(key) {
+async function acknowledge(key) {
   const known = pendingEscalations.has(key) || acked.has(key)
+  const remoteKnown = redis ? await redisAck(key) : false
+  if (!known && !remoteKnown) return false
   const timer = escalationTimers.get(key)
   if (timer) clearTimeout(timer)
   escalationTimers.delete(key)
   pendingEscalations.delete(key)
   acked.add(key)
   persistState()
-  return known
+  return true
 }
 
 function ackTokenOk(req) {
@@ -408,11 +526,26 @@ const server = http.createServer(async (req, res) => {
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
       const key = String(body.fingerprint || url.searchParams.get('fingerprint') || '')
       if (!key) { send(400, { error: 'fingerprint required' }); return }
-      const known = acknowledge(key)
+      const known = await acknowledge(key)
       send(known ? 200 : 404, { acked: known, fingerprint: key })
     } catch {
       send(400, { error: 'invalid json' })
     }
+    return
+  }
+  if (url.pathname === '/state' && req.method === 'GET') {
+    if (!ackTokenOk(req)) { send(401, { error: 'invalid ack token' }); return }
+    try { await syncFromRedis() } catch (e) { console.error('alert relay state sync failed:', e.message) }
+    const pending = [...pendingEscalations.values()].map(e => ({
+      fingerprint: e.key, dueAt: e.dueAt, alert: e.alert, channels: e.channels
+    }))
+    send(200, {
+      pending,
+      acked: [...acked],
+      sharedState: Boolean(redis),
+      instanceId: INSTANCE_ID,
+      escalation: { seconds: ESCALATION_DELAY_SECONDS, channels: ESCALATION_CHANNELS }
+    })
     return
   }
   if (url.pathname !== '/alertmanager' || req.method !== 'POST') {
@@ -464,7 +597,12 @@ const server = http.createServer(async (req, res) => {
   }
 })
 
+await initRedis()
 loadState()
+if (redis) {
+  try { await syncFromRedis() } catch (e) { console.error('alert relay initial sync failed:', e.message) }
+  setInterval(() => { syncFromRedis().catch(e => console.error('alert relay sync failed:', e.message)) }, 2000).unref?.()
+}
 
 server.listen(PORT, '0.0.0.0', () => {
   for (const entry of pendingEscalations.values()) armEscalation(entry)
@@ -481,6 +619,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => {
     for (const timer of escalationTimers.values()) clearTimeout(timer)
     persistState()
+    try { redis?.disconnect() } catch {}
     server.closeAllConnections?.()
     server.close(() => process.exit(0))
   })

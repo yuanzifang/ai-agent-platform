@@ -168,6 +168,8 @@ services:
       ALERT_SMS_SIGN_NAME: ${ALERT_SMS_SIGN_NAME:-}
       ALERT_SMS_TEMPLATE_CODE: ${ALERT_SMS_TEMPLATE_CODE:-}
       ALERT_SMS_PHONE_NUMBERS: ${ALERT_SMS_PHONE_NUMBERS:-}
+      ALERT_RELAY_BASE_URL: ${ALERT_RELAY_BASE_URL:-http://alert-relay:8080}
+      ALERT_RELAY_ACK_TOKEN: ${ALERT_RELAY_ACK_TOKEN:-}
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
       APP_ENV: ${APP_ENV:-development}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
@@ -236,8 +238,16 @@ services:
       ALERT_ESCALATION_SEVERITIES: ${ALERT_ESCALATION_SEVERITIES:-critical}
       ALERT_RELAY_STATE_FILE: /data/alert-relay-state.json
       ALERT_RELAY_ACK_TOKEN: ${ALERT_RELAY_ACK_TOKEN:-}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      REDIS_DB: "0"
+      ALERT_RELAY_REDIS_PREFIX: ${ALERT_RELAY_REDIS_PREFIX:-alert-relay}
     volumes:
       - alert-relay-state:/data
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
       interval: 15s
