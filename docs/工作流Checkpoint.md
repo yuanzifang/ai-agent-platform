@@ -38,6 +38,18 @@ GET /api/v1/workflow/runs/{runId}
 
 `runDetail` 的 `checkpoints` 字段返回历史检查点。
 
+## 自动恢复（默认关闭）
+
+```env
+WORKFLOW_AUTO_RESUME_ENABLED=true
+WORKFLOW_AUTO_RESUME_MAX_ATTEMPTS=2
+```
+
+- 每 60 秒扫描 `FAILED` 运行
+- 只恢复非副作用节点；工具/Agent/Handoff 节点仍会拒绝
+- 失败 Checkpoint 次数超过上限后跳过
+- 默认关闭，必须显式开启
+
 ## 边界
 
 - 当前只支持失败运行继续，不支持任意历史 checkpoint 回滚
