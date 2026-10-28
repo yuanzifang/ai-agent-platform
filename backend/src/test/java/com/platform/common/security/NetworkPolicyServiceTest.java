@@ -38,6 +38,14 @@ class NetworkPolicyServiceTest {
     }
 
     @Test
+    void resolvePublicHostBlocksPrivateAddress() {
+        NetworkPolicyService service = new NetworkPolicyService();
+        ReflectionTestUtils.setField(service, "allowedHosts", "");
+        assertThrows(BusinessException.class, () -> service.resolvePublicHost("127.0.0.1"));
+        assertThrows(BusinessException.class, () -> service.resolvePublicHost("localhost"));
+    }
+
+    @Test
     void blocksPrivateWhenDisabled() {
         NetworkPolicyService service = new NetworkPolicyService();
         ReflectionTestUtils.setField(service, "allowPrivate", false);

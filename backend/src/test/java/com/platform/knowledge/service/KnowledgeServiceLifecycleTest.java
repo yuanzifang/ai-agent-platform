@@ -84,6 +84,7 @@ class KnowledgeServiceLifecycleTest {
     private AgentRegistryMapper agentRegistryMapper;
     private AuditService auditService;
     private CryptoService cryptoService;
+    private NetworkPolicyService networkPolicy;
     private KnowledgeService service;
     private KnowledgeBase kb;
     private HttpServer httpServer;
@@ -114,6 +115,7 @@ class KnowledgeServiceLifecycleTest {
         agentRegistryMapper = mock(AgentRegistryMapper.class);
         auditService = mock(AuditService.class);
         cryptoService = mock(CryptoService.class);
+        networkPolicy = mock(NetworkPolicyService.class);
         KnowledgeParseConfigResolver resolver = mock(KnowledgeParseConfigResolver.class);
         when(resolver.resolve(any(), any())).thenReturn(ParseOptions.defaults(
                 false, "tesseract", "chi_sim+eng", 150, 20, false, "", "", 3));
@@ -123,7 +125,7 @@ class KnowledgeServiceLifecycleTest {
                 storage, embeddingService, vectorRepository, mock(HybridRetrievalService.class),
                 parser, resolver, mock(ImageUnderstandingService.class),
                 graphService, new ObjectMapper(), permissionService, userMapper,
-                agentKbMapper, agentRegistryMapper, auditService, mock(NetworkPolicyService.class),
+                agentKbMapper, agentRegistryMapper, auditService, networkPolicy,
                 cryptoService);
 
         TenantContext.setTenantId(9L);
@@ -646,6 +648,17 @@ class KnowledgeServiceLifecycleTest {
         ArgumentCaptor<byte[]> body = ArgumentCaptor.forClass(byte[].class);
         verify(storage).put(anyString(), body.capture(), eq("text/plain"));
         assertArrayEquals(payload, body.getValue());
+    }
+
+    @Test
+    void importUrlBlocksDnsResolutionAfterInitialValidation() throws Exception {
+        String publicLookingUrl = serve(new byte[]{'o', 'k'}, 2, "text/plain")
+                .replace("127.0.0.1", "localhost");
+        when(networkPolicy.resolvePublicHost("localhost"))
+                .thenThrow(new BusinessException(400, "DNS 重绑定到内网"));
+
+        assertThrows(BusinessException.class, () -> service.importUrl(1L, publicLookingUrl, viewer));
+        verify(storage, never()).put(anyString(), any(byte[].class), anyString());
     }
 
     private String serve(byte[] payload, long declaredLength, String contentType) throws Exception {
