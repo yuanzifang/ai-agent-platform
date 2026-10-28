@@ -29,6 +29,7 @@ public class SearchOutboxStatusService {
 
     private final AtomicLong pending = new AtomicLong();
     private final AtomicLong failed = new AtomicLong();
+    private final AtomicLong locked = new AtomicLong();
     private final AtomicLong oldestPendingSeconds = new AtomicLong();
     private final AtomicInteger available = new AtomicInteger();
 
@@ -39,6 +40,9 @@ public class SearchOutboxStatusService {
                 .register(meterRegistry);
         Gauge.builder("knowledge_search_outbox_failed", failed, AtomicLong::get)
                 .description("已终止失败的 ES 搜索 outbox 数量")
+                .register(meterRegistry);
+        Gauge.builder("knowledge_search_outbox_locked", locked, AtomicLong::get)
+                .description("当前被 worker 认领且锁未过期的 outbox 数量")
                 .register(meterRegistry);
         Gauge.builder("knowledge_search_outbox_oldest_pending_seconds",
                         oldestPendingSeconds, AtomicLong::get)
@@ -56,6 +60,7 @@ public class SearchOutboxStatusService {
         if (Boolean.TRUE.equals(current.get("ok"))) {
             pending.set(asLong(current.get("pending")));
             failed.set(asLong(current.get("failed")));
+            locked.set(asLong(current.get("locked")));
             oldestPendingSeconds.set(asLong(current.get("oldestPendingAgeSeconds")));
             available.set(1);
         } else {
@@ -70,6 +75,9 @@ public class SearchOutboxStatusService {
                     "SELECT count(*) FROM knowledge_search_outbox WHERE status='PENDING'", Long.class);
             Long failedCount = mysqlJdbcTemplate.queryForObject(
                     "SELECT count(*) FROM knowledge_search_outbox WHERE status='FAILED'", Long.class);
+            Long lockedCount = mysqlJdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM knowledge_search_outbox WHERE status='PENDING' "
+                            + "AND locked_by IS NOT NULL AND locked_until > NOW()", Long.class);
             Long done = mysqlJdbcTemplate.queryForObject(
                     "SELECT count(*) FROM knowledge_search_outbox WHERE status='DONE'", Long.class);
             Object oldest = mysqlJdbcTemplate.queryForObject(
@@ -77,6 +85,7 @@ public class SearchOutboxStatusService {
                     Object.class);
             out.put("pending", pendingCount == null ? 0 : pendingCount);
             out.put("failed", failedCount == null ? 0 : failedCount);
+            out.put("locked", lockedCount == null ? 0 : lockedCount);
             out.put("done", done == null ? 0 : done);
             out.put("oldestPendingAt", oldest == null ? null : String.valueOf(oldest));
             out.put("oldestPendingAgeSeconds", oldest == null ? 0L : ageSeconds(oldest));
@@ -86,6 +95,18 @@ public class SearchOutboxStatusService {
             out.put("error", e.getMessage());
         }
         return out;
+    }
+
+    /** 将终止失败的任务重新入队；返回重新入队数量。 */
+    public int retryFailed() {
+        int retried = mysqlJdbcTemplate.update("""
+                UPDATE knowledge_search_outbox
+                SET status='PENDING', attempts=0, available_at=NOW(), locked_by=NULL,
+                    locked_until=NULL, last_error=NULL, updated_at=NOW()
+                WHERE status='FAILED'
+                """);
+        refresh();
+        return retried;
     }
 
     private long asLong(Object value) {

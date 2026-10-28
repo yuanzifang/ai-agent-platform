@@ -28,7 +28,12 @@
       <div class="outbox-row">
         <span>{{ t('infraPage.outboxPending') }} <b>{{ outbox.pending ?? 0 }}</b></span>
         <span>{{ t('infraPage.outboxFailed') }} <b>{{ outbox.failed ?? 0 }}</b></span>
+        <span>{{ t('infraPage.outboxLocked') }} <b>{{ outbox.locked ?? 0 }}</b></span>
         <span>{{ t('infraPage.outboxOldest') }} <b>{{ outbox.oldestPendingAt || '-' }}</b></span>
+        <el-button v-if="(outbox.failed ?? 0) > 0" size="small" type="warning" plain
+                   :loading="retryingOutbox" @click="retryOutboxFailed">
+          {{ t('infraPage.outboxRetryFailed') }}
+        </el-button>
       </div>
     </el-card>
 
@@ -236,6 +241,7 @@ const saving = ref(false)
 const testing = ref(false)
 const testResults = ref<any>(null)
 const outbox = ref<any>(null)
+const retryingOutbox = ref(false)
 const configFile = ref('')
 const testRows = reactive<any[]>([])
 const maskHint = reactive({
@@ -369,6 +375,17 @@ async function removeDeployProfile(row: any) {
 
 async function loadOutbox() {
   try { outbox.value = await http.get('/platform/infrastructure/search-outbox') as any } catch { outbox.value = null }
+}
+
+async function retryOutboxFailed() {
+  retryingOutbox.value = true
+  try {
+    const data = await http.post('/platform/infrastructure/search-outbox/retry-failed') as any
+    ElMessage.success(t('infraPage.outboxRetried', { count: data.retried ?? 0 }))
+    await loadOutbox()
+  } finally {
+    retryingOutbox.value = false
+  }
 }
 
 async function testConnections() {
