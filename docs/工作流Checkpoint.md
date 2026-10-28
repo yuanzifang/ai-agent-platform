@@ -4,7 +4,7 @@
 
 ## 机制
 
-每次工作流节点完成、进入 END、失败或等待审批时，写入 `workflow_checkpoint`：
+每次工作流节点完成、进入 END、失败，或进入审批/并行审批/循环超限等待时，写入 `workflow_checkpoint`：
 
 - runId / tenantId
 - 已完成节点 `nodeId`
