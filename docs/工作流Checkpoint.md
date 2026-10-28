@@ -51,6 +51,10 @@ WORKFLOW_AUTO_RESUME_MAX_ATTEMPTS=2
 - 失败 Checkpoint 次数超过上限后跳过
 - 默认关闭，必须显式开启
 
+## 保留策略
+
+Checkpoint 默认保留 30 天，每 6 小时清理一次；workflow 每个 run 至少保留最新一条。详见 `docs/Checkpoint保留策略.md`。
+
 ## 边界
 
 - 当前只支持失败运行继续，不支持任意历史 checkpoint 回滚
