@@ -52,8 +52,7 @@ public class HookedToolCallback implements ToolCallback {
             hooks.afterTool(context, e.getMessage(), status);
             throw e;
         }
-        hooks.afterTool(context, output, status);
-        return output;
+        return hooks.afterTool(context, output, status);
     }
 
     private static String escape(String text) {

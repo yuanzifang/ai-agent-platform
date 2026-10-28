@@ -28,13 +28,16 @@ public class AgentHookRegistry {
         return AgentHook.Decision.allow();
     }
 
-    public void afterTool(AgentHook.ToolContext context, String output, String status) {
+    public String afterTool(AgentHook.ToolContext context, String output, String status) {
+        String current = output;
         for (AgentHook hook : hooks) {
             try {
-                hook.afterTool(context, output, status);
+                String next = hook.afterTool(context, current, status);
+                if (next != null) current = next;
             } catch (Exception e) {
-                log.warn("AgentHook[{}] afterTool 异常，忽略：{}", hook.name(), e.getMessage());
+                log.warn("AgentHook[{}] afterTool 异常，保留当前输出：{}", hook.name(), e.getMessage());
             }
         }
+        return current;
     }
 }
