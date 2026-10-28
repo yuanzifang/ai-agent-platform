@@ -27,6 +27,7 @@ data:
   ALERT_WEBHOOK_SECRET: {{ .Values.config.alertWebhookSecret | quote }}
   ALERT_WEBHOOK_INTERNAL_TOKEN: {{ .Values.config.alertWebhookInternalToken | quote }}
   ALERT_WEBHOOK_ENV: {{ .Values.config.alertWebhookEnv | quote }}
+  METRICS_SCRAPE_TOKEN: {{ .Values.config.metricsScrapeToken | quote }}
   API_DOCS_ENABLED: {{ .Values.config.apiDocsEnabled | quote }}
   APP_PUBLIC_BASE: {{ .Values.config.publicBase | quote }}
   APP_FRONTEND_BASE: {{ .Values.config.frontendBase | quote }}

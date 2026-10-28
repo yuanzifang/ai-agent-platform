@@ -121,6 +121,8 @@ config:
   # 入站 /internal/alertmanager 共享 token；生产建议设置
   alertWebhookInternalToken: ""
   alertWebhookEnv: "prod"
+  # /actuator/prometheus 抓取 token；空=兼容旧部署
+  metricsScrapeToken: ""
   apiDocsEnabled: "false"
   toolAllowedHosts: ""
   # 生产必须改为对外域名（OAuth 回调 / 前端跳转）

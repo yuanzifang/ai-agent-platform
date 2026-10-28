@@ -418,3 +418,8 @@ chat:
   stream:
     # 流式快照心跳超过该阈值仍为 RUNNING，resume 判定生产实例已宕机
     stale-ms: ${CHAT_STREAM_STALE_MS:30000}
+
+metrics:
+  scrape:
+    # 可选：/actuator/prometheus 抓取 token；空=兼容旧部署，生产建议设置
+    token: ${METRICS_SCRAPE_TOKEN:}
