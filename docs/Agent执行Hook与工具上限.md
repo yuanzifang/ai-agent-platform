@@ -48,4 +48,23 @@ AGENT_TOOL_MAX_CALLS_PER_TURN=0
 - 工具结果脱敏
 - 调用审计与指标
 
-当前只落地了工具调用上限，其余作为后续可插拔策略。
+## 已实现：工具输出敏感信息脱敏
+
+`SecretRedactionHook` 默认开启，在工具输出回给模型前脱敏：
+
+- OpenAI/DeepSeek 风格 `sk-...`
+- GitHub token `ghp_...`
+- AWS access key `AKIA...`
+- `Bearer ...`
+- JWT
+- PEM 私钥
+
+配置：
+
+```env
+AGENT_HOOK_REDACT_SECRETS_ENABLED=true
+```
+
+`0` 条规则外的正常输出保持不变；需要关闭时设置 `false`。
+
+当前已落地工具调用上限和敏感信息脱敏，其余作为后续可插拔策略。

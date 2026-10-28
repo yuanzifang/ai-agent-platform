@@ -25,6 +25,8 @@ public interface AgentHook {
         return Decision.allow();
     }
 
-    default void afterTool(ToolContext context, String output, String status) {
+    /** 返回可被后续 Hook 继续处理的输出；默认原样返回。 */
+    default String afterTool(ToolContext context, String output, String status) {
+        return output;
     }
 }
