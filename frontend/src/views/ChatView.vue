@@ -101,6 +101,10 @@
               <el-button size="small" text @click="copyMessage(m)">{{ t('chatPage.copy') }}</el-button>
               <el-button size="small" text @click="openCaseDialog(m)">{{ t('chatPage.saveCase') }}</el-button>
               <el-button v-if="isLastAssistant(m)" size="small" text @click="regenerate(m)">{{ t('chatPage.regenerate') }}</el-button>
+              <el-button v-if="isLastAssistant(m) && canContinueCheckpoint(m)" size="small" text
+                         :loading="continuingCheckpoint" @click="continueCheckpoint(m)">
+                {{ continuingCheckpoint ? t('chatPage.continuingCheckpoint') : t('chatPage.continueCheckpoint') }}
+              </el-button>
             </div>
           </div>
         </div>
@@ -229,6 +233,7 @@ const messages = ref<ChatMessage[]>([])
 const input = ref('')
 const attachments = ref<Attachment[]>([])
 const streaming = ref(false)
+const continuingCheckpoint = ref(false)
 const recording = ref(false)
 const shareVisible = ref(false)
 const shareUrl = ref('')
@@ -342,7 +347,7 @@ function variableLabel(def: any): string {
 
 async function send() {
   const text = input.value.trim()
-  if (!text || !conversationId.value || streaming.value) return
+  if (!text || !conversationId.value || streaming.value || continuingCheckpoint.value) return
   if (missingVariables().length) {
     pendingSend.value = { text }
     variablesVisible.value = true
@@ -401,7 +406,7 @@ function askSuggestion(question: string) {
 }
 
 async function regenerate(m: ChatMessage) {
-  if (!conversationId.value || !m.id || streaming.value) return
+  if (!conversationId.value || !m.id || streaming.value || continuingCheckpoint.value) return
   const pending: ChatMessage = { role: 'ASSISTANT', content: '', streaming: true, citations: [] }
   messages.value.push(pending)
   await streamCall(`/conversations/${conversationId.value}/messages/${m.id}/regenerate`, {}, pending)
@@ -811,6 +816,31 @@ async function transcribe() {
 function isLastAssistant(m: ChatMessage) {
   const assistants = messages.value.filter(x => x.role === 'ASSISTANT' && !x.streaming)
   return assistants.length > 0 && assistants[assistants.length - 1] === m
+}
+
+function canContinueCheckpoint(m: ChatMessage) {
+  if (streaming.value) return false
+  return ['STOPPED', 'ERROR', 'RUNNING'].includes(m.status || '') || (!!m.content && !m.id)
+}
+
+/** 从最近持久化 checkpoint 非流式补全，优先更新原助手消息。 */
+async function continueCheckpoint(m: ChatMessage) {
+  if (!conversationId.value || streaming.value || continuingCheckpoint.value) return
+  continuingCheckpoint.value = true
+  try {
+    const data = await http.post(`/conversations/${conversationId.value}/checkpoint/continue`, {}) as any
+    if (data?.content) m.content = data.content
+    if (data?.messageId) m.id = data.messageId
+    m.status = data?.status || 'SUCCESS'
+    ElMessage.success(t('chatPage.checkpointContinued'))
+    await loadSessions()
+    scrollToBottom()
+  } catch (e: any) {
+    // http 拦截器已展示后端错误，这里只保留日志
+    console.warn('checkpoint continue failed', e?.message)
+  } finally {
+    continuingCheckpoint.value = false
+  }
 }
 
 function scrollToBottom() {

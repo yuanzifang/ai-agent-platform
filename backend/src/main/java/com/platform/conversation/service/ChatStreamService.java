@@ -877,7 +877,7 @@ public class ChatStreamService {
 
     /**
      * 从对话 checkpoint 继续生成：非流式、best-effort。
-     * 用于 Redis live state 丢失且 checkpoint 只包含部分内容的场景；会新建一条助手消息。
+     * 用于 Redis live state 丢失且 checkpoint 只包含部分内容的场景；优先更新原助手消息，缺失时新建。
      */
     public Map<String, Object> continueFromCheckpoint(Long conversationId, JwtPrincipal principal) {
         Conversation conv = conversationService.owned(conversationId, principal);
@@ -887,6 +887,11 @@ public class ChatStreamService {
         }
         if ("SUCCESS".equalsIgnoreCase(checkpoint.getStatus())) {
             throw new BusinessException(409, "该 checkpoint 已完成，不需要继续生成");
+        }
+        ChatLiveStateService.LiveState live = liveState.get(conversationId);
+        if (live != null && "RUNNING".equalsIgnoreCase(live.status())
+                && liveState.heartbeatFresh(conversationId, live.traceId(), streamStaleMs)) {
+            throw new BusinessException(409, "当前对话仍在生成，请先停止或等待完成");
         }
         Message lastUser = messageMapper.selectOne(new LambdaQueryWrapper<Message>()
                 .eq(Message::getConversationId, conversationId)
@@ -911,11 +916,26 @@ public class ChatStreamService {
             out = usage.get("outputTokens") instanceof Number n ? n.longValue() : 0;
         }
         String traceId = UUID.randomUUID().toString().replace("-", "");
-        Message ai = newMessage(conv, traceId, lastUser.getId(), false);
-        ai.setContent(content);
-        ai.setStatus("SUCCESS");
-        ai.setTokens((int) (in + out));
-        messageMapper.insert(ai);
+        Message ai = null;
+        if (checkpoint.getMessageId() != null) {
+            Message existing = messageMapper.selectById(checkpoint.getMessageId());
+            if (existing != null && conversationId.equals(existing.getConversationId())
+                    && (existing.getTenantId() == null || existing.getTenantId().equals(conv.getTenantId()))) {
+                ai = existing;
+                ai.setTraceId(traceId);
+                ai.setContent(content);
+                ai.setStatus("SUCCESS");
+                ai.setTokens((int) (in + out));
+                messageMapper.updateById(ai);
+            }
+        }
+        if (ai == null) {
+            ai = newMessage(conv, traceId, lastUser.getId(), false);
+            ai.setContent(content);
+            ai.setStatus("SUCCESS");
+            ai.setTokens((int) (in + out));
+            messageMapper.insert(ai);
+        }
         conversationService.touch(conv.getId());
         checkpointService.save(conv.getTenantId(), conv.getId(), traceId, "SUCCESS", content,
                 ai.getId(), in, out, null);

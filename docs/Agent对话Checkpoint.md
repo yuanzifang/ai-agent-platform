@@ -38,7 +38,7 @@ GET /api/v1/conversations/{id}/checkpoint
 POST /api/v1/conversations/{id}/checkpoint/continue
 ```
 
-会基于用户原始问题和已生成部分调用模型继续，新建一条助手消息；不保证模型不重复已有内容，生产环境建议优先使用正常 SSE 续传。
+会基于用户原始问题和已生成部分调用模型继续：优先更新 checkpoint 关联的原助手消息，消息缺失时才新建；不保证模型不重复已有内容，生产环境建议优先使用正常 SSE 续传。对话页最后一条 STOPPED/ERROR/RUNNING 助手消息会显示“从断点继续”入口。
 
 断线续传：
 
@@ -51,6 +51,7 @@ POST /api/v1/conversations/{id}/checkpoint/continue
 
 ## 边界
 
-- Checkpoint 用于断线后回放最近内容，不负责重新调用模型继续生成
+- 常规 `/resume` 只回放最近内容，不重新调用模型
+- 显式 `/checkpoint/continue` 会重新调用模型，属于非流式 best-effort 补全
 - 写入每 2 秒一次，极端情况下最多丢失约 2 秒内容
 - 成功后仍保留最近一次 checkpoint，便于审计/回放
