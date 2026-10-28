@@ -147,13 +147,15 @@ public class KnowledgeService {
     public Map<String, Object> create(String name, String description, String visibility,
                                       String embeddingModel, Boolean graphEnabled, Long userId) {
         return create(name, description, visibility, embeddingModel, graphEnabled,
-                null, null, userId);
+                null, null, null, null, userId);
     }
 
-    /** 创建知识库，并选择该库的关键字/向量后端。 */
+    /** 创建知识库，并选择该库的关键字/向量后端和 topK 默认/上限。 */
     public Map<String, Object> create(String name, String description, String visibility,
                                       String embeddingModel, Boolean graphEnabled,
-                                      String searchBackend, String vectorBackend, Long userId) {
+                                      String searchBackend, String vectorBackend,
+                                      Integer defaultTopK, Integer maxTopK, Long userId) {
+        int[] topK = normalizeTopK(defaultTopK, maxTopK);
         quotaService.checkKnowledgeBaseCreate();
         String search = normalizeBackend(searchBackend, defaultSearchBackend,
                 java.util.Set.of("MYSQL", "ES"));
@@ -176,6 +178,8 @@ public class KnowledgeService {
         kb.setEmbeddingModel(model);
         kb.setSearchBackend(search);
         kb.setVectorBackend(vector);
+        kb.setDefaultTopK(topK[0]);
+        kb.setMaxTopK(topK[1]);
         kb.setIndexVersion("v1");
         kb.setCreatedAt(LocalDateTime.now());
         kbMapper.insert(kb);
@@ -206,17 +210,25 @@ public class KnowledgeService {
         }
     }
 
+    private int[] normalizeTopK(Integer defaultTopK, Integer maxTopK) {
+        int def = defaultTopK == null ? 5 : Math.max(1, Math.min(defaultTopK, 50));
+        int max = maxTopK == null ? 20 : Math.max(1, Math.min(maxTopK, 50));
+        if (max < def) max = def;
+        return new int[]{def, max};
+    }
+
     /** 编辑名称/描述（需求 3.6.3(6)）；需编辑权限。 */
     public void update(Long id, String name, String description, String embeddingModel,
                        Boolean graphEnabled, Map<String, Object> parseConfig,
                        KnowledgePermissionService.Viewer viewer) {
         update(id, name, description, embeddingModel, graphEnabled, parseConfig,
-                null, null, viewer);
+                null, null, null, null, viewer);
     }
 
     public void update(Long id, String name, String description, String embeddingModel,
                        Boolean graphEnabled, Map<String, Object> parseConfig,
                        String searchBackend, String vectorBackend,
+                       Integer defaultTopK, Integer maxTopK,
                        KnowledgePermissionService.Viewer viewer) {
         String parseConfigJson;
         try {
@@ -242,6 +254,9 @@ public class KnowledgeService {
         String newVector = vectorBackend == null || vectorBackend.isBlank()
                 ? oldVector : normalizeBackend(vectorBackend, oldVector, java.util.Set.of("PGVECTOR", "QDRANT"));
         validateBackendAvailability(newSearch, newVector);
+        int[] topK = normalizeTopK(
+                defaultTopK == null ? kb.getDefaultTopK() : defaultTopK,
+                maxTopK == null ? kb.getMaxTopK() : maxTopK);
         if (!newVector.equalsIgnoreCase(oldVector) && chunkCount > 0) {
             throw new BusinessException(400, "已有文档时不能切换向量后端；请先清空文档或新建知识库");
         }
@@ -273,6 +288,8 @@ public class KnowledgeService {
                 .set(KnowledgeBase::getEmbeddingModel, finalModel)
                 .set(KnowledgeBase::getSearchBackend, newSearch)
                 .set(KnowledgeBase::getVectorBackend, newVector)
+                .set(KnowledgeBase::getDefaultTopK, topK[0])
+                .set(KnowledgeBase::getMaxTopK, topK[1])
                 .set(graphEnabled != null, KnowledgeBase::getGraphEnabled, graphEnabled)
                 // null = 保留原解析配置；空对象 = 清除覆盖并回退默认
                 .set(parseConfig != null, KnowledgeBase::getParseConfig, parseConfigValue));
@@ -370,6 +387,8 @@ public class KnowledgeService {
         m.put("embeddingModel", kb.getEmbeddingModel());
         m.put("searchBackend", kb.getSearchBackend() == null ? "MYSQL" : kb.getSearchBackend());
         m.put("vectorBackend", kb.getVectorBackend() == null ? "PGVECTOR" : kb.getVectorBackend());
+        m.put("defaultTopK", kb.getDefaultTopK() == null ? 5 : kb.getDefaultTopK());
+        m.put("maxTopK", kb.getMaxTopK() == null ? 20 : kb.getMaxTopK());
         m.put("indexVersion", kb.getIndexVersion());
         m.put("graphEnabled", !Boolean.FALSE.equals(kb.getGraphEnabled()));
         m.put("createdAt", kb.getCreatedAt());

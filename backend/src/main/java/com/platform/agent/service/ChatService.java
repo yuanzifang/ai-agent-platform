@@ -179,7 +179,8 @@ public class ChatService {
             if (kbId == null || Boolean.FALSE.equals(binding.get("enabled"))) continue;
             long stepStart = System.currentTimeMillis();
             // 运行时按当前用户实时校验知识库可见权限；不可见/已删除则跳过（需求 3.6.3(5)、3.3）
-            if (permissionService.findVisible(kbId, viewer) == null) {
+            com.platform.knowledge.entity.KnowledgeBase visibleKb = permissionService.findVisible(kbId, viewer);
+            if (visibleKb == null) {
                 if (steps != null) {
                     long now = System.currentTimeMillis();
                     steps.add("retrieval", "kb-" + kbId, "SKIPPED", stepStart, now,
@@ -189,7 +190,9 @@ public class ChatService {
             }
             Map<String, Object> rc = binding.get("retrievalConfig") == null
                     ? Map.of() : asMap(binding.get("retrievalConfig"));
-            int topK = toInt(rc.get("topK"), 5);
+            int defaultTopK = visibleKb.getDefaultTopK() == null ? 5 : visibleKb.getDefaultTopK();
+            int maxTopK = visibleKb.getMaxTopK() == null ? 20 : visibleKb.getMaxTopK();
+            int topK = Math.min(Math.max(1, toInt(rc.get("topK"), defaultTopK)), Math.max(1, maxTopK));
             double threshold = toDoubleOrDefault(rc.get("scoreThreshold"), 0.5);
 
             HybridRetrievalService.Result retrieved;

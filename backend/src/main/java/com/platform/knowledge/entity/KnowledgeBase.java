@@ -23,6 +23,8 @@ public class KnowledgeBase {
     private String searchBackend;
     /** PGVECTOR / QDRANT */
     private String vectorBackend;
+    private Integer defaultTopK;
+    private Integer maxTopK;
     private String indexVersion;
     private LocalDateTime createdAt;
     private String parseConfig; // JSON：解析配置覆盖（KB 默认 / 文档上传时选择）

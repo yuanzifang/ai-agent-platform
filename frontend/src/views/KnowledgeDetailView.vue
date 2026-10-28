@@ -364,6 +364,11 @@
                        :disabled="!b.available" />
           </el-select>
         </el-form-item>
+        <el-form-item :label="t('knowledgeList.defaultTopK')">
+          <el-input-number v-model="editForm.defaultTopK" :min="1" :max="50" />
+          <span class="hint">{{ t('knowledgeList.maxTopK') }} </span>
+          <el-input-number v-model="editForm.maxTopK" :min="1" :max="50" />
+        </el-form-item>
         <el-form-item :label="t('knowledgeList.graphEnabled')">
           <el-switch v-model="editForm.graphEnabled" />
           <span class="hint">{{ t('knowledgeList.graphHint') }}</span>
@@ -609,7 +614,7 @@ const editVisible = ref(false)
 const editSaving = ref(false)
 const editForm = reactive({
   name: '', description: '', graphEnabled: false, searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR',
-  parseConfig: {} as Record<string, any>
+  defaultTopK: 5, maxTopK: 20, parseConfig: {} as Record<string, any>
 })
 
 // ---- 权限设置 ----
@@ -664,6 +669,8 @@ function openEdit() {
   editForm.graphEnabled = detail.graphEnabled !== false
   editForm.searchBackend = detail.searchBackend || 'MYSQL'
   editForm.vectorBackend = detail.vectorBackend || 'PGVECTOR'
+  editForm.defaultTopK = detail.defaultTopK ?? 5
+  editForm.maxTopK = detail.maxTopK ?? 20
   editForm.parseConfig = detail.parseConfig || {}
   editVisible.value = true
 }
@@ -675,7 +682,8 @@ async function saveEdit() {
     await http.put(`/knowledge-base/${kbId}`, {
       name: editForm.name.trim(), description: editForm.description,
       graphEnabled: editForm.graphEnabled, parseConfig: editForm.parseConfig,
-      searchBackend: editForm.searchBackend, vectorBackend: editForm.vectorBackend
+      searchBackend: editForm.searchBackend, vectorBackend: editForm.vectorBackend,
+      defaultTopK: editForm.defaultTopK, maxTopK: editForm.maxTopK
     })
     ElMessage.success(t('kbDetail.saved'))
     editVisible.value = false

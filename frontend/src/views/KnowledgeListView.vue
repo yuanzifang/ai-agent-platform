@@ -83,6 +83,11 @@
           </el-select>
           <span class="hint">{{ editForm.documentCount > 0 ? t('knowledgeList.vectorBackendLocked') : t('knowledgeList.vectorBackendHint') }}</span>
         </el-form-item>
+        <el-form-item :label="t('knowledgeList.defaultTopK')">
+          <el-input-number v-model="editForm.defaultTopK" :min="1" :max="50" />
+          <span class="hint">{{ t('knowledgeList.maxTopK') }} </span>
+          <el-input-number v-model="editForm.maxTopK" :min="1" :max="50" />
+        </el-form-item>
         <el-form-item :label="t('knowledgeList.graphEnabled')">
           <el-switch v-model="editForm.graphEnabled" />
           <span class="hint">{{ t('knowledgeList.graphHint') }}</span>
@@ -132,6 +137,11 @@
             <el-radio value="PRIVATE">{{ t('knowledgeList.privateRadio') }}</el-radio>
           </el-radio-group>
         </el-form-item>
+        <el-form-item :label="t('knowledgeList.defaultTopK')">
+          <el-input-number v-model="form.defaultTopK" :min="1" :max="50" />
+          <span class="hint">{{ t('knowledgeList.maxTopK') }} </span>
+          <el-input-number v-model="form.maxTopK" :min="1" :max="50" />
+        </el-form-item>
         <el-form-item :label="t('knowledgeList.graphEnabled')">
           <el-switch v-model="form.graphEnabled" />
           <span class="hint">{{ t('knowledgeList.graphHint') }}</span>
@@ -158,7 +168,7 @@ interface Kb {
   id: number; name: string; description: string; embeddingModel: string; createdAt: string
   visibility: string; documentCount: number; chunkCount: number; creatorName: string; canEdit: boolean
   graphEnabled?: boolean; parseConfig?: Record<string, any>
-  searchBackend?: string; vectorBackend?: string
+  searchBackend?: string; vectorBackend?: string; defaultTopK?: number; maxTopK?: number
 }
 
 const userStore = useUserStore()
@@ -177,12 +187,12 @@ const creating = ref(false)
 const embeddingModels = ref<any[]>([])
 const searchBackends = ref<any[]>([{ value: 'MYSQL', label: 'MySQL', available: true }])
 const vectorBackends = ref<any[]>([{ value: 'PGVECTOR', label: 'pgvector', available: true }])
-const form = reactive({ name: '', description: '', visibility: 'TENANT', embeddingModel: '', graphEnabled: false, searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR' })
+const form = reactive({ name: '', description: '', visibility: 'TENANT', embeddingModel: '', graphEnabled: false, searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR', defaultTopK: 5, maxTopK: 20 })
 const editVisible = ref(false)
 const editSaving = ref(false)
 const editForm = reactive({
   id: 0, name: '', description: '', embeddingModel: '', documentCount: 0, graphEnabled: false,
-  searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR', parseConfig: {} as Record<string, any>
+  searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR', defaultTopK: 5, maxTopK: 20, parseConfig: {} as Record<string, any>
 })
 
 async function load() {
@@ -217,6 +227,8 @@ function openEdit(kb: Kb) {
   editForm.graphEnabled = kb.graphEnabled !== false
   editForm.searchBackend = kb.searchBackend || 'MYSQL'
   editForm.vectorBackend = kb.vectorBackend || 'PGVECTOR'
+  editForm.defaultTopK = kb.defaultTopK ?? 5
+  editForm.maxTopK = kb.maxTopK ?? 20
   editForm.parseConfig = kb.parseConfig || {}
   editVisible.value = true
 }
@@ -229,7 +241,7 @@ async function saveEdit() {
       name: editForm.name.trim(), description: editForm.description,
       embeddingModel: editForm.embeddingModel, graphEnabled: editForm.graphEnabled,
       searchBackend: editForm.searchBackend, vectorBackend: editForm.vectorBackend,
-      parseConfig: editForm.parseConfig
+      defaultTopK: editForm.defaultTopK, maxTopK: editForm.maxTopK, parseConfig: editForm.parseConfig
     })
     ElMessage.success(t('knowledgeList.savedMsg'))
     editVisible.value = false
@@ -266,7 +278,8 @@ async function create() {
     await http.post('/knowledge-base', {
       name: form.name, description: form.description, visibility: form.visibility,
       embeddingModel: form.embeddingModel, graphEnabled: form.graphEnabled,
-      searchBackend: form.searchBackend, vectorBackend: form.vectorBackend
+      searchBackend: form.searchBackend, vectorBackend: form.vectorBackend,
+      defaultTopK: form.defaultTopK, maxTopK: form.maxTopK
     })
     ElMessage.success(t('knowledgeList.createdMsg'))
     createVisible.value = false
