@@ -61,12 +61,13 @@ public class KnowledgeSearchOutboxScheduler {
                         """, id);
             } catch (Exception e) {
                 int attempts = row.get("attempts") instanceof Number n ? n.intValue() + 1 : 1;
+                boolean terminal = attempts >= 5;
                 LocalDateTime next = LocalDateTime.now().plusSeconds(Math.min(300, attempts * 10L));
                 mysqlJdbcTemplate.update("""
                         UPDATE knowledge_search_outbox
-                        SET status='PENDING', attempts=?, available_at=?, updated_at=?, last_error=?
+                        SET status=?, attempts=?, available_at=?, updated_at=?, last_error=?
                         WHERE id=?
-                        """, attempts, next, LocalDateTime.now(),
+                        """, terminal ? "FAILED" : "PENDING", attempts, next, LocalDateTime.now(),
                         truncate(e.getMessage()), id);
                 log.warn("ES outbox 索引失败 id={} chunk={} err={}", id, chunkId, e.getMessage());
             }
