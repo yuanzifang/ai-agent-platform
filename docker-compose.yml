@@ -234,6 +234,10 @@ services:
       ALERT_ESCALATION_DELAY_SECONDS: ${ALERT_ESCALATION_DELAY_SECONDS:-300}
       ALERT_ESCALATION_CHANNELS: ${ALERT_ESCALATION_CHANNELS:-sms}
       ALERT_ESCALATION_SEVERITIES: ${ALERT_ESCALATION_SEVERITIES:-critical}
+      ALERT_RELAY_STATE_FILE: /data/alert-relay-state.json
+      ALERT_RELAY_ACK_TOKEN: ${ALERT_RELAY_ACK_TOKEN:-}
+    volumes:
+      - alert-relay-state:/data
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
       interval: 15s
@@ -339,4 +343,5 @@ volumes:
   prometheus-data:
   grafana-data:
   alertmanager-data:
+  alert-relay-state:
   metrics-token:
