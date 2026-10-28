@@ -288,7 +288,7 @@ const messages = {
       reload: '重新加载', save: '保存配置', test: '测试连接', testResults: '连接测试', component: '组件', result: '结果', message: '信息', restartHint: '配置保存到本地文件，重启后端后生效。',
       configFile: '配置文件', keepSecret: '已配置，留空保持不变',
       mysql: 'MySQL 主数据库', redis: 'Redis', pg: 'PostgreSQL / pgvector', minio: 'MinIO',
-      es: 'Elasticsearch', qdrant: 'Qdrant', outboxTitle: 'ES 索引 outbox', outboxPending: '待处理', outboxFailed: '失败', outboxOldest: '最老待处理时间', saved: '配置已保存', savedRestart: '配置已保存，请重启后端生效'
+      es: 'Elasticsearch', qdrant: 'Qdrant', outboxTitle: 'ES 索引 outbox', outboxPending: '待处理', outboxFailed: '失败', outboxLocked: '执行中', outboxOldest: '最老待处理时间', outboxRetryFailed: '重试失败', outboxRetried: '已重新入队 {count} 条', saved: '配置已保存', savedRestart: '配置已保存，请重启后端生效'
     },
     platformPage: {
       createTenant: '开通租户', tenantKey: '租户标识', name: '名称', status: '状态', members: '成员数',
@@ -1270,7 +1270,7 @@ const messages = {
       reload: 'Reload', save: 'Save', test: 'Test connections', testResults: 'Connection test', component: 'Component', result: 'Result', message: 'Message', restartHint: 'Saved to a local file; restart the backend to apply.',
       configFile: 'Config file', keepSecret: 'Configured; leave blank to keep',
       mysql: 'MySQL primary database', redis: 'Redis', pg: 'PostgreSQL / pgvector', minio: 'MinIO',
-      es: 'Elasticsearch', qdrant: 'Qdrant', outboxTitle: 'ES index outbox', outboxPending: 'Pending', outboxFailed: 'Failed', outboxOldest: 'Oldest pending', saved: 'Configuration saved', savedRestart: 'Configuration saved; restart the backend to apply'
+      es: 'Elasticsearch', qdrant: 'Qdrant', outboxTitle: 'ES index outbox', outboxPending: 'Pending', outboxFailed: 'Failed', outboxLocked: 'In progress', outboxOldest: 'Oldest pending', outboxRetryFailed: 'Retry failed', outboxRetried: 'Requeued {count} rows', saved: 'Configuration saved', savedRestart: 'Configuration saved; restart the backend to apply'
     },
     platformPage: {
       createTenant: 'Create tenant', tenantKey: 'Tenant key', name: 'Name', status: 'Status', members: 'Members',

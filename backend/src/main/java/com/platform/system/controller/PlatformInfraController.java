@@ -36,6 +36,12 @@ public class PlatformInfraController {
         return ApiResponse.ok(outboxStatusService.status());
     }
 
+    @org.springframework.web.bind.annotation.PostMapping("/search-outbox/retry-failed")
+    public ApiResponse<Map<String, Object>> retryFailedOutbox(@AuthenticationPrincipal JwtPrincipal principal) {
+        platformAdminService.requirePlatformAdmin(principal);
+        return ApiResponse.ok(Map.of("retried", outboxStatusService.retryFailed()));
+    }
+
     @org.springframework.web.bind.annotation.PostMapping("/test")
     public ApiResponse<Map<String, Object>> test(@RequestBody Map<String, Object> req,
                                                  @AuthenticationPrincipal JwtPrincipal principal) {
