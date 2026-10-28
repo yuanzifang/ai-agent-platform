@@ -156,7 +156,7 @@ public class KnowledgeService {
                                       String searchBackend, String vectorBackend,
                                       Integer defaultTopK, Integer maxTopK, Long userId) {
         return create(name, description, visibility, embeddingModel, graphEnabled, searchBackend,
-                vectorBackend, defaultTopK, maxTopK, null, null, null, userId);
+                vectorBackend, defaultTopK, maxTopK, null, null, null, null, null, userId);
     }
 
     public Map<String, Object> create(String name, String description, String visibility,
@@ -164,11 +164,14 @@ public class KnowledgeService {
                                       String searchBackend, String vectorBackend,
                                       Integer defaultTopK, Integer maxTopK,
                                       String defaultRetrievalMode, Double defaultScoreThreshold,
-                                      Double defaultKeywordWeight, Long userId) {
+                                      Double defaultKeywordWeight, Integer queryCacheTtlSeconds,
+                                      Integer queryCacheMaxEntries, Long userId) {
         int[] topK = normalizeTopK(defaultTopK, maxTopK);
         String retrievalMode = normalizeRetrievalMode(defaultRetrievalMode);
         double scoreThreshold = normalizeScoreThreshold(defaultScoreThreshold, 0.5);
         double keywordWeight = normalizeKeywordWeight(defaultKeywordWeight, 0.35);
+        int cacheTtl = normalizeCacheTtl(queryCacheTtlSeconds);
+        int cacheMax = normalizeCacheMaxEntries(queryCacheMaxEntries);
         quotaService.checkKnowledgeBaseCreate();
         String search = normalizeBackend(searchBackend, defaultSearchBackend,
                 java.util.Set.of("MYSQL", "ES"));
@@ -196,6 +199,8 @@ public class KnowledgeService {
         kb.setDefaultRetrievalMode(retrievalMode);
         kb.setDefaultScoreThreshold(scoreThreshold);
         kb.setDefaultKeywordWeight(keywordWeight);
+        kb.setQueryCacheTtlSeconds(cacheTtl);
+        kb.setQueryCacheMaxEntries(cacheMax);
         kb.setIndexVersion("v1");
         kb.setCreatedAt(LocalDateTime.now());
         kbMapper.insert(kb);
@@ -244,6 +249,16 @@ public class KnowledgeService {
         return Math.max(0, Math.min(1, value));
     }
 
+    private int normalizeCacheTtl(Integer value) {
+        if (value == null) return 300;
+        return Math.max(0, Math.min(value, 86400));
+    }
+
+    private int normalizeCacheMaxEntries(Integer value) {
+        if (value == null) return 2000;
+        return Math.max(0, Math.min(value, 100000));
+    }
+
     private int[] normalizeTopK(Integer defaultTopK, Integer maxTopK) {
         int def = defaultTopK == null ? 5 : Math.max(1, Math.min(defaultTopK, 50));
         int max = maxTopK == null ? 20 : Math.max(1, Math.min(maxTopK, 50));
@@ -265,7 +280,7 @@ public class KnowledgeService {
                        Integer defaultTopK, Integer maxTopK,
                        KnowledgePermissionService.Viewer viewer) {
         update(id, name, description, embeddingModel, graphEnabled, parseConfig, searchBackend,
-                vectorBackend, defaultTopK, maxTopK, null, null, null, viewer);
+                vectorBackend, defaultTopK, maxTopK, null, null, null, null, null, viewer);
     }
 
     public void update(Long id, String name, String description, String embeddingModel,
@@ -273,7 +288,8 @@ public class KnowledgeService {
                        String searchBackend, String vectorBackend,
                        Integer defaultTopK, Integer maxTopK,
                        String defaultRetrievalMode, Double defaultScoreThreshold,
-                       Double defaultKeywordWeight,
+                       Double defaultKeywordWeight, Integer queryCacheTtlSeconds,
+                       Integer queryCacheMaxEntries,
                        KnowledgePermissionService.Viewer viewer) {
         String parseConfigJson;
         try {
@@ -310,6 +326,11 @@ public class KnowledgeService {
         double keywordWeight = defaultKeywordWeight == null
                 ? normalizeKeywordWeight(kb.getDefaultKeywordWeight(), 0.35)
                 : normalizeKeywordWeight(defaultKeywordWeight, 0.35);
+        int cacheTtl = queryCacheTtlSeconds == null
+                ? normalizeCacheTtl(kb.getQueryCacheTtlSeconds()) : normalizeCacheTtl(queryCacheTtlSeconds);
+        int cacheMax = queryCacheMaxEntries == null
+                ? normalizeCacheMaxEntries(kb.getQueryCacheMaxEntries())
+                : normalizeCacheMaxEntries(queryCacheMaxEntries);
         if (!newVector.equalsIgnoreCase(oldVector) && chunkCount > 0) {
             throw new BusinessException(400, "已有文档时不能切换向量后端；请先清空文档或新建知识库");
         }
@@ -346,6 +367,8 @@ public class KnowledgeService {
                 .set(KnowledgeBase::getDefaultRetrievalMode, retrievalMode)
                 .set(KnowledgeBase::getDefaultScoreThreshold, scoreThreshold)
                 .set(KnowledgeBase::getDefaultKeywordWeight, keywordWeight)
+                .set(KnowledgeBase::getQueryCacheTtlSeconds, cacheTtl)
+                .set(KnowledgeBase::getQueryCacheMaxEntries, cacheMax)
                 .set(graphEnabled != null, KnowledgeBase::getGraphEnabled, graphEnabled)
                 // null = 保留原解析配置；空对象 = 清除覆盖并回退默认
                 .set(parseConfig != null, KnowledgeBase::getParseConfig, parseConfigValue));
@@ -451,6 +474,10 @@ public class KnowledgeService {
                 ? 0.5 : kb.getDefaultScoreThreshold());
         m.put("defaultKeywordWeight", kb.getDefaultKeywordWeight() == null
                 ? 0.35 : kb.getDefaultKeywordWeight());
+        m.put("queryCacheTtlSeconds", kb.getQueryCacheTtlSeconds() == null
+                ? 300 : kb.getQueryCacheTtlSeconds());
+        m.put("queryCacheMaxEntries", kb.getQueryCacheMaxEntries() == null
+                ? 2000 : kb.getQueryCacheMaxEntries());
         m.put("indexVersion", kb.getIndexVersion());
         m.put("graphEnabled", !Boolean.FALSE.equals(kb.getGraphEnabled()));
         m.put("createdAt", kb.getCreatedAt());

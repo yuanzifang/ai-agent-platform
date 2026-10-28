@@ -52,7 +52,8 @@ public class KnowledgeController {
                                   String searchBackend, String vectorBackend,
                                   Integer defaultTopK, Integer maxTopK,
                                   String defaultRetrievalMode, Double defaultScoreThreshold,
-                                  Double defaultKeywordWeight) {
+                                  Double defaultKeywordWeight, Integer queryCacheTtlSeconds,
+                                  Integer queryCacheMaxEntries) {
     }
 
     @PostMapping
@@ -62,7 +63,8 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.create(req.name(), req.description(), req.visibility(),
                 req.embeddingModel(), req.graphEnabled(), req.searchBackend(), req.vectorBackend(),
                 req.defaultTopK(), req.maxTopK(), req.defaultRetrievalMode(),
-                req.defaultScoreThreshold(), req.defaultKeywordWeight(), principal.userId()));
+                req.defaultScoreThreshold(), req.defaultKeywordWeight(),
+                req.queryCacheTtlSeconds(), req.queryCacheMaxEntries(), principal.userId()));
     }
 
     /** 列表：可见性过滤 + 搜索 + 分页（仅返回当前用户可见的知识库）。 */
@@ -86,7 +88,8 @@ public class KnowledgeController {
                                   String searchBackend, String vectorBackend,
                                   Integer defaultTopK, Integer maxTopK,
                                   String defaultRetrievalMode, Double defaultScoreThreshold,
-                                  Double defaultKeywordWeight) {
+                                  Double defaultKeywordWeight, Integer queryCacheTtlSeconds,
+                                  Integer queryCacheMaxEntries) {
     }
 
     /** 编辑名称/描述（需编辑权限）。 */
@@ -96,7 +99,8 @@ public class KnowledgeController {
         knowledgeService.update(id, req.name(), req.description(), req.embeddingModel(),
                 req.graphEnabled(), req.parseConfig(), req.searchBackend(), req.vectorBackend(),
                 req.defaultTopK(), req.maxTopK(), req.defaultRetrievalMode(),
-                req.defaultScoreThreshold(), req.defaultKeywordWeight(), viewer(principal));
+                req.defaultScoreThreshold(), req.defaultKeywordWeight(),
+                req.queryCacheTtlSeconds(), req.queryCacheMaxEntries(), viewer(principal));
         return ApiResponse.ok();
     }
 
