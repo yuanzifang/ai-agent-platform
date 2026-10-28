@@ -135,7 +135,9 @@ done
 
 if table_exists flyway_schema_history; then
   read -r FLYWAY_ROWS FLYWAY_VERSION FLYWAY_FAILED < <(
-    q "SELECT COUNT(*), COALESCE(MAX(version),''), COALESCE(SUM(success=0),0)
+    q "SELECT COUNT(*),
+              COALESCE((SELECT version FROM \`${TARGET_DB}\`.flyway_schema_history ORDER BY installed_rank DESC LIMIT 1),''),
+              COALESCE(SUM(success=0),0)
        FROM \`${TARGET_DB}\`.flyway_schema_history"
   )
   log "Flyway：已应用 ${FLYWAY_ROWS} 条，最新版本 ${FLYWAY_VERSION}，失败记录 ${FLYWAY_FAILED}"
