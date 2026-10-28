@@ -148,6 +148,36 @@
           }
         }
       }
+    },
+    {
+      "type": "stat",
+      "title": "ES 快照最近成功",
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 31 },
+      "targets": [
+        { "expr": "knowledge_es_snapshot_last_success_epoch_seconds * 1000", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "dateTimeAsIso" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "ES 快照仓库可查询",
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 31 },
+      "targets": [
+        { "expr": "knowledge_es_snapshot_available", "refId": "A" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        }
+      }
     }
   ],
   "refresh": "30s",

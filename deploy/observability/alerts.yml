@@ -125,3 +125,23 @@ groups:
         annotations:
           summary: "ES 搜索 outbox 状态查询失败"
           description: "后端无法查询 knowledge_search_outbox，检查 MySQL 连接和迁移状态。"
+
+      - alert: AiAgentEsSnapshotUnavailable
+        expr: knowledge_es_snapshot_available == 0
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "ES 快照仓库不可查询"
+          description: "无法读取 aap_local 快照仓库，检查 ES、path.repo 和快照定时任务。"
+
+      - alert: AiAgentEsSnapshotStale
+        expr: knowledge_es_snapshot_last_success_epoch_seconds > 0 and (time() - knowledge_es_snapshot_last_success_epoch_seconds) > 93600
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "ES 快照超过 26 小时未成功"
+          description: "最近成功快照已超过 26 小时，检查 ai-agent-es-snapshot.timer 或 Helm CronJob 日志。"

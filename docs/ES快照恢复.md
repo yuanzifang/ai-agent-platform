@@ -98,6 +98,16 @@ helm upgrade --install ai-agent deploy/helm/ai-agent-platform \
 CronJob 使用 `python:3.12-alpine` 和 ConfigMap 内的 `es-snapshot.py`，支持
 `ELASTICSEARCH_API_KEY` 或用户名/密码认证 Secret。详见 Helm Chart README。
 
+后端会定期读取快照仓库并暴露：
+
+- `knowledge_es_snapshot_last_success_epoch_seconds`
+- `knowledge_es_snapshot_available`
+
+对应告警：
+
+- `AiAgentEsSnapshotUnavailable`：快照仓库不可查询；
+- `AiAgentEsSnapshotStale`：超过 26 小时没有成功快照。
+
 ## 4. 生产恢复建议
 
 MySQL 仍是知识库分段的权威数据源；ES 索引可以从 MySQL 重新回填。快照用于缩短恢复时间。
