@@ -1546,6 +1546,8 @@ test('工作流 Loop 与节点错误策略', async ({ request }) => {
 })
 
 test('OTel Trace 导出', async ({ request }) => {
+  test.skip(process.env.E2E_OTEL !== '1',
+    '设置 E2E_OTEL=1，并让后端以 OTEL_ENABLED=true 指向 18097 collector 后运行')
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()
   const before = await (await request.get('http://127.0.0.1:18097/stats')).json()

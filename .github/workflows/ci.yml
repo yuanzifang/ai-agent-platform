@@ -463,6 +463,7 @@ jobs:
         env:
           E2E_BASE_URL: http://127.0.0.1:5173
           E2E_BROWSER: ${{ matrix.browser }}
+          E2E_OTEL: "1"
         run: npm run test:e2e -- --project=${{ matrix.browser }}
 
       - name: 失败时输出后端/前端日志
