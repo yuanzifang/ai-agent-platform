@@ -89,6 +89,13 @@ fi
 [ -d "$BINLOG_DIR" ] || die "binlog 目录不存在：$BINLOG_DIR"
 
 command -v mysql >/dev/null 2>&1 || die "缺少 mysql 客户端"
+# 防自回放：把恢复目标实例正在写的 datadir 当 binlog 来源，恢复自身的 DDL 会被再次读入。
+if command -v realpath >/dev/null 2>&1; then
+  LIVE_DATADIR="$(mysql --protocol=TCP -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_BACKUP_USER" -N -B -e 'SELECT @@datadir' 2>/dev/null || true)"
+  if [ -n "$LIVE_DATADIR" ] && [ "$(realpath "$BINLOG_DIR" 2>/dev/null || true)" = "$(realpath "$LIVE_DATADIR" 2>/dev/null || true)" ]; then
+    die "binlog 目录是目标 MySQL 实例的 live datadir；恢复会自回放。请使用 binlog-ship 的不可变归档/独立实例，或先复制 binlog 快照"
+  fi
+fi
 command -v gunzip >/dev/null 2>&1 || die "缺少 gunzip"
 command -v "$MYSQL_BINLOG" >/dev/null 2>&1 || die "缺少 mysqlbinlog"
 python3 - "$BACKUP" <<'PYV'
@@ -182,7 +189,7 @@ if [ "$AUDIT_EXISTS" = "1" ]; then
   log "校验：审计行数 ${AUDIT_COUNT}（备份基线 ${MANIFEST_AUDIT}）"
   [ "$AUDIT_COUNT" -ge "$MANIFEST_AUDIT" ] || die "PITR 后审计行数少于备份基线（${AUDIT_COUNT} < ${MANIFEST_AUDIT}）"
 fi
-FLYWAY_VERSION="$("${MYSQL[@]}" -N -B -e "SELECT MAX(version) FROM \`${TARGET_DB}\`.flyway_schema_history" 2>/dev/null || true)"
+FLYWAY_VERSION="$("${MYSQL[@]}" -N -B -e "SELECT version FROM \`${TARGET_DB}\`.flyway_schema_history ORDER BY installed_rank DESC LIMIT 1" 2>/dev/null || true)"
 [ -n "$FLYWAY_VERSION" ] && log "校验：Flyway 版本 ${FLYWAY_VERSION}"
 # 业务级校验：核心表、Flyway、审计、引用完整性；PITR_API_BASE/PITR_API_TOKEN 可选。
 if [ "$SKIP_VERIFY" != "1" ]; then
