@@ -27,6 +27,7 @@ POST /api/v1/workflow/runs/{runId}/resume
 - 不重放已经完成的节点
 - 保留已有 outputs/state
 - 写入审计 `workflow.resume`
+- 当前节点为 `TOOL` / `HANDOFF` / `AGENT` 时默认拒绝，需显式传 `allowSideEffects=true`，避免恢复导致外部副作用重复执行
 
 查询：
 

@@ -1408,6 +1408,14 @@ public class WorkflowService {
 
     /** 从最后一次失败检查点继续；不重放已完成节点，只从 currentNode 重新执行。 */
     public Map<String, Object> resume(Long runId, JwtPrincipal principal) {
+        return resume(runId, principal, false);
+    }
+
+    /**
+     * allowSideEffects=false 时拒绝从 TOOL/HANDOFF/AGENT 节点恢复，避免外部副作用重复执行；
+     * 人工确认后显式允许。
+     */
+    public Map<String, Object> resume(Long runId, JwtPrincipal principal, boolean allowSideEffects) {
         WorkflowRun run = runMapper.selectById(runId);
         if (run == null || !Objects.equals(run.getTenantId(), TenantContext.getTenantId())) {
             throw new BusinessException(404, "运行记录不存在");
@@ -1417,6 +1425,12 @@ public class WorkflowService {
         }
         if (run.getCurrentNode() == null || run.getCurrentNode().isBlank()) {
             throw new BusinessException(409, "运行没有可恢复的节点");
+        }
+        Map<String, Object> definition = parse(run.getDefinition());
+        Map<String, Object> node = findNode(definition, run.getCurrentNode());
+        String nodeType = node == null ? "" : str(node.getOrDefault("type", "LLM")).toUpperCase();
+        if (!allowSideEffects && Set.of("TOOL", "HANDOFF", "AGENT").contains(nodeType)) {
+            throw new BusinessException(409, "当前节点可能产生外部副作用，请确认后显式允许恢复");
         }
         run.setStatus("RUNNING");
         run.setErrorMessage(null);

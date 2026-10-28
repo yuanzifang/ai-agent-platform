@@ -244,9 +244,14 @@ async function viewRun(row: any) {
 
 async function resumeRun() {
   if (!run.value?.id) return
+  try {
+    await ElMessageBox.confirm(t('approval.resumeConfirm'), t('approval.resumeTitle'), { type: 'warning' })
+  } catch {
+    return
+  }
   runResuming.value = true
   try {
-    run.value = await http.post(`/workflow/runs/${run.value.id}/resume`, {}) as any
+    run.value = await http.post(`/workflow/runs/${run.value.id}/resume?allowSideEffects=true`, {}) as any
     ElMessage.success(t('approval.resumed'))
   } finally {
     runResuming.value = false
