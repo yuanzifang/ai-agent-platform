@@ -13,5 +13,8 @@ class ToolCallCollectorTest {
         assertEquals(1, collector.recordValidationFailure("tool-a"));
         assertEquals(2, collector.recordValidationFailure("tool-a"));
         assertEquals(1, collector.recordValidationFailure("tool-b"));
+        assertEquals(3, collector.inputValidationMaxAttempts(3));
+        collector.setInputValidationMaxAttempts(5);
+        assertEquals(5, collector.inputValidationMaxAttempts(3));
     }
 }
