@@ -45,12 +45,14 @@ class AlertWebhookServiceTest {
     }
 
     private AlertWebhookService service(String path, String secret, boolean enabled) {
-        AlertWebhookService service = new AlertWebhookService(new ObjectMapper());
-        ReflectionTestUtils.setField(service, "enabled", enabled);
-        ReflectionTestUtils.setField(service, "url", "http://127.0.0.1:" + server.getAddress().getPort() + path);
-        ReflectionTestUtils.setField(service, "secret", secret);
-        ReflectionTestUtils.setField(service, "env", "test");
-        return service;
+        com.platform.system.alert.WebhookAlertSender sender =
+                new com.platform.system.alert.WebhookAlertSender();
+        ReflectionTestUtils.setField(sender, "enabled", enabled);
+        ReflectionTestUtils.setField(sender, "url",
+                "http://127.0.0.1:" + server.getAddress().getPort() + path);
+        ReflectionTestUtils.setField(sender, "secret", secret);
+        ReflectionTestUtils.setField(sender, "type", "dingtalk");
+        return new com.platform.system.service.AlertWebhookService(sender, null, null);
     }
 
     @Test
@@ -61,7 +63,7 @@ class AlertWebhookServiceTest {
 
         String sent = body.get();
         assertTrue(sent.contains("\"msgtype\":\"text\""));
-        assertTrue(sent.contains("【AI Agent 平台·test】数据库连接数告警"));
+        assertTrue(sent.contains("【AI Agent 平台】数据库连接数告警"));
         assertTrue(sent.contains("活跃连接 95%"));
         assertNull(query.get());
     }

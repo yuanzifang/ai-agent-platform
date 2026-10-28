@@ -76,16 +76,19 @@ public class PlatformAdminController {
         return ApiResponse.ok();
     }
 
-    /** 手动触发一条运维告警，用于验证钉钉/企微/飞书 webhook 配置。 */
+    /** 手动触发一条运维告警，验证全部已启用通道（webhook=钉钉/企微/飞书、邮件、短信）。 */
     @PostMapping("/alerts/test")
     public ApiResponse<Map<String, Object>> testAlert(@AuthenticationPrincipal JwtPrincipal principal) {
         platformAdminService.requirePlatformAdmin(principal);
-        boolean sent = alertWebhookService.alert("测试告警",
-                "平台管理员手动触发 webhook 连通性测试");
+        Map<String, Boolean> channels = alertWebhookService.alertAll("测试告警",
+                "平台管理员手动触发告警通道连通性测试");
+        boolean sent = channels.containsValue(true);
         Map<String, Object> result = new java.util.LinkedHashMap<>();
         result.put("configured", alertWebhookService.isConfigured());
         result.put("sent", sent);
-        auditService.record(principal.userId(), "alert.test", "alert", "webhook",
+        result.put("channels", channels);
+        result.put("status", alertWebhookService.channelStatus());
+        auditService.record(principal.userId(), "alert.test", "alert", "multi-channel",
                 sent ? "SUCCESS" : "FAILED", result);
         return ApiResponse.ok(result);
     }
