@@ -50,7 +50,9 @@ public class KnowledgeController {
     public record CreateKbRequest(@NotBlank String name, String description, String visibility,
                                   String embeddingModel, Boolean graphEnabled,
                                   String searchBackend, String vectorBackend,
-                                  Integer defaultTopK, Integer maxTopK) {
+                                  Integer defaultTopK, Integer maxTopK,
+                                  String defaultRetrievalMode, Double defaultScoreThreshold,
+                                  Double defaultKeywordWeight) {
     }
 
     @PostMapping
@@ -59,7 +61,8 @@ public class KnowledgeController {
                                                    @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(knowledgeService.create(req.name(), req.description(), req.visibility(),
                 req.embeddingModel(), req.graphEnabled(), req.searchBackend(), req.vectorBackend(),
-                req.defaultTopK(), req.maxTopK(), principal.userId()));
+                req.defaultTopK(), req.maxTopK(), req.defaultRetrievalMode(),
+                req.defaultScoreThreshold(), req.defaultKeywordWeight(), principal.userId()));
     }
 
     /** 列表：可见性过滤 + 搜索 + 分页（仅返回当前用户可见的知识库）。 */
@@ -81,7 +84,9 @@ public class KnowledgeController {
     public record UpdateKbRequest(String name, String description, String embeddingModel,
                                   Boolean graphEnabled, Map<String, Object> parseConfig,
                                   String searchBackend, String vectorBackend,
-                                  Integer defaultTopK, Integer maxTopK) {
+                                  Integer defaultTopK, Integer maxTopK,
+                                  String defaultRetrievalMode, Double defaultScoreThreshold,
+                                  Double defaultKeywordWeight) {
     }
 
     /** 编辑名称/描述（需编辑权限）。 */
@@ -90,7 +95,8 @@ public class KnowledgeController {
                                     @AuthenticationPrincipal JwtPrincipal principal) {
         knowledgeService.update(id, req.name(), req.description(), req.embeddingModel(),
                 req.graphEnabled(), req.parseConfig(), req.searchBackend(), req.vectorBackend(),
-                req.defaultTopK(), req.maxTopK(), viewer(principal));
+                req.defaultTopK(), req.maxTopK(), req.defaultRetrievalMode(),
+                req.defaultScoreThreshold(), req.defaultKeywordWeight(), viewer(principal));
         return ApiResponse.ok();
     }
 

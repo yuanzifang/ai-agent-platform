@@ -188,12 +188,21 @@ public class ChatService {
                 }
                 continue;
             }
-            Map<String, Object> rc = binding.get("retrievalConfig") == null
-                    ? Map.of() : asMap(binding.get("retrievalConfig"));
+            Map<String, Object> rc = new LinkedHashMap<>(binding.get("retrievalConfig") == null
+                    ? Map.of() : asMap(binding.get("retrievalConfig")));
+            if (visibleKb.getDefaultRetrievalMode() != null && !visibleKb.getDefaultRetrievalMode().isBlank()) {
+                rc.putIfAbsent("mode", visibleKb.getDefaultRetrievalMode());
+            }
+            if (visibleKb.getDefaultKeywordWeight() != null) {
+                rc.putIfAbsent("keywordWeight", visibleKb.getDefaultKeywordWeight());
+            }
             int defaultTopK = visibleKb.getDefaultTopK() == null ? 5 : visibleKb.getDefaultTopK();
             int maxTopK = visibleKb.getMaxTopK() == null ? 20 : visibleKb.getMaxTopK();
             int topK = Math.min(Math.max(1, toInt(rc.get("topK"), defaultTopK)), Math.max(1, maxTopK));
-            double threshold = toDoubleOrDefault(rc.get("scoreThreshold"), 0.5);
+            double defaultThreshold = visibleKb.getDefaultScoreThreshold() == null
+                    ? 0.5 : visibleKb.getDefaultScoreThreshold();
+            double threshold = toDoubleOrDefault(rc.get("scoreThreshold"), defaultThreshold);
+            rc.putIfAbsent("scoreThreshold", threshold);
 
             HybridRetrievalService.Result retrieved;
             try {
@@ -235,7 +244,7 @@ public class ChatService {
                     log.warn("GraphRAG 扩展失败（跳过图扩展）kb={} err={}", kbId, e.getMessage());
                 }
             }
-            com.platform.knowledge.entity.KnowledgeBase kb = knowledgeBaseMapper.selectById(kbId);
+            com.platform.knowledge.entity.KnowledgeBase kb = visibleKb;
             int beforeDedup = hits.size();
             hits = dedupeHitsByParent(hits);
             if (hits.size() < beforeDedup) {

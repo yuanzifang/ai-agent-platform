@@ -88,6 +88,19 @@
           <span class="hint">{{ t('knowledgeList.maxTopK') }} </span>
           <el-input-number v-model="editForm.maxTopK" :min="1" :max="50" />
         </el-form-item>
+        <el-form-item :label="t('knowledgeList.defaultRetrievalMode')">
+          <el-select v-model="editForm.defaultRetrievalMode" style="width: 180px">
+            <el-option :label="t('knowledgeList.modeHybrid')" value="hybrid" />
+            <el-option :label="t('knowledgeList.modeVector')" value="vector" />
+            <el-option :label="t('knowledgeList.modeKeyword')" value="keyword" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('knowledgeList.defaultScoreThreshold')">
+          <el-input-number v-model="editForm.defaultScoreThreshold" :min="0" :max="1" :step="0.05" />
+        </el-form-item>
+        <el-form-item :label="t('knowledgeList.defaultKeywordWeight')">
+          <el-input-number v-model="editForm.defaultKeywordWeight" :min="0" :max="1" :step="0.05" />
+        </el-form-item>
         <el-form-item :label="t('knowledgeList.graphEnabled')">
           <el-switch v-model="editForm.graphEnabled" />
           <span class="hint">{{ t('knowledgeList.graphHint') }}</span>
@@ -142,6 +155,19 @@
           <span class="hint">{{ t('knowledgeList.maxTopK') }} </span>
           <el-input-number v-model="form.maxTopK" :min="1" :max="50" />
         </el-form-item>
+        <el-form-item :label="t('knowledgeList.defaultRetrievalMode')">
+          <el-select v-model="form.defaultRetrievalMode" style="width: 180px">
+            <el-option :label="t('knowledgeList.modeHybrid')" value="hybrid" />
+            <el-option :label="t('knowledgeList.modeVector')" value="vector" />
+            <el-option :label="t('knowledgeList.modeKeyword')" value="keyword" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('knowledgeList.defaultScoreThreshold')">
+          <el-input-number v-model="form.defaultScoreThreshold" :min="0" :max="1" :step="0.05" />
+        </el-form-item>
+        <el-form-item :label="t('knowledgeList.defaultKeywordWeight')">
+          <el-input-number v-model="form.defaultKeywordWeight" :min="0" :max="1" :step="0.05" />
+        </el-form-item>
         <el-form-item :label="t('knowledgeList.graphEnabled')">
           <el-switch v-model="form.graphEnabled" />
           <span class="hint">{{ t('knowledgeList.graphHint') }}</span>
@@ -169,6 +195,7 @@ interface Kb {
   visibility: string; documentCount: number; chunkCount: number; creatorName: string; canEdit: boolean
   graphEnabled?: boolean; parseConfig?: Record<string, any>
   searchBackend?: string; vectorBackend?: string; defaultTopK?: number; maxTopK?: number
+  defaultRetrievalMode?: string; defaultScoreThreshold?: number; defaultKeywordWeight?: number
 }
 
 const userStore = useUserStore()
@@ -187,12 +214,16 @@ const creating = ref(false)
 const embeddingModels = ref<any[]>([])
 const searchBackends = ref<any[]>([{ value: 'MYSQL', label: 'MySQL', available: true }])
 const vectorBackends = ref<any[]>([{ value: 'PGVECTOR', label: 'pgvector', available: true }])
-const form = reactive({ name: '', description: '', visibility: 'TENANT', embeddingModel: '', graphEnabled: false, searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR', defaultTopK: 5, maxTopK: 20 })
+const form = reactive({ name: '', description: '', visibility: 'TENANT', embeddingModel: '', graphEnabled: false,
+  searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR', defaultTopK: 5, maxTopK: 20,
+  defaultRetrievalMode: 'hybrid', defaultScoreThreshold: 0.5, defaultKeywordWeight: 0.35 })
 const editVisible = ref(false)
 const editSaving = ref(false)
 const editForm = reactive({
   id: 0, name: '', description: '', embeddingModel: '', documentCount: 0, graphEnabled: false,
-  searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR', defaultTopK: 5, maxTopK: 20, parseConfig: {} as Record<string, any>
+  searchBackend: 'MYSQL', vectorBackend: 'PGVECTOR', defaultTopK: 5, maxTopK: 20,
+  defaultRetrievalMode: 'hybrid', defaultScoreThreshold: 0.5, defaultKeywordWeight: 0.35,
+  parseConfig: {} as Record<string, any>
 })
 
 async function load() {
@@ -229,6 +260,9 @@ function openEdit(kb: Kb) {
   editForm.vectorBackend = kb.vectorBackend || 'PGVECTOR'
   editForm.defaultTopK = kb.defaultTopK ?? 5
   editForm.maxTopK = kb.maxTopK ?? 20
+  editForm.defaultRetrievalMode = kb.defaultRetrievalMode || 'hybrid'
+  editForm.defaultScoreThreshold = kb.defaultScoreThreshold ?? 0.5
+  editForm.defaultKeywordWeight = kb.defaultKeywordWeight ?? 0.35
   editForm.parseConfig = kb.parseConfig || {}
   editVisible.value = true
 }
@@ -241,7 +275,11 @@ async function saveEdit() {
       name: editForm.name.trim(), description: editForm.description,
       embeddingModel: editForm.embeddingModel, graphEnabled: editForm.graphEnabled,
       searchBackend: editForm.searchBackend, vectorBackend: editForm.vectorBackend,
-      defaultTopK: editForm.defaultTopK, maxTopK: editForm.maxTopK, parseConfig: editForm.parseConfig
+      defaultTopK: editForm.defaultTopK, maxTopK: editForm.maxTopK,
+      defaultRetrievalMode: editForm.defaultRetrievalMode,
+      defaultScoreThreshold: editForm.defaultScoreThreshold,
+      defaultKeywordWeight: editForm.defaultKeywordWeight,
+      parseConfig: editForm.parseConfig
     })
     ElMessage.success(t('knowledgeList.savedMsg'))
     editVisible.value = false
@@ -279,7 +317,10 @@ async function create() {
       name: form.name, description: form.description, visibility: form.visibility,
       embeddingModel: form.embeddingModel, graphEnabled: form.graphEnabled,
       searchBackend: form.searchBackend, vectorBackend: form.vectorBackend,
-      defaultTopK: form.defaultTopK, maxTopK: form.maxTopK
+      defaultTopK: form.defaultTopK, maxTopK: form.maxTopK,
+      defaultRetrievalMode: form.defaultRetrievalMode,
+      defaultScoreThreshold: form.defaultScoreThreshold,
+      defaultKeywordWeight: form.defaultKeywordWeight
     })
     ElMessage.success(t('knowledgeList.createdMsg'))
     createVisible.value = false
@@ -289,6 +330,9 @@ async function create() {
     form.embeddingModel = embeddingModels.value.find((m: any) => m.default)?.name || ''
     form.graphEnabled = false
     form.searchBackend = 'MYSQL'
+    form.defaultRetrievalMode = 'hybrid'
+    form.defaultScoreThreshold = 0.5
+    form.defaultKeywordWeight = 0.35
     form.vectorBackend = 'PGVECTOR'
     await load()
   } finally {
