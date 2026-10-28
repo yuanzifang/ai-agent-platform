@@ -21,6 +21,8 @@ public class KnowledgeVectorOutbox {
     private String payload;
     private LocalDateTime availableAt;
     private String lastError;
+    private String lockedBy;
+    private LocalDateTime lockedUntil;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
