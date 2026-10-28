@@ -28,6 +28,7 @@ POST /api/v1/workflow/runs/{runId}/resume
 - 保留已有 outputs/state
 - 写入审计 `workflow.resume`
 - 当前节点为 `TOOL` / `HANDOFF` / `AGENT` 时默认拒绝，需显式传 `allowSideEffects=true`，避免恢复导致外部副作用重复执行
+- TOOL 节点会向下游 API 透传 `Idempotency-Key: <runId>:<nodeId>`，支持幂等的下游可据此去重
 
 查询：
 

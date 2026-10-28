@@ -1336,7 +1336,9 @@ public class WorkflowService {
         if (args == null || args.isBlank()) args = "{}";
         args = args.replace("{{input}}", run.getInputText())
                 .replace("{{last}}", lastOutput == null ? "" : lastOutput);
-        Map<String, Object> result = toolRuntime.executeToolForWorkflow(run.getAgentId(), toolId, args);
+        String idempotencyKey = run.getId() + ":" + str(node.get("id"));
+        Map<String, Object> result = toolRuntime.executeToolForWorkflow(run.getAgentId(), toolId, args,
+                idempotencyKey);
         return str(result.get("output"));
     }
 
