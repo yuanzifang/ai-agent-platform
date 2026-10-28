@@ -110,6 +110,11 @@
                 <el-switch v-model="form.capabilities.redactSecrets" />
                 <span class="hint">{{ t('agentEdit.redactSecretsHint') }}</span>
               </el-form-item>
+              <el-form-item :label="t('agentEdit.redactPatterns')">
+                <el-input v-model="redactPatternsText" type="textarea" :rows="2"
+                          placeholder='["secret-\\d+", "internal-token-[A-Za-z0-9]+"]' />
+                <span class="hint">{{ t('agentEdit.redactPatternsHint') }}</span>
+              </el-form-item>
               <el-form-item :label="t('agentEdit.selfCorrection')">
                 <el-switch v-model="form.capabilities.selfCorrection" />
                 <span class="hint">{{ t('agentEdit.correctionHint') }}</span>
@@ -1332,6 +1337,7 @@ const form = reactive({
 })
 const tagsStr = ref('')
 const writeToolPatternsText = ref('')
+const redactPatternsText = ref('[]')
 const writeToolAmountLimitsText = ref('')
 const enabledKbCount = computed(() => kbRows.value.filter(k => k.enabled).length)
 const selectedProfile = computed(() => resourceProfiles.value.find((p: any) => p.id === form.resourceProfileId))
@@ -1566,12 +1572,14 @@ onMounted(async () => {
     redactSecrets: caps.redactSecrets !== false,
     maxInputValidationAttempts: Number.isFinite(Number(caps.maxInputValidationAttempts))
       ? Number(caps.maxInputValidationAttempts) : 3,
+    redactPatterns: Array.isArray(caps.redactPatterns) ? caps.redactPatterns : [],
     multimodal: !!caps.multimodal, selfCorrection: !!caps.selfCorrection,
     selfCorrectionRounds: caps.selfCorrectionRounds ?? 1,
     writeToolPolicy: caps.writeToolPolicy || 'ALLOW_ALL',
     allowedWriteToolIds: Array.isArray(caps.allowedWriteToolIds) ? caps.allowedWriteToolIds : [],
     writeToolMaxArgs: caps.writeToolMaxArgs ?? 16384 }
   writeToolPatternsText.value = JSON.stringify(caps.writeToolArgPatterns || {}, null, 2)
+  redactPatternsText.value = JSON.stringify(caps.redactPatterns || [], null, 2)
   writeToolAmountLimitsText.value = JSON.stringify(caps.writeToolAmountLimits || {}, null, 2)
   const mem = detail.memoryConfig || {}
   form.memory = { enabled: mem.enabled !== false, windowSize: mem.windowSize ?? 10,
@@ -3307,6 +3315,17 @@ function parsePolicyJson(text: string) {
   return value
 }
 
+function parseRedactPatterns(text: string): string[] {
+  if (!text || !text.trim()) return []
+  try {
+    const value = JSON.parse(text)
+    if (!Array.isArray(value)) return []
+    return value.filter(v => typeof v === 'string').slice(0, 20)
+  } catch {
+    return []
+  }
+}
+
 function buildPayload() {
   return {
     name: form.name,
@@ -3317,6 +3336,7 @@ function buildPayload() {
     openingStatement: form.openingStatement,
     agentCapabilities: {
       ...form.capabilities,
+      redactPatterns: parseRedactPatterns(redactPatternsText.value),
       writeToolArgPatterns: parsePolicyJson(writeToolPatternsText.value),
       writeToolAmountLimits: parsePolicyJson(writeToolAmountLimitsText.value)
     },

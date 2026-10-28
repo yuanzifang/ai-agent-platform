@@ -3,6 +3,7 @@ package com.platform.capability.runtime;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -37,6 +38,20 @@ public class SecretRedactionHook implements AgentHook {
         String redacted = output;
         for (Pattern pattern : PATTERNS) {
             redacted = pattern.matcher(redacted).replaceAll("[REDACTED]");
+        }
+        Object custom = context.capabilities() == null ? null : context.capabilities().get("redactPatterns");
+        if (custom instanceof List<?> values) {
+            int count = 0;
+            for (Object raw : values) {
+                if (count++ >= 20) break;
+                String expression = String.valueOf(raw);
+                if (expression.length() > 200) continue;
+                try {
+                    redacted = Pattern.compile(expression).matcher(redacted).replaceAll("[REDACTED]");
+                } catch (Exception ignored) {
+                    // 非法自定义规则跳过，不影响其他规则
+                }
+            }
         }
         return redacted;
     }
