@@ -298,10 +298,19 @@ public class McpClientService {
     /** cancelled 由对话停止信号驱动：HTTP 取消本地请求；stdio 直接终止子进程。 */
     public McpCallResult callTool(McpServer server, String toolName, Map<String, Object> arguments,
                                   BooleanSupplier cancelled) {
+        return callTool(server, toolName, arguments, cancelled, null);
+    }
+
+    /** 工作流恢复时可传幂等键，MCP Server 可将其用于上游去重。 */
+    public McpCallResult callTool(McpServer server, String toolName, Map<String, Object> arguments,
+                                  BooleanSupplier cancelled, String idempotencyKey) {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("name", toolName);
         params.put("arguments", arguments == null ? Map.of() : arguments);
-        params.put("_meta", Map.of("progressToken", "p-" + UUID.randomUUID()));
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("progressToken", "p-" + UUID.randomUUID());
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) meta.put("idempotencyKey", idempotencyKey);
+        params.put("_meta", meta);
         Exception last = null;
         // 写操作只重试一次，避免重复副作用
         for (int attempt = 0; attempt <= 1; attempt++) {

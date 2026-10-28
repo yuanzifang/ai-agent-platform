@@ -1002,7 +1002,8 @@ public class ToolRuntimeService {
                 try {
                     McpClientService.McpCallResult result = TenantContext.runWith(
                             TenantContext.getTenantId(),
-                            () -> mcpClient.callTool(server, finalRemoteName, args, collector::isCancelled));
+                            () -> mcpClient.callTool(server, finalRemoteName, args, collector::isCancelled,
+                                    idempotencyKey.get()));
                     output = result.text();
                     if (result.error()) status = "ERROR";
                     if (isCancelled(collector)) {

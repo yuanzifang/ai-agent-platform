@@ -29,6 +29,7 @@ POST /api/v1/workflow/runs/{runId}/resume
 - 写入审计 `workflow.resume`
 - 当前节点为 `TOOL` / `HANDOFF` / `AGENT` 时默认拒绝，需显式传 `allowSideEffects=true`，避免恢复导致外部副作用重复执行
 - TOOL 节点会向下游 API 透传 `Idempotency-Key: <runId>:<nodeId>`，支持幂等的下游可据此去重
+- MCP 工具会在 `_meta.idempotencyKey` 中携带同一键；是否去重由 MCP Server 决定
 
 查询：
 
