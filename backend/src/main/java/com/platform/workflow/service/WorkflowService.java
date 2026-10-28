@@ -611,6 +611,7 @@ public class WorkflowService {
                         run.setUpdatedAt(LocalDateTime.now());
                         run.setContextJson(contextJson(waitingOutputs, state));
                         runMapper.updateById(run);
+                        saveCheckpoint(run, nodeId, nodeId, "WAITING_APPROVAL", waitingOutputs, state, output);
                         auditService.record(run.getUserId(), "workflow.loop_limit", "workflow_run",
                                 String.valueOf(run.getId()), "WAITING_APPROVAL",
                                 Map.of("nodeId", nodeId, "requested", ex.requested,
@@ -672,6 +673,7 @@ public class WorkflowService {
                     run.setUpdatedAt(LocalDateTime.now());
                     run.setContextJson(contextJson(outputs, state));
                     runMapper.updateById(run);
+                    saveCheckpoint(run, nodeId, str(node.get("next")), "WAITING_APPROVAL", outputs, state, output);
                     return;
                 } else {
                     fail(run, "不支持的节点类型：" + type);
@@ -1083,6 +1085,7 @@ public class WorkflowService {
         run.setOutputText("并行分支审批中");
         run.setUpdatedAt(LocalDateTime.now());
         runMapper.updateById(run);
+        saveCheckpointFromRun(run, parallelNodeId, null, "WAITING_APPROVAL");
         auditService.record(principal.userId(), "workflow.parallel_approval", "workflow_run",
                 String.valueOf(run.getId()), "WAITING_APPROVAL",
                 Map.of("parallelNodeId", parallelNodeId, "approvals", approvals.size(),
@@ -1772,7 +1775,19 @@ public class WorkflowService {
         return true;
     }
 
-    private void saveCheckpoint(WorkflowRun run, String nodeId, String nextNodeId, String status,
+    private void saveCheckpointFromRun(WorkflowRun run, String nodeId, String nextNodeId, String status) {
+        try {
+            Map<String, Object> ctx = run.getContextJson() == null ? Map.of() : parseMap(run.getContextJson());
+            List<Map<String, Object>> outputs = new ArrayList<>();
+            if (ctx.get("outputs") instanceof List<?> list) {
+                for (Object o : list) if (o instanceof Map<?, ?> m) outputs.add(castMap(m));
+            }
+            Map<String, Object> state = ctx.get("state") instanceof Map<?, ?> sm ? castMap(sm) : Map.of();
+            saveCheckpoint(run, nodeId, nextNodeId, status, outputs, state, run.getOutputText());
+        } catch (Exception ignored) { }
+    }
+
+    void saveCheckpoint(WorkflowRun run, String nodeId, String nextNodeId, String status,
                                 List<Map<String, Object>> outputs, Map<String, Object> state,
                                 String outputText) {
         try {
