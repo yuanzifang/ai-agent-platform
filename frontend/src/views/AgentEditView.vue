@@ -173,7 +173,7 @@
                   <el-option :label="t('agentEdit.vector')" value="vector" />
                   <el-option :label="t('agentEdit.keyword')" value="keyword" />
                 </el-select>
-                topK <el-input-number v-model="kb.topK" :min="1" :max="20" size="small" />
+                topK <el-input-number v-model="kb.topK" :min="1" :max="kb.maxTopK || 20" size="small" />
                 {{ t('agentEdit.threshold') }} <el-input-number v-model="kb.scoreThreshold" :min="0" :max="1" :step="0.05" size="small" />
               </div>
               <div class="kb-params" v-if="kb.enabled">
@@ -1354,7 +1354,7 @@ const sectionOptions = ['abstract', 'introduction', 'methods', 'results', 'discu
 interface KbRow {
   knowledgeBaseId: number; name: string; enabled: boolean; topK: number; scoreThreshold: number; mode: string
   documentType?: string; sectionType?: string; regulatoryCategory?: string
-  chunkLevel?: number; minRelevance?: number; missing?: boolean
+  chunkLevel?: number; minRelevance?: number; defaultTopK?: number; maxTopK?: number; missing?: boolean
 }
 interface RefRow { id: number; name: string; description?: string; type?: string; isBuiltin?: boolean; enabled: boolean; missing?: boolean }
 type RefType = 'skill' | 'tool' | 'sub'
@@ -1564,7 +1564,8 @@ onMounted(async () => {
     return {
       knowledgeBaseId: kb.id, name: kb.name,
       enabled: b ? b.enabled !== false : false,
-      topK: rc.topK ?? 5, scoreThreshold: rc.scoreThreshold ?? 0.5, mode: rc.mode || 'hybrid',
+      topK: rc.topK ?? kb.defaultTopK ?? 5, scoreThreshold: rc.scoreThreshold ?? 0.5, mode: rc.mode || 'hybrid',
+      defaultTopK: kb.defaultTopK ?? 5, maxTopK: kb.maxTopK ?? 20,
       documentType: rc.documentType || undefined, sectionType: rc.sectionType || undefined,
       regulatoryCategory: rc.regulatoryCategory || undefined, chunkLevel: rc.chunkLevel,
       minRelevance: rc.minRelevance
