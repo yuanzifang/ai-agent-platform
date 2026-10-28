@@ -3,6 +3,7 @@ package com.platform.system.controller;
 import com.platform.common.response.ApiResponse;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.service.AlertRelayClient;
+import com.platform.system.service.AuditService;
 import com.platform.system.service.PlatformAdminService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -24,6 +25,7 @@ public class AlertRelayAdminController {
 
     private final AlertRelayClient relayClient;
     private final PlatformAdminService platformAdminService;
+    private final AuditService auditService;
 
     @GetMapping("/state")
     public ApiResponse<Map<String, Object>> state(@AuthenticationPrincipal JwtPrincipal principal) {
@@ -35,7 +37,11 @@ public class AlertRelayAdminController {
     public ApiResponse<Map<String, Object>> ack(@RequestBody @Valid AckRequest req,
                                                  @AuthenticationPrincipal JwtPrincipal principal) {
         platformAdminService.requirePlatformAdmin(principal);
-        return ApiResponse.ok(relayClient.ack(req.fingerprint()));
+        Map<String, Object> result = relayClient.ack(req.fingerprint());
+        auditService.record(principal.userId(), "alert.ack", "alert", req.fingerprint(),
+                Boolean.TRUE.equals(result.get("acked")) ? "SUCCESS" : "FAILED",
+                Map.of("fingerprint", req.fingerprint(), "source", "alert-relay"));
+        return ApiResponse.ok(result);
     }
 
     public record AckRequest(@NotBlank String fingerprint) {
