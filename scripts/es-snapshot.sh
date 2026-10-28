@@ -33,7 +33,7 @@ for s in d.get("snapshots", []):
 
 create_snapshot() {
   ensure_repo
-  local name="${1:-aap-knowledge-$(date +%Y%m%d-%H%M%S)}"
+  local name="${1:-aap-knowledge-$(date +%Y%m%d-%H%M%S)-${RANDOM}}"
   json -X PUT "$BASE/_snapshot/$REPO/$name?wait_for_completion=true" \
     -d '{"indices":"aap_knowledge_chunks_*","ignore_unavailable":true,"include_global_state":false}' \
     >/tmp/aap-es-snapshot-create.json
