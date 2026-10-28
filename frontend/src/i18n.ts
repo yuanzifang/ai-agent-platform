@@ -59,7 +59,7 @@ const messages = {
       approveTitle: '通过审批', rejectTitle: '拒绝审批', item: '审批事项', comment: '审批意见',
       commentApprovePh: '可选，如：同意退款', commentRejectPh: '必填，如：金额超限，转人工',
       cancel: '取消', confirmApprove: '确认通过', confirmReject: '确认拒绝',
-      runDetail: '运行详情', runId: '运行 ID', currentNode: '当前节点', input: '输入', output: '输出',
+      runDetail: '运行详情', checkpoints: 'Checkpoints', resume: '恢复运行', resumed: '运行已恢复', runId: '运行 ID', currentNode: '当前节点', input: '输入', output: '输出',
       track: '节点轨迹', rejectReason: '拒绝时请填写原因', approvedToast: '已通过，运行状态：', rejectedToast: '已拒绝'
     },
     tpl: {
@@ -1039,7 +1039,7 @@ const messages = {
       approveTitle: 'Approve', rejectTitle: 'Reject', item: 'Approval', comment: 'Comment',
       commentApprovePh: 'Optional, e.g. approved', commentRejectPh: 'Required, e.g. amount exceeds limit',
       cancel: 'Cancel', confirmApprove: 'Confirm approve', confirmReject: 'Confirm reject',
-      runDetail: 'Run details', runId: 'Run ID', currentNode: 'Current node', input: 'Input', output: 'Output',
+      runDetail: 'Run details', checkpoints: 'Checkpoints', resume: 'Resume run', resumed: 'Run resumed', runId: 'Run ID', currentNode: 'Current node', input: 'Input', output: 'Output',
       track: 'Node timeline', rejectReason: 'Please provide a rejection reason', approvedToast: 'Approved, run status: ', rejectedToast: 'Rejected'
     },
     tpl: {
