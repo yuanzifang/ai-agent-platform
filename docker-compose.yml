@@ -222,6 +222,19 @@ services:
         condition: service_healthy
     logging: *default-logging
 
+  metrics-token-init:
+    image: busybox:1.36
+    restart: "no"
+    environment:
+      METRICS_SCRAPE_TOKEN: ${METRICS_SCRAPE_TOKEN:-}
+    volumes:
+      - metrics-token:/token
+    command:
+      - /bin/sh
+      - -c
+      - |
+        printf '%s' "$$METRICS_SCRAPE_TOKEN" > /token/metrics-token
+
   prometheus:
     image: prom/prometheus:v2.55.1
     restart: unless-stopped
@@ -232,10 +245,13 @@ services:
     volumes:
       - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./deploy/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - metrics-token:/etc/prometheus/metrics-token:ro
       - prometheus-data:/prometheus
     ports:
       - "${PROMETHEUS_BIND:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
     depends_on:
+      metrics-token-init:
+        condition: service_completed_successfully
       backend:
         condition: service_healthy
       alertmanager:
@@ -288,3 +304,4 @@ volumes:
   prometheus-data:
   grafana-data:
   alertmanager-data:
+  metrics-token:
