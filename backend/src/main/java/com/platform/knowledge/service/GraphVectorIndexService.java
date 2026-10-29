@@ -54,6 +54,20 @@ public class GraphVectorIndexService {
         }
     }
 
+    public void delete(Long tenantId, Long kbId, String objectType, Long objectId) {
+        if (!enabled) return;
+        try {
+            ensure();
+            pgJdbcTemplate.update("""
+                    DELETE FROM graph_vector_index
+                    WHERE tenant_id=? AND kb_id=? AND object_type=? AND object_id=?
+                    """, tenantId, kbId, objectType, objectId);
+        } catch (Exception e) {
+            log.debug("图向量删除失败 tenant={} kb={} type={} id={}: {}",
+                    tenantId, kbId, objectType, objectId, e.getMessage());
+        }
+    }
+
     public List<Map<String, Object>> search(Long tenantId, Long kbId, String objectType,
                                             float[] vector, int limit) {
         if (!enabled || vector == null || vector.length != embeddingProperties.getDimensions()) {

@@ -1742,6 +1742,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
                 .eq(KnowledgeGraphMention::getKbId, kbId)
                 .eq(KnowledgeGraphMention::getEntityId, entityId));
         entityMapper.deleteById(entityId);
+        graphVectorIndexService.delete(kb.getTenantId(), kbId, "ENTITY", entityId);
         auditService.record(viewer.userId(), "knowledge.graph.entity.delete", "knowledge_graph_entity",
                 String.valueOf(entityId), "SUCCESS", Map.of("kbId", kbId));
     }
