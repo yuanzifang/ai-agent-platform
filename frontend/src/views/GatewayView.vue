@@ -123,6 +123,37 @@
       </el-table>
     </el-drawer>
 
+    <el-drawer v-model="keysVisible" :title="`${t('gatewayPage.keysTitle')}${keysRouteName}`" size="820px">
+      <div class="key-create">
+        <el-input v-model="newKeyName" :placeholder="t('gatewayPage.keyNamePh')" style="width: 180px" />
+        <el-input-number v-model="newKeyRate" :min="0" :max="100000" :placeholder="t('gatewayPage.keyRateCol')" />
+        <el-date-picker v-model="newKeyExpires" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss"
+                        :placeholder="t('gatewayPage.keyExpires')" />
+        <el-button type="primary" :loading="keyCreating" @click="createKey">{{ t('gatewayPage.keyCreate') }}</el-button>
+      </div>
+      <el-alert v-if="newKeyPlain" type="success" :closable="true" @close="newKeyPlain = ''"
+                :title="`${t('gatewayPage.keyCreated')} ${newKeyPlain}`" class="mb12" />
+      <el-table :data="apiKeys" size="small" max-height="520">
+        <el-table-column prop="name" :label="t('gatewayPage.keyName')" min-width="120" />
+        <el-table-column prop="keyPrefix" :label="t('gatewayPage.keyPrefixCol')" width="130" />
+        <el-table-column :label="t('gatewayPage.keyStatus')" width="90">
+          <template #default="{ row }">
+            <el-switch :model-value="row.enabled" @change="(v: boolean) => toggleKey(row, v)" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="rateLimitPerMin" :label="t('gatewayPage.keyRateCol')" width="90" />
+        <el-table-column prop="requestCount" :label="t('gatewayPage.keyCalls')" width="100" />
+        <el-table-column prop="lastUsedAt" :label="t('gatewayPage.keyLastUsed')" width="170" />
+        <el-table-column prop="expiresAt" :label="t('gatewayPage.keyExpires')" width="170" />
+        <el-table-column :label="t('gatewayPage.actions')" width="80" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" text type="danger" @click="removeKey(row)">{{ t('gatewayPage.delete') }}</el-button>
+          </template>
+        </el-table-column>
+        <template #empty><el-empty :description="t('gatewayPage.noKeys')" :image-size="50" /></template>
+      </el-table>
+    </el-drawer>
+
     <el-drawer v-model="healthVisible" :title="`${t('gatewayPage.healthTitle')}${healthRoute.name || ''}`" size="720px">
       <div class="health-toolbar">
         <span class="hint">{{ t('gatewayPage.healthHint') }}</span>
@@ -272,6 +303,7 @@ const keysRouteName = computed(() => keysRoute.value.name || '')
 const apiKeys = ref<any[]>([])
 const newKeyName = ref('')
 const newKeyRate = ref<number | undefined>(undefined)
+const newKeyExpires = ref<string>('')
 const keyCreating = ref(false)
 const newKeyPlain = ref('')
 
@@ -286,13 +318,15 @@ async function createKey() {
   try {
     const res = await http.post(`/gateway/routes/${keysRoute.value.id}/keys`, {
       name: newKeyName.value || '调用方',
-      rateLimitPerMin: newKeyRate.value ?? null
+      rateLimitPerMin: newKeyRate.value ?? null,
+      expiresAt: newKeyExpires.value || null
     }) as any
     newKeyPlain.value = res.apiKey || ''
     ElMessage.success(t('gatewayPage.keyCreated'))
     apiKeys.value = await http.get(`/gateway/routes/${keysRoute.value.id}/keys`) as any
     newKeyName.value = ''
     newKeyRate.value = undefined
+    newKeyExpires.value = ''
   } finally {
     keyCreating.value = false
   }
@@ -365,5 +399,7 @@ async function copyKey() {
 .ml8 { margin-left: 8px; }
 .url-weight-row { display: flex; align-items: center; gap: 8px; width: 100%; }
 .url-weight-row .el-input-number { width: 120px; flex-shrink: 0; }
+.key-create { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.mb12 { margin-bottom: 12px; }
 .mt4 { margin-top: 4px; }
 </style>
