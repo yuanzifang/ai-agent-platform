@@ -253,6 +253,8 @@ public class GatewayService {
         var created = apiKeyService.create(routeId, principal.tenantId(),
                 String.valueOf(req.getOrDefault("name", "")),
                 req.get("rateLimitPerMin") instanceof Number n ? n.intValue() : null,
+                req.get("allowedMethods") == null ? null : String.valueOf(req.get("allowedMethods")),
+                req.get("allowedPaths") == null ? null : String.valueOf(req.get("allowedPaths")),
                 expiresAt, principal.userId());
         Map<String, Object> out = new java.util.LinkedHashMap<>();
         out.put("id", created.key().getId());
@@ -263,11 +265,17 @@ public class GatewayService {
     }
 
     public void updateKey(Long keyId, Map<String, Object> req, com.platform.security.JwtPrincipal principal) {
+        java.time.LocalDateTime expiresAt = null;
+        if (req.get("expiresAt") != null && !String.valueOf(req.get("expiresAt")).isBlank()) {
+            expiresAt = java.time.LocalDateTime.parse(String.valueOf(req.get("expiresAt")));
+        }
         apiKeyService.update(keyId,
                 req.get("name") == null ? null : String.valueOf(req.get("name")),
                 req.get("enabled") instanceof Boolean b ? b : null,
                 req.get("rateLimitPerMin") instanceof Number n ? n.intValue() : null,
-                null, principal.userId());
+                req.get("allowedMethods") == null ? null : String.valueOf(req.get("allowedMethods")),
+                req.get("allowedPaths") == null ? null : String.valueOf(req.get("allowedPaths")),
+                expiresAt, principal.userId());
     }
 
     public void deleteApiKey(Long keyId, com.platform.security.JwtPrincipal principal) {
@@ -329,6 +337,10 @@ public class GatewayService {
             return error(servletResponse, HttpStatus.TOO_MANY_REQUESTS, "网关路由限流");
         }
         String suffix = suffix(routeKey, request.getRequestURI());
+        if (!apiKeyService.scopeAllows(callerKey, request.getMethod(), suffix)) {
+            log(route, request, 403, null, started, "api key scope denied");
+            return error(servletResponse, HttpStatus.FORBIDDEN, "API Key scope 不允许该请求");
+        }
         String query = request.getQueryString();
         try {
             byte[] body = "GET".equalsIgnoreCase(request.getMethod()) || "HEAD".equalsIgnoreCase(request.getMethod())

@@ -18,6 +18,7 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 调用方 API Key 管理（评审缺口）：一个路由可发多个 Key 给不同调用方，
@@ -56,6 +57,8 @@ public class GatewayApiKeyService {
         m.put("enabled", k.getEnabled() != null && k.getEnabled() == 1);
         m.put("expiresAt", k.getExpiresAt());
         m.put("rateLimitPerMin", k.getRateLimitPerMin());
+        m.put("allowedMethods", k.getAllowedMethods());
+        m.put("allowedPaths", k.getAllowedPaths());
         m.put("requestCount", k.getRequestCount());
         m.put("lastUsedAt", k.getLastUsedAt());
         m.put("createdAt", k.getCreatedAt());
@@ -66,6 +69,12 @@ public class GatewayApiKeyService {
 
     public CreatedKey create(Long routeId, Long tenantId, String name,
                              Integer rateLimitPerMin, java.time.LocalDateTime expiresAt, Long operatorId) {
+        return create(routeId, tenantId, name, rateLimitPerMin, null, null, expiresAt, operatorId);
+    }
+
+    public CreatedKey create(Long routeId, Long tenantId, String name,
+                             Integer rateLimitPerMin, String allowedMethods, String allowedPaths,
+                             java.time.LocalDateTime expiresAt, Long operatorId) {
         byte[] bytes = new byte[32];
         new SecureRandom().nextBytes(bytes);
         String apiKey = "gwk_" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
@@ -78,6 +87,8 @@ public class GatewayApiKeyService {
         key.setEnabled(1);
         key.setExpiresAt(expiresAt);
         key.setRateLimitPerMin(rateLimitPerMin);
+        key.setAllowedMethods(normalizeMethods(allowedMethods));
+        key.setAllowedPaths(normalizePaths(allowedPaths));
         key.setRequestCount(0L);
         key.setCreatedBy(operatorId);
         key.setCreatedAt(LocalDateTime.now());
@@ -87,9 +98,57 @@ public class GatewayApiKeyService {
         return new CreatedKey(key, apiKey);
     }
 
+    /** 调用方 Key 的方法/路径 scope；空配置表示不限制。 */
+    public boolean scopeAllows(GatewayApiKey key, String method, String path) {
+        if (key == null) return true;
+        String methods = key.getAllowedMethods();
+        if (methods != null && !methods.isBlank()) {
+            boolean hit = java.util.Arrays.stream(methods.split(","))
+                    .map(String::trim).filter(s -> !s.isBlank())
+                    .anyMatch(s -> s.equalsIgnoreCase(method == null ? "" : method.trim()));
+            if (!hit) return false;
+        }
+        String paths = key.getAllowedPaths();
+        if (paths != null && !paths.isBlank()) {
+            boolean hit = false;
+            for (String prefix : paths.split("[,\n\r]+")) {
+                prefix = prefix.trim();
+                if (!prefix.isEmpty() && path != null && path.startsWith(prefix)) {
+                    hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    }
+
+    private String normalizeMethods(String value) {
+        if (value == null || value.isBlank()) return null;
+        String methods = java.util.Arrays.stream(value.split(","))
+                .map(String::trim).map(String::toUpperCase)
+                .filter(s -> Set.of("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS").contains(s))
+                .distinct().collect(java.util.stream.Collectors.joining(","));
+        return methods.isBlank() ? null : methods;
+    }
+
+    private String normalizePaths(String value) {
+        if (value == null || value.isBlank()) return null;
+        String paths = java.util.Arrays.stream(value.split("[,\n\r]+"))
+                .map(String::trim).filter(s -> s.startsWith("/"))
+                .distinct().collect(java.util.stream.Collectors.joining(","));
+        return paths.isBlank() ? null : paths;
+    }
+
     /** 禁用/启用/改名/改限流/改过期（部分更新，空值保留）。 */
     public void update(Long keyId, String name, Boolean enabled,
                        Integer rateLimitPerMin, LocalDateTime expiresAt, Long operatorId) {
+        update(keyId, name, enabled, rateLimitPerMin, null, null, expiresAt, operatorId);
+    }
+
+    public void update(Long keyId, String name, Boolean enabled,
+                       Integer rateLimitPerMin, String allowedMethods, String allowedPaths,
+                       LocalDateTime expiresAt, Long operatorId) {
         GatewayApiKey key = keyMapper.selectById(keyId);
         if (key == null) return;
         GatewayApiKey patch = new GatewayApiKey();
@@ -97,6 +156,8 @@ public class GatewayApiKeyService {
         if (name != null && !name.isBlank()) patch.setName(name.trim());
         if (enabled != null) patch.setEnabled(enabled ? 1 : 0);
         if (rateLimitPerMin != null) patch.setRateLimitPerMin(Math.max(0, rateLimitPerMin));
+        if (allowedMethods != null) patch.setAllowedMethods(normalizeMethods(allowedMethods));
+        if (allowedPaths != null) patch.setAllowedPaths(normalizePaths(allowedPaths));
         if (expiresAt != null) patch.setExpiresAt(expiresAt);
         keyMapper.updateById(patch);
         evict(key.getKeyHash());
