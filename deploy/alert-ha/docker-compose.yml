@@ -1,0 +1,122 @@
+# 本地 HA 演练：relay 双副本 + nginx LB + Alertmanager 三节点。
+# Redis 为外部依赖（默认 host.docker.internal:6379）；生产请使用 Redis HA/Sentinel。
+name: aap-alert-ha
+
+x-relay-env: &relay-env
+  REDIS_HOST: ${REDIS_HOST:-host.docker.internal}
+  REDIS_PORT: ${REDIS_PORT:-6379}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+  REDIS_DB: ${REDIS_DB:-0}
+  ALERT_RELAY_REDIS_PREFIX: ${ALERT_RELAY_REDIS_PREFIX:-alert-relay}
+  ALERT_RELAY_ACK_TOKEN: ${ALERT_RELAY_ACK_TOKEN:?set ALERT_RELAY_ACK_TOKEN}
+  ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+  ALERT_WEBHOOK_SECRET: ${ALERT_WEBHOOK_SECRET:-}
+  ALERT_WEBHOOK_TYPE: ${ALERT_WEBHOOK_TYPE:-auto}
+  ALERT_WEBHOOK_KEYWORD: ${ALERT_WEBHOOK_KEYWORD:-告警}
+  ALERT_WEBHOOK_ENV: ${ALERT_WEBHOOK_ENV:-prod}
+  ALERT_EMAIL_ENABLED: ${ALERT_EMAIL_ENABLED:-false}
+  ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-}
+  ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_TLS: ${SMTP_TLS:-true}
+  SMTP_SECURE: ${SMTP_SECURE:-false}
+  ALERT_SMS_ENABLED: ${ALERT_SMS_ENABLED:-false}
+  ALERT_SMS_ACCESS_KEY_ID: ${ALERT_SMS_ACCESS_KEY_ID:-}
+  ALERT_SMS_ACCESS_KEY_SECRET: ${ALERT_SMS_ACCESS_KEY_SECRET:-}
+  ALERT_SMS_ENDPOINT: ${ALERT_SMS_ENDPOINT:-dysmsapi.aliyuncs.com}
+  ALERT_SMS_SIGN_NAME: ${ALERT_SMS_SIGN_NAME:-}
+  ALERT_SMS_TEMPLATE_CODE: ${ALERT_SMS_TEMPLATE_CODE:-}
+  ALERT_SMS_PHONE_NUMBERS: ${ALERT_SMS_PHONE_NUMBERS:-}
+  ALERT_RELAY_CRITICAL_CHANNELS: ${ALERT_RELAY_CRITICAL_CHANNELS:-webhook,email}
+  ALERT_RELAY_WARNING_CHANNELS: ${ALERT_RELAY_WARNING_CHANNELS:-webhook,email}
+  ALERT_RELAY_DEFAULT_CHANNELS: ${ALERT_RELAY_DEFAULT_CHANNELS:-webhook}
+  ALERT_ESCALATION_DELAY_SECONDS: ${ALERT_ESCALATION_DELAY_SECONDS:-300}
+  ALERT_ESCALATION_CHANNELS: ${ALERT_ESCALATION_CHANNELS:-sms}
+  ALERT_ESCALATION_SEVERITIES: ${ALERT_ESCALATION_SEVERITIES:-critical}
+
+services:
+  alert-relay-1:
+    build: ../../runtime/alert-relay
+    environment: *relay-env
+    expose: ["8080"]
+    restart: unless-stopped
+    networks: [alert-ha]
+  alert-relay-2:
+    build: ../../runtime/alert-relay
+    environment: *relay-env
+    expose: ["8080"]
+    restart: unless-stopped
+    networks: [alert-ha]
+
+  alert-relay-lb:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "${RELAY_BIND:-127.0.0.1}:${RELAY_PORT:-18099}:8080"
+    depends_on: [alert-relay-1, alert-relay-2]
+    restart: unless-stopped
+    networks: [alert-ha]
+
+  alertmanager-1:
+    image: prom/alertmanager:v0.28.1
+    hostname: am1
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=0.0.0.0:9093
+      - --cluster.listen-address=0.0.0.0:9094
+      - --cluster.advertise-address=172.31.70.11:9094
+      - --cluster.peer=172.31.70.12:9094
+      - --cluster.peer=172.31.70.13:9094
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports: ["${AM1_PORT:-19093}:9093"]
+    networks:
+      alert-ha:
+        ipv4_address: 172.31.70.11
+
+  alertmanager-2:
+    image: prom/alertmanager:v0.28.1
+    hostname: am2
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=0.0.0.0:9093
+      - --cluster.listen-address=0.0.0.0:9094
+      - --cluster.advertise-address=172.31.70.12:9094
+      - --cluster.peer=172.31.70.11:9094
+      - --cluster.peer=172.31.70.13:9094
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports: ["${AM2_PORT:-19094}:9093"]
+    networks:
+      alert-ha:
+        ipv4_address: 172.31.70.12
+
+  alertmanager-3:
+    image: prom/alertmanager:v0.28.1
+    hostname: am3
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=0.0.0.0:9093
+      - --cluster.listen-address=0.0.0.0:9094
+      - --cluster.advertise-address=172.31.70.13:9094
+      - --cluster.peer=172.31.70.11:9094
+      - --cluster.peer=172.31.70.12:9094
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports: ["${AM3_PORT:-19095}:9093"]
+    networks:
+      alert-ha:
+        ipv4_address: 172.31.70.13
+
+networks:
+  alert-ha:
+    ipam:
+      config:
+        - subnet: 172.31.70.0/24
