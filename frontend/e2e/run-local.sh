@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # 本地 E2E 自包含准备：把内置 DeepSeek Provider 临时指向离线 mock，放宽租户限流，
 # 测试结束后恢复 Provider。数据库默认按本地开发环境 root/root；可用 MYSQL_* 覆盖。
+# E2E_REAL_MODEL=1 时不切 mock Provider，临时把 Agent 模型和门禁裁判切到本地 qwen2.5:7b，
+# 结束后恢复原配置。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -30,6 +32,8 @@ if ! mysql_exec "SELECT 1" >/dev/null 2>&1; then
   exit 1
 fi
 
+REAL_MODEL="${E2E_REAL_MODEL:-0}"
+REAL_AGENT_ID="${E2E_REAL_AGENT_ID:-1}"
 provider_row="$(mysql_exec "SELECT id, base_url FROM provider WHERE provider_type='DEEPSEEK' ORDER BY id LIMIT 1")"
 if [[ -z "$provider_row" ]]; then
   echo "未找到 DEEPSEEK Provider，无法为 E2E 指向离线 mock。" >&2
@@ -38,14 +42,29 @@ fi
 provider_id="${provider_row%%$'\t'*}"
 original_base_url="${provider_row#*$'\t'}"
 original_base_url="${original_base_url//\'/\'\'}"
+original_agent_model="$(mysql_exec "SELECT model_config FROM agent_registry WHERE id=${REAL_AGENT_ID}")"
+original_judge_model="$(mysql_exec "SELECT config_value FROM sys_config WHERE config_key='eval.gate-judge-model' LIMIT 1")"
+original_agent_model="${original_agent_model//\'/\'\'}"
+original_judge_model="${original_judge_model//\'/\'\'}"
 
-restore_provider() {
+restore_e2e_config() {
   mysql_exec "UPDATE provider SET base_url='${original_base_url}' WHERE id=${provider_id}" >/dev/null 2>&1 || true
-  echo "已恢复 DEEPSEEK Provider(${provider_id}) base_url=${original_base_url}"
+  if [[ -n "$original_agent_model" ]]; then
+    mysql_exec "UPDATE agent_registry SET model_config='${original_agent_model}' WHERE id=${REAL_AGENT_ID}" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$original_judge_model" || "$REAL_MODEL" == "1" ]]; then
+    mysql_exec "UPDATE sys_config SET config_value='${original_judge_model}' WHERE config_key='eval.gate-judge-model'" >/dev/null 2>&1 || true
+  fi
+  echo "已恢复 DEEPSEEK Provider(${provider_id})、Agent 模型与门禁裁判配置"
 }
-trap restore_provider EXIT INT TERM
+trap restore_e2e_config EXIT INT TERM
 
-mysql_exec "UPDATE provider SET base_url='http://127.0.0.1:18080' WHERE id=${provider_id}" >/dev/null
+if [[ "$REAL_MODEL" == "1" ]]; then
+  mysql_exec "UPDATE agent_registry SET model_config='{\"modelName\":\"qwen2.5:7b\",\"temperature\":0.2}' WHERE id=${REAL_AGENT_ID}" >/dev/null
+  mysql_exec "UPDATE sys_config SET config_value='qwen2.5:7b' WHERE config_key='eval.gate-judge-model'" >/dev/null
+else
+  mysql_exec "UPDATE provider SET base_url='http://127.0.0.1:18080' WHERE id=${provider_id}" >/dev/null
+fi
 mysql_exec "UPDATE sys_tenant_quota SET max_api_calls_per_min=100000" >/dev/null
 
 # 配额在 Redis 缓存 5 分钟，改库后必须清掉，否则本地仍按旧的 60/分钟限流。
