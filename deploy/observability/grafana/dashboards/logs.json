@@ -5,8 +5,26 @@
   "panels": [
     {
       "type": "logs",
+      "title": "全部容器日志",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{container=~\".+\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "type": "logs",
       "title": "最近错误日志",
-      "gridPos": { "h": 16, "w": 24, "x": 0, "y": 0 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
@@ -23,12 +41,12 @@
     },
     {
       "type": "logs",
-      "title": "后端日志（全部）",
-      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 16 },
+      "title": "后端/Agent 日志",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
-          "expr": "{container=~\".*backend.*\"}",
+          "expr": "{container=~\".*(backend|agent).*\"}",
           "refId": "A"
         }
       ],
