@@ -56,6 +56,7 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
             .connectTimeout(Duration.ofSeconds(10)).build();
     private final Map<String, WebSocket> upstreams = new ConcurrentHashMap<>();
     private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
+    private final Map<String, GatewayRoute> routes = new ConcurrentHashMap<>();
     private final Map<String, Long> lastActivity = new ConcurrentHashMap<>();
     private final Map<String, Long> upstreamPongAt = new ConcurrentHashMap<>();
     private final Map<String, Long> lastPingAt = new ConcurrentHashMap<>();
@@ -101,6 +102,7 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
             WebSocket upstream = connectUpstream(route, session);
             upstreams.put(session.getId(), upstream);
             sessions.put(session.getId(), session);
+            routes.put(session.getId(), route);
             lastActivity.put(session.getId(), System.currentTimeMillis());
             upstreamPongAt.put(session.getId(), System.currentTimeMillis());
             lastPingAt.put(session.getId(), System.currentTimeMillis());
@@ -154,6 +156,7 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         WebSocket upstream = upstreams.remove(session.getId());
         sessions.remove(session.getId());
+        routes.remove(session.getId());
         lastActivity.remove(session.getId());
         upstreamPongAt.remove(session.getId());
         lastPingAt.remove(session.getId());
@@ -265,16 +268,62 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
         Exception last = null;
         for (String base : websocketTargets(route)) {
             try {
-                String target = websocketUrl(route, session, base);
-                return httpClient.newWebSocketBuilder()
-                        .connectTimeout(Duration.ofSeconds(10))
-                        .buildAsync(URI.create(target), new UpstreamListener(session))
-                        .get(15, java.util.concurrent.TimeUnit.SECONDS);
+                WebSocket upstream = connectTo(route, session, base);
+                session.getAttributes().put("upstreamBase", base);
+                return upstream;
             } catch (Exception e) {
                 last = e;
             }
         }
         throw last == null ? new IllegalStateException("no websocket upstream") : last;
+    }
+
+    private WebSocket connectTo(GatewayRoute route, WebSocketSession session, String base) throws Exception {
+        String target = websocketUrl(route, session, base);
+        return httpClient.newWebSocketBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .buildAsync(URI.create(target), new UpstreamListener(session))
+                .get(15, java.util.concurrent.TimeUnit.SECONDS);
+    }
+
+    /** 已建立的下游连接在上游掉线时尝试切换到下一个上游。 */
+    private void reconnect(WebSocketSession session, WebSocket failed) {
+        synchronized (session) {
+            if (!session.isOpen() || upstreams.get(session.getId()) != failed) return;
+            GatewayRoute route = routes.get(session.getId());
+            if (route == null) {
+                closeQuietly(session, CloseStatus.SERVER_ERROR);
+                return;
+            }
+            List<String> targets = websocketTargets(route);
+            String current = String.valueOf(session.getAttributes().getOrDefault("upstreamBase", ""));
+            int start = Math.max(0, targets.indexOf(current) + 1);
+            for (int i = 0; i < targets.size(); i++) {
+                String base = targets.get((start + i) % targets.size());
+                if (base.equals(current) && targets.size() > 1) continue;
+                try {
+                    WebSocket next = connectTo(route, session, base);
+                    upstreams.put(session.getId(), next);
+                    session.getAttributes().put("upstream", next);
+                    session.getAttributes().put("upstreamBase", base);
+                    upstreamPongAt.put(session.getId(), System.currentTimeMillis());
+                    lastActivity.put(session.getId(), System.currentTimeMillis());
+                    log.warn("WS 上游掉线切换成功 route={} {} -> {}", route.getId(), current, base);
+                    return;
+                } catch (Exception e) {
+                    log.debug("WS 上游切换失败 {}: {}", base, e.getMessage());
+                }
+            }
+            closeQuietly(session, CloseStatus.SERVER_ERROR.withReason("all upstreams unavailable"));
+        }
+    }
+
+    private void closeQuietly(WebSocketSession session, CloseStatus status) {
+        try {
+            if (session.isOpen()) session.close(status);
+        } catch (Exception ignored) {
+            // session already closed
+        }
     }
 
     private List<String> websocketTargets(GatewayRoute route) {
@@ -388,21 +437,13 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
 
         @Override
         public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
-            try {
-                if (session.isOpen()) session.close(new CloseStatus(statusCode, reason));
-            } catch (Exception ignored) {
-                // session already closed
-            }
+            reconnect(session, webSocket);
             return null;
         }
 
         @Override
         public void onError(WebSocket webSocket, Throwable error) {
-            try {
-                if (session.isOpen()) session.close(CloseStatus.SERVER_ERROR);
-            } catch (Exception ignored) {
-                // session already closed
-            }
+            reconnect(session, webSocket);
         }
     }
 }
