@@ -82,6 +82,29 @@ public class ChatModelRouter {
         if (model == null) {
             throw new BusinessException(400, "未配置可用对话模型，请先在「模型接入」添加模型");
         }
+        return buildResolved(model);
+    }
+
+    /**
+     * 严格解析：显式指定模型时不允许静默回落到默认对话模型。
+     * 本地模型/评测步骤使用它，避免模型名配错或租户上下文不匹配时误调用云端默认模型。
+     */
+    public ChatModel resolveStrict(String modelName) {
+        return resolveStrict(TenantContext.getTenantId(), modelName);
+    }
+
+    public ChatModel resolveStrict(Long tenantId, String modelName) {
+        if (modelName == null || modelName.isBlank()) {
+            throw new BusinessException(400, "未指定模型");
+        }
+        ModelEntity model = modelMapper.findForPricing(modelName, tenantId);
+        if (model == null) {
+            throw new BusinessException(400, "模型「" + modelName + "」不存在或不可用");
+        }
+        return buildResolved(model);
+    }
+
+    private ChatModel buildResolved(ModelEntity model) {
         Provider provider = providerMapper.findByIdIgnore(model.getProviderId());
         if (provider == null || !"ENABLED".equals(provider.getStatus())) {
             throw new BusinessException(400, "模型「" + model.getModelName() + "」的 Provider 不可用");

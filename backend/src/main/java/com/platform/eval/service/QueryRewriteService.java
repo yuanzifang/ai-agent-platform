@@ -36,7 +36,8 @@ public class QueryRewriteService {
         String guide = instructions == null || instructions.isBlank()
                 ? "保留全部实体、约束和意图，只做必要消歧/补全，不要回答问题。"
                 : instructions;
-        var response = ChatClient.create(chatModelRouter.resolve(model)).prompt()
+        // 显式模型必须严格命中；不能因为本地模型未登记/租户不匹配而静默落到云端默认模型。
+        var response = ChatClient.create(chatModelRouter.resolveStrict(model)).prompt()
                 .options(chatModelRouter.options(model, null, List.of()))
                 .system("你是查询改写器，只输出改写后的查询文本，不要解释。规则：" + guide)
                 .user(query == null ? "" : query)
