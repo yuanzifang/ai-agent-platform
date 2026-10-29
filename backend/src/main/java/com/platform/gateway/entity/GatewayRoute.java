@@ -24,6 +24,8 @@ public class GatewayRoute {
     private String upstreamWeights;
     /** AES-GCM 加密的 HMAC 签名密钥；空=关闭请求签名。 */
     private String signingSecret;
+    /** 可选请求体 JSON Schema；空=不校验。 */
+    private String requestSchema;
     private Integer timeoutMs;
     private Integer retries;
     private Integer rateLimitPerMin;

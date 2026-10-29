@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
+import com.platform.common.validation.ToolInputValidator;
 import com.platform.common.security.CryptoService;
 import com.platform.common.security.NetworkPolicyService;
 import com.platform.gateway.entity.GatewayApiKey;
@@ -68,6 +69,7 @@ public class GatewayService {
     private final ObjectMapper objectMapper;
     private final GatewayHealthService healthService;
     private final CryptoService cryptoService;
+    private final ToolInputValidator inputValidator;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NEVER)
@@ -120,6 +122,7 @@ public class GatewayService {
             signingSecret = newSigningSecret();
             route.setSigningSecret(cryptoService.encrypt(signingSecret));
         }
+        route.setRequestSchema(requestSchema(req.get("requestSchema")));
         route.setEnabled(Boolean.FALSE.equals(req.get("enabled")) ? 0 : 1);
         route.setCreatedBy(principal.userId());
         route.setCreatedAt(LocalDateTime.now());
@@ -189,6 +192,7 @@ public class GatewayService {
                 route.setSigningSecret(cryptoService.encrypt(newSigningSecret));
             }
         }
+        if (req.containsKey("requestSchema")) route.setRequestSchema(requestSchema(req.get("requestSchema")));
         if (req.containsKey("enabled")) route.setEnabled(Boolean.FALSE.equals(req.get("enabled")) ? 0 : 1);
         route.setUpdatedAt(LocalDateTime.now());
         routeMapper.updateById(route);
@@ -339,6 +343,16 @@ public class GatewayService {
                 log(route, request, status, null, started, "signature: " + signatureError);
                 return error(servletResponse, status == 409 ? HttpStatus.CONFLICT : HttpStatus.UNAUTHORIZED,
                         "请求签名校验失败：" + signatureError);
+            }
+            if (route.getRequestSchema() != null && !route.getRequestSchema().isBlank()) {
+                ToolInputValidator.Result validation = inputValidator.validate(
+                        route.getRequestSchema(), new String(body, StandardCharsets.UTF_8));
+                if (!validation.valid()) {
+                    String detail = validation.violations().isEmpty() ? "invalid body"
+                            : validation.violations().get(0).path() + " " + validation.violations().get(0).rule();
+                    log(route, request, 400, null, started, "schema: " + detail);
+                    return error(servletResponse, HttpStatus.BAD_REQUEST, "请求体不符合 Schema：" + detail);
+                }
             }
             List<String> targets = weightedTargets(route);
             java.util.Set<String> unhealthy = healthService.unhealthyTargets(route.getId(), targets);
@@ -798,6 +812,7 @@ public class GatewayService {
         m.put("healthCheckEnabled", route.getHealthCheckEnabled() == null || route.getHealthCheckEnabled() != 0);
         m.put("wsMaxConnections", route.getWsMaxConnections() == null ? 100 : route.getWsMaxConnections());
         m.put("signingEnabled", route.getSigningSecret() != null && !route.getSigningSecret().isBlank());
+        m.put("requestSchema", route.getRequestSchema());
         m.put("enabled", route.getEnabled() != null && route.getEnabled() == 1);
         m.put("createdAt", route.getCreatedAt());
         m.put("updatedAt", route.getUpdatedAt());
@@ -831,6 +846,17 @@ public class GatewayService {
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    private String requestSchema(Object raw) {
+        String schema = text(raw, 20000);
+        if (schema == null) return null;
+        try {
+            if (!objectMapper.readTree(schema).isObject()) throw new IllegalArgumentException("not object");
+        } catch (Exception e) {
+            throw new BusinessException(400, "请求体 Schema 必须是 JSON 对象");
+        }
+        return schema;
     }
 
     private String verifySignature(GatewayRoute route, HttpServletRequest request, byte[] body) {

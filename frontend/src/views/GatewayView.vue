@@ -84,6 +84,10 @@
           <el-switch v-model="form.signingEnabled" />
           <span class="hint ml8">{{ t('gatewayPage.signingHint') }}</span>
         </el-form-item>
+        <el-form-item :label="t('gatewayPage.requestSchema')">
+          <el-input v-model="form.requestSchema" type="textarea" :rows="4"
+                    :placeholder="t('gatewayPage.requestSchemaPh')" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">{{ t('gatewayPage.cancel') }}</el-button>
@@ -163,7 +167,7 @@ const endpoint = ref('')
 const logsVisible = ref(false)
 const logs = ref<any[]>([])
 const logsName = ref('')
-const form = reactive<any>({ id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/', wsMaxConnections: 100, targetWeight: 100, fallbackWeight: 0, signingEnabled: false })
+const form = reactive<any>({ id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/', wsMaxConnections: 100, targetWeight: 100, fallbackWeight: 0, signingEnabled: false, requestSchema: '' })
 const currentRouteKey = ref('')
 
 const endpointBase = computed(() => `${location.origin}/api/v1/gateway/call/${currentRouteKey.value}`)
@@ -178,7 +182,7 @@ async function load() {
 }
 
 function openCreate() {
-  Object.assign(form, { id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/', wsMaxConnections: 100, targetWeight: 100, fallbackWeight: 0, signingEnabled: false })
+  Object.assign(form, { id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/', wsMaxConnections: 100, targetWeight: 100, fallbackWeight: 0, signingEnabled: false, requestSchema: '' })
   formVisible.value = true
 }
 
@@ -193,7 +197,8 @@ function openEdit(row: any) {
     healthCheckEnabled: row.healthCheckEnabled !== false, healthPath: row.healthPath || '/',
     wsMaxConnections: row.wsMaxConnections ?? 100,
     targetWeight: row.targetWeight ?? 100, fallbackWeight: row.fallbackWeight ?? 0,
-    signingEnabled: row.signingEnabled === true
+    signingEnabled: row.signingEnabled === true,
+    requestSchema: row.requestSchema || ''
   })
   formVisible.value = true
 }

@@ -1823,6 +1823,29 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
       await request.delete(`${P}/gateway/routes/${signedRoute.id}`, { headers: auth(token!) })
     }
 
+    const schemaRoute = await (await request.post(`${P}/gateway/routes`, {
+      headers: auth(token!),
+      data: { name: `E2E Gateway Schema-${Date.now()}`, targetUrl: `${MOCK}/probe`,
+        timeoutMs: 5000, rateLimitPerMin: 100,
+        requestSchema: '{"type":"object","required":["name"],"properties":{"name":{"type":"string"}}}' }
+    })).json()
+    expect(schemaRoute.code, JSON.stringify(schemaRoute)).toBe(0)
+    try {
+      const invalid = await request.post(`${P}/gateway/call/${schemaRoute.data.routeKey}/probe`, {
+        headers: { 'X-Gateway-Key': schemaRoute.data.apiKey },
+        data: { name: 123 }
+      })
+      expect(invalid.status()).toBe(400)
+      expect(await invalid.text()).toContain('Schema')
+      const valid = await request.post(`${P}/gateway/call/${schemaRoute.data.routeKey}/probe`, {
+        headers: { 'X-Gateway-Key': schemaRoute.data.apiKey },
+        data: { name: 'ok' }
+      })
+      expect(valid.status()).toBe(200)
+    } finally {
+      await request.delete(`${P}/gateway/routes/${schemaRoute.data.id}`, { headers: auth(token!) })
+    }
+
     const logs = await (await request.get(`${P}/gateway/routes/${route.id}/logs`, {
       headers: auth(token!)
     })).json()
