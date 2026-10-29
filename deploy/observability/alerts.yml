@@ -145,3 +145,57 @@ groups:
         annotations:
           summary: "ES 快照超过 26 小时未成功"
           description: "最近成功快照已超过 26 小时，检查 ai-agent-es-snapshot.timer 或 Helm CronJob 日志。"
+
+      - alert: AiAgentMysqlExporterDown
+        expr: mysql_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: ai-agent-platform
+        annotations:
+          summary: "MySQL exporter 不可用"
+          description: "mysql_up=0，检查 MySQL 连接、exporter 和凭据。"
+
+      - alert: AiAgentRedisExporterDown
+        expr: redis_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: ai-agent-platform
+        annotations:
+          summary: "Redis exporter 不可用"
+          description: "redis_up=0，检查 Redis、exporter 和认证配置。"
+
+      - alert: AiAgentPostgresExporterDown
+        expr: pg_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: ai-agent-platform
+        annotations:
+          summary: "PostgreSQL/PgVector exporter 不可用"
+          description: "pg_up=0，检查 PostgreSQL、exporter 和 DSN。"
+
+      - alert: AiAgentMysqlConnectionSaturation
+        expr: |
+          mysql_global_status_threads_connected
+          / clamp_min(mysql_global_variables_max_connections, 1) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "MySQL 连接数超过 90%"
+          description: "当前连接 {{ $value | humanizePercentage }}，检查连接泄漏或池配置。"
+
+      - alert: AiAgentPostgresConnectionSaturation
+        expr: |
+          pg_stat_activity_count
+          / clamp_min(pg_settings_max_connections, 1) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "PostgreSQL 连接数超过 90%"
+          description: "当前连接 {{ $value | humanizePercentage }}，检查连接泄漏或池配置。"
