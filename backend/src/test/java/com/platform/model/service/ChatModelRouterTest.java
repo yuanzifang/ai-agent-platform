@@ -13,7 +13,9 @@ import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -67,6 +69,18 @@ class ChatModelRouterTest {
         ChatModel second = router.resolve(1L, "mock-model");
 
         assertNotSame(first, second);
+    }
+
+    @Test
+    void strictResolveDoesNotFallBackToDefaultCloudModel() {
+        when(modelMapper.findForPricing("missing-local", 1L)).thenReturn(null);
+        when(modelMapper.findDefaultChat(1L)).thenReturn(model);
+
+        var error = assertThrows(com.platform.common.exception.BusinessException.class,
+                () -> router.resolveStrict(1L, "missing-local"));
+
+        org.junit.jupiter.api.Assertions.assertTrue(error.getMessage().contains("missing-local"));
+        verify(modelMapper, never()).findDefaultChat(1L);
     }
 
     private Provider provider(LocalDateTime updatedAt) {
