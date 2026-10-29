@@ -7,16 +7,17 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * GraphRAG 专用图向量索引（pgvector）。
  *
- * <p>实体/社区摘要共用一张表，用 object_type 区分；当前默认 embedding 维度固定，
- * 与 embedding.dimensions 不一致的模型不会写入该索引，调用方回退 MySQL cosine。</p>
+ * <p>实体/社区摘要按 embedding 维度分表（graph_vector_index_{dim}），避免固定 1024 维
+ * 限制其他模型；不同维度互不影响，查询失败时调用方回退 MySQL cosine。</p>
  */
 @Slf4j
 @Service
@@ -24,12 +25,11 @@ import java.util.Map;
 public class GraphVectorIndexService {
 
     private final @Qualifier("pgJdbcTemplate") JdbcTemplate pgJdbcTemplate;
-    private final EmbeddingProperties embeddingProperties;
 
     @Value("${pgvector.graph-index.enabled:true}")
     private boolean enabled = true;
 
-    private volatile boolean ready;
+    private final Set<Integer> readyDimensions = ConcurrentHashMap.newKeySet();
 
     public boolean enabled() {
         return enabled;
@@ -37,31 +37,34 @@ public class GraphVectorIndexService {
 
     public void upsert(Long tenantId, Long kbId, String objectType, Long objectId,
                        float[] vector, String model) {
-        if (!enabled || vector == null || vector.length != embeddingProperties.getDimensions()) return;
+        if (!enabled || vector == null || vector.length == 0) return;
         try {
-            ensure();
+            int dimensions = vector.length;
+            ensure(dimensions);
             pgJdbcTemplate.update("""
-                    INSERT INTO graph_vector_index
+                    INSERT INTO %s
                         (tenant_id, kb_id, object_type, object_id, embedding, model, updated_at)
                     VALUES (?, ?, ?, ?, ?::vector, ?, now())
                     ON CONFLICT (tenant_id, kb_id, object_type, object_id)
                     DO UPDATE SET embedding=EXCLUDED.embedding, model=EXCLUDED.model,
                                   updated_at=now()
-                    """, tenantId, kbId, objectType, objectId, vectorLiteral(vector), model);
+                    """.formatted(table(dimensions)),
+                    tenantId, kbId, objectType, objectId, vectorLiteral(vector), model);
         } catch (Exception e) {
             log.debug("图向量写入失败 tenant={} kb={} type={} id={}: {}",
                     tenantId, kbId, objectType, objectId, e.getMessage());
         }
     }
 
-    public void delete(Long tenantId, Long kbId, String objectType, Long objectId) {
-        if (!enabled) return;
+    public void delete(Long tenantId, Long kbId, String objectType, Long objectId,
+                       Integer dimensions) {
+        if (!enabled || dimensions == null || dimensions <= 0) return;
         try {
-            ensure();
+            ensure(dimensions);
             pgJdbcTemplate.update("""
-                    DELETE FROM graph_vector_index
+                    DELETE FROM %s
                     WHERE tenant_id=? AND kb_id=? AND object_type=? AND object_id=?
-                    """, tenantId, kbId, objectType, objectId);
+                    """.formatted(table(dimensions)), tenantId, kbId, objectType, objectId);
         } catch (Exception e) {
             log.debug("图向量删除失败 tenant={} kb={} type={} id={}: {}",
                     tenantId, kbId, objectType, objectId, e.getMessage());
@@ -70,36 +73,39 @@ public class GraphVectorIndexService {
 
     public List<Map<String, Object>> search(Long tenantId, Long kbId, String objectType,
                                             float[] vector, int limit) {
-        if (!enabled || vector == null || vector.length != embeddingProperties.getDimensions()) {
-            return List.of();
-        }
+        if (!enabled || vector == null || vector.length == 0) return List.of();
         try {
-            ensure();
+            int dimensions = vector.length;
+            ensure(dimensions);
             String literal = vectorLiteral(vector);
             return pgJdbcTemplate.query("""
                     SELECT object_id, 1 - (embedding <=> ?::vector) AS score
-                    FROM graph_vector_index
+                    FROM %s
                     WHERE tenant_id=? AND kb_id=? AND object_type=?
                     ORDER BY embedding <=> ?::vector
                     LIMIT ?
-                    """, (rs, rowNum) -> {
+                    """.formatted(table(dimensions)),
+                    (rs, rowNum) -> {
                         Map<String, Object> row = new LinkedHashMap<>();
                         row.put("objectId", rs.getLong("object_id"));
                         row.put("score", rs.getDouble("score"));
                         return row;
-                    }, literal, tenantId, kbId, objectType, literal, Math.max(1, Math.min(limit, 50)));
+                    }, literal, tenantId, kbId, objectType, literal,
+                    Math.max(1, Math.min(limit, 50)));
         } catch (Exception e) {
-            log.debug("图向量检索失败 tenant={} kb={} type={}: {}", tenantId, kbId, objectType, e.getMessage());
+            log.debug("图向量检索失败 tenant={} kb={} type={}: {}",
+                    tenantId, kbId, objectType, e.getMessage());
             return List.of();
         }
     }
 
-    private void ensure() {
-        if (ready) return;
-        synchronized (this) {
-            if (ready) return;
+    private void ensure(int dimensions) {
+        if (readyDimensions.contains(dimensions)) return;
+        synchronized (readyDimensions) {
+            if (readyDimensions.contains(dimensions)) return;
+            String table = table(dimensions);
             pgJdbcTemplate.execute("""
-                    CREATE TABLE IF NOT EXISTS graph_vector_index (
+                    CREATE TABLE IF NOT EXISTS %s (
                         id BIGSERIAL PRIMARY KEY,
                         tenant_id BIGINT NOT NULL,
                         kb_id BIGINT NOT NULL,
@@ -110,13 +116,17 @@ public class GraphVectorIndexService {
                         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                         UNIQUE (tenant_id, kb_id, object_type, object_id)
                     )
-                    """.formatted(embeddingProperties.getDimensions()));
+                    """.formatted(table, dimensions));
             pgJdbcTemplate.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_graph_vector_hnsw
-                    ON graph_vector_index USING hnsw (embedding vector_cosine_ops)
-                    """);
-            ready = true;
+                    CREATE INDEX IF NOT EXISTS %s
+                    ON %s USING hnsw (embedding vector_cosine_ops)
+                    """.formatted("idx_" + table + "_hnsw", table));
+            readyDimensions.add(dimensions);
         }
+    }
+
+    private String table(int dimensions) {
+        return "graph_vector_index_" + dimensions;
     }
 
     private String vectorLiteral(float[] vector) {

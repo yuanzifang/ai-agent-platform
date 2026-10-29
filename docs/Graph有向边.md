@@ -82,9 +82,9 @@ POST /api/v1/knowledge-base/{id}/graph/entities/search
 
 专用图向量索引（pgvector）：
 
-- 表 `graph_vector_index`，按 `tenant_id/kb_id/object_type/object_id` 唯一；
+- 按 embedding 维度分表 `graph_vector_index_{dim}`，按 `tenant_id/kb_id/object_type/object_id` 唯一；
 - `object_type` 为 `ENTITY` 或 `COMMUNITY`；
-- 使用 HNSW cosine 索引，默认维度跟随 `embedding.dimensions`；
+- 每个维度独立 HNSW cosine 索引，支持多模型维度隔离；
 - 写入失败时自动回退 MySQL cosine，不影响检索可用性。
 
 ## 4. 已验证

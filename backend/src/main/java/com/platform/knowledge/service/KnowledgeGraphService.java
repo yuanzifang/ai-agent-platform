@@ -1733,7 +1733,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
     public void deleteEntity(Long kbId, Long entityId, KnowledgePermissionService.Viewer viewer) {
         KnowledgeBase kb = permissionService.requireEdit(kbId, viewer);
         ensureGraphEnabled(kb);
-        requireEntity(kbId, entityId);
+        KnowledgeGraphEntity entity = requireEntity(kbId, entityId);
         relationMapper.delete(new LambdaQueryWrapper<KnowledgeGraphRelation>()
                 .eq(KnowledgeGraphRelation::getKbId, kbId)
                 .and(w -> w.eq(KnowledgeGraphRelation::getFromId, entityId)
@@ -1742,7 +1742,8 @@ public class KnowledgeGraphService implements ApplicationRunner {
                 .eq(KnowledgeGraphMention::getKbId, kbId)
                 .eq(KnowledgeGraphMention::getEntityId, entityId));
         entityMapper.deleteById(entityId);
-        graphVectorIndexService.delete(kb.getTenantId(), kbId, "ENTITY", entityId);
+        graphVectorIndexService.delete(kb.getTenantId(), kbId, "ENTITY", entityId,
+                entity.getDimensions());
         auditService.record(viewer.userId(), "knowledge.graph.entity.delete", "knowledge_graph_entity",
                 String.valueOf(entityId), "SUCCESS", Map.of("kbId", kbId));
     }
