@@ -68,7 +68,17 @@ POST /api/v1/knowledge-base/{id}/graph/communities/search
 {"query":"退款政策","topK":5}
 ```
 
-当前是社区摘要向量检索；实体级图嵌入仍未实现。
+当前是社区摘要向量检索。
+
+实体级图嵌入：
+
+```http
+POST /api/v1/knowledge-base/{id}/graph/entities/embed
+POST /api/v1/knowledge-base/{id}/graph/entities/search
+{"query":"退款","topK":5}
+```
+
+实体向量由名称 + 描述生成，用于实体语义召回；实体级向量尚未参与主检索自动扩展。
 
 ## 4. 已验证
 

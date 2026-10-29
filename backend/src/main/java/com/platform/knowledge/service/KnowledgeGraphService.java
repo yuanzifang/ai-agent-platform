@@ -368,6 +368,80 @@ public class KnowledgeGraphService implements ApplicationRunner {
         return out;
     }
 
+    /** 重建实体向量（名称 + 描述）。 */
+    @Transactional
+    public Map<String, Object> embedEntities(Long kbId, KnowledgePermissionService.Viewer viewer) {
+        KnowledgeBase kb = permissionService.requireEdit(kbId, viewer);
+        ensureGraphEnabled(kb);
+        List<KnowledgeGraphEntity> entities = entityMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeGraphEntity>()
+                        .eq(KnowledgeGraphEntity::getKbId, kbId)
+                        .orderByAsc(KnowledgeGraphEntity::getId));
+        int embedded = 0;
+        for (KnowledgeGraphEntity entity : entities) {
+            String text = String.valueOf(entity.getName() == null ? "" : entity.getName())
+                    + "\n" + String.valueOf(entity.getDescription() == null ? "" : entity.getDescription());
+            try {
+                float[] vector = embeddingService.embedOne(text);
+                entity.setEmbedding(objectMapper.writeValueAsString(vector));
+                entity.setEmbeddingModel("default");
+                entity.setDimensions(vector.length);
+                entity.setUpdatedAt(LocalDateTime.now());
+                entityMapper.updateById(entity);
+                embedded++;
+            } catch (Exception e) {
+                log.warn("实体向量化失败 kb={} entity={}: {}", kbId, entity.getId(), e.getMessage());
+            }
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("embedded", embedded);
+        out.put("total", entities.size());
+        return out;
+    }
+
+    /** 实体级语义检索。 */
+    public Map<String, Object> searchEntities(Long kbId, String query, int topK,
+                                              KnowledgePermissionService.Viewer viewer) {
+        KnowledgeBase kb = permissionService.requireView(kbId, viewer);
+        ensureGraphEnabled(kb);
+        if (query == null || query.isBlank()) throw new BusinessException(400, "查询内容不能为空");
+        float[] q = embeddingService.embedOne(query);
+        List<KnowledgeGraphEntity> entities = entityMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeGraphEntity>()
+                        .eq(KnowledgeGraphEntity::getKbId, kbId)
+                        .isNotNull(KnowledgeGraphEntity::getEmbedding)
+                        .last("LIMIT 500"));
+        List<Map<String, Object>> hits = new ArrayList<>();
+        for (KnowledgeGraphEntity entity : entities) {
+            try {
+                float[] vector = objectMapper.readValue(entity.getEmbedding(), float[].class);
+                if (vector.length != q.length) continue;
+                double dot = 0, normA = 0, normB = 0;
+                for (int i = 0; i < q.length; i++) {
+                    dot += q[i] * vector[i];
+                    normA += q[i] * q[i];
+                    normB += vector[i] * vector[i];
+                }
+                if (normA == 0 || normB == 0) continue;
+                Map<String, Object> hit = new LinkedHashMap<>();
+                hit.put("id", entity.getId());
+                hit.put("name", entity.getName());
+                hit.put("entityType", entity.getEntityType());
+                hit.put("description", entity.getDescription());
+                hit.put("score", dot / (Math.sqrt(normA) * Math.sqrt(normB)));
+                hits.add(hit);
+            } catch (Exception ignored) {
+                // 单条损坏向量不影响其他实体
+            }
+        }
+        hits.sort((a, b) -> Double.compare((Double) b.get("score"), (Double) a.get("score")));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("query", query);
+        out.put("total", hits.size());
+        out.put("hits", hits.stream().limit(Math.max(1, Math.min(topK, 50))).toList());
+        return out;
+    }
+
     /** 实体详情：提及证据、关联关系、来源文档。 */
     public Map<String, Object> entityDetail(Long kbId, Long entityId,
                                             KnowledgePermissionService.Viewer viewer) {
