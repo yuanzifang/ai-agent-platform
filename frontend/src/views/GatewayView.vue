@@ -44,14 +44,21 @@
           <el-input v-model="form.name" :placeholder="t('gatewayPage.namePh')" maxlength="128" />
         </el-form-item>
         <el-form-item :label="t('gatewayPage.target')" required>
-          <el-input v-model="form.targetUrl" :placeholder="t('gatewayPage.targetPh')" maxlength="512" />
+          <div class="url-weight-row">
+            <el-input v-model="form.targetUrl" :placeholder="t('gatewayPage.targetPh')" maxlength="512" />
+            <el-input-number v-model="form.targetWeight" :min="0" :max="1000" />
+          </div>
         </el-form-item>
         <el-form-item :label="t('gatewayPage.fallback')">
-          <el-input v-model="form.fallbackUrl" :placeholder="t('gatewayPage.fallbackPh')" maxlength="512" />
+          <div class="url-weight-row">
+            <el-input v-model="form.fallbackUrl" :placeholder="t('gatewayPage.fallbackPh')" maxlength="512" />
+            <el-input-number v-model="form.fallbackWeight" :min="0" :max="1000" />
+          </div>
         </el-form-item>
         <el-form-item :label="t('gatewayPage.extraUpstreams')">
           <el-input v-model="form.upstreamUrlsText" type="textarea" :rows="3"
                     :placeholder="t('gatewayPage.extraUpstreamsPh')" />
+          <div class="hint mt4">{{ t('gatewayPage.weightHint') }}</div>
         </el-form-item>
         <el-form-item :label="t('gatewayPage.timeoutLabel')">
           <el-input-number v-model="form.timeoutMs" :min="1000" :max="120000" :step="1000" />
@@ -148,7 +155,7 @@ const endpoint = ref('')
 const logsVisible = ref(false)
 const logs = ref<any[]>([])
 const logsName = ref('')
-const form = reactive<any>({ id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/', wsMaxConnections: 100 })
+const form = reactive<any>({ id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/', wsMaxConnections: 100, targetWeight: 100, fallbackWeight: 0 })
 const currentRouteKey = ref('')
 
 const endpointBase = computed(() => `${location.origin}/api/v1/gateway/call/${currentRouteKey.value}`)
@@ -163,17 +170,21 @@ async function load() {
 }
 
 function openCreate() {
-  Object.assign(form, { id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/', wsMaxConnections: 100 })
+  Object.assign(form, { id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/', wsMaxConnections: 100, targetWeight: 100, fallbackWeight: 0 })
   formVisible.value = true
 }
 
 function openEdit(row: any) {
   Object.assign(form, {
     id: row.id, name: row.name, targetUrl: row.targetUrl, fallbackUrl: row.fallbackUrl || '',
-    upstreamUrlsText: (row.upstreamUrls || []).join('\n'),
+    upstreamUrlsText: (row.upstreamUrls || []).map((u: string) => {
+      const w = row.upstreamWeights?.[u]
+      return w == null ? u : `${u}|${w}`
+    }).join('\n'),
     timeoutMs: row.timeoutMs, retries: row.retries, rateLimitPerMin: row.rateLimitPerMin,
     healthCheckEnabled: row.healthCheckEnabled !== false, healthPath: row.healthPath || '/',
-    wsMaxConnections: row.wsMaxConnections ?? 100
+    wsMaxConnections: row.wsMaxConnections ?? 100,
+    targetWeight: row.targetWeight ?? 100, fallbackWeight: row.fallbackWeight ?? 0
   })
   formVisible.value = true
 }
@@ -185,8 +196,23 @@ async function save() {
   saving.value = true
   try {
     const payload = { ...form }
-    payload.upstreamUrls = String(form.upstreamUrlsText || '')
-      .split(/\n|,/).map((v: string) => v.trim()).filter(Boolean)
+    const extraUrls: string[] = []
+    const extraWeights: Record<string, number> = {}
+    for (const line of String(form.upstreamUrlsText || '').split(/\n|,/)) {
+      const [rawUrl, rawWeight] = line.split('|')
+      const url = (rawUrl || '').trim()
+      if (!url) continue
+      extraUrls.push(url)
+      if (rawWeight != null && rawWeight.trim() !== '') {
+        const weight = Number(rawWeight.trim())
+        if (!Number.isFinite(weight) || weight < 0 || weight > 1000) {
+          ElMessage.warning(t('gatewayPage.weightInvalid')); return
+        }
+        extraWeights[url] = weight
+      }
+    }
+    payload.upstreamUrls = extraUrls
+    payload.upstreamWeights = extraWeights
     delete payload.upstreamUrlsText
     const res = form.id
       ? await http.put(`/gateway/routes/${form.id}`, payload) as any
@@ -318,4 +344,7 @@ async function copyKey() {
 .spacer { flex: 1; }
 .health-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .ml8 { margin-left: 8px; }
+.url-weight-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+.url-weight-row .el-input-number { width: 120px; flex-shrink: 0; }
+.mt4 { margin-top: 4px; }
 </style>

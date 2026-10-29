@@ -44,6 +44,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 /** 统一 API 网关 MVP：路由、API Key、路径转发、限流、超时/重试、请求日志。 */
 @Slf4j
@@ -102,6 +103,10 @@ public class GatewayService {
             networkPolicy.validateHttpUrl(upstream, "额外上游地址");
         }
         route.setUpstreamUrls(upstreams.isEmpty() ? null : toJson(upstreams));
+        Map<String, Integer> weights = new LinkedHashMap<>();
+        applyDefaultWeights(weights, route.getTargetUrl(), route.getFallbackUrl(), upstreams);
+        applyRequestWeights(weights, req, route.getTargetUrl(), route.getFallbackUrl());
+        route.setUpstreamWeights(toJson(weights));
         route.setTimeoutMs(clamp(intValue(req.get("timeoutMs"), 15000), 1000, 120000));
         route.setRetries(clamp(intValue(req.get("retries"), 0), 0, 3));
         route.setRateLimitPerMin(clamp(intValue(req.get("rateLimitPerMin"), 60), 0, 100000));
@@ -148,6 +153,13 @@ public class GatewayService {
                 networkPolicy.validateHttpUrl(upstream, "额外上游地址");
             }
             route.setUpstreamUrls(upstreams.isEmpty() ? null : toJson(upstreams));
+        }
+        if (req.containsKey("targetUrl") || req.containsKey("fallbackUrl") || req.containsKey("upstreamUrls")
+                || req.containsKey("targetWeight") || req.containsKey("fallbackWeight") || req.containsKey("upstreamWeights")) {
+            Map<String, Integer> weights = weights(route);
+            applyDefaultWeights(weights, route.getTargetUrl(), route.getFallbackUrl(), urls(route.getUpstreamUrls()));
+            applyRequestWeights(weights, req, route.getTargetUrl(), route.getFallbackUrl());
+            route.setUpstreamWeights(toJson(weights));
         }
         if (req.containsKey("timeoutMs")) route.setTimeoutMs(clamp(intValue(req.get("timeoutMs"), 15000), 1000, 120000));
         if (req.containsKey("retries")) route.setRetries(clamp(intValue(req.get("retries"), 0), 0, 3));
@@ -301,7 +313,7 @@ public class GatewayService {
                 log(route, request, 413, null, started, "body too large");
                 return error(servletResponse, HttpStatus.PAYLOAD_TOO_LARGE, "请求体不能超过 5MB");
             }
-            List<String> targets = targets(route);
+            List<String> targets = weightedTargets(route);
             java.util.Set<String> unhealthy = healthService.unhealthyTargets(route.getId(), targets);
             boolean healthAware = unhealthy.size() < targets.size();
             if (wantsEventStream(request)) {
@@ -634,6 +646,88 @@ public class GatewayService {
         return route;
     }
 
+    /** 按权重为每次请求生成尝试顺序；权重全为 0 时保持原故障切换顺序。 */
+    List<String> weightedTargets(GatewayRoute route) {
+        List<String> all = targets(route);
+        Map<String, Integer> weights = weights(route);
+        int total = all.stream().mapToInt(t -> Math.max(0, weights.getOrDefault(t, 0))).sum();
+        if (total <= 0) return all;
+        List<String> remaining = new ArrayList<>(all);
+        List<String> ordered = new ArrayList<>();
+        while (!remaining.isEmpty()) {
+            int sum = remaining.stream().mapToInt(t -> Math.max(0, weights.getOrDefault(t, 0))).sum();
+            if (sum <= 0) {
+                ordered.addAll(remaining);
+                break;
+            }
+            int pick = ThreadLocalRandom.current().nextInt(sum);
+            int cursor = 0;
+            for (int i = 0; i < remaining.size(); i++) {
+                String target = remaining.get(i);
+                cursor += Math.max(0, weights.getOrDefault(target, 0));
+                if (pick < cursor) {
+                    ordered.add(target);
+                    remaining.remove(i);
+                    break;
+                }
+            }
+        }
+        return ordered;
+    }
+
+    private Map<String, Integer> weights(GatewayRoute route) {
+        Map<String, Integer> weights = new LinkedHashMap<>();
+        applyDefaultWeights(weights, route.getTargetUrl(), route.getFallbackUrl(), urls(route.getUpstreamUrls()));
+        String raw = route.getUpstreamWeights();
+        if (raw == null || raw.isBlank()) return weights;
+        try {
+            Map<?, ?> saved = objectMapper.readValue(raw, Map.class);
+            for (Map.Entry<?, ?> entry : saved.entrySet()) {
+                String url = normalizeUrl(String.valueOf(entry.getKey()));
+                if (url.isBlank()) continue;
+                weights.put(url, clamp(intValue(entry.getValue(), 0), 0, 1000));
+            }
+        } catch (Exception e) {
+            log.debug("网关权重解析失败 route={}：{}", route.getId(), e.getMessage());
+        }
+        return weights;
+    }
+
+    private void applyDefaultWeights(Map<String, Integer> weights, String target, String fallback,
+                                     List<String> extras) {
+        if (target != null && !target.isBlank()) weights.putIfAbsent(normalizeUrl(target), 100);
+        if (fallback != null && !fallback.isBlank()) weights.putIfAbsent(normalizeUrl(fallback), 0);
+        for (String extra : extras) {
+            if (extra != null && !extra.isBlank()) weights.putIfAbsent(normalizeUrl(extra), 0);
+        }
+    }
+
+    private void applyRequestWeights(Map<String, Integer> weights, Map<String, Object> req,
+                                     String target, String fallback) {
+        if (req.containsKey("targetWeight") && target != null) {
+            weights.put(normalizeUrl(target), clamp(intValue(req.get("targetWeight"), 100), 0, 1000));
+        }
+        if (req.containsKey("fallbackWeight") && fallback != null) {
+            weights.put(normalizeUrl(fallback), clamp(intValue(req.get("fallbackWeight"), 0), 0, 1000));
+        }
+        Object raw = req.get("upstreamWeights");
+        if (raw == null) return;
+        try {
+            Map<?, ?> incoming = raw instanceof Map<?, ?> map ? map
+                    : objectMapper.readValue(String.valueOf(raw), Map.class);
+            for (Map.Entry<?, ?> entry : incoming.entrySet()) {
+                String url = normalizeUrl(String.valueOf(entry.getKey()));
+                if (!url.isBlank()) weights.put(url, clamp(intValue(entry.getValue(), 0), 0, 1000));
+            }
+        } catch (Exception e) {
+            throw new BusinessException(400, "上游权重格式错误");
+        }
+    }
+
+    private String normalizeUrl(String value) {
+        return value == null ? "" : value.trim().replaceAll("/+$", "");
+    }
+
     private List<String> targets(GatewayRoute route) {
         List<String> targets = new ArrayList<>();
         if (route.getTargetUrl() != null && !route.getTargetUrl().isBlank()) targets.add(route.getTargetUrl());
@@ -684,6 +778,11 @@ public class GatewayService {
         m.put("targetUrl", route.getTargetUrl());
         m.put("fallbackUrl", route.getFallbackUrl());
         m.put("upstreamUrls", urls(route.getUpstreamUrls()));
+        Map<String, Integer> weights = weights(route);
+        m.put("upstreamWeights", weights);
+        m.put("targetWeight", weights.getOrDefault(route.getTargetUrl(), 100));
+        m.put("fallbackWeight", route.getFallbackUrl() == null ? 0
+                : weights.getOrDefault(route.getFallbackUrl(), 0));
         m.put("timeoutMs", route.getTimeoutMs());
         m.put("retries", route.getRetries());
         m.put("rateLimitPerMin", route.getRateLimitPerMin());

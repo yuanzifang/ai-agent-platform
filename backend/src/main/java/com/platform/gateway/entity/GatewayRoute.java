@@ -20,6 +20,8 @@ public class GatewayRoute {
     private String targetUrl;
     private String fallbackUrl;
     private String upstreamUrls;
+    /** URL -> weight 的 JSON；未配置按主 100、其余 0。 */
+    private String upstreamWeights;
     private Integer timeoutMs;
     private Integer retries;
     private Integer rateLimitPerMin;

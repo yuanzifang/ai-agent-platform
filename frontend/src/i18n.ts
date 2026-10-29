@@ -955,7 +955,7 @@ const messages = {
     gatewayPage: {
       sub: '开放平台统一入口：路由、调用方 API Key、限流、超时重试、主备切换与请求日志', create: '新建路由', name: '名称',
       target: '上游地址', fallback: '备用上游', fallbackPh: '可选：主上游 5xx/连接失败时切换',
-      extraUpstreams: '额外上游', extraUpstreamsPh: '每行一个或逗号分隔，最多 5 个；按顺序故障切换',
+      extraUpstreams: '额外上游', extraUpstreamsPh: '每行一个 URL 或 URL|权重，最多 5 个', weightHint: '权重 0=只故障切换；主/备/额外上游按权重分配首跳流量，失败后按剩余顺序切换', weightInvalid: '权重必须是 0-1000 的数字',
       routeKey: '路由 Key', enabled: '启用', disabled: '停用', rate: '限流/分',
       timeout: '超时(ms)', retries: '重试', actions: '操作', logs: '日志', rotate: '轮换 Key',
       health: '健康检查', healthTitle: '上游健康状态：', healthHint: '定时探测上游；DOWN 上游会在存在可用备用时被跳过',
@@ -1958,7 +1958,7 @@ const messages = {
     gatewayPage: {
       sub: 'Unified entry: routes, API keys, rate limit, timeout/retry and request logs', create: 'New route', name: 'Name',
       target: 'Upstream', fallback: 'Fallback upstream', fallbackPh: 'Optional: used when primary returns 5xx or fails',
-      extraUpstreams: 'Extra upstreams', extraUpstreamsPh: 'One per line or comma-separated, max 5; tried in order',
+      extraUpstreams: 'Extra upstreams', extraUpstreamsPh: 'One URL or URL|weight per line, max 5', weightHint: 'Weight 0 = failover only; weights split first-hop traffic, then remaining upstreams are tried on failure', weightInvalid: 'Weight must be a number between 0 and 1000',
       routeKey: 'Route key', enabled: 'Enabled', disabled: 'Disabled', rate: 'Rate/min',
       timeout: 'Timeout(ms)', retries: 'Retries', actions: 'Actions', logs: 'Logs', rotate: 'Rotate key',
       health: 'Health', healthTitle: 'Upstream health: ', healthHint: 'Periodic probes; DOWN upstreams are skipped when a healthy fallback exists',
