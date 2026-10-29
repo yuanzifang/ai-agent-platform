@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import javax.sql.DataSource;
@@ -56,9 +57,9 @@ public class PartitionMaintenanceService {
         maintain();
     }
 
-    /** 幂等补齐所有白名单表的未来月分区。 */
-    public void maintain() {
-        if (!enabled) return;
+    /** 幂等补齐所有白名单表的未来月分区，返回新增分区数。 */
+    public int maintain() {
+        if (!enabled) return 0;
         int ahead = Math.max(0, Math.min(monthsAhead, 36));
         LocalDate target = YearMonth.now().plusMonths(ahead + 1L).atDay(1);
         int created = 0;
@@ -71,6 +72,51 @@ public class PartitionMaintenanceService {
             }
         }
         if (created > 0) log.info("分区维护完成：新增 {} 个月分区（目标边界 {}）", created, target);
+        return created;
+    }
+
+    /** 只读分区审计：供平台管理员确认 pmax 是否有超范围数据。 */
+    public Map<String, Object> status() {
+        int ahead = Math.max(0, Math.min(monthsAhead, 36));
+        LocalDate target = YearMonth.now().plusMonths(ahead + 1L).atDay(1);
+        List<Map<String, Object>> tables = new ArrayList<>();
+        for (String table : PARTITIONED_TABLES) {
+            List<Map<String, Object>> parts = jdbcTemplate.queryForList("""
+                    SELECT partition_name, partition_description, table_rows
+                    FROM information_schema.partitions
+                    WHERE table_schema = DATABASE() AND table_name = ?
+                      AND partition_name IS NOT NULL
+                    ORDER BY partition_ordinal_position
+                    """, table);
+            long pmaxRows = 0;
+            String lastBoundary = null;
+            for (Map<String, Object> p : parts) {
+                String name = String.valueOf(p.get("partition_name"));
+                if ("pmax".equalsIgnoreCase(name)) {
+                    pmaxRows = number(p.get("table_rows"));
+                } else {
+                    String desc = String.valueOf(p.get("partition_description"))
+                            .replace("'", "").trim();
+                    if (lastBoundary == null || desc.compareTo(lastBoundary) > 0) lastBoundary = desc;
+                }
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("table", table);
+            row.put("partitionCount", parts.size());
+            row.put("lastBoundary", lastBoundary);
+            row.put("pmaxRows", pmaxRows);
+            tables.add(row);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("enabled", enabled);
+        out.put("monthsAhead", ahead);
+        out.put("targetBoundary", target.toString());
+        out.put("tables", tables);
+        return out;
+    }
+
+    private long number(Object value) {
+        return value instanceof Number n ? n.longValue() : 0L;
     }
 
     private int ensure(String table, LocalDate target) {
