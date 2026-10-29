@@ -10,6 +10,7 @@ import com.platform.gateway.mapper.GatewayRouteMapper;
 import com.platform.gateway.service.GatewayApiKeyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.CloseStatus;
@@ -50,6 +51,7 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
     private final GatewayApiKeyService apiKeyService;
     private final GatewayRequestLogMapper logMapper;
     private final ObjectMapper objectMapper;
+    private final StringRedisTemplate redis;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10)).build();
     private final Map<String, WebSocket> upstreams = new ConcurrentHashMap<>();
@@ -90,9 +92,7 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
         if (caller != null) apiKeyService.markUsed(caller);
 
         int maxConnections = route.getWsMaxConnections() == null ? 100 : route.getWsMaxConnections();
-        AtomicInteger active = activeByRoute.computeIfAbsent(route.getId(), k -> new AtomicInteger());
-        if (maxConnections > 0 && active.incrementAndGet() > maxConnections) {
-            active.decrementAndGet();
+        if (!acquire(route.getId(), maxConnections)) {
             session.close(CloseStatus.POLICY_VIOLATION.withReason("connection limit"));
             writeLog(route, session, 429, "websocket connection limit");
             return;
@@ -162,8 +162,43 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
         if (upstream != null) upstream.abort();
     }
 
+    /** Redis 全局计数；Redis 故障时退回本实例计数，优先保证网关可用。 */
+    private boolean acquire(Long routeId, int maxConnections) {
+        if (maxConnections <= 0) return true;
+        try {
+            String key = activeKey(routeId);
+            Long count = redis.opsForValue().increment(key);
+            if (count != null && count == 1L) redis.expire(key, Duration.ofHours(2));
+            if (count != null && count > maxConnections) {
+                redis.opsForValue().decrement(key);
+                return false;
+            }
+            return true;
+        } catch (Exception e) {
+            log.warn("WS 全局连接计数失败，退回实例计数 route={}: {}", routeId, e.getMessage());
+            AtomicInteger active = activeByRoute.computeIfAbsent(routeId, k -> new AtomicInteger());
+            int current = active.incrementAndGet();
+            if (current <= maxConnections) return true;
+            active.decrementAndGet();
+            return false;
+        }
+    }
+
     private void release(Long routeId) {
+        try {
+            String key = activeKey(routeId);
+            if (Boolean.TRUE.equals(redis.hasKey(key))) {
+                Long count = redis.opsForValue().decrement(key);
+                if (count != null && count <= 0) redis.delete(key);
+            }
+        } catch (Exception e) {
+            log.debug("WS 全局连接计数释放失败 route={}: {}", routeId, e.getMessage());
+        }
         activeByRoute.computeIfPresent(routeId, (id, count) -> count.decrementAndGet() <= 0 ? null : count);
+    }
+
+    private String activeKey(Long routeId) {
+        return "gateway:ws:active:" + routeId;
     }
 
     /** 定时 Ping 客户端/上游；长时间无 Pong 或客户端空闲则关闭，防止半开连接堆积。 */
