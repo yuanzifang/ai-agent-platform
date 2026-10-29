@@ -73,6 +73,17 @@ cosign verify-blob \
   merged-sbom-<tag>.cdx.json
 ```
 
+## v0.1.0 实际验证（2026-10-29）
+
+- Release：`v0.1.0`，workflow run `40807869832`，结论 `success`
+- Release assets：5 份 CycloneDX SBOM + 5 份 Sigstore bundle + `SHA256SUMS` + 校验和签名，共 12 个文件
+- 组件数：backend 209、frontend 88、gateway image 219、alert-relay image 231、merged 515
+- `shasum -a 256 -c SHA256SUMS`：5/5 OK
+- `cosign verify-blob`：6/6 `Verified OK`
+  - identity：`https://github.com/yuanzifang/ai-agent-platform/.github/workflows/release.yml@refs/tags/v0.1.0`
+  - issuer：`https://token.actions.githubusercontent.com`
+- `gh attestation verify backend-sbom-v0.1.0.cdx.json --repo yuanzifang/ai-agent-platform`：exit 0
+
 ## 仍缺
 
 - SBOM-specific attestation（当前是 build provenance + keyless 签名，不是完整 SBOM predicate）
