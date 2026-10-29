@@ -342,23 +342,63 @@ services:
         condition: service_completed_successfully
     logging: *default-logging
 
+  redis-exporter-init:
+    image: redis:7.4-alpine
+    restart: "no"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      REDIS_EXPORTER_PASSWORD: ${REDIS_EXPORTER_PASSWORD:?REDIS_EXPORTER_PASSWORD is required}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        redis-cli -h redis -a "$$REDIS_PASSWORD" --no-auth-warning ACL SETUSER exporter on ">$$REDIS_EXPORTER_PASSWORD" '~*' '+@read' '+@connection' '+info' '+client' '+config|get' '+slowlog' '+memory' '+latency' '+command' '+dbsize'
+    logging: *default-logging
+
   redis-exporter:
     image: oliver006/redis_exporter:v1.67.0
     restart: unless-stopped
     environment:
       REDIS_ADDR: redis:6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_USER: exporter
+      REDIS_PASSWORD: ${REDIS_EXPORTER_PASSWORD:?REDIS_EXPORTER_PASSWORD is required}
     ports:
       - "127.0.0.1:9121:9121"
+    depends_on:
+      redis-exporter-init:
+        condition: service_completed_successfully
+    logging: *default-logging
+
+  postgres-exporter-init:
+    image: postgres:16
+    restart: "no"
+    depends_on:
+      pgvector:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${PG_PASSWORD:?PG_PASSWORD is required}
+      PG_USERNAME: ${PG_USERNAME:-aiagent}
+      PG_EXPORTER_PASSWORD: ${PG_EXPORTER_PASSWORD:?PG_EXPORTER_PASSWORD is required}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        psql -h pgvector -U "$$PG_USERNAME" -d vector -v ON_ERROR_STOP=1 -c "CREATE ROLE exporter LOGIN;" 2>/dev/null || true
+        psql -h pgvector -U "$$PG_USERNAME" -d vector -v ON_ERROR_STOP=1 -c "ALTER ROLE exporter WITH LOGIN PASSWORD '$$PG_EXPORTER_PASSWORD';"
+        psql -h pgvector -U "$$PG_USERNAME" -d vector -v ON_ERROR_STOP=1 -c "GRANT pg_monitor TO exporter; GRANT CONNECT ON DATABASE vector TO exporter;"
     logging: *default-logging
 
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.17.1
     restart: unless-stopped
     environment:
-      DATA_SOURCE_NAME: postgresql://${PG_USERNAME:-aiagent}:${PG_PASSWORD}@pgvector:5432/vector?sslmode=disable
+      DATA_SOURCE_NAME: postgresql://exporter:${PG_EXPORTER_PASSWORD:?PG_EXPORTER_PASSWORD is required}@pgvector:5432/vector?sslmode=disable
     ports:
       - "127.0.0.1:9187:9187"
+    depends_on:
+      postgres-exporter-init:
+        condition: service_completed_successfully
     logging: *default-logging
 
   loki:
