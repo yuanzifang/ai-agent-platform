@@ -25,10 +25,11 @@
           <el-switch :model-value="row.enabled" @change="(v: boolean) => toggle(row, v)" />
         </template>
       </el-table-column>
-      <el-table-column :label="t('gatewayPage.actions')" width="250" fixed="right">
+      <el-table-column :label="t('gatewayPage.actions')" width="320" fixed="right">
         <template #default="{ row }">
           <el-button size="small" text @click="openKeys(row)">{{ t('gatewayPage.keys') }}</el-button>
           <el-button size="small" text @click="openLogs(row)">{{ t('gatewayPage.logs') }}</el-button>
+          <el-button size="small" text @click="openHealth(row)">{{ t('gatewayPage.health') }}</el-button>
           <el-button size="small" text @click="openEdit(row)">{{ t('gatewayPage.edit') }}</el-button>
           <el-button size="small" text type="warning" @click="rotate(row)">{{ t('gatewayPage.rotate') }}</el-button>
           <el-button size="small" text type="danger" @click="remove(row)">{{ t('gatewayPage.delete') }}</el-button>
@@ -61,6 +62,13 @@
         <el-form-item :label="t('gatewayPage.rateLabel')">
           <el-input-number v-model="form.rateLimitPerMin" :min="0" :max="100000" />
         </el-form-item>
+        <el-form-item :label="t('gatewayPage.healthCheck')">
+          <el-switch v-model="form.healthCheckEnabled" />
+          <span class="hint ml8">{{ t('gatewayPage.healthCheckHint') }}</span>
+        </el-form-item>
+        <el-form-item v-if="form.healthCheckEnabled" :label="t('gatewayPage.healthPath')">
+          <el-input v-model="form.healthPath" :placeholder="t('gatewayPage.healthPathPh')" maxlength="512" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">{{ t('gatewayPage.cancel') }}</el-button>
@@ -92,6 +100,30 @@
         <template #empty><el-empty :description="t('gatewayPage.noLogs')" :image-size="50" /></template>
       </el-table>
     </el-drawer>
+
+    <el-drawer v-model="healthVisible" :title="`${t('gatewayPage.healthTitle')}${healthRoute.name || ''}`" size="720px">
+      <div class="health-toolbar">
+        <span class="hint">{{ t('gatewayPage.healthHint') }}</span>
+        <el-button type="primary" size="small" :loading="healthChecking" @click="runHealth">
+          {{ t('gatewayPage.checkNow') }}
+        </el-button>
+      </div>
+      <el-table :data="healthRows" size="small" max-height="620">
+        <el-table-column prop="upstream" :label="t('gatewayPage.upstream')" min-width="240" show-overflow-tooltip />
+        <el-table-column :label="t('gatewayPage.healthStatus')" width="110">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'UP' ? 'success' : row.status === 'DOWN' ? 'danger' : 'info'">
+              {{ healthStatusText(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="statusCode" :label="t('gatewayPage.statusCode')" width="90" />
+        <el-table-column prop="latencyMs" :label="t('gatewayPage.latency')" width="90" />
+        <el-table-column prop="checkedAt" :label="t('gatewayPage.checkedAt')" width="170" />
+        <el-table-column prop="error" :label="t('gatewayPage.error')" min-width="140" show-overflow-tooltip />
+        <template #empty><el-empty :description="t('gatewayPage.noHealth')" :image-size="50" /></template>
+      </el-table>
+    </el-drawer>
   </div>
 </template>
 
@@ -112,7 +144,7 @@ const endpoint = ref('')
 const logsVisible = ref(false)
 const logs = ref<any[]>([])
 const logsName = ref('')
-const form = reactive<any>({ id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60 })
+const form = reactive<any>({ id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/' })
 const currentRouteKey = ref('')
 
 const endpointBase = computed(() => `${location.origin}/api/v1/gateway/call/${currentRouteKey.value}`)
@@ -127,7 +159,7 @@ async function load() {
 }
 
 function openCreate() {
-  Object.assign(form, { id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60 })
+  Object.assign(form, { id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/' })
   formVisible.value = true
 }
 
@@ -135,7 +167,8 @@ function openEdit(row: any) {
   Object.assign(form, {
     id: row.id, name: row.name, targetUrl: row.targetUrl, fallbackUrl: row.fallbackUrl || '',
     upstreamUrlsText: (row.upstreamUrls || []).join('\n'),
-    timeoutMs: row.timeoutMs, retries: row.retries, rateLimitPerMin: row.rateLimitPerMin
+    timeoutMs: row.timeoutMs, retries: row.retries, rateLimitPerMin: row.rateLimitPerMin,
+    healthCheckEnabled: row.healthCheckEnabled !== false, healthPath: row.healthPath || '/'
   })
   formVisible.value = true
 }
@@ -237,6 +270,35 @@ async function openLogs(row: any) {
   logsVisible.value = true
 }
 
+const healthVisible = ref(false)
+const healthRoute = ref<any>({})
+const healthRows = ref<any[]>([])
+const healthChecking = ref(false)
+
+async function openHealth(row: any) {
+  healthRoute.value = row
+  healthRows.value = (await http.get(`/gateway/routes/${row.id}/health`) as any) || []
+  healthVisible.value = true
+}
+
+async function runHealth() {
+  healthChecking.value = true
+  try {
+    healthRows.value = (await http.post(`/gateway/routes/${healthRoute.value.id}/health/check`, {}) as any) || []
+    ElMessage.success(t('gatewayPage.healthChecked'))
+  } finally {
+    healthChecking.value = false
+  }
+}
+
+function healthStatusText(status: string) {
+  const map: Record<string, string> = {
+    UP: t('gatewayPage.healthUp'), DOWN: t('gatewayPage.healthDown'),
+    UNKNOWN: t('gatewayPage.healthUnknown'), DISABLED: t('gatewayPage.healthDisabled')
+  }
+  return map[status] || status || t('gatewayPage.healthUnknown')
+}
+
 async function copyKey() {
   await navigator.clipboard.writeText(`X-Gateway-Key: ${secretKey.value}\n${endpoint.value}`)
   ElMessage.success(t('gatewayPage.copied'))
@@ -249,4 +311,6 @@ async function copyKey() {
 .title { font-weight: 600; font-size: 15px; }
 .sub, .hint { color: #909399; font-size: 12px; }
 .spacer { flex: 1; }
+.health-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.ml8 { margin-left: 8px; }
 </style>

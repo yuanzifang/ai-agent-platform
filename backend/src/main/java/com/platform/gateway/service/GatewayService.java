@@ -64,6 +64,7 @@ public class GatewayService {
     private final AuditService auditService;
     private final GatewayApiKeyService apiKeyService;
     private final ObjectMapper objectMapper;
+    private final GatewayHealthService healthService;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NEVER)
@@ -104,6 +105,8 @@ public class GatewayService {
         route.setTimeoutMs(clamp(intValue(req.get("timeoutMs"), 15000), 1000, 120000));
         route.setRetries(clamp(intValue(req.get("retries"), 0), 0, 3));
         route.setRateLimitPerMin(clamp(intValue(req.get("rateLimitPerMin"), 60), 0, 100000));
+        route.setHealthPath(healthPath(req.get("healthPath")));
+        route.setHealthCheckEnabled(Boolean.FALSE.equals(req.get("healthCheckEnabled")) ? 0 : 1);
         route.setEnabled(Boolean.FALSE.equals(req.get("enabled")) ? 0 : 1);
         route.setCreatedBy(principal.userId());
         route.setCreatedAt(LocalDateTime.now());
@@ -148,6 +151,10 @@ public class GatewayService {
         if (req.containsKey("timeoutMs")) route.setTimeoutMs(clamp(intValue(req.get("timeoutMs"), 15000), 1000, 120000));
         if (req.containsKey("retries")) route.setRetries(clamp(intValue(req.get("retries"), 0), 0, 3));
         if (req.containsKey("rateLimitPerMin")) route.setRateLimitPerMin(clamp(intValue(req.get("rateLimitPerMin"), 60), 0, 100000));
+        if (req.containsKey("healthPath")) route.setHealthPath(healthPath(req.get("healthPath")));
+        if (req.containsKey("healthCheckEnabled")) {
+            route.setHealthCheckEnabled(Boolean.FALSE.equals(req.get("healthCheckEnabled")) ? 0 : 1);
+        }
         if (req.containsKey("enabled")) route.setEnabled(Boolean.FALSE.equals(req.get("enabled")) ? 0 : 1);
         route.setUpdatedAt(LocalDateTime.now());
         routeMapper.updateById(route);
@@ -178,6 +185,7 @@ public class GatewayService {
         logMapper.delete(new LambdaQueryWrapper<GatewayRequestLog>()
                 .eq(GatewayRequestLog::getRouteId, id));
         for (String upstream : targets(route)) clearCircuit(id, upstream);
+        healthService.clearRoute(id);
         clearGatewayRateLimit(id);
         auditService.record(principal.userId(), "gateway.route.delete", "gateway_route",
                 String.valueOf(id), "SUCCESS", Map.of("name", route.getName()));
@@ -224,6 +232,16 @@ public class GatewayService {
 
     public void deleteApiKey(Long keyId, com.platform.security.JwtPrincipal principal) {
         apiKeyService.delete(keyId, principal.userId());
+    }
+
+    /** 查询路由上游健康状态（定时任务最近一次探测结果）。 */
+    public List<Map<String, Object>> health(Long id) {
+        return healthService.view(require(id));
+    }
+
+    /** 立即触发一次健康检查并返回结果。 */
+    public List<Map<String, Object>> checkHealth(Long id) {
+        return healthService.checkRoute(require(id));
     }
 
     /** 公开代理入口：X-Gateway-Key 鉴权，路径后缀转发到上游。 */
@@ -280,6 +298,8 @@ public class GatewayService {
                 return error(servletResponse, HttpStatus.PAYLOAD_TOO_LARGE, "请求体不能超过 5MB");
             }
             List<String> targets = targets(route);
+            java.util.Set<String> unhealthy = healthService.unhealthyTargets(route.getId(), targets);
+            boolean healthAware = unhealthy.size() < targets.size();
             if (wantsEventStream(request)) {
                 return proxyStream(route, request, body, query, targets, suffix, started, servletResponse);
             }
@@ -287,6 +307,10 @@ public class GatewayService {
             boolean primaryCircuitOpen = false;
             for (int ti = 0; ti < targets.size(); ti++) {
                 String upstream = targets.get(ti);
+                if (healthAware && unhealthy.contains(upstream)) {
+                    last = new IllegalStateException("upstream unhealthy");
+                    continue;
+                }
                 if (circuitOpen(route.getId(), upstream)) {
                     if (ti < targets.size() - 1) {
                         primaryCircuitOpen = true;
@@ -371,8 +395,14 @@ public class GatewayService {
                                               long started, HttpServletResponse servletResponse) {
         Exception last = null;
         boolean primaryCircuitOpen = false;
+        java.util.Set<String> unhealthy = healthService.unhealthyTargets(route.getId(), targets);
+        boolean healthAware = unhealthy.size() < targets.size();
         for (int ti = 0; ti < targets.size(); ti++) {
             String upstreamBase = targets.get(ti);
+            if (healthAware && unhealthy.contains(upstreamBase)) {
+                last = new IllegalStateException("upstream unhealthy");
+                continue;
+            }
             if (circuitOpen(route.getId(), upstreamBase)) {
                 if (ti < targets.size() - 1) {
                     primaryCircuitOpen = true;
@@ -653,6 +683,8 @@ public class GatewayService {
         m.put("timeoutMs", route.getTimeoutMs());
         m.put("retries", route.getRetries());
         m.put("rateLimitPerMin", route.getRateLimitPerMin());
+        m.put("healthPath", route.getHealthPath() == null ? "/" : route.getHealthPath());
+        m.put("healthCheckEnabled", route.getHealthCheckEnabled() == null || route.getHealthCheckEnabled() != 0);
         m.put("enabled", route.getEnabled() != null && route.getEnabled() == 1);
         m.put("createdAt", route.getCreatedAt());
         m.put("updatedAt", route.getUpdatedAt());
@@ -686,6 +718,15 @@ public class GatewayService {
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    private String healthPath(Object raw) {
+        String value = text(raw, 512);
+        if (value == null) return null;
+        if (value.contains("\r") || value.contains("\n") || value.contains("://")) {
+            throw new BusinessException(400, "健康检查路径格式错误");
+        }
+        return value.startsWith("/") ? value : "/" + value;
     }
 
     private String text(Object raw, int max) {

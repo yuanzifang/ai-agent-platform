@@ -65,6 +65,20 @@ public class GatewayController {
         return ApiResponse.ok(gatewayService.logs(id));
     }
 
+    /** 最近一次主动健康检查结果。 */
+    @GetMapping("/routes/{id}/health")
+    @PreAuthorize("hasAuthority('tenant:manage')")
+    public ApiResponse<List<Map<String, Object>>> health(@PathVariable Long id) {
+        return ApiResponse.ok(gatewayService.health(id));
+    }
+
+    /** 立即执行健康检查。 */
+    @PostMapping("/routes/{id}/health/check")
+    @PreAuthorize("hasAuthority('tenant:manage')")
+    public ApiResponse<List<Map<String, Object>>> checkHealth(@PathVariable Long id) {
+        return ApiResponse.ok(gatewayService.checkHealth(id));
+    }
+
     // ---------- 调用方 API Key ----------
 
     @GetMapping("/routes/{id}/keys")
