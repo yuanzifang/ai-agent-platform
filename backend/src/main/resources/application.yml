@@ -63,6 +63,14 @@ management:
   metrics:
     tags:
       application: ai-agent-platform
+    distribution:
+      # Grafana Overview 的 P95 依赖 histogram bucket；默认只导出 count/sum/max。
+      percentiles-histogram:
+        http.server.requests: true
+      minimum-expected-value:
+        http.server.requests: 1ms
+      maximum-expected-value:
+        http.server.requests: 10s
   health:
     mail:
       # 未配置 SMTP 时避免整体健康检查 DOWN；配置 SMTP 后可设 SMTP_HEALTH_ENABLED=true

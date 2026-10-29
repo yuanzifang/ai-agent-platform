@@ -426,7 +426,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ALERTS{alertstate=\"firing\"})",
+          "expr": "sum(ALERTS{alertstate=\"firing\"}) or vector(0)",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
