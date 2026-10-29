@@ -75,6 +75,8 @@ else
 fi
 # E2E 会创建多个临时 Agent/知识库；只在本轮临时放宽资源配额，退出时恢复。
 mysql_exec "UPDATE sys_tenant_quota SET max_agents=1000, max_knowledge_bases=1000, max_api_calls_per_min=100000 WHERE tenant_id=1" >/dev/null
+# QuotaService 有 5 秒本地缓存；等待过期，避免 E2E 前几个请求仍按旧配额拒绝。
+sleep 6
 
 # 配额在 Redis 缓存 5 分钟，改库后必须清掉，否则本地仍按旧的 60/分钟限流。
 if command -v redis-cli >/dev/null 2>&1; then
