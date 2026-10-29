@@ -1,0 +1,97 @@
+# 本地检索 HA 演练：3 节点 Elasticsearch + 3 节点 Qdrant。
+# 仅用于容量/故障切换验证，生产请使用托管集群或独立 StatefulSet。
+services:
+  es-1:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: aap-es-ha-1
+    environment:
+      - node.name=es-1
+      - cluster.name=aap-ha
+      - discovery.seed_hosts=es-1,es-2,es-3
+      - cluster.initial_master_nodes=es-1,es-2,es-3
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    ports: ["9201:9200"]
+    volumes:
+      - es-ha-1:/usr/share/elasticsearch/data
+      - es-ha-snapshots:/usr/share/elasticsearch/snapshots
+    command: ["eswrapper", "-Epath.repo=/usr/share/elasticsearch/snapshots"]
+
+  es-2:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: aap-es-ha-2
+    environment:
+      - node.name=es-2
+      - cluster.name=aap-ha
+      - discovery.seed_hosts=es-1,es-2,es-3
+      - cluster.initial_master_nodes=es-1,es-2,es-3
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    ports: ["9202:9200"]
+    volumes:
+      - es-ha-2:/usr/share/elasticsearch/data
+      - es-ha-snapshots:/usr/share/elasticsearch/snapshots
+    command: ["eswrapper", "-Epath.repo=/usr/share/elasticsearch/snapshots"]
+
+  es-3:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: aap-es-ha-3
+    environment:
+      - node.name=es-3
+      - cluster.name=aap-ha
+      - discovery.seed_hosts=es-1,es-2,es-3
+      - cluster.initial_master_nodes=es-1,es-2,es-3
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    ports: ["9203:9200"]
+    volumes:
+      - es-ha-3:/usr/share/elasticsearch/data
+      - es-ha-snapshots:/usr/share/elasticsearch/snapshots
+    command: ["eswrapper", "-Epath.repo=/usr/share/elasticsearch/snapshots"]
+
+  qdrant-1:
+    image: qdrant/qdrant:latest
+    container_name: aap-qdrant-ha-1
+    ports: ["6333:6333", "6334:6334"]
+    environment:
+      - QDRANT__CLUSTER__ENABLED=true
+      - QDRANT__CLUSTER__P2P__PORT=6335
+    volumes: ["qdrant-ha-1:/qdrant/storage"]
+    command: ["./entrypoint.sh", "--uri", "http://qdrant-1:6335"]
+
+  qdrant-2:
+    image: qdrant/qdrant:latest
+    container_name: aap-qdrant-ha-2
+    ports: ["6343:6333", "6344:6334"]
+    environment:
+      - QDRANT__CLUSTER__ENABLED=true
+      - QDRANT__CLUSTER__P2P__PORT=6335
+      - QDRANT__CLUSTER__P2P__BOOTSTRAP_URI=http://qdrant-1:6335
+    volumes: ["qdrant-ha-2:/qdrant/storage"]
+    command: ["./entrypoint.sh", "--bootstrap", "http://qdrant-1:6335"]
+
+  qdrant-3:
+    image: qdrant/qdrant:latest
+    container_name: aap-qdrant-ha-3
+    ports: ["6353:6333", "6354:6334"]
+    environment:
+      - QDRANT__CLUSTER__ENABLED=true
+      - QDRANT__CLUSTER__P2P__PORT=6335
+      - QDRANT__CLUSTER__P2P__BOOTSTRAP_URI=http://qdrant-1:6335
+    volumes: ["qdrant-ha-3:/qdrant/storage"]
+    command: ["./entrypoint.sh", "--bootstrap", "http://qdrant-1:6335"]
+
+volumes:
+  es-ha-1:
+  es-ha-2:
+  es-ha-3:
+  es-ha-snapshots:
+  qdrant-ha-1:
+  qdrant-ha-2:
+  qdrant-ha-3:

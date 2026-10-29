@@ -38,6 +38,8 @@ public class ElasticsearchClient {
     private String index;
     @Value("${search.es.alias:aap_knowledge_chunks}")
     private String alias;
+    @Value("${search.es.replicas:0}")
+    private int replicas;
     @Value("${search.es.api-key:}")
     private String apiKey;
     @Value("${search.es.username:}")
@@ -59,7 +61,7 @@ public class ElasticsearchClient {
             if (ready) return;
             try {
                 request("PUT", "/" + index, Map.of(
-                        "settings", Map.of("number_of_shards", 1, "number_of_replicas", 0,
+                        "settings", Map.of("number_of_shards", 1, "number_of_replicas", Math.max(0, replicas),
                                 "analysis", Map.of(
                                         "tokenizer", Map.of("ngram_tokenizer", Map.of(
                                                 "type", "ngram", "min_gram", 2, "max_gram", 3,

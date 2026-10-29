@@ -45,6 +45,10 @@ public class QdrantVectorStore implements VectorStore {
     private String apiKey;
     @Value("${vector.qdrant.collection-prefix:aap}")
     private String collectionPrefix = "aap";
+    @Value("${vector.qdrant.replication-factor:1}")
+    private int replicationFactor = 1;
+    @Value("${vector.qdrant.shard-number:1}")
+    private int shardNumber = 1;
     private final AtomicInteger urlCursor = new AtomicInteger();
 
     @Override
@@ -63,7 +67,9 @@ public class QdrantVectorStore implements VectorStore {
         String name = collection(tenantId, dim);
         try {
             request("PUT", "/collections/" + name, Map.of(
-                    "vectors", Map.of("size", dim, "distance", "Cosine")));
+                    "vectors", Map.of("size", dim, "distance", "Cosine"),
+                    "replication_factor", Math.max(1, replicationFactor),
+                    "shard_number", Math.max(1, shardNumber)));
         } catch (Exception e) {
             if (!String.valueOf(e.getMessage()).contains("409")
                     && !String.valueOf(e.getMessage()).toLowerCase().contains("already exists")) {
