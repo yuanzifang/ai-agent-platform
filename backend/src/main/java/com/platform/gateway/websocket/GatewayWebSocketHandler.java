@@ -109,6 +109,11 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
             session.close(CloseStatus.POLICY_VIOLATION.withReason("daily quota"));
             return;
         }
+        if (caller != null && !apiKeyService.ipAllows(caller,
+                session.getRemoteAddress() == null ? null : session.getRemoteAddress().getAddress().getHostAddress())) {
+            session.close(CloseStatus.POLICY_VIOLATION.withReason("ip denied"));
+            return;
+        }
         if (caller == null && (provided == null
                 || !apiKeyService.sha256(provided).equals(route.getApiKeyHash()))) {
             session.close(CloseStatus.POLICY_VIOLATION.withReason("invalid key"));

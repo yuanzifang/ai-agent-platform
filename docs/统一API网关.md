@@ -104,4 +104,4 @@ POST/PUT/PATCH 的请求体在转发前校验；失败返回 400：
 - WebSocket 透传已支持最小双向代理：`/api/v1/gateway/ws/{routeKey}?key=<apiKey>`，targetUrl 使用 http(s)，运行时转换为 ws(s)，文本/二进制帧双向转发；服务端定时 Ping 客户端/上游并按 `gateway.ws.idle-timeout-ms` 回收半开连接；支持 fallback/额外 upstream 建连及已建立连接掉线切换；路由级 `wsMaxConnections`（0=不限，Redis 全局统计，Redis 故障回退实例统计）；
 - 管理端审计报表/用量计费；
 - 请求签名/防重放已支持 HTTP 与 WebSocket 握手；
-- Key scope/日配额已支持；仍缺按租户/调用方的动态策略编排。
+- Key scope/日配额/IP 白名单已支持；仍缺按租户/调用方的动态策略编排。
