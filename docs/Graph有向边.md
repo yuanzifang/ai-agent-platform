@@ -49,7 +49,17 @@ POST /api/v1/knowledge-base/{id}/graph/communities/summarize
 {"model":"qwen2.5:7b","limit":5}
 ```
 
-对前 N 个社区生成一句短摘要；结果不持久化。社区向量/图嵌入仍未实现。
+对前 N 个社区生成一句短摘要。
+
+持久化社区摘要：
+
+```http
+POST /api/v1/knowledge-base/{id}/graph/communities/rebuild
+{"model":"qwen2.5:7b","limit":5}
+GET  /api/v1/knowledge-base/{id}/graph/communities/saved
+```
+
+按社区成员 ID 生成稳定 community_key，写入 `knowledge_graph_community`；社区向量/图嵌入仍未实现。
 
 ## 4. 已验证
 

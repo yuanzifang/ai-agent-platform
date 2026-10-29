@@ -16,6 +16,7 @@ import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.knowledge.mapper.KnowledgeChunkMapper;
 import com.platform.knowledge.mapper.KnowledgeDocumentMapper;
 import com.platform.knowledge.mapper.KnowledgeGraphEntityMapper;
+import com.platform.knowledge.mapper.KnowledgeGraphCommunityMapper;
 import com.platform.knowledge.mapper.KnowledgeGraphJobMapper;
 import com.platform.knowledge.mapper.KnowledgeGraphMentionMapper;
 import com.platform.knowledge.mapper.KnowledgeGraphRelationMapper;
@@ -80,7 +81,8 @@ class KnowledgeGraphServiceCrudTest {
         permissionService = mock(KnowledgePermissionService.class);
         modelRouter = mock(ChatModelRouter.class);
         auditService = mock(AuditService.class);
-        service = new KnowledgeGraphService(entityMapper, relationMapper, mentionMapper, jobMapper,
+        service = new KnowledgeGraphService(entityMapper, relationMapper, mentionMapper,
+                mock(KnowledgeGraphCommunityMapper.class), jobMapper,
                 kbMapper, documentMapper, mock(KnowledgeChunkMapper.class),
                 mock(SysConfigMapper.class), mock(BillingUsageMapper.class),
                 mock(PricingService.class), permissionService, auditService, modelRouter,
