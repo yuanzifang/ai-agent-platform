@@ -1,0 +1,9 @@
+# 生产 profile 强制技能脚本使用容器级隔离。
+# 镜像必须通过环境变量固定到 digest，例如 python:3.12-alpine@sha256:<64 hex>。
+skill:
+  script:
+    runtime: ${SKILL_SCRIPT_RUNTIME:docker}
+    require-image-digest: ${SKILL_SCRIPT_REQUIRE_IMAGE_DIGEST:true}
+    docker:
+      python-image: ${SKILL_SCRIPT_DOCKER_PYTHON_IMAGE:python:3.12-alpine}
+      node-image: ${SKILL_SCRIPT_DOCKER_NODE_IMAGE:node:22-alpine}
