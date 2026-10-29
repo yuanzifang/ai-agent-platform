@@ -4,6 +4,7 @@ import com.platform.common.response.ApiResponse;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.service.PlatformAdminService;
 import com.platform.system.service.PlatformInfraConfigService;
+import com.platform.system.service.SearchHaStatusService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,11 +24,18 @@ public class PlatformInfraController {
     private final PlatformAdminService platformAdminService;
     private final PlatformInfraConfigService configService;
     private final com.platform.system.service.SearchOutboxStatusService outboxStatusService;
+    private final SearchHaStatusService searchHaStatusService;
 
     @GetMapping
     public ApiResponse<Map<String, Object>> get(@AuthenticationPrincipal JwtPrincipal principal) {
         platformAdminService.requirePlatformAdmin(principal);
         return ApiResponse.ok(configService.current());
+    }
+
+    @GetMapping("/search-ha")
+    public ApiResponse<Map<String, Object>> searchHa(@AuthenticationPrincipal JwtPrincipal principal) {
+        platformAdminService.requirePlatformAdmin(principal);
+        return ApiResponse.ok(searchHaStatusService.status());
     }
 
     @GetMapping("/search-outbox")

@@ -151,6 +151,11 @@ public class ElasticsearchClient {
         }
     }
 
+    /** 集群健康状态，用于 HA 监控。 */
+    public JsonNode clusterHealth() {
+        return request("GET", "/_cluster/health", null);
+    }
+
     /** 快照状态；由快照监控任务调用。 */
     public JsonNode snapshots(String repo) {
         return request("GET", "/_snapshot/" + repo + "/_all", null);
