@@ -1,0 +1,223 @@
+# Alert HA: relay x2 + Alertmanager x3 (StatefulSet).
+# Apply after creating aap-alert-ha-secret with real channel credentials.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aap-alert-ha-secret
+type: Opaque
+stringData:
+  # Replace these placeholders before apply; do not commit real values.
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: ""
+  ALERT_RELAY_ACK_TOKEN: change-me
+  ALERT_WEBHOOK_URL: ""
+  ALERT_WEBHOOK_SECRET: ""
+  ALERT_WEBHOOK_TYPE: dingtalk
+  ALERT_WEBHOOK_KEYWORD: "告警"
+  ALERT_WEBHOOK_ENV: prod
+  ALERT_EMAIL_ENABLED: "false"
+  ALERT_EMAIL_FROM: ""
+  ALERT_EMAIL_TO: ""
+  SMTP_HOST: ""
+  SMTP_PORT: "587"
+  SMTP_USERNAME: ""
+  SMTP_PASSWORD: ""
+  SMTP_TLS: "true"
+  SMTP_SECURE: "false"
+  ALERT_SMS_ENABLED: "false"
+  ALERT_SMS_ACCESS_KEY_ID: ""
+  ALERT_SMS_ACCESS_KEY_SECRET: ""
+  ALERT_SMS_ENDPOINT: dysmsapi.aliyuncs.com
+  ALERT_SMS_SIGN_NAME: ""
+  ALERT_SMS_TEMPLATE_CODE: ""
+  ALERT_SMS_PHONE_NUMBERS: ""
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-relay
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: alert-relay}
+  template:
+    metadata:
+      labels: {app: alert-relay}
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels: {app: alert-relay}
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: relay
+          image: ghcr.io/example/ai-agent-platform-alert-relay:0.1.0
+          envFrom:
+            - secretRef: {name: aap-alert-ha-secret}
+          env:
+            - name: ALERT_RELAY_REDIS_PREFIX
+              value: alert-relay
+            - name: ALERT_RELAY_CRITICAL_CHANNELS
+              value: webhook,email
+            - name: ALERT_RELAY_WARNING_CHANNELS
+              value: webhook,email
+            - name: ALERT_RELAY_DEFAULT_CHANNELS
+              value: webhook
+            - name: ALERT_ESCALATION_DELAY_SECONDS
+              value: "300"
+            - name: ALERT_ESCALATION_CHANNELS
+              value: sms
+            - name: ALERT_ESCALATION_SEVERITIES
+              value: critical
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alert-relay
+spec:
+  selector: {app: alert-relay}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: alert-relay
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: alert-relay}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aap-alertmanager-config
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: platform-default
+      group_by: ["alertname", "severity"]
+      group_wait: 10s
+      group_interval: 30s
+      repeat_interval: 4h
+      routes:
+        - matchers: ['severity="critical"']
+          receiver: platform-critical
+          group_wait: 0s
+          repeat_interval: 1h
+        - matchers: ['severity="warning"']
+          receiver: platform-warning
+          repeat_interval: 4h
+    receivers:
+      - name: platform-default
+        webhook_configs:
+          - url: http://alert-relay:8080/alertmanager?route=default
+            send_resolved: true
+      - name: platform-critical
+        webhook_configs:
+          - url: http://alert-relay:8080/alertmanager?route=critical
+            send_resolved: true
+      - name: platform-warning
+        webhook_configs:
+          - url: http://alert-relay:8080/alertmanager?route=warning
+            send_resolved: true
+    inhibit_rules:
+      - source_matchers: ['severity="critical"']
+        target_matchers: ['severity="warning"']
+        equal: ["alertname", "instance"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager-headless
+spec:
+  clusterIP: None
+  selector: {app: alertmanager}
+  ports:
+    - {name: web, port: 9093, targetPort: web}
+    - {name: cluster, port: 9094, targetPort: cluster}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: alertmanager
+spec:
+  serviceName: alertmanager-headless
+  replicas: 3
+  selector:
+    matchLabels: {app: alertmanager}
+  template:
+    metadata:
+      labels: {app: alertmanager}
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.28.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              exec /bin/alertmanager \
+                --config.file=/etc/alertmanager/alertmanager.yml \
+                --storage.path=/alertmanager \
+                --web.listen-address=0.0.0.0:9093 \
+                --cluster.listen-address=0.0.0.0:9094 \
+                --cluster.advertise-address=${POD_IP}:9094 \
+                --cluster.peer=alertmanager-0.alertmanager-headless:9094 \
+                --cluster.peer=alertmanager-1.alertmanager-headless:9094 \
+                --cluster.peer=alertmanager-2.alertmanager-headless:9094
+          env:
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
+          ports:
+            - {name: web, containerPort: 9093}
+            - {name: cluster, containerPort: 9094}
+          volumeMounts:
+            - {name: config, mountPath: /etc/alertmanager}
+            - {name: data, mountPath: /alertmanager}
+          readinessProbe:
+            httpGet: {path: /-/ready, port: web}
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /-/healthy, port: web}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+      volumes:
+        - name: config
+          configMap: {name: aap-alertmanager-config}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: {requests: {storage: 1Gi}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: alertmanager
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: {app: alertmanager}
