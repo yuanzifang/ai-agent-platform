@@ -277,6 +277,13 @@ pgvector:
     # 小知识库才走物化精确排序；行数过大时精确排序会扫描/排序大量向量，交给 HNSW
     max-rows: ${PGVECTOR_FILTERED_EXACT_MAX_ROWS:50000}
 
+gateway:
+  ws:
+    # WebSocket 客户端/上游 Ping 间隔和半开连接回收
+    heartbeat-ms: ${GATEWAY_WS_HEARTBEAT_MS:30000}
+    heartbeat-scan-ms: ${GATEWAY_WS_HEARTBEAT_SCAN_MS:15000}
+    idle-timeout-ms: ${GATEWAY_WS_IDLE_TIMEOUT_MS:90000}
+
 asr:
   enabled: ${ASR_ENABLED:true}     # 本地 Qwen3-ASR（OpenAI 兼容协议，start-asr.sh 启动）
   type: local

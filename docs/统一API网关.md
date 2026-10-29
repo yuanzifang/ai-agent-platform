@@ -46,7 +46,7 @@ X-Gateway-Key: gw_xxx
 - 有序故障切换已支持 target + fallback + 最多 5 个额外 upstream；仍缺权重/主动健康检查/完整 WAF 规则；
 - Header 改写、路径重写、请求/响应体转换；
 - OAuth2/JWT 上游鉴权、IP 白名单；
-- WebSocket 透传已支持最小双向代理：`/api/v1/gateway/ws/{routeKey}?key=<apiKey>`，targetUrl 使用 http(s)，运行时转换为 ws(s)，文本/二进制帧双向转发；仍缺 WS 自动化测试、上游故障切换、心跳策略和连接数配额；
+- WebSocket 透传已支持最小双向代理：`/api/v1/gateway/ws/{routeKey}?key=<apiKey>`，targetUrl 使用 http(s)，运行时转换为 ws(s)，文本/二进制帧双向转发；服务端定时 Ping 客户端/上游并按 `gateway.ws.idle-timeout-ms` 回收半开连接；仍缺 WS 自动化测试、上游故障切换和连接数配额；
 - 管理端审计报表/用量计费；
 - WAF、防重放、签名；
 - 生产级 Key 生命周期（过期、scope、多 Key）。
