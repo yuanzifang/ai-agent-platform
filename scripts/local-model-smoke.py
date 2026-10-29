@@ -13,6 +13,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 import urllib.error
 import urllib.request
 
@@ -33,6 +35,61 @@ def call(method, url, token=None, body=None):
     return payload.get('data')
 
 
+def checkpoint_smoke(agent_id: int) -> tuple[int, int]:
+    """启动长回复 -> 收到首段 delta 后停止 -> 从 checkpoint 继续。"""
+    base = os.getenv('PLATFORM_BASE_URL', 'http://127.0.0.1:8080').rstrip('/') + '/api/v1'
+    login = call('POST', base + '/auth/login', body={
+        'username': os.getenv('PLATFORM_USER', 'dev'),
+        'password': os.getenv('PLATFORM_PASSWORD', 'Dev@123456')
+    })
+    token = login['accessToken']
+    conv = call('POST', base + '/conversations', token, {'agentId': agent_id, 'title': 'local checkpoint'})
+    cid = conv['id']
+    body = json.dumps({
+        'message': '请写一篇不少于1000字的软件发布流程说明，分十二个阶段，每个阶段详细展开。',
+        'stream': True, 'variables': {}, 'attachmentIds': [], 'allowWriteTools': False
+    }).encode()
+    req = urllib.request.Request(base + f'/conversations/{cid}/messages', data=body, method='POST')
+    req.add_header('Content-Type', 'application/json')
+    req.add_header('Accept', 'text/event-stream')
+    req.add_header('Authorization', f'Bearer {token}')
+    first = threading.Event()
+    errors = []
+
+    def reader():
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                for raw in resp:
+                    line = raw.decode('utf-8', 'replace').strip()
+                    if line.startswith('event:') and line[6:].strip() == 'delta':
+                        first.set()
+        except Exception as e:  # stop 会主动断开，属预期
+            errors.append(e)
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    if not first.wait(30):
+        # 即使没有 delta 也尝试停止，避免后台连接悬挂
+        try: call('POST', base + f'/conversations/{cid}/messages/0/stop', token, {})
+        except Exception: pass
+        thread.join(30)
+        raise RuntimeError('本地模型 30 秒内未产生首个 delta')
+    call('POST', base + f'/conversations/{cid}/messages/0/stop', token, {})
+    thread.join(30)
+    checkpoint = call('GET', base + f'/conversations/{cid}/checkpoint', token)
+    content = str((checkpoint or {}).get('content') or '')
+    if not content:
+        raise RuntimeError('停止后 checkpoint 内容为空')
+    if str((checkpoint or {}).get('status')).upper() == 'SUCCESS':
+        raise RuntimeError('停止未生效，checkpoint 已成功完成')
+    continued = call('POST', base + f'/conversations/{cid}/checkpoint/continue', token, {})
+    after = str((continued or {}).get('content') or '')
+    if len(after) <= len(content):
+        raise RuntimeError(f'继续生成未增加内容：before={len(content)} after={len(after)}')
+    call('DELETE', base + f'/conversations/{cid}', token)
+    return len(content), len(after)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--base-url', default=os.getenv('PLATFORM_BASE_URL', 'http://127.0.0.1:8080'))
@@ -40,6 +97,7 @@ def main():
     parser.add_argument('--chat-alias', default=os.getenv('LOCAL_SMOKE_CHAT_ALIAS', 'qwen2.5:7b-chat'))
     parser.add_argument('--kb-id', type=int, default=int(os.getenv('LOCAL_SMOKE_KB_ID', '0')))
     parser.add_argument('--skip-rag', action='store_true')
+    parser.add_argument('--skip-checkpoint', action='store_true')
     args = parser.parse_args()
     base = args.base_url.rstrip('/') + '/api/v1'
     created_alias = False
@@ -128,6 +186,11 @@ def main():
                 print(f'RAG PASS kb={kb_id} citations={len(citations)} answer={str(rag.get("answer") or "")[:120]}')
             else:
                 print('RAG SKIP 没有含文档的知识库')
+
+        if not args.skip_checkpoint:
+            checkpoint_agent = create_agent('CHECKPOINT', '你是续写测试助手，回答要详细。')
+            before, after = checkpoint_smoke(checkpoint_agent)
+            print(f'CHECKPOINT PASS before={before} after={after}')
 
         print('LOCAL-MODEL-SMOKE PASS')
     finally:
