@@ -2,6 +2,7 @@ package com.platform.common.exception;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.support.ResourceBundleMessageSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -10,7 +11,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class BackendMessageTranslatorTest {
 
-    private final BackendMessageTranslator translator = new BackendMessageTranslator();
+    private final BackendMessageTranslator translator = new BackendMessageTranslator(messageSource());
+
+    private static ResourceBundleMessageSource messageSource() {
+        ResourceBundleMessageSource source = new ResourceBundleMessageSource();
+        source.setBasename("i18n/messages");
+        source.setDefaultEncoding("UTF-8");
+        source.setFallbackToSystemLocale(false);
+        return source;
+    }
 
     @AfterEach
     void clear() {

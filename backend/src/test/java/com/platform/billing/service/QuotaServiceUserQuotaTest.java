@@ -48,7 +48,7 @@ class QuotaServiceUserQuotaTest {
                 mock(KnowledgeBaseMapper.class), usageMapper, mock(ChatAttachmentMapper.class),
                 mock(KnowledgeDocumentMapper.class), mock(BillingAccountMapper.class),
                 mock(AlertWebhookService.class), mock(SysUserMapper.class), userQuotaMapper,
-                mock(com.platform.common.mail.MailService.class),
+                mock(com.platform.common.mail.MailTemplateService.class),
                 mock(StringRedisTemplate.class), new SimpleMeterRegistry());
         TenantContext.setTenantId(1L);
     }

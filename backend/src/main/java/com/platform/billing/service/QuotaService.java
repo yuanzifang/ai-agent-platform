@@ -9,7 +9,7 @@ import com.platform.billing.mapper.BillingAccountMapper;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
-import com.platform.common.mail.MailService;
+import com.platform.common.mail.MailTemplateService;
 import com.platform.knowledge.entity.KnowledgeBase;
 import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.knowledge.mapper.KnowledgeDocumentMapper;
@@ -51,7 +51,7 @@ public class QuotaService {
     private final com.platform.system.service.AlertWebhookService alertWebhook;
     private final SysUserMapper userMapper;
     private final com.platform.system.mapper.UserQuotaMapper userQuotaMapper;
-    private final MailService mailService;
+    private final MailTemplateService mailTemplateService;
     private final StringRedisTemplate redis;
     private final MeterRegistry meterRegistry;
 
@@ -211,12 +211,8 @@ public class QuotaService {
                     .eq(SysUser::getTenantId, tenantId).eq(SysUser::getStatus, "ENABLED"))) {
                 if (u.getUsername() != null && u.getUsername().contains("@")
                         && userMapper.findRoleKeys(u.getId()).contains("OWNER")) {
-                    mailService.sendLocalized(u.getUsername(), u.getLocale(),
-                            "AI Agent 平台 - 配额告警",
-                            metric + " 使用率已达 " + percent + "%（" + used + "/" + max + "），请及时调整配额或充值。",
-                            "AI Agent Platform - Quota alert",
-                            metric + " usage has reached " + percent + "% (" + used + "/" + max
-                                    + "). Adjust the quota or recharge.");
+                    mailTemplateService.send(u.getUsername(), u.getLocale(), "mail.quota",
+                            metric, percent, used, max);
                 }
             }
         } catch (Exception e) {

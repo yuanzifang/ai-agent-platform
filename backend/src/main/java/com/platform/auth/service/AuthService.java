@@ -5,7 +5,7 @@ import com.platform.auth.entity.UserSession;
 import com.platform.auth.mapper.PasswordResetTokenMapper;
 import com.platform.auth.mapper.UserSessionMapper;
 import com.platform.common.exception.BusinessException;
-import com.platform.common.mail.MailService;
+import com.platform.common.mail.MailTemplateService;
 import com.platform.security.JwtPrincipal;
 import com.platform.security.JwtService;
 import com.platform.system.entity.AuditLogin;
@@ -47,7 +47,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final MfaService mfaService;
     private final PasswordResetTokenMapper resetTokenMapper;
-    private final MailService mailService;
+    private final MailTemplateService mailTemplateService;
 
     @org.springframework.beans.factory.annotation.Value("${security.login.max-failures:5}")
     private int maxLoginFailures;
@@ -183,11 +183,7 @@ public class AuthService {
         resetTokenMapper.insert(row);
         String link = frontendBase.replaceAll("/+$", "") + "/reset-password?token=" + token;
         boolean sent = user.getUsername() != null && user.getUsername().contains("@")
-                && mailService.sendLocalized(user.getUsername(), user.getLocale(),
-                "AI Agent 平台 - 重置密码", "请在 30 分钟内打开以下链接重置密码：\n" + link + "\n如非本人操作请忽略。",
-                "AI Agent Platform - Reset password",
-                "Open this link within 30 minutes to reset your password:\n" + link
-                        + "\nIf this was not you, ignore this email.");
+                && mailTemplateService.send(user.getUsername(), user.getLocale(), "mail.reset", link);
         if (!sent) {
             // 未配置 SMTP 或发送失败：写入日志，便于管理员/开发环境使用
             log.info("密码重置链接已生成（未发送邮件，请配置 SMTP 或联系管理员）；有效期 30 分钟");
@@ -221,14 +217,8 @@ public class AuthService {
             log.warn("异常登录告警：账号 {} 连续失败 {} 次，已锁定至 {}（IP={}）",
                     logSafe(user.getUsername()), failed, lockedUntil, logSafe(clientIp(request)));
             if (user.getUsername() != null && user.getUsername().contains("@")) {
-                mailService.sendLocalized(user.getUsername(), user.getLocale(),
-                        "AI Agent 平台 - 安全提醒",
-                        "你的账号因连续 " + failed + " 次登录失败已被锁定至 " + lockedUntil
-                                + "。如非本人操作，请联系管理员。\nIP：" + clientIp(request),
-                        "AI Agent Platform - Security alert",
-                        "Your account was locked until " + lockedUntil + " after " + failed
-                                + " failed sign-in attempts. If this was not you, contact an administrator.\nIP: "
-                                + clientIp(request));
+                mailTemplateService.send(user.getUsername(), user.getLocale(), "mail.security",
+                        failed, lockedUntil, clientIp(request));
             }
         }
     }
