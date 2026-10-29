@@ -1130,7 +1130,7 @@ async function importFeishu() {
       appSecret: feishuForm.appSecret.trim(),
       effectiveFrom: range?.[0] ? new Date(range[0]).toISOString() : undefined,
       effectiveTo: range?.[1] ? new Date(range[1]).toISOString() : undefined
-    }) as any
+    }, { timeout: 600000 }) as any
     if (result?.failed > 0) {
       ElMessage.warning(t('kbDetail.feishuPartial', { imported: result.imported, failed: result.failed }))
     } else {
