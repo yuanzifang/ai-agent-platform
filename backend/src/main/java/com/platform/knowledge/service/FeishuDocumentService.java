@@ -75,6 +75,7 @@ public class FeishuDocumentService {
                 case "doc" -> add(documents, fetchDoc(target.token(), token, rawUrl,
                         defaultName("飞书文档", target.token())));
                 case "wiki" -> collectWiki(target.token(), token, documents, seen);
+                case "wiki_space" -> collectWikiChildren(target.token(), null, token, documents, seen);
                 case "folder" -> collectFolder(target.token(), token, documents, seen);
                 default -> throw new BusinessException(400, "无法识别飞书链接类型");
             }
@@ -91,7 +92,8 @@ public class FeishuDocumentService {
     private Target parseTarget(String rawPath) {
         String path = rawPath == null ? "" : rawPath;
         String[][] prefixes = {
-                {"/docx/", "docx"}, {"/docs/", "doc"}, {"/wiki/", "wiki"}, {"/drive/folder/", "folder"}
+                {"/docx/", "docx"}, {"/docs/", "doc"}, {"/wiki/space/", "wiki_space"},
+                {"/wiki/", "wiki"}, {"/drive/folder/", "folder"}
         };
         for (String[] prefix : prefixes) {
             if (path.startsWith(prefix[0])) {
@@ -131,7 +133,7 @@ public class FeishuDocumentService {
         String pageToken = null;
         do {
             String path = "/open-apis/wiki/v2/spaces/" + encode(spaceId) + "/nodes?page_size=" + PAGE_SIZE
-                    + "&parent_node_token=" + encode(parentToken)
+                    + (parentToken == null ? "" : "&parent_node_token=" + encode(parentToken))
                     + (pageToken == null ? "" : "&page_token=" + encode(pageToken));
             JsonNode data = requestJson(path, accessToken, "GET", null).path("data");
             for (JsonNode item : data.path("items")) {
@@ -264,8 +266,13 @@ public class FeishuDocumentService {
         try {
             JsonNode response = postJson("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
                     Map.of("app_id", appId, "app_secret", appSecret));
-            if (response.path("code").asInt(-1) != 0) {
-                throw new BusinessException(502, "飞书凭证失败：" + response.path("msg").asText());
+            int code = response.path("code").asInt(-1);
+            if (code != 0) {
+                String message = response.path("msg").asText();
+                if (code == 21001) {
+                    message += "（请检查飞书应用凭证、应用发布状态、IP 白名单或开放平台访问策略）";
+                }
+                throw new BusinessException(400, "飞书凭证失败（" + code + "）：" + message);
             }
             String token = response.path("tenant_access_token").asText();
             if (token.isBlank()) throw new BusinessException(502, "飞书未返回 tenant_access_token");
@@ -295,6 +302,12 @@ public class FeishuDocumentService {
                 Thread.sleep(300L * (attempt + 1));
                 continue;
             }
+            if (response.statusCode() == 403) {
+                throw new BusinessException(403, "飞书 API 无权限：请确认应用已开通对应只读权限并被添加为文档/知识库成员");
+            }
+            if (response.statusCode() == 404) {
+                throw new BusinessException(404, "飞书文档或节点不存在，或应用无权访问");
+            }
             if (response.statusCode() >= 300) {
                 throw new BusinessException(502, "飞书 API HTTP " + response.statusCode()
                         + "：" + abbreviate(responseBody));
@@ -304,6 +317,9 @@ public class FeishuDocumentService {
             if (code == 99991400 && attempt < MAX_RETRIES) {
                 Thread.sleep(300L * (attempt + 1));
                 continue;
+            }
+            if (code == 131006 || code == 1770032 || code == 99991672) {
+                throw new BusinessException(403, "飞书 API 权限不足（" + code + "）：" + node.path("msg").asText());
             }
             if (code != 0) throw new BusinessException(502, "飞书 API 错误：" + node.path("msg").asText());
             return node;

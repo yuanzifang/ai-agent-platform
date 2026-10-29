@@ -426,7 +426,7 @@
       <el-form label-width="90px">
         <el-form-item label="URL" required>
           <el-input v-model="feishuForm.url"
-                    placeholder="https://xxx.feishu.cn/docx/... 或 /wiki/... 或 /drive/folder/..." />
+                    placeholder="https://xxx.feishu.cn/docx/... 或 /wiki/... 或 /wiki/space/... 或 /drive/folder/..." />
         </el-form-item>
         <el-form-item label="App ID" required>
           <el-input v-model="feishuForm.appId" placeholder="cli_xxxxxxxx" />
