@@ -19,6 +19,26 @@ curl -s 'http://127.0.0.1:9201/_cluster/health?pretty'
 curl -s http://127.0.0.1:6333/cluster
 ```
 
+## Kubernetes 模板
+
+同目录 `k8s.yaml` 提供 3 节点 ES/Qdrant StatefulSet、headless peer Service 和客户端 Service：
+
+```bash
+kubectl apply -f deploy/search-ha/k8s.yaml
+```
+
+应用侧配置：
+
+```text
+ELASTICSEARCH_URL=http://elasticsearch:9200
+QDRANT_URL=http://qdrant:6333
+ELASTICSEARCH_REPLICAS=1
+QDRANT_REPLICATION_FACTOR=2
+QDRANT_SHARD_NUMBER=3
+```
+
+模板使用默认 StorageClass，生产需按容量和跨可用区拓扑调整 `volumeClaimTemplates`、亲和性和 PDB；Qdrant 首节点使用 `--uri`，其余节点 `--bootstrap`。
+
 ## 应用配置
 
 ```text
