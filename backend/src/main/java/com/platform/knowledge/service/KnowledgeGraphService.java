@@ -715,12 +715,36 @@ public class KnowledgeGraphService implements ApplicationRunner {
                 .filter(Objects::nonNull).collect(Collectors.joining("\n")));
         if (q.isBlank() && joined.isBlank()) return List.of();
 
-        List<KnowledgeGraphEntity> matched = entities.stream()
+        List<KnowledgeGraphEntity> matched = new ArrayList<>(entities.stream()
                 .filter(e -> {
                     String key = e.getNormalizedName() == null ? normalizeName(e.getName()) : e.getNormalizedName();
                     return !key.isBlank() && (q.contains(key) || joined.contains(key));
                 })
-                .limit(8).toList();
+                .limit(8).toList());
+        if (configBoolean("knowledge.graph.semantic-entity-enabled", true)
+                && query != null && !query.isBlank()) {
+            try {
+                Long embeddedCount = entityMapper.selectCount(new LambdaQueryWrapper<KnowledgeGraphEntity>()
+                        .eq(KnowledgeGraphEntity::getKbId, kbId)
+                        .isNotNull(KnowledgeGraphEntity::getEmbedding));
+                if (embeddedCount != null && embeddedCount > 0) {
+                    Map<String, Object> semantic = searchEntities(kbId, query, 8, viewer);
+                    Object rawHits = semantic.get("hits");
+                    if (rawHits instanceof List<?> hits) {
+                        for (Object raw : hits) {
+                            if (!(raw instanceof Map<?, ?> hit)) continue;
+                            Long id = number(hit.get("id"));
+                            if (id == null || matched.stream().anyMatch(e -> e.getId().equals(id))) continue;
+                            KnowledgeGraphEntity entity = entities.stream()
+                                    .filter(e -> e.getId().equals(id)).findFirst().orElse(null);
+                            if (entity != null) matched.add(entity);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("GraphRAG 语义实体召回跳过：{}", e.getMessage());
+            }
+        }
         if (matched.isEmpty()) return List.of();
 
         Set<Long> ids = new LinkedHashSet<>();
