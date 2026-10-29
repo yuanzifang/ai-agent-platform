@@ -42,15 +42,16 @@ X-Gateway-Key: gw_xxx
 - E2E：`Accept: text/event-stream` → mock 上游 3 个 SSE chunk + `[DONE]`，网关返回 200、`text/event-stream`、`chunked`，内容完整；
 - E2E：主上游连续 3 次 500 → 第 4 次不再调用主上游，直接走备用并返回 200；
 - 2026-10-29 本机 WebSocket echo 手工验证：创建路由 → `ws://127.0.0.1:8080/api/v1/gateway/ws/{routeKey}?key=...` → 发送 `hello-websocket`，收到 `echo:hello-websocket`；错误 key 不返回业务消息；测试路由/echo 服务已清理；
+- 2026-10-29 WebSocket 连接配额手工验证：`wsMaxConnections=1`，首个连接 echo 正常；第二个连接握手后收到 close(1008, connection limit)；首个连接关闭后第三个连接恢复 echo；测试路由/echo 服务已清理；
 - 2026-10-29 主动健康检查手工验证：主上游 `127.0.0.1:19999` DOWN、备用 `127.0.0.1:18080` UP；代理请求自动跳过主上游，返回 200 且日志记录 `fallback upstream`；测试路由已清理；
 - 完整 E2E 46/46。
 
 ## 未完成
 
-- 有序故障切换已支持 target + fallback + 最多 5 个额外 upstream；主动健康检查已落地；仍缺权重/连接数配额/完整 WAF 规则；
+- 有序故障切换已支持 target + fallback + 最多 5 个额外 upstream；主动健康检查已落地；仍缺权重/完整 WAF 规则；
 - Header 改写、路径重写、请求/响应体转换；
 - OAuth2/JWT 上游鉴权、IP 白名单；
-- WebSocket 透传已支持最小双向代理：`/api/v1/gateway/ws/{routeKey}?key=<apiKey>`，targetUrl 使用 http(s)，运行时转换为 ws(s)，文本/二进制帧双向转发；服务端定时 Ping 客户端/上游并按 `gateway.ws.idle-timeout-ms` 回收半开连接；仍缺 WS 自动化测试、上游故障切换和连接数配额；
+- WebSocket 透传已支持最小双向代理：`/api/v1/gateway/ws/{routeKey}?key=<apiKey>`，targetUrl 使用 http(s)，运行时转换为 ws(s)，文本/二进制帧双向转发；服务端定时 Ping 客户端/上游并按 `gateway.ws.idle-timeout-ms` 回收半开连接；仍缺 WS 自动化测试、上游故障切换；已支持每路由最大连接数；
 - 管理端审计报表/用量计费；
 - WAF、防重放、签名；
 - 生产级 Key 生命周期（过期、scope、多 Key）。

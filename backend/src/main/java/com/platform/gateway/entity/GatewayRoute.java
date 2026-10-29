@@ -27,6 +27,8 @@ public class GatewayRoute {
     private String healthPath;
     /** 1=启用主动健康检查；0=关闭（仍然保留被动熔断）。 */
     private Integer healthCheckEnabled;
+    /** WebSocket 每路由最大并发连接数；0=不限制。 */
+    private Integer wsMaxConnections;
     private Integer enabled;
     private Long createdBy;
     private LocalDateTime createdAt;

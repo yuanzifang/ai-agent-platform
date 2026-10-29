@@ -1,5 +1,6 @@
 package com.platform.gateway.websocket;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.gateway.entity.GatewayApiKey;
 import com.platform.gateway.entity.GatewayRequestLog;
@@ -27,9 +28,12 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 网关 WebSocket 最小代理：X-Gateway-Key（或 ?key=）鉴权，双向文本/二进制帧转发。
@@ -45,6 +49,7 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
     private final GatewayRouteMapper routeMapper;
     private final GatewayApiKeyService apiKeyService;
     private final GatewayRequestLogMapper logMapper;
+    private final ObjectMapper objectMapper;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10)).build();
     private final Map<String, WebSocket> upstreams = new ConcurrentHashMap<>();
@@ -52,6 +57,7 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
     private final Map<String, Long> lastActivity = new ConcurrentHashMap<>();
     private final Map<String, Long> upstreamPongAt = new ConcurrentHashMap<>();
     private final Map<String, Long> lastPingAt = new ConcurrentHashMap<>();
+    private final Map<Long, AtomicInteger> activeByRoute = new ConcurrentHashMap<>();
 
     @org.springframework.beans.factory.annotation.Value("${gateway.ws.heartbeat-ms:30000}")
     private long heartbeatMs = 30000;
@@ -83,12 +89,16 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
         }
         if (caller != null) apiKeyService.markUsed(caller);
 
-        String target = websocketUrl(route, session);
+        int maxConnections = route.getWsMaxConnections() == null ? 100 : route.getWsMaxConnections();
+        AtomicInteger active = activeByRoute.computeIfAbsent(route.getId(), k -> new AtomicInteger());
+        if (maxConnections > 0 && active.incrementAndGet() > maxConnections) {
+            active.decrementAndGet();
+            session.close(CloseStatus.POLICY_VIOLATION.withReason("connection limit"));
+            writeLog(route, session, 429, "websocket connection limit");
+            return;
+        }
         try {
-            WebSocket upstream = httpClient.newWebSocketBuilder()
-                    .connectTimeout(Duration.ofSeconds(10))
-                    .buildAsync(URI.create(target), new UpstreamListener(session))
-                    .get(15, java.util.concurrent.TimeUnit.SECONDS);
+            WebSocket upstream = connectUpstream(route, session);
             upstreams.put(session.getId(), upstream);
             sessions.put(session.getId(), session);
             lastActivity.put(session.getId(), System.currentTimeMillis());
@@ -98,6 +108,7 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
             session.getAttributes().put("upstream", upstream);
             writeLog(route, session, 101, null);
         } catch (Exception e) {
+            release(route.getId());
             session.close(CloseStatus.SERVER_ERROR.withReason("upstream unavailable"));
             writeLog(route, session, 502, e.getMessage());
         }
@@ -146,7 +157,13 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
         lastActivity.remove(session.getId());
         upstreamPongAt.remove(session.getId());
         lastPingAt.remove(session.getId());
+        Object routeId = session.getAttributes().get("routeId");
+        if (routeId instanceof Long id) release(id);
         if (upstream != null) upstream.abort();
+    }
+
+    private void release(Long routeId) {
+        activeByRoute.computeIfPresent(routeId, (id, count) -> count.decrementAndGet() <= 0 ? null : count);
     }
 
     /** 定时 Ping 客户端/上游；长时间无 Pong 或客户端空闲则关闭，防止半开连接堆积。 */
@@ -209,8 +226,45 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
         return null;
     }
 
-    private String websocketUrl(GatewayRoute route, WebSocketSession session) {
-        String base = route.getTargetUrl().replaceAll("/+$", "");
+    private WebSocket connectUpstream(GatewayRoute route, WebSocketSession session) throws Exception {
+        Exception last = null;
+        for (String base : websocketTargets(route)) {
+            try {
+                String target = websocketUrl(route, session, base);
+                return httpClient.newWebSocketBuilder()
+                        .connectTimeout(Duration.ofSeconds(10))
+                        .buildAsync(URI.create(target), new UpstreamListener(session))
+                        .get(15, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (Exception e) {
+                last = e;
+            }
+        }
+        throw last == null ? new IllegalStateException("no websocket upstream") : last;
+    }
+
+    private List<String> websocketTargets(GatewayRoute route) {
+        List<String> targets = new ArrayList<>();
+        if (route.getTargetUrl() != null && !route.getTargetUrl().isBlank()) {
+            targets.add(route.getTargetUrl());
+        }
+        if (route.getFallbackUrl() != null && !route.getFallbackUrl().isBlank()) {
+            targets.add(route.getFallbackUrl());
+        }
+        try {
+            if (route.getUpstreamUrls() != null && !route.getUpstreamUrls().isBlank()) {
+                for (String value : objectMapper.readValue(route.getUpstreamUrls(),
+                        new com.fasterxml.jackson.core.type.TypeReference<List<String>>() { })) {
+                    if (value != null && !value.isBlank() && !targets.contains(value)) targets.add(value);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("WS route upstream list parse failed route={}: {}", route.getId(), e.getMessage());
+        }
+        return targets;
+    }
+
+    private String websocketUrl(GatewayRoute route, WebSocketSession session, String rawBase) {
+        String base = rawBase.replaceAll("/+$", "");
         String scheme = base.startsWith("https://") ? "wss://" : "ws://";
         base = base.replaceFirst("^https?://", "");
         String path = session.getUri() == null ? "" : session.getUri().getPath();

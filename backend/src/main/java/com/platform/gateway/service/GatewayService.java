@@ -107,6 +107,7 @@ public class GatewayService {
         route.setRateLimitPerMin(clamp(intValue(req.get("rateLimitPerMin"), 60), 0, 100000));
         route.setHealthPath(healthPath(req.get("healthPath")));
         route.setHealthCheckEnabled(Boolean.FALSE.equals(req.get("healthCheckEnabled")) ? 0 : 1);
+        route.setWsMaxConnections(clamp(intValue(req.get("wsMaxConnections"), 100), 0, 10000));
         route.setEnabled(Boolean.FALSE.equals(req.get("enabled")) ? 0 : 1);
         route.setCreatedBy(principal.userId());
         route.setCreatedAt(LocalDateTime.now());
@@ -154,6 +155,9 @@ public class GatewayService {
         if (req.containsKey("healthPath")) route.setHealthPath(healthPath(req.get("healthPath")));
         if (req.containsKey("healthCheckEnabled")) {
             route.setHealthCheckEnabled(Boolean.FALSE.equals(req.get("healthCheckEnabled")) ? 0 : 1);
+        }
+        if (req.containsKey("wsMaxConnections")) {
+            route.setWsMaxConnections(clamp(intValue(req.get("wsMaxConnections"), 100), 0, 10000));
         }
         if (req.containsKey("enabled")) route.setEnabled(Boolean.FALSE.equals(req.get("enabled")) ? 0 : 1);
         route.setUpdatedAt(LocalDateTime.now());
@@ -685,6 +689,7 @@ public class GatewayService {
         m.put("rateLimitPerMin", route.getRateLimitPerMin());
         m.put("healthPath", route.getHealthPath() == null ? "/" : route.getHealthPath());
         m.put("healthCheckEnabled", route.getHealthCheckEnabled() == null || route.getHealthCheckEnabled() != 0);
+        m.put("wsMaxConnections", route.getWsMaxConnections() == null ? 100 : route.getWsMaxConnections());
         m.put("enabled", route.getEnabled() != null && route.getEnabled() == 1);
         m.put("createdAt", route.getCreatedAt());
         m.put("updatedAt", route.getUpdatedAt());
