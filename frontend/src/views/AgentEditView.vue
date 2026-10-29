@@ -55,6 +55,16 @@
                 </el-select>
                 <span class="hint">{{ t('agentEdit.fallbackHint') }}</span>
               </el-form-item>
+              <el-form-item :label="t('agentEdit.grayModel')">
+                <el-select v-model="form.grayModel" clearable :placeholder="t('agentEdit.grayModelPh')"
+                           style="width: 320px">
+                  <el-option v-for="m in models" :key="m.modelName" :value="m.modelName" :label="modelLabel(m)" />
+                </el-select>
+                <span class="hint">{{ t('agentEdit.grayHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('agentEdit.grayTagLabel')">
+                <el-input v-model="form.grayTag" :placeholder="t('agentEdit.grayTagPh')" style="width: 320px" />
+              </el-form-item>
               <el-form-item :label="t('agentEdit.temperature')">
                 <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" style="width: 320px"
                            :disabled="thinkingActive" />
@@ -1357,7 +1367,7 @@ const saving = ref(false)
 const form = reactive({
   status: 'DRAFT', updatedAt: '',
   name: '', description: '', category: '', visibility: 'TENANT', listed: true,
-  modelName: '', fallbackModelName: '', temperature: 0.7,
+  modelName: '', fallbackModelName: '', grayModel: '', grayTag: '', temperature: 0.7,
   thinking: false, reasoningEffort: 'medium',
   systemPrompt: '', openingStatement: '',
   capabilities: { streamOutput: true, functionCall: false, maxToolCalls: 0, redactSecrets: true,
@@ -1593,6 +1603,8 @@ onMounted(async () => {
   const mc = detail.modelConfig || {}
   form.modelName = mc.modelName || ''
   form.fallbackModelName = mc.fallbackModelName || ''
+  form.grayModel = mc.grayModel || ''
+  form.grayTag = mc.grayTag || ''
   form.temperature = mc.temperature ?? 0.7
   form.thinking = mc.thinking === true
   form.reasoningEffort = typeof mc.reasoningEffort === 'string' ? mc.reasoningEffort : 'medium'
@@ -3411,6 +3423,7 @@ function buildPayload() {
     },
     memoryConfig: { ...form.memory },
     modelConfig: { modelName: form.modelName, fallbackModelName: form.fallbackModelName || null,
+      grayModel: form.grayModel || null, grayTag: form.grayTag || null,
       temperature: form.temperature,
       thinking: form.thinking, reasoningEffort: form.thinking ? form.reasoningEffort : null },
     resourceProfileId: form.resourceProfileId,

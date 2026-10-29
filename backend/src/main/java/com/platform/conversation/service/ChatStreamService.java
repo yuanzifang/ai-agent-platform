@@ -147,6 +147,22 @@ public class ChatStreamService {
         SseEmitter emitter();
     }
 
+
+    /**
+     * 灰度路由（需求：灰度标记从网关透传后的消费端）：请求携带的灰度标记命中
+     * Agent 模型配置的 grayTag 时，模型切换为 grayModel；未命中/未配置返回原模型。
+     * 灰度模型失败仍走 fallbackModelName 链（金丝雀回退语义）。大小写不敏感。
+     */
+    public static String applyGrayModel(Map<String, Object> modelConfig, String currentModel) {
+        String tag = GrayTagContext.get();
+        if (tag == null || tag.isBlank()) return currentModel;
+        Object grayTag = modelConfig.get("grayTag");
+        Object grayModel = modelConfig.get("grayModel");
+        if (grayTag == null || grayModel == null) return currentModel;
+        return tag.trim().equalsIgnoreCase(String.valueOf(grayTag).trim())
+                ? String.valueOf(grayModel) : currentModel;
+    }
+
     /** 发送消息：入口（校验/审核/落用户消息），随后进入流式或非流式生成。 */
     public Object send(Long conversationId, SendRequest req, JwtPrincipal principal) {
         return sendWithSource(conversationId, req, principal, "chat");
@@ -344,7 +360,8 @@ public class ChatStreamService {
 
         Map<String, Object> modelConfig = config.get("modelConfig") instanceof Map<?, ?> m
                 ? (Map<String, Object>) m : Map.of();
-        String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-chat"));
+        String modelName = applyGrayModel(modelConfig,
+                str(modelConfig.getOrDefault("modelName", "deepseek-chat")));
         String fallbackModel = str(modelConfig.get("fallbackModelName"));
         Double temperature = modelConfig.get("temperature") instanceof Number n ? n.doubleValue() : null;
         Boolean thinking = modelConfig.get("thinking") instanceof Boolean b ? b : null;
@@ -725,7 +742,8 @@ public class ChatStreamService {
         steps.add("chain", "memory-load", "SUCCESS", memoryStart, System.currentTimeMillis(),
                 java.util.Map.of("messages", history.size()));
         Map<String, Object> modelConfig = asMap(config.get("modelConfig"));
-        String modelName = str(modelConfig.getOrDefault("modelName", "deepseek-chat"));
+        String modelName = applyGrayModel(modelConfig,
+                str(modelConfig.getOrDefault("modelName", "deepseek-chat")));
         String fallbackModel = str(modelConfig.get("fallbackModelName"));
         Double temperature = modelConfig.get("temperature") instanceof Number n ? n.doubleValue() : null;
         Boolean thinking = modelConfig.get("thinking") instanceof Boolean b ? b : null;
