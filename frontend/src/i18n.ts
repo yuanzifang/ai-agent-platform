@@ -372,16 +372,6 @@ const messages = {
       evals: '评测数', avgScore: '平均得分', passRate: '通过率',
       emptyHint: '输入灰度标记后点击刷新开始对比'
     },
-    sysConfig: {    grayPage: {
-      title: 'Gray A/B Compare', desc: 'Compare baseline vs gray group by X-Gray-Tag: requests / error rate / latency / tokens / cost, per-model trace analysis and eval scores.',
-      tagPh: 'Gray tag, e.g. canary-v2', tagRequired: 'Enter a gray tag first',
-      last1d: 'Last 1 day', last7d: 'Last 7 days', last30d: 'Last 30 days',
-      baselineGroup: 'Baseline (untagged)', grayGroup: 'Gray', delta: 'Delta (gray - baseline)',
-      requests: 'Requests', errorRate: 'Error rate', avgLatency: 'Avg latency (ms)', avgTokens: 'Avg tokens', totalCost: 'Total cost', errors: 'Errors',
-      byModel: 'Trace analysis by model', evalCompare: 'Eval score comparison',
-      evals: 'Evals', avgScore: 'Avg score', passRate: 'Pass rate',
-      emptyHint: 'Enter a gray tag and refresh to compare'
-    },
     sysConfig: {
       header: '全局配置项（sys_config，实时生效于新请求）', key: '配置项', value: '值', desc: '说明',
       actions: '操作', save: '保存', cancel: '取消', edit: '编辑', updated: '已更新 ',
@@ -1389,6 +1379,16 @@ const messages = {
       value: 'Value', description: 'Description', updatedAt: 'Updated at', save: 'Save', saved: 'Saved',
       importBtn: 'Import', imported: 'Imported: {inserted} new, {updated} updated, {skipped} skipped'
     },
+    grayPage: {
+      title: 'Gray A/B Compare', desc: 'Compare baseline vs gray group by X-Gray-Tag: requests / error rate / latency / tokens / cost, per-model trace analysis and eval scores.',
+      tagPh: 'Gray tag, e.g. canary-v2', tagRequired: 'Enter a gray tag first',
+      last1d: 'Last 1 day', last7d: 'Last 7 days', last30d: 'Last 30 days',
+      baselineGroup: 'Baseline (untagged)', grayGroup: 'Gray', delta: 'Delta (gray - baseline)',
+      requests: 'Requests', errorRate: 'Error rate', avgLatency: 'Avg latency (ms)', avgTokens: 'Avg tokens', totalCost: 'Total cost', errors: 'Errors',
+      byModel: 'Trace analysis by model', evalCompare: 'Eval score comparison',
+      evals: 'Evals', avgScore: 'Avg score', passRate: 'Pass rate',
+      emptyHint: 'Enter a gray tag and refresh to compare'
+    },
     sysConfig: {
       header: 'Global config (sys_config, applies to new requests immediately)', key: 'Key', value: 'Value', desc: 'Description',
       actions: 'Actions', save: 'Save', cancel: 'Cancel', edit: 'Edit', updated: 'Updated ',
@@ -1718,7 +1718,8 @@ const messages = {
       fallbackPh: 'Disabled (fail immediately on error)', fallbackHint: 'Fallback on 402/429/5xx/timeout; recorded in traces',
       grayModel: 'Gray model', grayModelPh: 'Off (unmatched requests use primary)',
       grayHint: 'When request header X-Gray-Tag matches the gray tag below, this agent uses the gray model (auto-fallback to primary on failure)',
-      grayTagLabel: 'Gray tag', grayTagPh: 'e.g. canary-v2; switches only on match'      temperature: 'Temperature', thinking: 'Thinking mode',
+      grayTagLabel: 'Gray tag', grayTagPh: 'e.g. canary-v2; switches only on match',
+      temperature: 'Temperature', thinking: 'Thinking mode',
       thinkingHint: 'Availability follows model capability; the model reasons before answering',
       thinkingUnsupported: 'This model has no thinking capability (enable it under Model providers)',
       thinkingLevel: 'Thinking level', thinkingLevelHint: 'Supported levels differ per model; higher = slower and costlier',
