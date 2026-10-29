@@ -75,4 +75,12 @@ class ScriptRunnerDockerCommandTest {
                 "docker", "PYTHON", "print('x')", "{}", "skill-x", "run-1:skill-x:1");
         assertTrue(c.contains("SKILL_IDEMPOTENCY_KEY=run-1:skill-x:1"));
     }
+
+    @Test
+    void validatesPinnedImageDigest() {
+        ScriptRunnerService service = serviceWithDefaults();
+        assertTrue(service.hasImageDigest("python:3.12-alpine@sha256:" + "a".repeat(64)));
+        assertFalse(service.hasImageDigest("python:3.12-alpine"));
+        assertFalse(service.hasImageDigest("python:3.12-alpine@sha256:short"));
+    }
 }

@@ -1,6 +1,7 @@
 package com.platform.capability.runtime;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -80,6 +81,10 @@ public class ScriptRunnerService {
     @Value("${skill.script.docker.pids-limit:64}")
     private int dockerPidsLimit;
 
+    /** 生产建议开启：容器镜像必须使用 @sha256 digest，避免 tag 漂移。 */
+    @Value("${skill.script.require-image-digest:false}")
+    private boolean requireImageDigest;
+
     private volatile Boolean unshareUsable;
     private volatile Boolean dockerUsable;
 
@@ -134,6 +139,10 @@ public class ScriptRunnerService {
             }
             List<String> command;
             if (containerMode) {
+                String image = "PYTHON".equals(lang) ? dockerPythonImage : dockerNodeImage;
+                if (requireImageDigest && !hasImageDigest(image)) {
+                    throw new BusinessException(500, "技能沙箱镜像未固定 digest：" + image);
+                }
                 containerName = "skill-" + UUID.randomUUID().toString().replace("-", "");
                 command = dockerCommand(dockerBinPath, lang, fullCode, argsJson, containerName, idempotencyKey);
             } else {
@@ -213,6 +222,9 @@ public class ScriptRunnerService {
                 throw new BusinessException(500, "脚本执行失败（exit " + process.exitValue() + "）："
                         + truncate(detail, 1200));
             }
+            log.info("SKILL_EXEC tenant={} lang={} runtime={} codeHash={} durationMs={} exit={} truncated={}",
+                    TenantContext.getTenantId(), lang, containerMode ? "docker" : "process",
+                    shortHash(fullCode), duration, process.exitValue(), stdout.truncated());
             return new Result(output, err, process.exitValue(), duration, stdout.truncated());
         } catch (BusinessException e) {
             throw e;
@@ -368,6 +380,20 @@ public class ScriptRunnerService {
         } catch (Exception e) {
             unshareUsable = false;
             return false;
+        }
+    }
+
+    boolean hasImageDigest(String image) {
+        return image != null && image.matches(".*@sha256:[0-9a-fA-F]{64}$");
+    }
+
+    private String shortHash(String value) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(value == null ? new byte[0] : value.getBytes(StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest).substring(0, 16);
+        } catch (Exception e) {
+            return "unknown";
         }
     }
 
