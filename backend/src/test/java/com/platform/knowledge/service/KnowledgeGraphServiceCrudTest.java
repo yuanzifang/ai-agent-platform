@@ -83,7 +83,8 @@ class KnowledgeGraphServiceCrudTest {
         auditService = mock(AuditService.class);
         service = new KnowledgeGraphService(entityMapper, relationMapper, mentionMapper,
                 mock(KnowledgeGraphCommunityMapper.class),
-                mock(com.platform.knowledge.service.EmbeddingService.class), jobMapper,
+                mock(com.platform.knowledge.service.EmbeddingService.class),
+                mock(com.platform.knowledge.service.GraphVectorIndexService.class), jobMapper,
                 kbMapper, documentMapper, mock(KnowledgeChunkMapper.class),
                 mock(SysConfigMapper.class), mock(BillingUsageMapper.class),
                 mock(PricingService.class), permissionService, auditService, modelRouter,
