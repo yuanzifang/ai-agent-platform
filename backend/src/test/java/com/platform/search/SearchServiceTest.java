@@ -52,10 +52,41 @@ class SearchServiceTest {
         assertEquals(4, list.size());
         assertEquals("AGENT", ((Map<?, ?>) list.get(0)).get("type"));
         assertEquals("/agent/edit/9", ((Map<?, ?>) list.get(0)).get("path"));
+        assertEquals("<mark>客服</mark>助手", ((Map<?, ?>) list.get(0)).get("nameHtml"));
         assertEquals("KB", ((Map<?, ?>) list.get(1)).get("type"));
         assertEquals("/knowledge/2", ((Map<?, ?>) list.get(1)).get("path"));
+        assertEquals(List.of("客服"), result.get("tokens"));
         assertEquals(4, result.get("total"));
         verify(agents).list("客服", null, 1, 5, principal);
+    }
+
+    @Test
+    void segmentsChineseQueryAndEscapesUserContent() {
+        AgentService agents = mock(AgentService.class);
+        KnowledgeService kbs = mock(KnowledgeService.class);
+        CaseService cases = mock(CaseService.class);
+        ToolService tools = mock(ToolService.class);
+        JwtPrincipal principal = new JwtPrincipal(1L, 1L, false, List.of("OWNER"), List.of());
+        AgentRegistry agent = new AgentRegistry();
+        agent.setId(10L);
+        agent.setName("客服退款助手");
+        agent.setDescription("<script>客服退款</script>");
+        Page<AgentRegistry> page = new Page<>(1, 5);
+        page.setRecords(List.of(agent));
+        when(agents.list(eq("客服退款"), any(), eq(1L), eq(5L), eq(principal))).thenReturn(page);
+        when(kbs.list(eq("客服退款"), any(), eq(1L), eq(5L), any(KnowledgePermissionService.Viewer.class)))
+                .thenReturn(Map.of("list", List.of()));
+        when(cases.list(eq(principal), any(), any(), any(), eq("客服退款"), any()))
+                .thenReturn(Map.of("list", List.of()));
+        when(tools.list(eq("客服退款"), any(), any())).thenReturn(Map.of("list", List.of()));
+
+        Map<String, Object> result = new SearchService(agents, kbs, cases, tools).search("客服退款", principal);
+        Map<?, ?> row = (Map<?, ?>) ((List<?>) result.get("list")).get(0);
+
+        assertEquals(List.of("客服", "退款"), result.get("tokens"));
+        assertEquals("<mark>客服退款</mark>助手", row.get("nameHtml"));
+        assertEquals("&lt;script&gt;<mark>客服退款</mark>&lt;/script&gt;", row.get("descHtml"));
+        assertEquals(true, (Integer) row.get("score") > 0);
     }
 
     @Test

@@ -15,8 +15,8 @@
           <div v-else-if="searchResults.length === 0" class="gs-empty">{{ t('layout.searchEmpty') }}</div>
           <div v-for="(r, i) in searchResults" :key="i" class="gs-item" @click="goSearch(r)">
             <el-tag size="small" :type="r.tagType">{{ r.group }}</el-tag>
-            <span class="gs-name">{{ r.name }}</span>
-            <span class="gs-desc">{{ r.desc }}</span>
+            <span class="gs-name" v-html="r.nameHtml || r.name"></span>
+            <span class="gs-desc" v-html="r.descHtml || r.desc"></span>
           </div>
         </div>
       </div>
@@ -278,7 +278,16 @@ async function runSearch() {
     }
     searchResults.value = (data?.list || []).map((r: any) => {
       const m = meta[r.type] || { group: r.type, tagType: 'info' }
-      return { group: m.group, tagType: m.tagType, name: r.name, desc: r.desc || '', path: r.path }
+      return {
+        group: m.group,
+        tagType: m.tagType,
+        name: r.name,
+        desc: r.desc || '',
+        // 后端已 HTML 转义，只保留 <mark> 高亮，避免把用户内容直接当 HTML 渲染。
+        nameHtml: r.nameHtml || r.name,
+        descHtml: r.descHtml || r.desc || '',
+        path: r.path
+      }
     })
     searchVisible.value = true
   } finally {
@@ -479,6 +488,66 @@ async function copyText(text: string) {
   align-items: center;
   border-bottom: 1px solid #e4e7ed;
   background: #fff;
+}
+.global-search {
+  position: relative;
+  width: min(320px, 30vw);
+  margin-left: 18px;
+}
+.gs-panel {
+  position: absolute;
+  z-index: 3000;
+  top: calc(100% + 8px);
+  left: 0;
+  width: max(100%, 360px);
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+}
+.gs-empty {
+  padding: 18px 10px;
+  color: #909399;
+  font-size: 13px;
+  text-align: center;
+}
+.gs-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.gs-item:hover { background: #f5f7fa; }
+.gs-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #303133;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gs-desc {
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  color: #909399;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gs-name :deep(mark),
+.gs-desc :deep(mark) {
+  padding: 0 1px;
+  border-radius: 2px;
+  color: #8a5300;
+  background: #ffeca8;
 }
 .brand {
   font-size: 17px;
