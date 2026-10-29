@@ -7,7 +7,9 @@ import com.platform.gateway.entity.GatewayRequestLog;
 import com.platform.gateway.entity.GatewayRoute;
 import com.platform.gateway.mapper.GatewayRequestLogMapper;
 import com.platform.gateway.mapper.GatewayRouteMapper;
+import com.platform.common.security.CryptoService;
 import com.platform.gateway.service.GatewayApiKeyService;
+import com.platform.gateway.service.GatewaySignature;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -54,6 +56,7 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
     private final GatewayRequestLogMapper logMapper;
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redis;
+    private final CryptoService cryptoService;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10)).build();
     private final Map<String, WebSocket> upstreams = new ConcurrentHashMap<>();
@@ -83,6 +86,13 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
         if (waf != null) {
             writeLog(route, session, 400, "waf: " + waf);
             session.close(CloseStatus.POLICY_VIOLATION.withReason("waf"));
+            return;
+        }
+        String signatureError = verifySignature(route, session);
+        if (signatureError != null) {
+            int status = "replay".equals(signatureError) ? 409 : 401;
+            writeLog(route, session, status, "signature: " + signatureError);
+            session.close(CloseStatus.POLICY_VIOLATION.withReason("signature"));
             return;
         }
         String provided = providedKey(session);
@@ -258,6 +268,57 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
         String key = path.substring(PATH_PREFIX.length());
         int slash = key.indexOf('/');
         return slash >= 0 ? key.substring(0, slash) : key;
+    }
+
+    private String verifySignature(GatewayRoute route, WebSocketSession session) {
+        if (route.getSigningSecret() == null || route.getSigningSecret().isBlank()) return null;
+        String secret;
+        try {
+            secret = cryptoService.decrypt(route.getSigningSecret());
+        } catch (Exception e) {
+            return "signing key invalid";
+        }
+        String query = session.getUri() == null ? "" : session.getUri().getQuery();
+        Map<String, String> params = queryParams(query);
+        String timestamp = headerOrParam(session, "X-Gateway-Timestamp", params, "timestamp");
+        String nonce = headerOrParam(session, "X-Gateway-Nonce", params, "nonce");
+        String signature = headerOrParam(session, "X-Gateway-Signature", params, "signature");
+        String canonicalQuery = query == null ? "" : java.util.Arrays.stream(query.split("&"))
+                .filter(p -> !p.startsWith("signature="))
+                .reduce((a, b) -> a + "&" + b).orElse("");
+        String error = GatewaySignature.verifyHeader(secret, "GET",
+                session.getUri() == null ? null : session.getUri().getPath(), canonicalQuery,
+                timestamp, nonce, new byte[0], signature);
+        if (error != null) return error;
+        try {
+            String key = "gateway:nonce:" + route.getId() + ":" + nonce;
+            Boolean fresh = redis.opsForValue().setIfAbsent(key, "1", GatewaySignature.nonceTtl());
+            if (!Boolean.TRUE.equals(fresh)) return "replay";
+        } catch (Exception e) {
+            log.warn("WS nonce 校验失败（已放行）route={}: {}", route.getId(), e.getMessage());
+        }
+        return null;
+    }
+
+    private String headerOrParam(WebSocketSession session, String header, Map<String, String> params, String name) {
+        String value = session.getHandshakeHeaders().getFirst(header);
+        return value == null || value.isBlank() ? params.get(name) : value;
+    }
+
+    private Map<String, String> queryParams(String query) {
+        Map<String, String> params = new java.util.HashMap<>();
+        if (query == null || query.isBlank()) return params;
+        for (String part : query.split("&")) {
+            String[] kv = part.split("=", 2);
+            if (kv.length == 2) {
+                try {
+                    params.put(kv[0], URLDecoder.decode(kv[1], StandardCharsets.UTF_8));
+                } catch (Exception ignored) {
+                    // 非法编码交给 WAF/签名校验拒绝
+                }
+            }
+        }
+        return params;
     }
 
     private String providedKey(WebSocketSession session) {
