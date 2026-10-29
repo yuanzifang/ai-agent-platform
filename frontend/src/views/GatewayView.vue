@@ -80,6 +80,10 @@
           <el-input-number v-model="form.wsMaxConnections" :min="0" :max="10000" />
           <span class="hint ml8">{{ t('gatewayPage.wsMaxConnectionsHint') }}</span>
         </el-form-item>
+        <el-form-item :label="t('gatewayPage.signingEnabled')">
+          <el-switch v-model="form.signingEnabled" />
+          <span class="hint ml8">{{ t('gatewayPage.signingHint') }}</span>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">{{ t('gatewayPage.cancel') }}</el-button>
@@ -89,8 +93,11 @@
 
     <el-dialog v-model="secretVisible" :title="t('gatewayPage.secretTitle')" width="620px" :close-on-click-modal="false">
       <el-form label-width="100px">
-        <el-form-item :label="t('gatewayPage.endpoint')"><code>{{ endpoint }}</code></el-form-item>
-        <el-form-item :label="t('gatewayPage.apiKey')"><code>{{ secretKey }}</code></el-form-item>
+        <el-form-item v-if="endpoint" :label="t('gatewayPage.endpoint')"><code>{{ endpoint }}</code></el-form-item>
+        <el-form-item v-if="secretKey" :label="t('gatewayPage.apiKey')"><code>{{ secretKey }}</code></el-form-item>
+        <el-form-item v-if="signingSecret" :label="t('gatewayPage.signingSecret')">
+          <code>{{ signingSecret }}</code>
+        </el-form-item>
       </el-form>
       <el-alert type="warning" :closable="false" :title="t('gatewayPage.secretHint')" />
       <template #footer>
@@ -151,11 +158,12 @@ const saving = ref(false)
 const formVisible = ref(false)
 const secretVisible = ref(false)
 const secretKey = ref('')
+const signingSecret = ref('')
 const endpoint = ref('')
 const logsVisible = ref(false)
 const logs = ref<any[]>([])
 const logsName = ref('')
-const form = reactive<any>({ id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/', wsMaxConnections: 100, targetWeight: 100, fallbackWeight: 0 })
+const form = reactive<any>({ id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/', wsMaxConnections: 100, targetWeight: 100, fallbackWeight: 0, signingEnabled: false })
 const currentRouteKey = ref('')
 
 const endpointBase = computed(() => `${location.origin}/api/v1/gateway/call/${currentRouteKey.value}`)
@@ -170,7 +178,7 @@ async function load() {
 }
 
 function openCreate() {
-  Object.assign(form, { id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/', wsMaxConnections: 100, targetWeight: 100, fallbackWeight: 0 })
+  Object.assign(form, { id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/', wsMaxConnections: 100, targetWeight: 100, fallbackWeight: 0, signingEnabled: false })
   formVisible.value = true
 }
 
@@ -184,7 +192,8 @@ function openEdit(row: any) {
     timeoutMs: row.timeoutMs, retries: row.retries, rateLimitPerMin: row.rateLimitPerMin,
     healthCheckEnabled: row.healthCheckEnabled !== false, healthPath: row.healthPath || '/',
     wsMaxConnections: row.wsMaxConnections ?? 100,
-    targetWeight: row.targetWeight ?? 100, fallbackWeight: row.fallbackWeight ?? 0
+    targetWeight: row.targetWeight ?? 100, fallbackWeight: row.fallbackWeight ?? 0,
+    signingEnabled: row.signingEnabled === true
   })
   formVisible.value = true
 }
@@ -219,15 +228,16 @@ async function save() {
       : await http.post('/gateway/routes', payload) as any
     formVisible.value = false
     await load()
-    if (res?.apiKey) showSecret(res)
+    if (res?.apiKey || res?.signingSecret) showSecret(res)
     ElMessage.success(t('gatewayPage.saved'))
   } finally { saving.value = false }
 }
 
 function showSecret(row: any) {
-  currentRouteKey.value = row.routeKey
-  secretKey.value = row.apiKey
-  endpoint.value = endpointBase.value
+  currentRouteKey.value = row.routeKey || currentRouteKey.value
+  secretKey.value = row.apiKey || ''
+  signingSecret.value = row.signingSecret || ''
+  endpoint.value = row.routeKey ? endpointBase.value : ''
   secretVisible.value = true
 }
 
@@ -331,7 +341,11 @@ function healthStatusText(status: string) {
 }
 
 async function copyKey() {
-  await navigator.clipboard.writeText(`X-Gateway-Key: ${secretKey.value}\n${endpoint.value}`)
+  const lines = []
+  if (secretKey.value) lines.push(`X-Gateway-Key: ${secretKey.value}`)
+  if (signingSecret.value) lines.push(`X-Gateway-Signing-Secret: ${signingSecret.value}`)
+  if (endpoint.value) lines.push(endpoint.value)
+  await navigator.clipboard.writeText(lines.join('\n'))
   ElMessage.success(t('gatewayPage.copied'))
 }
 </script>

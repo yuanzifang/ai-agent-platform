@@ -1,5 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
 import path from 'path'
+import { createHmac, randomUUID } from 'node:crypto'
 
 const P = '/api/v1'
 const MOCK = 'http://127.0.0.1:18092'
@@ -1791,6 +1792,36 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
       })
     expect(wafBlocked.status()).toBe(400)
     expect(await wafBlocked.text()).toContain('WAF')
+
+    const signed = await (await request.post(`${P}/gateway/routes`, {
+      headers: auth(token!),
+      data: { name: `E2E Gateway Signed-${Date.now()}`, targetUrl: 'http://localhost:8080/actuator',
+        timeoutMs: 5000, rateLimitPerMin: 100, signingEnabled: true }
+    })).json()
+    expect(signed.code, JSON.stringify(signed)).toBe(0)
+    const signedRoute = signed.data
+    try {
+      const path = `${P}/gateway/call/${signedRoute.routeKey}/health`
+      const timestamp = String(Date.now())
+      const nonce = randomUUID()
+      // 服务器 canonical 使用空 body 的 SHA-256
+      const emptyHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+      const signedCanonical = `GET\n${path}\n\n${timestamp}\n${nonce}\n${emptyHash}`
+      const signature = createHmac('sha256', signed.data.signingSecret).update(signedCanonical).digest('hex')
+      const headers = {
+        'X-Gateway-Key': signedRoute.apiKey,
+        'X-Gateway-Timestamp': timestamp,
+        'X-Gateway-Nonce': nonce,
+        'X-Gateway-Signature': signature
+      }
+      expect((await request.get(`${P}/gateway/call/${signedRoute.routeKey}/health`, { headers })).status()).toBe(200)
+      expect((await request.get(`${P}/gateway/call/${signedRoute.routeKey}/health`, {
+        headers: { ...headers, 'X-Gateway-Signature': '0'.repeat(64) }
+      })).status()).toBe(401)
+      expect((await request.get(`${P}/gateway/call/${signedRoute.routeKey}/health`, { headers })).status()).toBe(409)
+    } finally {
+      await request.delete(`${P}/gateway/routes/${signedRoute.id}`, { headers: auth(token!) })
+    }
 
     const logs = await (await request.get(`${P}/gateway/routes/${route.id}/logs`, {
       headers: auth(token!)
