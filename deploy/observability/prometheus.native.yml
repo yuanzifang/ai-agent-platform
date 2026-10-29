@@ -1,0 +1,11 @@
+# 本机原生启动 backend（非 Docker Compose）时的 Prometheus 配置。
+# Docker Desktop/Colima 使用 host.docker.internal 访问宿主机 8080。
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: ai-agent-backend
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
