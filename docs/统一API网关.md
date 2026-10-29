@@ -22,6 +22,7 @@ X-Gateway-Key: gw_xxx
 - 超时 1–120 秒；GET/HEAD/OPTIONS 可重试 0–3 次（5xx/IO）；SSE 流最长 300 秒；
 - 路由级 Redis 固定窗口限流（0=不限）；
 - 主上游 5xx/连接失败自动切备用上游；另支持最多 5 个额外上游，按顺序故障切换，日志记录 fallback；
+- 最小 WAF：限制代理方法、超长 URI/query、CRLF 和编码目录穿越，拒绝时记录请求日志；
 - **上游轻量熔断**：同一路由+上游 2 分钟内连续 3 次 5xx/IO 失败后打开 60 秒，期间直接跳过主上游走备用；
   无备用时返回 503；Redis 故障 fail-open；路由删除时清理熔断键；
 - **SSE 流式透传**：请求头 `Accept: text/event-stream` 时使用 `StreamingResponseBody`，上游响应逐块 flush，

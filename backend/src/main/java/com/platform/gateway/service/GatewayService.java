@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /** 统一 API 网关 MVP：路由、API Key、路径转发、限流、超时/重试、请求日志。 */
@@ -233,6 +234,11 @@ public class GatewayService {
         if (route == null) return error(servletResponse, HttpStatus.NOT_FOUND, "网关路由不存在");
         if (route.getEnabled() == null || route.getEnabled() != 1) {
             return error(servletResponse, HttpStatus.SERVICE_UNAVAILABLE, "网关路由已停用");
+        }
+        String waf = wafViolation(request);
+        if (waf != null) {
+            log(route, request, 400, null, started, "waf: " + waf);
+            return error(servletResponse, HttpStatus.BAD_REQUEST, "请求被 WAF 拒绝：" + waf);
         }
         String provided = request.getHeader("X-Gateway-Key");
         if (provided == null || provided.isBlank()) {
@@ -544,6 +550,30 @@ public class GatewayService {
             log.warn("网关限流检查失败（已放行）：route={} {}", route.getId(), e.getMessage());
             return true;
         }
+    }
+
+    /**
+     * 最小 WAF：限制网关可代理方法，阻断超长路径、CRLF 和编码目录穿越。
+     * 业务级鉴权/限流/SSRF 仍在后续链路执行。
+     */
+    private String wafViolation(HttpServletRequest request) {
+        String method = request.getMethod() == null ? "" : request.getMethod().toUpperCase(Locale.ROOT);
+        if (!Set.of("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS").contains(method)) {
+            return "method " + method;
+        }
+        String uri = request.getRequestURI();
+        if (uri == null || uri.length() > 2048) return "uri length";
+        String lower = uri.toLowerCase(Locale.ROOT);
+        if (lower.contains("\r") || lower.contains("\n") || lower.contains("%00")
+                || lower.contains("%2e%2e") || lower.contains("%252e")
+                || lower.contains("/../")) {
+            return "path traversal";
+        }
+        String query = request.getQueryString();
+        if (query != null && (query.length() > 8192 || query.contains("\r") || query.contains("\n"))) {
+            return "query";
+        }
+        return null;
     }
 
     private String suffix(String routeKey, String uri) {

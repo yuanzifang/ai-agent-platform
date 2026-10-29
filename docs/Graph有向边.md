@@ -40,7 +40,16 @@ Agent 编辑 → 工作流 → 「Graph 有向边（可选，优先于节点 nex
 GET /api/v1/knowledge-base/{id}/graph/communities
 ```
 
-按无向关系做连通分量，返回社区成员、实体数、类型和简要名称，供后续社区摘要/图嵌入消费。当前还未生成 LLM 社区摘要或社区向量。
+按无向关系做连通分量，返回社区成员、实体数、类型和简要名称，供后续社区摘要/图嵌入消费。
+
+社区 LLM 摘要：
+
+```http
+POST /api/v1/knowledge-base/{id}/graph/communities/summarize
+{"model":"qwen2.5:7b","limit":5}
+```
+
+对前 N 个社区生成一句短摘要；结果不持久化。社区向量/图嵌入仍未实现。
 
 ## 4. 已验证
 

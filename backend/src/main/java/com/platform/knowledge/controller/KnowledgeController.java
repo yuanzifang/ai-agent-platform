@@ -451,6 +451,15 @@ public class KnowledgeController {
         return ApiResponse.ok(graphService.communities(id, viewer(principal)));
     }
 
+    @PostMapping("/{id}/graph/communities/summarize")
+    public ApiResponse<Map<String, Object>> summarizeCommunities(@PathVariable Long id,
+                                                                @RequestBody(required = false) Map<String, Object> req,
+                                                                @AuthenticationPrincipal JwtPrincipal principal) {
+        String model = req == null ? null : String.valueOf(req.getOrDefault("model", ""));
+        int limit = req != null && req.get("limit") instanceof Number n ? n.intValue() : 5;
+        return ApiResponse.ok(graphService.summarizeCommunities(id, model, limit, viewer(principal)));
+    }
+
     @GetMapping("/{id}/graph/entities/{entityId}")
     public ApiResponse<Map<String, Object>> graphEntity(@PathVariable Long id, @PathVariable Long entityId,
                                                         @AuthenticationPrincipal JwtPrincipal principal) {
