@@ -3,6 +3,7 @@ package com.platform.knowledge.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -23,6 +24,10 @@ public class KnowledgeGraphEntity {
     private String source;
     private BigDecimal confidence;
     private String propertiesJson;
+    @JsonIgnore
+    private String embedding;
+    private String embeddingModel;
+    private Integer dimensions;
     private Long documentId;
     private Long chunkId;
     private Long createdBy;

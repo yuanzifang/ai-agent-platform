@@ -451,6 +451,21 @@ public class KnowledgeController {
         return ApiResponse.ok(graphService.communities(id, viewer(principal)));
     }
 
+    @PostMapping("/{id}/graph/entities/embed")
+    public ApiResponse<Map<String, Object>> embedGraphEntities(@PathVariable Long id,
+                                                               @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(graphService.embedEntities(id, viewer(principal)));
+    }
+
+    @PostMapping("/{id}/graph/entities/search")
+    public ApiResponse<Map<String, Object>> searchGraphEntities(@PathVariable Long id,
+                                                                @RequestBody Map<String, Object> req,
+                                                                @AuthenticationPrincipal JwtPrincipal principal) {
+        String query = req.get("query") == null ? "" : String.valueOf(req.get("query"));
+        int topK = req.get("topK") instanceof Number n ? n.intValue() : 5;
+        return ApiResponse.ok(graphService.searchEntities(id, query, topK, viewer(principal)));
+    }
+
     @PostMapping("/{id}/graph/communities/search")
     public ApiResponse<Map<String, Object>> searchCommunities(@PathVariable Long id,
                                                              @RequestBody Map<String, Object> req,
