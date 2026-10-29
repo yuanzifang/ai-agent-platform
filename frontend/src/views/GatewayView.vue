@@ -69,6 +69,10 @@
         <el-form-item v-if="form.healthCheckEnabled" :label="t('gatewayPage.healthPath')">
           <el-input v-model="form.healthPath" :placeholder="t('gatewayPage.healthPathPh')" maxlength="512" />
         </el-form-item>
+        <el-form-item :label="t('gatewayPage.wsMaxConnections')">
+          <el-input-number v-model="form.wsMaxConnections" :min="0" :max="10000" />
+          <span class="hint ml8">{{ t('gatewayPage.wsMaxConnectionsHint') }}</span>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">{{ t('gatewayPage.cancel') }}</el-button>
@@ -144,7 +148,7 @@ const endpoint = ref('')
 const logsVisible = ref(false)
 const logs = ref<any[]>([])
 const logsName = ref('')
-const form = reactive<any>({ id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/' })
+const form = reactive<any>({ id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/', wsMaxConnections: 100 })
 const currentRouteKey = ref('')
 
 const endpointBase = computed(() => `${location.origin}/api/v1/gateway/call/${currentRouteKey.value}`)
@@ -159,7 +163,7 @@ async function load() {
 }
 
 function openCreate() {
-  Object.assign(form, { id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/' })
+  Object.assign(form, { id: 0, name: '', targetUrl: '', fallbackUrl: '', upstreamUrlsText: '', timeoutMs: 15000, retries: 0, rateLimitPerMin: 60, healthCheckEnabled: true, healthPath: '/', wsMaxConnections: 100 })
   formVisible.value = true
 }
 
@@ -168,7 +172,8 @@ function openEdit(row: any) {
     id: row.id, name: row.name, targetUrl: row.targetUrl, fallbackUrl: row.fallbackUrl || '',
     upstreamUrlsText: (row.upstreamUrls || []).join('\n'),
     timeoutMs: row.timeoutMs, retries: row.retries, rateLimitPerMin: row.rateLimitPerMin,
-    healthCheckEnabled: row.healthCheckEnabled !== false, healthPath: row.healthPath || '/'
+    healthCheckEnabled: row.healthCheckEnabled !== false, healthPath: row.healthPath || '/',
+    wsMaxConnections: row.wsMaxConnections ?? 100
   })
   formVisible.value = true
 }
