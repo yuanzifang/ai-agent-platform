@@ -710,7 +710,7 @@ const messages = {
       fallbackPh: '不启用（失败直接报错）', fallbackHint: '主模型 402/429/5xx/超时自动切换，切换记录在 Trace',
       grayModel: '灰度模型', grayModelPh: '不启用（灰度未命中走主模型）',
       grayHint: '请求头 X-Gray-Tag 命中下方灰度标记时，本 Agent 改用灰度模型（失败自动回退主模型）',
-      grayTagLabel: '灰度标记', grayTagPh: '如 canary-v2；命中才切换'
+      grayTagLabel: '灰度标记', grayTagPh: '如 canary-v2；命中才切换',
       temperature: '温度', thinking: '思考模式', thinkingHint: '由模型能力决定，开启后模型先推理再作答',
       thinkingUnsupported: '当前模型未开启思考能力（可在「模型接入」中配置）',
       thinkingLevel: '思考级别', thinkingLevelHint: '不同模型支持的级别不同；级别越高越慢、越贵',
