@@ -78,7 +78,7 @@ POST /api/v1/knowledge-base/{id}/graph/entities/search
 {"query":"退款","topK":5}
 ```
 
-实体向量由名称 + 描述生成，用于实体语义召回；实体级向量尚未参与主检索自动扩展。
+实体向量由名称 + 描述生成，并已接入 GraphRAG 主扩展：先做关键词实体匹配，再做语义实体召回，最后沿关系 1-2 跳扩展 chunk。
 
 ## 4. 已验证
 
