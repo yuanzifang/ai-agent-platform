@@ -445,6 +445,12 @@ public class KnowledgeController {
         return ApiResponse.ok(graphService.latestJob(id, viewer(principal)));
     }
 
+    @GetMapping("/{id}/graph/communities")
+    public ApiResponse<Map<String, Object>> graphCommunities(@PathVariable Long id,
+                                                             @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(graphService.communities(id, viewer(principal)));
+    }
+
     @GetMapping("/{id}/graph/entities/{entityId}")
     public ApiResponse<Map<String, Object>> graphEntity(@PathVariable Long id, @PathVariable Long entityId,
                                                         @AuthenticationPrincipal JwtPrincipal principal) {
