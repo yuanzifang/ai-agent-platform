@@ -954,7 +954,9 @@ const messages = {
     },
     gatewayPage: {
       sub: '开放平台统一入口：路由、调用方 API Key、限流、超时重试、主备切换与请求日志', create: '新建路由', name: '名称',
-      target: '上游地址', fallback: '备用上游', fallbackPh: '可选：主上游 5xx/连接失败时切换', routeKey: '路由 Key', enabled: '启用', disabled: '停用', rate: '限流/分',
+      target: '上游地址', fallback: '备用上游', fallbackPh: '可选：主上游 5xx/连接失败时切换',
+      extraUpstreams: '额外上游', extraUpstreamsPh: '每行一个或逗号分隔，最多 5 个；按顺序故障切换',
+      routeKey: '路由 Key', enabled: '启用', disabled: '停用', rate: '限流/分',
       timeout: '超时(ms)', retries: '重试', actions: '操作', logs: '日志', rotate: '轮换 Key',
       edit: '编辑', delete: '删除', empty: '暂无网关路由', createTitle: '新建网关路由',
       namePh: '如：订单服务', targetPh: 'https://api.example.com', timeoutLabel: '超时(ms)',
@@ -1948,7 +1950,9 @@ const messages = {
     },
     gatewayPage: {
       sub: 'Unified entry: routes, API keys, rate limit, timeout/retry and request logs', create: 'New route', name: 'Name',
-      target: 'Upstream', fallback: 'Fallback upstream', fallbackPh: 'Optional: used when primary returns 5xx or fails', routeKey: 'Route key', enabled: 'Enabled', disabled: 'Disabled', rate: 'Rate/min',
+      target: 'Upstream', fallback: 'Fallback upstream', fallbackPh: 'Optional: used when primary returns 5xx or fails',
+      extraUpstreams: 'Extra upstreams', extraUpstreamsPh: 'One per line or comma-separated, max 5; tried in order',
+      routeKey: 'Route key', enabled: 'Enabled', disabled: 'Disabled', rate: 'Rate/min',
       timeout: 'Timeout(ms)', retries: 'Retries', actions: 'Actions', logs: 'Logs', rotate: 'Rotate key',
       edit: 'Edit', delete: 'Delete', empty: 'No gateway routes', createTitle: 'New gateway route',
       namePh: 'e.g. Order service', targetPh: 'https://api.example.com', timeoutLabel: 'Timeout(ms)',

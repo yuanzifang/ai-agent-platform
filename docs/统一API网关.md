@@ -21,7 +21,7 @@ X-Gateway-Key: gw_xxx
 - 请求体上限 5MB；缓冲响应上游上限 10MB；SSE 流式响应不占缓冲上限；
 - 超时 1–120 秒；GET/HEAD/OPTIONS 可重试 0–3 次（5xx/IO）；SSE 流最长 300 秒；
 - 路由级 Redis 固定窗口限流（0=不限）；
-- 主上游 5xx/连接失败自动切备用上游；日志记录 fallback；
+- 主上游 5xx/连接失败自动切备用上游；另支持最多 5 个额外上游，按顺序故障切换，日志记录 fallback；
 - **上游轻量熔断**：同一路由+上游 2 分钟内连续 3 次 5xx/IO 失败后打开 60 秒，期间直接跳过主上游走备用；
   无备用时返回 503；Redis 故障 fail-open；路由删除时清理熔断键；
 - **SSE 流式透传**：请求头 `Accept: text/event-stream` 时使用 `StreamingResponseBody`，上游响应逐块 flush，
@@ -41,7 +41,7 @@ X-Gateway-Key: gw_xxx
 
 ## 未完成
 
-- 多上游负载均衡/权重/主动健康检查（当前为主+备故障切换 + 单上游熔断）；
+- 有序故障切换已支持 target + fallback + 最多 5 个额外 upstream；仍缺权重/主动健康检查/WebSocket/WAF；
 - Header 改写、路径重写、请求/响应体转换；
 - OAuth2/JWT 上游鉴权、IP 白名单；
 - WebSocket 透传；

@@ -1,6 +1,8 @@
 package com.platform.gateway.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
 import com.platform.common.security.NetworkPolicyService;
@@ -60,6 +62,7 @@ public class GatewayService {
     private final StringRedisTemplate redis;
     private final AuditService auditService;
     private final GatewayApiKeyService apiKeyService;
+    private final ObjectMapper objectMapper;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NEVER)
@@ -91,6 +94,12 @@ public class GatewayService {
             fallback = fallback.replaceAll("/+$", "");
         }
         route.setFallbackUrl(fallback);
+        List<String> upstreams = urls(req.get("upstreamUrls"));
+        if (upstreams.size() > 5) throw new BusinessException(400, "额外上游最多 5 个");
+        for (String upstream : upstreams) {
+            networkPolicy.validateHttpUrl(upstream, "额外上游地址");
+        }
+        route.setUpstreamUrls(upstreams.isEmpty() ? null : toJson(upstreams));
         route.setTimeoutMs(clamp(intValue(req.get("timeoutMs"), 15000), 1000, 120000));
         route.setRetries(clamp(intValue(req.get("retries"), 0), 0, 3));
         route.setRateLimitPerMin(clamp(intValue(req.get("rateLimitPerMin"), 60), 0, 100000));
@@ -127,6 +136,14 @@ public class GatewayService {
             }
             route.setFallbackUrl(fallback);
         }
+        if (req.containsKey("upstreamUrls")) {
+            List<String> upstreams = urls(req.get("upstreamUrls"));
+            if (upstreams.size() > 5) throw new BusinessException(400, "额外上游最多 5 个");
+            for (String upstream : upstreams) {
+                networkPolicy.validateHttpUrl(upstream, "额外上游地址");
+            }
+            route.setUpstreamUrls(upstreams.isEmpty() ? null : toJson(upstreams));
+        }
         if (req.containsKey("timeoutMs")) route.setTimeoutMs(clamp(intValue(req.get("timeoutMs"), 15000), 1000, 120000));
         if (req.containsKey("retries")) route.setRetries(clamp(intValue(req.get("retries"), 0), 0, 3));
         if (req.containsKey("rateLimitPerMin")) route.setRateLimitPerMin(clamp(intValue(req.get("rateLimitPerMin"), 60), 0, 100000));
@@ -159,8 +176,7 @@ public class GatewayService {
         routeMapper.deleteById(id);
         logMapper.delete(new LambdaQueryWrapper<GatewayRequestLog>()
                 .eq(GatewayRequestLog::getRouteId, id));
-        clearCircuit(id, route.getTargetUrl());
-        clearCircuit(id, route.getFallbackUrl());
+        for (String upstream : targets(route)) clearCircuit(id, upstream);
         clearGatewayRateLimit(id);
         auditService.record(principal.userId(), "gateway.route.delete", "gateway_route",
                 String.valueOf(id), "SUCCESS", Map.of("name", route.getName()));
@@ -257,11 +273,7 @@ public class GatewayService {
                 log(route, request, 413, null, started, "body too large");
                 return error(servletResponse, HttpStatus.PAYLOAD_TOO_LARGE, "请求体不能超过 5MB");
             }
-            List<String> targets = new ArrayList<>();
-            targets.add(route.getTargetUrl());
-            if (route.getFallbackUrl() != null && !route.getFallbackUrl().isBlank()) {
-                targets.add(route.getFallbackUrl());
-            }
+            List<String> targets = targets(route);
             if (wantsEventStream(request)) {
                 return proxyStream(route, request, body, query, targets, suffix, started, servletResponse);
             }
@@ -558,6 +570,47 @@ public class GatewayService {
         return route;
     }
 
+    private List<String> targets(GatewayRoute route) {
+        List<String> targets = new ArrayList<>();
+        if (route.getTargetUrl() != null && !route.getTargetUrl().isBlank()) targets.add(route.getTargetUrl());
+        if (route.getFallbackUrl() != null && !route.getFallbackUrl().isBlank()) targets.add(route.getFallbackUrl());
+        for (String upstream : urls(route.getUpstreamUrls())) {
+            if (!targets.contains(upstream)) targets.add(upstream);
+        }
+        return targets;
+    }
+
+    private List<String> urls(Object raw) {
+        if (raw == null) return List.of();
+        try {
+            if (raw instanceof List<?> list) {
+                return list.stream().map(String::valueOf).map(String::trim)
+                        .filter(v -> !v.isBlank()).map(v -> v.replaceAll("/+$", "")).toList();
+            }
+            if (raw instanceof String text) {
+                String value = text.trim();
+                if (value.startsWith("[")) {
+                    return objectMapper.readValue(value, new TypeReference<List<String>>() { })
+                            .stream().map(String::trim).filter(v -> !v.isBlank())
+                            .map(v -> v.replaceAll("/+$", "")).toList();
+                }
+                return java.util.Arrays.stream(value.split(",")).map(String::trim)
+                        .filter(v -> !v.isBlank()).map(v -> v.replaceAll("/+$", "")).toList();
+            }
+        } catch (Exception e) {
+            throw new BusinessException(400, "上游地址列表格式错误");
+        }
+        return List.of();
+    }
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            throw new BusinessException(400, "上游地址列表格式错误");
+        }
+    }
+
     private Map<String, Object> view(GatewayRoute route) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", route.getId());
@@ -566,6 +619,7 @@ public class GatewayService {
         m.put("apiKeyPrefix", route.getApiKeyPrefix());
         m.put("targetUrl", route.getTargetUrl());
         m.put("fallbackUrl", route.getFallbackUrl());
+        m.put("upstreamUrls", urls(route.getUpstreamUrls()));
         m.put("timeoutMs", route.getTimeoutMs());
         m.put("retries", route.getRetries());
         m.put("rateLimitPerMin", route.getRateLimitPerMin());

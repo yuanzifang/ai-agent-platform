@@ -151,6 +151,67 @@ public class KnowledgeGraphService implements ApplicationRunner {
         return result;
     }
 
+    /** 社区聚类：按无向关系做连通分量，返回可直接展示/后续摘要的社区。 */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> communities(Long kbId, KnowledgePermissionService.Viewer viewer) {
+        Map<String, Object> data = graph(kbId, viewer);
+        List<KnowledgeGraphEntity> entities = (List<KnowledgeGraphEntity>) data.get("entities");
+        List<KnowledgeGraphRelation> relations = (List<KnowledgeGraphRelation>) data.get("relations");
+        Map<Long, KnowledgeGraphEntity> byId = entities.stream()
+                .collect(Collectors.toMap(KnowledgeGraphEntity::getId, e -> e));
+        Map<Long, Set<Long>> adjacency = new HashMap<>();
+        for (KnowledgeGraphEntity entity : entities) adjacency.put(entity.getId(), new LinkedHashSet<>());
+        for (KnowledgeGraphRelation relation : relations) {
+            if (!adjacency.containsKey(relation.getFromId()) || !adjacency.containsKey(relation.getToId())) continue;
+            adjacency.get(relation.getFromId()).add(relation.getToId());
+            adjacency.get(relation.getToId()).add(relation.getFromId());
+        }
+        Set<Long> seen = new HashSet<>();
+        List<Map<String, Object>> communities = new ArrayList<>();
+        for (Long start : adjacency.keySet()) {
+            if (!seen.add(start)) continue;
+            List<Long> ids = new ArrayList<>();
+            java.util.ArrayDeque<Long> queue = new java.util.ArrayDeque<>();
+            queue.add(start);
+            while (!queue.isEmpty()) {
+                Long current = queue.removeFirst();
+                ids.add(current);
+                for (Long next : adjacency.getOrDefault(current, Set.of())) {
+                    if (seen.add(next)) queue.addLast(next);
+                }
+            }
+            List<Map<String, Object>> members = new ArrayList<>();
+            Set<String> types = new LinkedHashSet<>();
+            List<String> names = new ArrayList<>();
+            for (Long id : ids) {
+                KnowledgeGraphEntity entity = byId.get(id);
+                if (entity == null) continue;
+                Map<String, Object> member = new LinkedHashMap<>();
+                member.put("id", entity.getId());
+                member.put("name", entity.getName());
+                member.put("type", entity.getEntityType());
+                members.add(member);
+                if (entity.getEntityType() != null) types.add(entity.getEntityType());
+                if (entity.getName() != null) names.add(entity.getName());
+            }
+            if (members.isEmpty()) continue;
+            Map<String, Object> community = new LinkedHashMap<>();
+            community.put("id", start);
+            community.put("name", names.size() <= 3 ? String.join(" / ", names)
+                    : String.join(" / ", names.subList(0, 3)) + " …");
+            community.put("entityCount", members.size());
+            community.put("types", types);
+            community.put("members", members);
+            communities.add(community);
+        }
+        communities.sort((a, b) -> Integer.compare(
+                (Integer) b.get("entityCount"), (Integer) a.get("entityCount")));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("communityCount", communities.size());
+        out.put("communities", communities);
+        return out;
+    }
+
     /** 实体详情：提及证据、关联关系、来源文档。 */
     public Map<String, Object> entityDetail(Long kbId, Long entityId,
                                             KnowledgePermissionService.Viewer viewer) {
