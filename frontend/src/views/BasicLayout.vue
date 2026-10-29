@@ -94,6 +94,7 @@
             <template #title><el-icon><DataAnalysis /></el-icon>{{ t('layout.evalOps') }}</template>
             <el-menu-item index="/metrics">{{ t('menu.metrics') }}</el-menu-item>
             <el-menu-item index="/observability">{{ t('menu.observability') }}</el-menu-item>
+            <el-menu-item index="/observability/gray">{{ t('menu.grayCompare') }}</el-menu-item>
             <el-menu-item v-if="can('eval:manage')" index="/eval">{{ t('menu.eval') }}</el-menu-item>
             <el-menu-item v-if="can('audit:read')" index="/audit">{{ t('menu.audit') }}</el-menu-item>
             <el-menu-item v-if="userStore.userInfo?.isPlatformAdmin" index="/alert-ack">{{ t('menu.alertAck') }}</el-menu-item>
@@ -233,7 +234,7 @@ const openedGroups = ref<string[]>([groupOf(route.path)])
 function groupOf(path: string): string {
   if (/^\/(agents|square|templates|approvals)\b/.test(path)) return 'g-work'
   if (/^\/(knowledge|memories|cases|skills|tools|mcp-servers|prompt-templates)\b/.test(path)) return 'g-asset'
-  if (/^\/(eval|metrics|observability|audit|alert-ack)\b/.test(path)) return 'g-ops'
+  if (/^\/(eval|metrics|observability|audit|alert-ack)\b/.test(path) || path.startsWith('/observability/gray')) return 'g-ops'
   if (/^\/(provider|billing|settings|admin)\b/.test(path)) return 'g-admin'
   return 'g-work'
 }
