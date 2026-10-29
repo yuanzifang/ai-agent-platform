@@ -112,6 +112,10 @@ jobs:
         working-directory: runtime/agent-gateway
         run: npm test
 
+      - name: Alert-relay 依赖安装（ioredis/nodemailer）
+        working-directory: runtime/alert-relay
+        run: npm ci
+
       - name: Alert-relay Node 单测
         working-directory: runtime/alert-relay
         run: npm test
