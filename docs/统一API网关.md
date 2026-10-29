@@ -36,7 +36,7 @@ X-Gateway-Key: gw_xxx
   返回 `Transfer-Encoding: chunked`，并设置 `X-Accel-Buffering: no`；不做整包缓冲；
 - 普通响应也通过 `StreamingResponseBody` 异步写出，缓冲响应保留 `Content-Length`；
 - 请求日志：方法、路径、状态、上游状态、耗时、错误；
-- 管理页：路由 CRUD、启停、Key 轮换、调用地址/Key 一次性展示、请求日志；
+- 管理页：路由 CRUD、启停、Key 轮换、调用方 Key 创建/过期/启停/删除、调用地址/Key 一次性展示、请求日志；
 - 权限：`tenant:manage`；
 - 上游地址通过 `NetworkPolicyService` 校验；生产应设 `SECURITY_NETWORK_ALLOW_PRIVATE=false` 阻断内网 SSRF。
 
@@ -104,4 +104,4 @@ POST/PUT/PATCH 的请求体在转发前校验；失败返回 400：
 - WebSocket 透传已支持最小双向代理：`/api/v1/gateway/ws/{routeKey}?key=<apiKey>`，targetUrl 使用 http(s)，运行时转换为 ws(s)，文本/二进制帧双向转发；服务端定时 Ping 客户端/上游并按 `gateway.ws.idle-timeout-ms` 回收半开连接；支持 fallback/额外 upstream 建连及已建立连接掉线切换；路由级 `wsMaxConnections`（0=不限，Redis 全局统计，Redis 故障回退实例统计）；
 - 管理端审计报表/用量计费；
 - 请求签名/防重放已支持 HTTP 与 WebSocket 握手；
-- 生产级 Key 生命周期（过期、scope、多 Key）。
+- Key scope（按路径/方法限制）。
