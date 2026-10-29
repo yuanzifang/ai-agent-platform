@@ -1785,6 +1785,13 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
     })
     expect(denied.status()).toBe(401)
 
+    const wafBlocked = await request.get(
+      `${P}/gateway/call/${route.routeKey}/health?q=1%20union%20select%20password%20from%20users`, {
+        headers: { 'X-Gateway-Key': route.apiKey }
+      })
+    expect(wafBlocked.status()).toBe(400)
+    expect(await wafBlocked.text()).toContain('WAF')
+
     const logs = await (await request.get(`${P}/gateway/routes/${route.id}/logs`, {
       headers: auth(token!)
     })).json()

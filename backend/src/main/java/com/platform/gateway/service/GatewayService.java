@@ -598,28 +598,9 @@ public class GatewayService {
         }
     }
 
-    /**
-     * 最小 WAF：限制网关可代理方法，阻断超长路径、CRLF 和编码目录穿越。
-     * 业务级鉴权/限流/SSRF 仍在后续链路执行。
-     */
+    /** 高置信度 WAF；具体规则见 GatewayWaf。 */
     private String wafViolation(HttpServletRequest request) {
-        String method = request.getMethod() == null ? "" : request.getMethod().toUpperCase(Locale.ROOT);
-        if (!Set.of("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS").contains(method)) {
-            return "method " + method;
-        }
-        String uri = request.getRequestURI();
-        if (uri == null || uri.length() > 2048) return "uri length";
-        String lower = uri.toLowerCase(Locale.ROOT);
-        if (lower.contains("\r") || lower.contains("\n") || lower.contains("%00")
-                || lower.contains("%2e%2e") || lower.contains("%252e")
-                || lower.contains("/../")) {
-            return "path traversal";
-        }
-        String query = request.getQueryString();
-        if (query != null && (query.length() > 8192 || query.contains("\r") || query.contains("\n"))) {
-            return "query";
-        }
-        return null;
+        return GatewayWaf.check(request.getMethod(), request.getRequestURI(), request.getQueryString());
     }
 
     private String suffix(String routeKey, String uri) {

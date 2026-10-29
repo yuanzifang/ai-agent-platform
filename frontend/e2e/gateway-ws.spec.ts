@@ -2,20 +2,35 @@ import { test, expect } from '@playwright/test'
 import { spawn, type ChildProcess } from 'node:child_process'
 import path from 'node:path'
 
+test.describe.configure({ mode: 'serial' })
+
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8080'
 const WS_BACKEND = BACKEND.replace(/^http/, 'ws')
-const WS_PORT = 18100
-let echo: ChildProcess | undefined
+const PORT_A = 18100
+const PORT_B = 18101
+let fallback: ChildProcess | undefined
 
-test.beforeAll(async () => {
-  echo = spawn('python3', [path.resolve(process.cwd(), 'e2e', 'ws_echo_server.py')], {
+function startEcho(port: number, prefix: string): ChildProcess {
+  return spawn('python3', [path.resolve(process.cwd(), 'e2e', 'ws_echo_server.py'), String(port), prefix], {
     stdio: 'ignore'
   })
-  await new Promise(resolve => setTimeout(resolve, 500))
+}
+
+function stopEcho(proc: ChildProcess | undefined) {
+  if (proc && !proc.killed) proc.kill('SIGKILL')
+}
+
+async function waitReady() {
+  await new Promise(resolve => setTimeout(resolve, 400))
+}
+
+test.beforeAll(async () => {
+  fallback = startEcho(PORT_B, 'B')
+  await waitReady()
 })
 
 test.afterAll(() => {
-  echo?.kill()
+  stopEcho(fallback)
 })
 
 async function login(request: any): Promise<string> {
@@ -47,28 +62,38 @@ function closed(ws: any): Promise<{ code: number; reason: string }> {
   })
 }
 
-test('网关 WebSocket：鉴权、双向回显、全局连接配额', async ({ request }) => {
-  const token = await login(request)
+async function createRoute(request: any, token: string, data: Record<string, unknown>) {
   const created = await request.post(`${BACKEND}/api/v1/gateway/routes`, {
     headers: { Authorization: `Bearer ${token}` },
-    data: {
-      name: `E2E WS ${Date.now()}`,
-      targetUrl: `http://127.0.0.1:${WS_PORT}`,
-      wsMaxConnections: 1,
-      timeoutMs: 5000,
-      rateLimitPerMin: 0
-    }
+    data: { name: `E2E WS ${Date.now()}-${Math.random()}`, rateLimitPerMin: 0, ...data }
   })
   const body = await created.json()
   expect(body.code, JSON.stringify(body)).toBe(0)
-  const route = body.data
+  return body.data
+}
+
+async function deleteRoute(request: any, token: string, id: number) {
+  await request.delete(`${BACKEND}/api/v1/gateway/routes/${id}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+test('网关 WebSocket：鉴权、双向回显、全局连接配额', async ({ request }) => {
+  const token = await login(request)
+  const primary = startEcho(PORT_A, 'A')
+  await waitReady()
+  const route = await createRoute(request, token, {
+    targetUrl: `http://127.0.0.1:${PORT_A}`,
+    wsMaxConnections: 1,
+    timeoutMs: 5000
+  })
   const endpoint = `${WS_BACKEND}/api/v1/gateway/ws/${route.routeKey}?key=${encodeURIComponent(route.apiKey)}`
   let first: any
   try {
     first = await connect(endpoint)
     const reply = nextMessage(first)
     first.send('hello-websocket')
-    expect(await reply).toBe('hello-websocket')
+    expect(await reply).toBe('A:hello-websocket')
 
     const second = await connect(endpoint)
     const close = await closed(second)
@@ -76,8 +101,63 @@ test('网关 WebSocket：鉴权、双向回显、全局连接配额', async ({ r
     expect(close.reason).toContain('connection limit')
   } finally {
     first?.close()
-    await request.delete(`${BACKEND}/api/v1/gateway/routes/${route.id}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
+    await deleteRoute(request, token, route.id)
+    stopEcho(primary)
+  }
+})
+
+test('网关 WebSocket：权重首跳', async ({ request }) => {
+  const token = await login(request)
+  const primary = startEcho(PORT_A, 'A')
+  await waitReady()
+  const route = await createRoute(request, token, {
+    targetUrl: `http://127.0.0.1:${PORT_A}`,
+    fallbackUrl: `http://127.0.0.1:${PORT_B}`,
+    targetWeight: 0,
+    fallbackWeight: 100,
+    timeoutMs: 5000
+  })
+  const endpoint = `${WS_BACKEND}/api/v1/gateway/ws/${route.routeKey}?key=${encodeURIComponent(route.apiKey)}`
+  let ws: any
+  try {
+    ws = await connect(endpoint)
+    const reply = nextMessage(ws)
+    ws.send('weighted')
+    expect(await reply).toBe('B:weighted')
+  } finally {
+    ws?.close()
+    await deleteRoute(request, token, route.id)
+    stopEcho(primary)
+  }
+})
+
+test('网关 WebSocket：上游掉线自动切换', async ({ request }) => {
+  test.setTimeout(30_000)
+  const token = await login(request)
+  const primary = startEcho(PORT_A, 'A')
+  await waitReady()
+  const route = await createRoute(request, token, {
+    targetUrl: `http://127.0.0.1:${PORT_A}`,
+    fallbackUrl: `http://127.0.0.1:${PORT_B}`,
+    timeoutMs: 5000
+  })
+  const endpoint = `${WS_BACKEND}/api/v1/gateway/ws/${route.routeKey}?key=${encodeURIComponent(route.apiKey)}`
+  let ws: any
+  try {
+    ws = await connect(endpoint)
+    const first = nextMessage(ws)
+    ws.send('one')
+    expect(await first).toBe('A:one')
+
+    stopEcho(primary)
+    await new Promise(resolve => setTimeout(resolve, 1000))
+
+    const second = nextMessage(ws)
+    ws.send('two')
+    expect(await second).toBe('B:two')
+  } finally {
+    ws?.close()
+    await deleteRoute(request, token, route.id)
+    stopEcho(primary)
   }
 })

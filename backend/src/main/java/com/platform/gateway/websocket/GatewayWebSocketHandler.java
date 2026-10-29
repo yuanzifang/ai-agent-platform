@@ -30,10 +30,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -73,6 +75,14 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
         GatewayRoute route = routeKey == null ? null : routeMapper.findByRouteKeyIgnore(routeKey);
         if (route == null || route.getEnabled() == null || route.getEnabled() != 1) {
             session.close(CloseStatus.NOT_ACCEPTABLE.withReason("route unavailable"));
+            return;
+        }
+        String waf = com.platform.gateway.service.GatewayWaf.check("GET",
+                session.getUri() == null ? null : session.getUri().getPath(),
+                session.getUri() == null ? null : session.getUri().getQuery());
+        if (waf != null) {
+            writeLog(route, session, 400, "waf: " + waf);
+            session.close(CloseStatus.POLICY_VIOLATION.withReason("waf"));
             return;
         }
         String provided = providedKey(session);
@@ -266,7 +276,7 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
 
     private WebSocket connectUpstream(GatewayRoute route, WebSocketSession session) throws Exception {
         Exception last = null;
-        for (String base : websocketTargets(route)) {
+        for (String base : weightedWebsocketTargets(route)) {
             try {
                 WebSocket upstream = connectTo(route, session, base);
                 session.getAttributes().put("upstreamBase", base);
@@ -295,7 +305,7 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
                 closeQuietly(session, CloseStatus.SERVER_ERROR);
                 return;
             }
-            List<String> targets = websocketTargets(route);
+            List<String> targets = weightedWebsocketTargets(route);
             String current = String.valueOf(session.getAttributes().getOrDefault("upstreamBase", ""));
             int start = Math.max(0, targets.indexOf(current) + 1);
             for (int i = 0; i < targets.size(); i++) {
@@ -324,6 +334,61 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
         } catch (Exception ignored) {
             // session already closed
         }
+    }
+
+    /** 按路由权重生成 WS 首跳/切换顺序；未配置权重时保持主/备/额外顺序。 */
+    private List<String> weightedWebsocketTargets(GatewayRoute route) {
+        List<String> all = websocketTargets(route);
+        Map<String, Integer> weights = websocketWeights(route);
+        int total = all.stream().mapToInt(t -> Math.max(0, weights.getOrDefault(t, 0))).sum();
+        if (total <= 0) return all;
+        List<String> remaining = new ArrayList<>(all);
+        List<String> ordered = new ArrayList<>();
+        while (!remaining.isEmpty()) {
+            int sum = remaining.stream().mapToInt(t -> Math.max(0, weights.getOrDefault(t, 0))).sum();
+            if (sum <= 0) {
+                ordered.addAll(remaining);
+                break;
+            }
+            int pick = ThreadLocalRandom.current().nextInt(sum);
+            int cursor = 0;
+            for (int i = 0; i < remaining.size(); i++) {
+                String target = remaining.get(i);
+                cursor += Math.max(0, weights.getOrDefault(target, 0));
+                if (pick < cursor) {
+                    ordered.add(target);
+                    remaining.remove(i);
+                    break;
+                }
+            }
+        }
+        return ordered;
+    }
+
+    private Map<String, Integer> websocketWeights(GatewayRoute route) {
+        Map<String, Integer> weights = new LinkedHashMap<>();
+        for (String target : websocketTargets(route)) {
+            weights.put(target, target.equals(normalize(route.getTargetUrl())) ? 100 : 0);
+        }
+        String raw = route.getUpstreamWeights();
+        if (raw == null || raw.isBlank()) return weights;
+        try {
+            Map<?, ?> saved = objectMapper.readValue(raw, Map.class);
+            for (Map.Entry<?, ?> entry : saved.entrySet()) {
+                String url = normalize(String.valueOf(entry.getKey()));
+                if (!url.isBlank() && weights.containsKey(url)) {
+                    weights.put(url, Math.max(0, Math.min(1000,
+                            Integer.parseInt(String.valueOf(entry.getValue())))));
+                }
+            }
+        } catch (Exception e) {
+            log.debug("WS route weights parse failed route={}: {}", route.getId(), e.getMessage());
+        }
+        return weights;
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().replaceAll("/+$", "");
     }
 
     private List<String> websocketTargets(GatewayRoute route) {
