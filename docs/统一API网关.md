@@ -25,6 +25,9 @@ X-Gateway-Key: gw_xxx
 - 最小 WAF：限制代理方法、超长 URI/query、CRLF 和编码目录穿越，拒绝时记录请求日志；
 - **上游轻量熔断**：同一路由+上游 2 分钟内连续 3 次 5xx/IO 失败后打开 60 秒，期间直接跳过主上游走备用；
   无备用时返回 503；Redis 故障 fail-open；路由删除时清理熔断键；
+- **主动健康检查**：默认每 30 秒探测启用路由的每个上游；`healthPath` 默认 `/`，可用 `GET/POST /api/v1/gateway/routes/{id}/health[/check]` 查看/立即检查；
+  2xx/3xx/4xx 视为可达，5xx/连接失败标记 DOWN；存在健康备用时跳过 DOWN 上游，全部 DOWN 时 fail-open 继续尝试；
+  状态写入 Redis（约 90 秒 TTL），路由删除时清理；管理页支持查看和立即检查；
 - **SSE 流式透传**：请求头 `Accept: text/event-stream` 时使用 `StreamingResponseBody`，上游响应逐块 flush，
   返回 `Transfer-Encoding: chunked`，并设置 `X-Accel-Buffering: no`；不做整包缓冲；
 - 普通响应也通过 `StreamingResponseBody` 异步写出，缓冲响应保留 `Content-Length`；
@@ -39,11 +42,12 @@ X-Gateway-Key: gw_xxx
 - E2E：`Accept: text/event-stream` → mock 上游 3 个 SSE chunk + `[DONE]`，网关返回 200、`text/event-stream`、`chunked`，内容完整；
 - E2E：主上游连续 3 次 500 → 第 4 次不再调用主上游，直接走备用并返回 200；
 - 2026-10-29 本机 WebSocket echo 手工验证：创建路由 → `ws://127.0.0.1:8080/api/v1/gateway/ws/{routeKey}?key=...` → 发送 `hello-websocket`，收到 `echo:hello-websocket`；错误 key 不返回业务消息；测试路由/echo 服务已清理；
+- 2026-10-29 主动健康检查手工验证：主上游 `127.0.0.1:19999` DOWN、备用 `127.0.0.1:18080` UP；代理请求自动跳过主上游，返回 200 且日志记录 `fallback upstream`；测试路由已清理；
 - 完整 E2E 46/46。
 
 ## 未完成
 
-- 有序故障切换已支持 target + fallback + 最多 5 个额外 upstream；仍缺权重/主动健康检查/完整 WAF 规则；
+- 有序故障切换已支持 target + fallback + 最多 5 个额外 upstream；主动健康检查已落地；仍缺权重/连接数配额/完整 WAF 规则；
 - Header 改写、路径重写、请求/响应体转换；
 - OAuth2/JWT 上游鉴权、IP 白名单；
 - WebSocket 透传已支持最小双向代理：`/api/v1/gateway/ws/{routeKey}?key=<apiKey>`，targetUrl 使用 http(s)，运行时转换为 ws(s)，文本/二进制帧双向转发；服务端定时 Ping 客户端/上游并按 `gateway.ws.idle-timeout-ms` 回收半开连接；仍缺 WS 自动化测试、上游故障切换和连接数配额；

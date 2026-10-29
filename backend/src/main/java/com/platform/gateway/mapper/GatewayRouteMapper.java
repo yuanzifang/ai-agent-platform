@@ -12,4 +12,9 @@ public interface GatewayRouteMapper extends BaseMapper<GatewayRoute> {
     @InterceptorIgnore(tenantLine = "true")
     @Select("SELECT * FROM gateway_route WHERE route_key = #{routeKey} LIMIT 1")
     GatewayRoute findByRouteKeyIgnore(@Param("routeKey") String routeKey);
+
+    /** 健康检查调度跨租户扫描启用路由。 */
+    @InterceptorIgnore(tenantLine = "true")
+    @Select("SELECT * FROM gateway_route WHERE enabled = 1")
+    java.util.List<GatewayRoute> listEnabledIgnore();
 }

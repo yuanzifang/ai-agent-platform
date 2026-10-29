@@ -23,6 +23,10 @@ public class GatewayRoute {
     private Integer timeoutMs;
     private Integer retries;
     private Integer rateLimitPerMin;
+    /** 健康检查路径；空值按 / 处理。 */
+    private String healthPath;
+    /** 1=启用主动健康检查；0=关闭（仍然保留被动熔断）。 */
+    private Integer healthCheckEnabled;
     private Integer enabled;
     private Long createdBy;
     private LocalDateTime createdAt;
