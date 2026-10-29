@@ -1,0 +1,107 @@
+# 独立监控栈验证：不与生产/本地单节点端口冲突。
+# 使用：
+#   LOKI_CONFIG=../../runtime/observability/loki.s3.yml \
+#   TEMPO_CONFIG=../../runtime/observability/tempo.s3.yml \
+#   docker-compose -p aap-mon-compose -f deploy/observability/docker-compose.monitoring.yml up -d
+name: aap-mon-compose
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ${PROMETHEUS_CONFIG:-./prometheus.compose.yml}:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - mon-prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:19090:9090"
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ${ALERTMANAGER_CONFIG:-./alertmanager.native.yml}:/etc/alertmanager/alertmanager.yml:ro
+      - mon-alertmanager-data:/alertmanager
+    ports:
+      - "127.0.0.1:19193:9093"
+
+  loki:
+    image: grafana/loki:3.2.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ${LOKI_CONFIG:-./loki.s3.example.yml}:/etc/loki/loki.yml:ro
+      - mon-loki-data:/loki
+    ports:
+      - "127.0.0.1:13100:3100"
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ${TEMPO_CONFIG:-./tempo.s3.example.yml}:/etc/tempo/tempo.yml:ro
+      - mon-tempo-data:/var/tempo
+    ports:
+      - "127.0.0.1:13200:3200"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yml"]
+    volumes:
+      - ./otel-collector.yml:/etc/otelcol/config.yml:ro
+    ports:
+      - "127.0.0.1:14317:4317"
+      - "127.0.0.1:14318:4318"
+    depends_on:
+      - tempo
+
+  promtail:
+    image: grafana/promtail:3.2.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/promtail.yml"]
+    volumes:
+      - ./promtail.native.yml:/etc/promtail/promtail.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./../../logs:/var/log/aap:ro
+      - mon-promtail-positions:/promtail
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - mon-grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:13000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+networks:
+  default:
+    name: aap-mon-compose
+
+volumes:
+  mon-prometheus-data:
+  mon-alertmanager-data:
+  mon-loki-data:
+  mon-tempo-data:
+  mon-promtail-positions:
+  mon-grafana-data:
