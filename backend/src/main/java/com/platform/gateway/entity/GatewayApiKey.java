@@ -20,6 +20,8 @@ public class GatewayApiKey {
     private Integer enabled;
     private LocalDateTime expiresAt;
     private Integer rateLimitPerMin;
+    /** 每日调用配额；0/NULL=不限。 */
+    private Integer dailyQuota;
     /** 逗号分隔的方法白名单；空=全部。 */
     private String allowedMethods;
     /** 换行/逗号分隔的路径前缀；空=全部。 */

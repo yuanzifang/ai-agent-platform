@@ -1847,6 +1847,19 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
         headers: { 'X-Gateway-Key': scopedKey.data.apiKey }
       })
       expect(scopePath.status()).toBe(403)
+
+      const dailyKey = await (await request.post(`${P}/gateway/routes/${scopeRoute.data.id}/keys`, {
+        headers: auth(token!),
+        data: { name: 'daily', dailyQuota: 1 }
+      })).json()
+      const dailyFirst = await request.get(`${P}/gateway/call/${scopeRoute.data.routeKey}/always-ok`, {
+        headers: { 'X-Gateway-Key': dailyKey.data.apiKey }
+      })
+      expect(dailyFirst.status()).toBe(200)
+      const dailySecond = await request.get(`${P}/gateway/call/${scopeRoute.data.routeKey}/always-ok`, {
+        headers: { 'X-Gateway-Key': dailyKey.data.apiKey }
+      })
+      expect(dailySecond.status()).toBe(429)
     } finally {
       await request.delete(`${P}/gateway/routes/${scopeRoute.data.id}`, { headers: auth(token!) })
     }

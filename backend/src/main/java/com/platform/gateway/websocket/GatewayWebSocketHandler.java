@@ -105,6 +105,10 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
             session.close(CloseStatus.POLICY_VIOLATION.withReason("rate limited"));
             return;
         }
+        if (caller != null && !apiKeyService.allowDaily(caller)) {
+            session.close(CloseStatus.POLICY_VIOLATION.withReason("daily quota"));
+            return;
+        }
         if (caller == null && (provided == null
                 || !apiKeyService.sha256(provided).equals(route.getApiKeyHash()))) {
             session.close(CloseStatus.POLICY_VIOLATION.withReason("invalid key"));

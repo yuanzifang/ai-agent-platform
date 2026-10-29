@@ -57,6 +57,7 @@ public class GatewayApiKeyService {
         m.put("enabled", k.getEnabled() != null && k.getEnabled() == 1);
         m.put("expiresAt", k.getExpiresAt());
         m.put("rateLimitPerMin", k.getRateLimitPerMin());
+        m.put("dailyQuota", k.getDailyQuota());
         m.put("allowedMethods", k.getAllowedMethods());
         m.put("allowedPaths", k.getAllowedPaths());
         m.put("requestCount", k.getRequestCount());
@@ -75,6 +76,12 @@ public class GatewayApiKeyService {
     public CreatedKey create(Long routeId, Long tenantId, String name,
                              Integer rateLimitPerMin, String allowedMethods, String allowedPaths,
                              java.time.LocalDateTime expiresAt, Long operatorId) {
+        return create(routeId, tenantId, name, rateLimitPerMin, null, allowedMethods, allowedPaths, expiresAt, operatorId);
+    }
+
+    public CreatedKey create(Long routeId, Long tenantId, String name,
+                             Integer rateLimitPerMin, Integer dailyQuota, String allowedMethods, String allowedPaths,
+                             java.time.LocalDateTime expiresAt, Long operatorId) {
         byte[] bytes = new byte[32];
         new SecureRandom().nextBytes(bytes);
         String apiKey = "gwk_" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
@@ -87,6 +94,7 @@ public class GatewayApiKeyService {
         key.setEnabled(1);
         key.setExpiresAt(expiresAt);
         key.setRateLimitPerMin(rateLimitPerMin);
+        key.setDailyQuota(dailyQuota == null ? null : Math.max(0, dailyQuota));
         key.setAllowedMethods(normalizeMethods(allowedMethods));
         key.setAllowedPaths(normalizePaths(allowedPaths));
         key.setRequestCount(0L);
@@ -149,6 +157,12 @@ public class GatewayApiKeyService {
     public void update(Long keyId, String name, Boolean enabled,
                        Integer rateLimitPerMin, String allowedMethods, String allowedPaths,
                        LocalDateTime expiresAt, Long operatorId) {
+        update(keyId, name, enabled, rateLimitPerMin, null, allowedMethods, allowedPaths, expiresAt, operatorId);
+    }
+
+    public void update(Long keyId, String name, Boolean enabled,
+                       Integer rateLimitPerMin, Integer dailyQuota, String allowedMethods, String allowedPaths,
+                       LocalDateTime expiresAt, Long operatorId) {
         GatewayApiKey key = keyMapper.selectById(keyId);
         if (key == null) return;
         GatewayApiKey patch = new GatewayApiKey();
@@ -156,6 +170,7 @@ public class GatewayApiKeyService {
         if (name != null && !name.isBlank()) patch.setName(name.trim());
         if (enabled != null) patch.setEnabled(enabled ? 1 : 0);
         if (rateLimitPerMin != null) patch.setRateLimitPerMin(Math.max(0, rateLimitPerMin));
+        if (dailyQuota != null) patch.setDailyQuota(Math.max(0, dailyQuota));
         if (allowedMethods != null) patch.setAllowedMethods(normalizeMethods(allowedMethods));
         if (allowedPaths != null) patch.setAllowedPaths(normalizePaths(allowedPaths));
         if (expiresAt != null) patch.setExpiresAt(expiresAt);
@@ -227,6 +242,20 @@ public class GatewayApiKeyService {
         if (key.getRateLimitPerMin() == null || key.getRateLimitPerMin() <= 0) return true;
         String bucket = "ratelimit:gwk:" + key.getId() + ":" + (System.currentTimeMillis() / 60_000);
         return rateLimiter.allow(bucket, key.getRateLimitPerMin());
+    }
+
+    /** 按 Key 每日配额；0/NULL 不限制，Redis 异常 fail-open。 */
+    public boolean allowDaily(GatewayApiKey key) {
+        if (key.getDailyQuota() == null || key.getDailyQuota() <= 0) return true;
+        try {
+            String day = java.time.LocalDate.now().toString();
+            String bucket = "gateway:keydaily:" + key.getId() + ":" + day;
+            Long count = redis.opsForValue().increment(bucket);
+            if (count != null && count == 1L) redis.expire(bucket, Duration.ofDays(2));
+            return count == null || count <= key.getDailyQuota();
+        } catch (Exception e) {
+            return true;
+        }
     }
 
     public void markUsed(GatewayApiKey key) {
