@@ -46,6 +46,11 @@ original_agent_model="$(mysql_exec "SELECT model_config FROM agent_registry WHER
 original_judge_model="$(mysql_exec "SELECT config_value FROM sys_config WHERE config_key='eval.gate-judge-model' LIMIT 1")"
 original_agent_model="${original_agent_model//\'/\'\'}"
 original_judge_model="${original_judge_model//\'/\'\'}"
+quota_row="$(mysql_exec "SELECT max_agents, max_knowledge_bases, max_api_calls_per_min FROM sys_tenant_quota WHERE tenant_id=1 LIMIT 1")"
+original_max_agents="${quota_row%%$'\t'*}"
+quota_rest="${quota_row#*$'\t'}"
+original_max_kbs="${quota_rest%%$'\t'*}"
+original_max_api="${quota_rest#*$'\t'}"
 
 restore_e2e_config() {
   mysql_exec "UPDATE provider SET base_url='${original_base_url}' WHERE id=${provider_id}" >/dev/null 2>&1 || true
@@ -55,7 +60,10 @@ restore_e2e_config() {
   if [[ -n "$original_judge_model" || "$REAL_MODEL" == "1" ]]; then
     mysql_exec "UPDATE sys_config SET config_value='${original_judge_model}' WHERE config_key='eval.gate-judge-model'" >/dev/null 2>&1 || true
   fi
-  echo "已恢复 DEEPSEEK Provider(${provider_id})、Agent 模型与门禁裁判配置"
+  if [[ -n "$original_max_agents" && -n "$original_max_kbs" && -n "$original_max_api" ]]; then
+    mysql_exec "UPDATE sys_tenant_quota SET max_agents=${original_max_agents}, max_knowledge_bases=${original_max_kbs}, max_api_calls_per_min=${original_max_api} WHERE tenant_id=1" >/dev/null 2>&1 || true
+  fi
+  echo "已恢复 DEEPSEEK Provider(${provider_id})、Agent 模型、门禁裁判与租户配额"
 }
 trap restore_e2e_config EXIT INT TERM
 
@@ -65,7 +73,8 @@ if [[ "$REAL_MODEL" == "1" ]]; then
 else
   mysql_exec "UPDATE provider SET base_url='http://127.0.0.1:18080' WHERE id=${provider_id}" >/dev/null
 fi
-mysql_exec "UPDATE sys_tenant_quota SET max_api_calls_per_min=100000" >/dev/null
+# E2E 会创建多个临时 Agent/知识库；只在本轮临时放宽资源配额，退出时恢复。
+mysql_exec "UPDATE sys_tenant_quota SET max_agents=1000, max_knowledge_bases=1000, max_api_calls_per_min=100000 WHERE tenant_id=1" >/dev/null
 
 # 配额在 Redis 缓存 5 分钟，改库后必须清掉，否则本地仍按旧的 60/分钟限流。
 if command -v redis-cli >/dev/null 2>&1; then
