@@ -431,22 +431,24 @@ function armEscalation(entry) {
 
 function scheduleEscalation(alert, text) {
   if (ESCALATION_DELAY_SECONDS <= 0) return
-  if (!ESCALATION_CHANNELS.some(channelEnabled)) return
   const severity = String(alert?.labels?.severity || '').toLowerCase()
   if (!ESCALATION_SEVERITIES.includes(severity)) return
   const key = alertKey(alert)
   if (acked.has(key) || pendingEscalations.has(key)) return
+  // 即使升级通道未配置（例如短信未接），也要保留 ACK 窗口；
+  // 否则 ACK 页面会对 critical 告警返回 404。没有可用升级通道时不启动 escalation timer。
+  const channels = ESCALATION_CHANNELS.filter(channelEnabled)
   const entry = {
     key,
     dueAt: Date.now() + ESCALATION_DELAY_SECONDS * 1000,
     alert,
     text,
-    channels: ESCALATION_CHANNELS
+    channels
   }
   pendingEscalations.set(key, entry)
   persistState()
   void redisPutPending(entry)
-  armEscalation(entry)
+  if (channels.length > 0) armEscalation(entry)
 }
 
 function cancelEscalation(alert) {
@@ -567,6 +569,17 @@ const server = http.createServer(async (req, res) => {
     const payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
     const alerts = Array.isArray(payload.alerts) ? payload.alerts : []
     const route = String(url.searchParams.get('route') || '').toLowerCase()
+    console.log(JSON.stringify({
+      msg: 'alertmanager webhook received',
+      route,
+      status: payload.status,
+      alerts: alerts.map(a => ({
+        name: a?.labels?.alertname,
+        status: a?.status,
+        severity: a?.labels?.severity,
+        fingerprint: a?.fingerprint
+      }))
+    }))
     const configured = ['webhook', 'email', 'aliyun-sms'].some(channelEnabled)
     if (!configured) {
       send(200, { alerts: alerts.length, sent: 0, configured: false, channels: {} })

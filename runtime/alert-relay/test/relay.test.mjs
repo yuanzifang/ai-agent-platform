@@ -279,6 +279,32 @@ test('ACK 取消待升级告警', async (t) => {
   assert.equal(receiver.requests.length, 1, 'ACK 后不应再升级')
 })
 
+test('无可用升级通道时仍保留 ACK 窗口', async (t) => {
+  const receiver = await startReceiver()
+  const relay = await startRelay({
+    ALERT_WEBHOOK_URL: `http://127.0.0.1:${receiver.port}/hook`,
+    ALERT_RELAY_CRITICAL_CHANNELS: 'webhook',
+    // 短信未配置时 channels 会为空；ACK 页面仍必须能看到并确认 critical 告警。
+    ALERT_ESCALATION_CHANNELS: 'sms',
+    ALERT_ESCALATION_SEVERITIES: 'critical',
+    ALERT_ESCALATION_DELAY_SECONDS: '300'
+  })
+  t.after(() => { relay.child.kill('SIGTERM'); receiver.server.close() })
+  const firing = structuredClone(payload)
+  firing.alerts[0].fingerprint = 'ack-no-escalation-channel'
+  await fetch(`http://127.0.0.1:${relay.port}/alertmanager?route=critical`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(firing)
+  })
+  const state = await (await fetch(`http://127.0.0.1:${relay.port}/state`)).json()
+  assert.ok(state.pending.some(p => p.fingerprint === 'ack-no-escalation-channel'),
+    '无升级通道也应有 pending ACK 记录')
+  const ack = await fetch(`http://127.0.0.1:${relay.port}/ack`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fingerprint: 'ack-no-escalation-channel' })
+  })
+  assert.equal(ack.status, 200)
+})
+
 test('升级状态文件可跨 relay 重启恢复', async (t) => {
   const receiver = await startReceiver()
   const fs = await import('node:fs')

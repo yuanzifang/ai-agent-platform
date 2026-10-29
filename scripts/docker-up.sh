@@ -22,7 +22,7 @@ import pathlib, secrets
 src = pathlib.Path('.env.docker.example').read_text()
 replacements = {}
 for key in ('MYSQL_ROOT_PASSWORD', 'MYSQL_PASSWORD', 'MYSQL_EXPORTER_PASSWORD',
-            'REDIS_PASSWORD', 'PG_PASSWORD', 'MINIO_ROOT_PASSWORD'):
+            'REDIS_PASSWORD', 'REDIS_EXPORTER_PASSWORD', 'PG_PASSWORD', 'PG_EXPORTER_PASSWORD', 'MINIO_ROOT_PASSWORD'):
     replacements[key] = secrets.token_hex(24)
 replacements['JWT_SECRET'] = secrets.token_hex(32)
 replacements['AES_KEY'] = secrets.token_hex(32)
