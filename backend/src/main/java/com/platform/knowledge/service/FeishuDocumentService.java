@@ -33,12 +33,15 @@ public class FeishuDocumentService {
     private static final int MAX_FILES = 100;
     private static final long MAX_BYTES = 50L * 1024 * 1024;
     private static final int PAGE_SIZE = 50;
+    private static final int MAX_RETRIES = 3;
+    private static final long MIN_API_INTERVAL_MS = 220;
 
     private final ObjectMapper objectMapper;
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
+    private long lastApiRequestAt;
 
     public record Document(String name, byte[] content, String contentType, String sourceUrl) {
     }
@@ -212,14 +215,23 @@ public class FeishuDocumentService {
 
     private Document fetchMedia(String token, String name, String accessToken) throws Exception {
         String path = "/open-apis/drive/v1/medias/" + encode(token) + "/download";
-        HttpRequest request = HttpRequest.newBuilder(URI.create("https://open.feishu.cn" + path))
-                .timeout(Duration.ofSeconds(30))
-                .header("Authorization", "Bearer " + accessToken)
-                .GET().build();
-        HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
-        if (response.statusCode() >= 300) throw new BusinessException(502, "飞书文件下载失败 HTTP " + response.statusCode());
-        String contentType = response.headers().firstValue("Content-Type").orElse("application/octet-stream");
-        return new Document(name, response.body(), contentType, "https://www.feishu.cn/drive/file/" + token);
+        for (int attempt = 0; ; attempt++) {
+            throttle();
+            HttpRequest request = HttpRequest.newBuilder(URI.create("https://open.feishu.cn" + path))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Authorization", "Bearer " + accessToken)
+                    .GET().build();
+            HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if ((response.statusCode() == 429 || response.statusCode() >= 500) && attempt < MAX_RETRIES) {
+                Thread.sleep(300L * (attempt + 1));
+                continue;
+            }
+            if (response.statusCode() >= 300) {
+                throw new BusinessException(502, "飞书文件下载失败 HTTP " + response.statusCode());
+            }
+            String contentType = response.headers().firstValue("Content-Type").orElse("application/octet-stream");
+            return new Document(name, response.body(), contentType, "https://www.feishu.cn/drive/file/" + token);
+        }
     }
 
     private Document textDocument(String title, String content, String sourceUrl) {
@@ -273,15 +285,36 @@ public class FeishuDocumentService {
         HttpRequest request = builder.method(method, body == null
                 ? HttpRequest.BodyPublishers.noBody()
                 : HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body))).build();
-        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() >= 300) {
-            throw new BusinessException(502, "飞书 API HTTP " + response.statusCode() + "：" + abbreviate(response.body()));
+        for (int attempt = 0; ; attempt++) {
+            throttle();
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            String responseBody = response.body();
+            boolean rateLimited = response.statusCode() == 429
+                    || (response.statusCode() >= 400 && responseBody.contains("99991400"));
+            if ((rateLimited || response.statusCode() >= 500) && attempt < MAX_RETRIES) {
+                Thread.sleep(300L * (attempt + 1));
+                continue;
+            }
+            if (response.statusCode() >= 300) {
+                throw new BusinessException(502, "飞书 API HTTP " + response.statusCode()
+                        + "：" + abbreviate(responseBody));
+            }
+            JsonNode node = objectMapper.readTree(responseBody);
+            int code = node.path("code").asInt(-1);
+            if (code == 99991400 && attempt < MAX_RETRIES) {
+                Thread.sleep(300L * (attempt + 1));
+                continue;
+            }
+            if (code != 0) throw new BusinessException(502, "飞书 API 错误：" + node.path("msg").asText());
+            return node;
         }
-        JsonNode node = objectMapper.readTree(response.body());
-        if (node.path("code").asInt(-1) != 0) {
-            throw new BusinessException(502, "飞书 API 错误：" + node.path("msg").asText());
-        }
-        return node;
+    }
+
+    /** 飞书 docx raw_content 等接口限制 5 QPS；顺序调用时做本地节流。 */
+    private synchronized void throttle() throws InterruptedException {
+        long wait = MIN_API_INTERVAL_MS - (System.currentTimeMillis() - lastApiRequestAt);
+        if (wait > 0) Thread.sleep(wait);
+        lastApiRequestAt = System.currentTimeMillis();
     }
 
     private JsonNode postJson(String url, Object body) throws Exception {
