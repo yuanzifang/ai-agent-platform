@@ -3,6 +3,7 @@ package com.platform.knowledge.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -17,6 +18,10 @@ public class KnowledgeGraphCommunity {
     private String communityKey;
     private String name;
     private String summary;
+    @JsonIgnore
+    private String embedding;
+    private String embeddingModel;
+    private Integer dimensions;
     private String entityIds;
     private Integer entityCount;
     private String types;

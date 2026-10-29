@@ -75,6 +75,7 @@ class KnowledgeGraphServiceAclTest {
         service = new KnowledgeGraphService(
                 entityMapper, relationMapper, mentionMapper,
                 mock(com.platform.knowledge.mapper.KnowledgeGraphCommunityMapper.class),
+                mock(com.platform.knowledge.service.EmbeddingService.class),
                 mock(KnowledgeGraphJobMapper.class),
                 kbMapper, mock(KnowledgeDocumentMapper.class), chunkMapper,
                 mock(SysConfigMapper.class), mock(BillingUsageMapper.class),
