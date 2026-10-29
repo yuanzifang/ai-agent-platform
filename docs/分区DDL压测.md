@@ -21,6 +21,8 @@ MYSQL_PASSWORD=... ROWS=100000 \
 
 ## 本机结果
 
+无并发：
+
 ```text
 rows_before_drop=100000
 rows_after_drop=91507
@@ -29,7 +31,18 @@ ddl_reorganize_pmax_ms=51
 ddl_drop_partition_ms=36
 ```
 
-环境：本机 MySQL 8.x，InnoDB，临时表，无并发写入。该结果是 **DDL 基准**，不是生产锁表 SLA；生产窗口仍需在真实数据量/复制拓扑/并发写入下复测。
+并发写入（每轮一个 INSERT）：
+
+```text
+rows_before_drop=100021
+rows_after_drop=91531
+partitions=13
+ddl_reorganize_pmax_ms=54
+ddl_drop_partition_ms=52
+concurrent_writes=24 max_ms=42 p95_ms=37
+```
+
+环境：本机 MySQL 8.x，InnoDB，临时表，单连接写入。该结果仍是 **本地 DDL 基准**，不是生产锁表 SLA；生产窗口仍需在真实数据量/复制拓扑/多连接并发下复测。
 
 ## 用途
 
