@@ -12,9 +12,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.PingMessage;
+import org.springframework.web.socket.PongMessage;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import java.net.URI;
 import java.net.URLDecoder;
@@ -45,6 +48,15 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10)).build();
     private final Map<String, WebSocket> upstreams = new ConcurrentHashMap<>();
+    private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastActivity = new ConcurrentHashMap<>();
+    private final Map<String, Long> upstreamPongAt = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastPingAt = new ConcurrentHashMap<>();
+
+    @org.springframework.beans.factory.annotation.Value("${gateway.ws.heartbeat-ms:30000}")
+    private long heartbeatMs = 30000;
+    @org.springframework.beans.factory.annotation.Value("${gateway.ws.idle-timeout-ms:90000}")
+    private long idleTimeoutMs = 90000;
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -78,6 +90,10 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
                     .buildAsync(URI.create(target), new UpstreamListener(session))
                     .get(15, java.util.concurrent.TimeUnit.SECONDS);
             upstreams.put(session.getId(), upstream);
+            sessions.put(session.getId(), session);
+            lastActivity.put(session.getId(), System.currentTimeMillis());
+            upstreamPongAt.put(session.getId(), System.currentTimeMillis());
+            lastPingAt.put(session.getId(), System.currentTimeMillis());
             session.getAttributes().put("routeId", route.getId());
             session.getAttributes().put("upstream", upstream);
             writeLog(route, session, 101, null);
@@ -94,6 +110,7 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
             session.close(CloseStatus.SERVER_ERROR);
             return;
         }
+        lastActivity.put(session.getId(), System.currentTimeMillis());
         upstream.sendText(message.getPayload(), true).get(5, java.util.concurrent.TimeUnit.SECONDS);
     }
 
@@ -105,6 +122,7 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
                 session.close(CloseStatus.SERVER_ERROR);
                 return;
             }
+            lastActivity.put(session.getId(), System.currentTimeMillis());
             ByteBuffer payload = message.getPayload().duplicate();
             upstream.sendBinary(payload, true).get(5, java.util.concurrent.TimeUnit.SECONDS);
         } catch (Exception e) {
@@ -117,9 +135,56 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
     }
 
     @Override
+    protected void handlePongMessage(WebSocketSession session, PongMessage message) {
+        lastActivity.put(session.getId(), System.currentTimeMillis());
+    }
+
+    @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         WebSocket upstream = upstreams.remove(session.getId());
+        sessions.remove(session.getId());
+        lastActivity.remove(session.getId());
+        upstreamPongAt.remove(session.getId());
+        lastPingAt.remove(session.getId());
         if (upstream != null) upstream.abort();
+    }
+
+    /** 定时 Ping 客户端/上游；长时间无 Pong 或客户端空闲则关闭，防止半开连接堆积。 */
+    @Scheduled(fixedDelayString = "${gateway.ws.heartbeat-scan-ms:15000}")
+    public void heartbeat() {
+        long now = System.currentTimeMillis();
+        long idle = Math.max(30_000L, idleTimeoutMs);
+        for (Map.Entry<String, WebSocketSession> entry : sessions.entrySet()) {
+            String id = entry.getKey();
+            WebSocketSession session = entry.getValue();
+            if (!session.isOpen()) {
+                try { session.close(); } catch (Exception ignored) { }
+                sessions.remove(id);
+                continue;
+            }
+            if (now - lastActivity.getOrDefault(id, now) > idle
+                    || now - upstreamPongAt.getOrDefault(id, now) > idle) {
+                try { session.close(CloseStatus.SESSION_NOT_RELIABLE.withReason("heartbeat timeout")); }
+                catch (Exception ignored) { }
+                continue;
+            }
+            if (now - lastPingAt.getOrDefault(id, now) >= heartbeatMs) {
+                lastPingAt.put(id, now);
+                try {
+                    session.sendMessage(new PingMessage());
+                } catch (Exception e) {
+                    try { session.close(); } catch (Exception ignored) { }
+                }
+                WebSocket upstream = upstreams.get(id);
+                if (upstream != null) {
+                    try {
+                        upstream.sendPing(ByteBuffer.allocate(0));
+                    } catch (Exception e) {
+                        try { session.close(CloseStatus.SERVER_ERROR); } catch (Exception ignored) { }
+                    }
+                }
+            }
+        }
     }
 
     private String routeKey(WebSocketSession session) {
@@ -221,6 +286,13 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
             } catch (Exception e) {
                 log.debug("WS downstream binary send failed: {}", e.getMessage());
             }
+            webSocket.request(1);
+            return null;
+        }
+
+        @Override
+        public CompletionStage<?> onPong(WebSocket webSocket, ByteBuffer message) {
+            upstreamPongAt.put(session.getId(), System.currentTimeMillis());
             webSocket.request(1);
             return null;
         }
