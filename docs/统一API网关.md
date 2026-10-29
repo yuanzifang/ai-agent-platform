@@ -45,6 +45,7 @@ X-Gateway-Key: gw_xxx
 - E2E：主上游连续 3 次 500 → 第 4 次不再调用主上游，直接走备用并返回 200；
 - 2026-10-29 本机 WebSocket echo 手工验证：创建路由 → `ws://127.0.0.1:8080/api/v1/gateway/ws/{routeKey}?key=...` → 发送 `hello-websocket`，收到 `echo:hello-websocket`；错误 key 不返回业务消息；测试路由/echo 服务已清理；
 - 2026-10-29 WebSocket 连接配额手工验证：`wsMaxConnections=1`，首个连接 echo 正常；第二个连接握手后收到 close(1008, connection limit)；首个连接关闭后第三个连接恢复 echo；测试路由/echo 服务已清理；
+- 2026-10-29 WebSocket 上游掉线切换手工验证：主 A `18101`、备 B `18102`；连接后发送 `one` 收到 `A:one`，杀掉 A 后再发送 `two` 收到 `B:two`；测试路由/echo 服务已清理；
 - 2026-10-29 主动健康检查手工验证：主上游 `127.0.0.1:19999` DOWN、备用 `127.0.0.1:18080` UP；代理请求自动跳过主上游，返回 200 且日志记录 `fallback upstream`；测试路由已清理；
 - 2026-10-29 权重手工验证：主/备 A/B，`0/100` 三次均 B，`100/0` 三次均 A，`50/50` 20 次采样 A 7/B 13；测试路由和本地服务已清理；
 - 完整 E2E 46/46。
