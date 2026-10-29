@@ -785,6 +785,35 @@ public class KnowledgeService {
         return Map.of("documentId", doc.getId(), "status", doc.getStatus());
     }
 
+    /** 已取得文本/文件的通用导入：写入对象存储后复用现有解析/embedding 流水线。 */
+    public Map<String, Object> importContent(Long kbId, String fileName, byte[] content, String contentType,
+                                             Instant effectiveFrom, Instant effectiveTo,
+                                             KnowledgePermissionService.Viewer viewer, String sourceUrl) {
+        permissionService.requireEdit(kbId, viewer);
+        if (content == null || content.length == 0) throw new BusinessException(400, "导入内容为空");
+        if (content.length > importMaxBytes) {
+            throw new BusinessException(413, "单个飞书文件超过 " + (importMaxBytes / 1024 / 1024) + "MB 限制");
+        }
+        if (effectiveFrom != null && effectiveTo != null && effectiveFrom.isAfter(effectiveTo)) {
+            throw new BusinessException(400, "内容生效开始时间不能晚于结束时间");
+        }
+        quotaService.checkStorage(content.length);
+        Long tenantId = TenantContext.getTenantId();
+        String safeName = safeFileName(fileName == null || fileName.isBlank() ? "feishu.md" : fileName);
+        String objectName = tenantId + "/knowledge/" + kbId + "/"
+                + UUID.randomUUID().toString().replace("-", "").substring(0, 12) + "/" + safeName;
+        storage.put(objectName, content, contentType == null || contentType.isBlank()
+                ? "application/octet-stream" : contentType);
+        Map<String, Object> result = new LinkedHashMap<>(callback(kbId, objectName, null, null,
+                effectiveFrom, effectiveTo, viewer));
+        result.put("fileName", safeName);
+        if (sourceUrl != null && !sourceUrl.isBlank()) result.put("sourceUrl", sourceUrl);
+        auditService.record(viewer.userId(), "kb.document.feishu_import", "knowledge_document",
+                String.valueOf(result.get("documentId")), "SUCCESS",
+                Map.of("kbId", kbId, "fileName", safeName, "size", content.length));
+        return result;
+    }
+
     /** URL 导入：抓取网页/PDF/文本并存入对象存储，复用回调登记与异步解析。 */
     public Map<String, Object> importUrl(Long kbId, String rawUrl, KnowledgePermissionService.Viewer viewer) {
         return importUrl(kbId, rawUrl, null, null, viewer);

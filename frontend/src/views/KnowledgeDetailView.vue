@@ -20,6 +20,7 @@
       </el-upload>
       <el-button v-if="detail.canEdit" @click="parseVisible = true">{{ t('kbDetail.parseSettings') }}</el-button>
       <el-button v-if="detail.canEdit" @click="urlVisible = true">{{ t('kbDetail.urlImport') }}</el-button>
+      <el-button v-if="detail.canEdit" @click="feishuVisible = true">{{ t('kbDetail.feishuImport') }}</el-button>
       <el-button v-if="detail.canEdit" type="danger" plain @click="removeKb">{{ t('kbDetail.deleteKb') }}</el-button>
     </div>
 
@@ -421,6 +422,35 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="feishuVisible" :title="t('kbDetail.feishuTitle')" width="560px">
+      <el-form label-width="90px">
+        <el-form-item label="URL" required>
+          <el-input v-model="feishuForm.url"
+                    placeholder="https://xxx.feishu.cn/docx/... 或 /wiki/... 或 /drive/folder/..." />
+        </el-form-item>
+        <el-form-item label="App ID" required>
+          <el-input v-model="feishuForm.appId" placeholder="cli_xxxxxxxx" />
+        </el-form-item>
+        <el-form-item label="App Secret" required>
+          <el-input v-model="feishuForm.appSecret" type="password" show-password
+                    placeholder="飞书应用 Secret（仅本次请求使用，不落库）" />
+        </el-form-item>
+        <el-form-item :label="t('kbDetail.contentValidity')">
+          <el-date-picker v-model="feishuForm.effectiveRange" type="datetimerange" size="small"
+                          :start-placeholder="t('kbDetail.validFrom')"
+                          :end-placeholder="t('kbDetail.validTo')"
+                          style="width: 320px" />
+        </el-form-item>
+      </el-form>
+      <div class="hint">{{ t('kbDetail.feishuHint') }}</div>
+      <template #footer>
+        <el-button @click="feishuVisible = false">{{ t('kbDetail.cancel') }}</el-button>
+        <el-button type="primary" :loading="feishuImporting" @click="importFeishu">
+          {{ t('kbDetail.import') }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="permVisible" :title="t('kbDetail.permTitle')" width="620px">
       <el-form label-width="90px">
         <el-form-item :label="t('kbDetail.visibility')">
@@ -593,6 +623,11 @@ const uploading = computed(() => uploadTasks.value.some(
 const urlVisible = ref(false)
 const urlImporting = ref(false)
 const urlForm = reactive({ url: '', effectiveRange: null as Date[] | null })
+const feishuVisible = ref(false)
+const feishuImporting = ref(false)
+const feishuForm = reactive({
+  url: '', appId: '', appSecret: '', effectiveRange: null as Date[] | null
+})
 const searching = ref(false)
 const searched = ref(false)
 const results = ref<any[]>([])
@@ -1080,6 +1115,36 @@ function uploadTaskText(task: any) {
 function clearFinishedUploads() {
   uploadTasks.value = uploadTasks.value.filter(
     task => task.status === 'uploading' || task.status === 'parsing')
+}
+
+async function importFeishu() {
+  if (!feishuForm.url.trim() || !feishuForm.appId.trim() || !feishuForm.appSecret.trim()) {
+    ElMessage.warning(t('kbDetail.feishuRequired')); return
+  }
+  feishuImporting.value = true
+  try {
+    const range = feishuForm.effectiveRange
+    const result = await http.post(`/knowledge-base/${kbId}/documents/feishu`, {
+      url: feishuForm.url.trim(),
+      appId: feishuForm.appId.trim(),
+      appSecret: feishuForm.appSecret.trim(),
+      effectiveFrom: range?.[0] ? new Date(range[0]).toISOString() : undefined,
+      effectiveTo: range?.[1] ? new Date(range[1]).toISOString() : undefined
+    }) as any
+    if (result?.failed > 0) {
+      ElMessage.warning(t('kbDetail.feishuPartial', { imported: result.imported, failed: result.failed }))
+    } else {
+      ElMessage.success(t('kbDetail.feishuSubmitted', { count: result?.imported ?? 0 }))
+    }
+    feishuVisible.value = false
+    feishuForm.appSecret = ''
+    await loadDocs()
+    pollDocs()
+  } catch (e: any) {
+    ElMessage.error(e?.message || String(e))
+  } finally {
+    feishuImporting.value = false
+  }
 }
 
 async function importUrl() {

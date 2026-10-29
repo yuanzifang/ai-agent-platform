@@ -4,6 +4,7 @@ import com.platform.common.response.ApiResponse;
 import com.platform.knowledge.entity.KnowledgeBase;
 import com.platform.knowledge.entity.KnowledgeDocument;
 import com.platform.knowledge.service.EmbeddingService;
+import com.platform.knowledge.service.FeishuDocumentService;
 import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.knowledge.service.KnowledgeGraphService;
 import com.platform.knowledge.service.KnowledgeSearchIndexService;
@@ -20,6 +21,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -39,6 +41,7 @@ public class KnowledgeController {
     private final KnowledgePermissionService permissionService;
     private final EmbeddingService embeddingService;
     private final KnowledgeUpgradeService upgradeService;
+    private final FeishuDocumentService feishuDocumentService;
     private final VectorStore vectorRepository;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private KnowledgeSearchIndexService searchIndexService;
@@ -279,6 +282,34 @@ public class KnowledgeController {
                                                       @AuthenticationPrincipal JwtPrincipal principal) {
         return ApiResponse.ok(knowledgeService.importUrl(id, req.url(),
                 req.effectiveFrom(), req.effectiveTo(), viewer(principal)));
+    }
+
+    public record FeishuImportRequest(@NotBlank String url, @NotBlank String appId,
+                                      @NotBlank String appSecret, Instant effectiveFrom,
+                                      Instant effectiveTo) {
+    }
+
+    /** 飞书 docx/wiki/drive 文件夹导入；凭据只用于本次请求，不落库。 */
+    @PostMapping("/{id}/documents/feishu")
+    public ApiResponse<Map<String, Object>> importFeishu(@PathVariable Long id,
+                                                         @Valid @RequestBody FeishuImportRequest req,
+                                                         @AuthenticationPrincipal JwtPrincipal principal) {
+        List<FeishuDocumentService.Document> documents =
+                feishuDocumentService.collect(req.url(), req.appId(), req.appSecret());
+        List<Map<String, Object>> imported = new ArrayList<>();
+        List<Map<String, Object>> failed = new ArrayList<>();
+        for (FeishuDocumentService.Document document : documents) {
+            try {
+                imported.add(knowledgeService.importContent(id, document.name(), document.content(),
+                        document.contentType(), req.effectiveFrom(), req.effectiveTo(),
+                        viewer(principal), document.sourceUrl()));
+            } catch (Exception e) {
+                failed.add(Map.of("name", document.name(), "error",
+                        e.getMessage() == null ? "导入失败" : e.getMessage()));
+            }
+        }
+        return ApiResponse.ok(Map.of("total", documents.size(), "imported", imported.size(),
+                "failed", failed.size(), "documents", imported, "failures", failed));
     }
 
     @GetMapping("/{id}/documents")
