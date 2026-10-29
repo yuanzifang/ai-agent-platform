@@ -1823,6 +1823,34 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
       await request.delete(`${P}/gateway/routes/${signedRoute.id}`, { headers: auth(token!) })
     }
 
+    const scopeRoute = await (await request.post(`${P}/gateway/routes`, {
+      headers: auth(token!),
+      data: { name: `E2E Gateway Scope-${Date.now()}`, targetUrl: MOCK,
+        timeoutMs: 5000, rateLimitPerMin: 0 }
+    })).json()
+    expect(scopeRoute.code, JSON.stringify(scopeRoute)).toBe(0)
+    const scopedKey = await (await request.post(`${P}/gateway/routes/${scopeRoute.data.id}/keys`, {
+      headers: auth(token!),
+      data: { name: 'limited', allowedMethods: 'GET', allowedPaths: '/always-ok' }
+    })).json()
+    expect(scopedKey.code, JSON.stringify(scopedKey)).toBe(0)
+    try {
+      const scopeOk = await request.get(`${P}/gateway/call/${scopeRoute.data.routeKey}/always-ok`, {
+        headers: { 'X-Gateway-Key': scopedKey.data.apiKey }
+      })
+      expect(scopeOk.status()).toBe(200)
+      const scopeMethod = await request.post(`${P}/gateway/call/${scopeRoute.data.routeKey}/always-ok`, {
+        headers: { 'X-Gateway-Key': scopedKey.data.apiKey }, data: {}
+      })
+      expect(scopeMethod.status()).toBe(403)
+      const scopePath = await request.get(`${P}/gateway/call/${scopeRoute.data.routeKey}/other`, {
+        headers: { 'X-Gateway-Key': scopedKey.data.apiKey }
+      })
+      expect(scopePath.status()).toBe(403)
+    } finally {
+      await request.delete(`${P}/gateway/routes/${scopeRoute.data.id}`, { headers: auth(token!) })
+    }
+
     const schemaRoute = await (await request.post(`${P}/gateway/routes`, {
       headers: auth(token!),
       data: { name: `E2E Gateway Schema-${Date.now()}`, targetUrl: `${MOCK}/probe`,

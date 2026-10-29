@@ -129,6 +129,8 @@
         <el-input-number v-model="newKeyRate" :min="0" :max="100000" :placeholder="t('gatewayPage.keyRateCol')" />
         <el-date-picker v-model="newKeyExpires" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss"
                         :placeholder="t('gatewayPage.keyExpires')" />
+        <el-input v-model="newKeyMethods" :placeholder="t('gatewayPage.keyMethodsPh')" style="width: 150px" />
+        <el-input v-model="newKeyPaths" :placeholder="t('gatewayPage.keyPathsPh')" style="width: 220px" />
         <el-button type="primary" :loading="keyCreating" @click="createKey">{{ t('gatewayPage.keyCreate') }}</el-button>
       </div>
       <el-alert v-if="newKeyPlain" type="success" :closable="true" @close="newKeyPlain = ''"
@@ -142,6 +144,8 @@
           </template>
         </el-table-column>
         <el-table-column prop="rateLimitPerMin" :label="t('gatewayPage.keyRateCol')" width="90" />
+        <el-table-column prop="allowedMethods" :label="t('gatewayPage.keyMethods')" width="120" />
+        <el-table-column prop="allowedPaths" :label="t('gatewayPage.keyPaths')" min-width="150" show-overflow-tooltip />
         <el-table-column prop="requestCount" :label="t('gatewayPage.keyCalls')" width="100" />
         <el-table-column prop="lastUsedAt" :label="t('gatewayPage.keyLastUsed')" width="170" />
         <el-table-column prop="expiresAt" :label="t('gatewayPage.keyExpires')" width="170" />
@@ -304,6 +308,8 @@ const apiKeys = ref<any[]>([])
 const newKeyName = ref('')
 const newKeyRate = ref<number | undefined>(undefined)
 const newKeyExpires = ref<string>('')
+const newKeyMethods = ref('')
+const newKeyPaths = ref('')
 const keyCreating = ref(false)
 const newKeyPlain = ref('')
 
@@ -319,7 +325,9 @@ async function createKey() {
     const res = await http.post(`/gateway/routes/${keysRoute.value.id}/keys`, {
       name: newKeyName.value || '调用方',
       rateLimitPerMin: newKeyRate.value ?? null,
-      expiresAt: newKeyExpires.value || null
+      expiresAt: newKeyExpires.value || null,
+      allowedMethods: newKeyMethods.value || null,
+      allowedPaths: newKeyPaths.value || null
     }) as any
     newKeyPlain.value = res.apiKey || ''
     ElMessage.success(t('gatewayPage.keyCreated'))
@@ -327,6 +335,8 @@ async function createKey() {
     newKeyName.value = ''
     newKeyRate.value = undefined
     newKeyExpires.value = ''
+    newKeyMethods.value = ''
+    newKeyPaths.value = ''
   } finally {
     keyCreating.value = false
   }
