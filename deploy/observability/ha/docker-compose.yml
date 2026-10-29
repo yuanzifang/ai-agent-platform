@@ -1,0 +1,43 @@
+# 本地 Prometheus 双副本 + nginx 查询 LB。
+# 长期存储（Thanos/S3）不在本文件，后续单独接入。
+name: aap-mon-ha
+
+services:
+  prometheus-a:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./prometheus-a.yml:/etc/prometheus/prometheus.yml:ro
+      - ../alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-a-data:/prometheus
+
+  prometheus-b:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./prometheus-b.yml:/etc/prometheus/prometheus.yml:ro
+      - ../alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-b-data:/prometheus
+
+  prometheus-lb:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "127.0.0.1:19096:8080"
+    depends_on:
+      - prometheus-a
+      - prometheus-b
+
+volumes:
+  prometheus-a-data:
+  prometheus-b-data:
