@@ -1,189 +1,565 @@
 {
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "editable": true,
   "graphTooltip": 1,
   "panels": [
     {
       "type": "stat",
       "title": "Backend Up",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
       "targets": [
-        { "expr": "up{job=\"ai-agent-backend\"}", "refId": "A" }
+        {
+          "expr": "max(up{job=\"ai-agent-backend\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "type": "stat",
       "title": "HTTP 请求速率 (5m)",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
       "targets": [
-        { "expr": "sum(rate(http_server_requests_seconds_count[5m]))", "refId": "A" }
-      ]
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count[5m]))",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "type": "stat",
       "title": "HTTP 5xx 速率 (5m)",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
       "targets": [
-        { "expr": "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[5m]))", "refId": "A" }
-      ]
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[5m]))",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "type": "stat",
       "title": "JVM 堆使用",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
       "targets": [
-        { "expr": "sum(jvm_memory_used_bytes{area=\"heap\"})", "refId": "A" }
+        {
+          "expr": "sum(jvm_memory_used_bytes{area=\"heap\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "bytes" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "type": "timeseries",
       "title": "HTTP 请求速率",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
       "targets": [
-        { "expr": "sum(rate(http_server_requests_seconds_count[5m])) by (uri)", "refId": "A", "legendFormat": "{{uri}}" }
-      ]
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count[5m])) by (uri)",
+          "refId": "A",
+          "legendFormat": "{{uri}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "type": "timeseries",
       "title": "HTTP P95 延迟",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
       "targets": [
-        { "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))", "refId": "A" }
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "s" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "type": "timeseries",
       "title": "JVM 内存",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
       "targets": [
-        { "expr": "sum(jvm_memory_used_bytes) by (area, id)", "refId": "A", "legendFormat": "{{area}} {{id}}" }
+        {
+          "expr": "sum(jvm_memory_used_bytes) by (area, id)",
+          "refId": "A",
+          "legendFormat": "{{area}} {{id}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "bytes" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "type": "timeseries",
       "title": "进程 CPU",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
       "targets": [
-        { "expr": "process_cpu_usage", "refId": "A" }
-      ]
+        {
+          "expr": "process_cpu_usage",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "type": "stat",
       "title": "ES outbox 待处理",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 20 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 20
+      },
       "targets": [
-        { "expr": "knowledge_search_outbox_pending", "refId": "A" }
+        {
+          "expr": "knowledge_search_outbox_pending",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "type": "stat",
       "title": "ES outbox 失败",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 20 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 20
+      },
       "targets": [
-        { "expr": "knowledge_search_outbox_failed", "refId": "A" }
+        {
+          "expr": "knowledge_search_outbox_failed",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
       "fieldConfig": {
         "defaults": {
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
             ]
           }
         }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       }
     },
     {
       "type": "stat",
       "title": "ES outbox 执行中",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 20 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 20
+      },
       "targets": [
-        { "expr": "knowledge_search_outbox_locked", "refId": "A" }
+        {
+          "expr": "knowledge_search_outbox_locked",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "type": "stat",
       "title": "ES outbox 最老等待",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 20 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 20
+      },
       "targets": [
-        { "expr": "knowledge_search_outbox_oldest_pending_seconds", "refId": "A" }
+        {
+          "expr": "knowledge_search_outbox_oldest_pending_seconds",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "s" } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "type": "timeseries",
       "title": "ES outbox 趋势",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 24 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
       "targets": [
-        { "expr": "knowledge_search_outbox_pending", "legendFormat": "pending", "refId": "A" },
-        { "expr": "knowledge_search_outbox_failed", "legendFormat": "failed", "refId": "B" },
-        { "expr": "knowledge_search_outbox_locked", "legendFormat": "locked", "refId": "C" }
-      ]
+        {
+          "expr": "knowledge_search_outbox_pending",
+          "legendFormat": "pending",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "knowledge_search_outbox_failed",
+          "legendFormat": "failed",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "knowledge_search_outbox_locked",
+          "legendFormat": "locked",
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "type": "stat",
       "title": "Prometheus 触发中告警",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 24 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
       "targets": [
-        { "expr": "sum(ALERTS{alertstate=\"firing\"})", "refId": "A" }
+        {
+          "expr": "sum(ALERTS{alertstate=\"firing\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
       "fieldConfig": {
         "defaults": {
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
             ]
           }
         }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       }
     },
     {
       "type": "stat",
       "title": "ES 快照最近成功",
-      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 31 },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 31
+      },
       "targets": [
-        { "expr": "knowledge_es_snapshot_last_success_epoch_seconds * 1000", "refId": "A" }
+        {
+          "expr": "knowledge_es_snapshot_last_success_epoch_seconds * 1000",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "dateTimeAsIso" } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     },
     {
       "type": "stat",
       "title": "ES 快照仓库可查询",
-      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 31 },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 31
+      },
       "targets": [
-        { "expr": "knowledge_es_snapshot_available", "refId": "A" }
+        {
+          "expr": "knowledge_es_snapshot_available",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
       "fieldConfig": {
         "defaults": {
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "green", "value": 1 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
             ]
           }
         }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       }
     }
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["ai-agent-platform"],
-  "time": { "from": "now-6h", "to": "now" },
+  "tags": [
+    "ai-agent-platform"
+  ],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "timezone": "browser",
   "title": "AI Agent Platform Overview",
   "uid": "ai-agent-overview",
