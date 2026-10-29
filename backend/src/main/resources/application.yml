@@ -428,6 +428,12 @@ springdoc:
     operations-sorter: method
 
 # 运维告警推送（钉钉/企微/飞书群机器人 webhook；url 空则不推送）
+model:
+  concurrency:
+    # LLM 并发准入预算：0=不限（默认关）；wait-ms>0 允许短暂排队，0=超预算直接 429
+    max-llm: ${MODEL_CONCURRENCY_MAX_LLM:0}
+    wait-ms: ${MODEL_CONCURRENCY_WAIT_MS:0}
+
 alert:
   webhook:
     enabled: ${ALERT_WEBHOOK_ENABLED:false}
