@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
+import com.platform.common.security.CryptoService;
 import com.platform.common.security.NetworkPolicyService;
 import com.platform.gateway.entity.GatewayApiKey;
 import com.platform.gateway.entity.GatewayRequestLog;
@@ -66,6 +67,7 @@ public class GatewayService {
     private final GatewayApiKeyService apiKeyService;
     private final ObjectMapper objectMapper;
     private final GatewayHealthService healthService;
+    private final CryptoService cryptoService;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NEVER)
@@ -113,6 +115,11 @@ public class GatewayService {
         route.setHealthPath(healthPath(req.get("healthPath")));
         route.setHealthCheckEnabled(Boolean.FALSE.equals(req.get("healthCheckEnabled")) ? 0 : 1);
         route.setWsMaxConnections(clamp(intValue(req.get("wsMaxConnections"), 100), 0, 10000));
+        String signingSecret = null;
+        if (Boolean.TRUE.equals(req.get("signingEnabled"))) {
+            signingSecret = newSigningSecret();
+            route.setSigningSecret(cryptoService.encrypt(signingSecret));
+        }
         route.setEnabled(Boolean.FALSE.equals(req.get("enabled")) ? 0 : 1);
         route.setCreatedBy(principal.userId());
         route.setCreatedAt(LocalDateTime.now());
@@ -122,6 +129,7 @@ public class GatewayService {
                 String.valueOf(route.getId()), "SUCCESS", Map.of("name", name));
         Map<String, Object> result = view(route);
         result.put("apiKey", apiKey);
+        if (signingSecret != null) result.put("signingSecret", signingSecret);
         return result;
     }
 
@@ -171,12 +179,24 @@ public class GatewayService {
         if (req.containsKey("wsMaxConnections")) {
             route.setWsMaxConnections(clamp(intValue(req.get("wsMaxConnections"), 100), 0, 10000));
         }
+        String newSigningSecret = null;
+        if (req.containsKey("signingEnabled")) {
+            boolean signingEnabled = Boolean.TRUE.equals(req.get("signingEnabled"));
+            if (!signingEnabled) {
+                route.setSigningSecret(null);
+            } else if (route.getSigningSecret() == null || route.getSigningSecret().isBlank()) {
+                newSigningSecret = newSigningSecret();
+                route.setSigningSecret(cryptoService.encrypt(newSigningSecret));
+            }
+        }
         if (req.containsKey("enabled")) route.setEnabled(Boolean.FALSE.equals(req.get("enabled")) ? 0 : 1);
         route.setUpdatedAt(LocalDateTime.now());
         routeMapper.updateById(route);
         auditService.record(principal.userId(), "gateway.route.update", "gateway_route",
                 String.valueOf(id), "SUCCESS", Map.of("name", route.getName()));
-        return view(route);
+        Map<String, Object> result = view(route);
+        if (newSigningSecret != null) result.put("signingSecret", newSigningSecret);
+        return result;
     }
 
     @Transactional
@@ -312,6 +332,13 @@ public class GatewayService {
             if (body.length > MAX_BODY) {
                 log(route, request, 413, null, started, "body too large");
                 return error(servletResponse, HttpStatus.PAYLOAD_TOO_LARGE, "请求体不能超过 5MB");
+            }
+            String signatureError = verifySignature(route, request, body);
+            if (signatureError != null) {
+                int status = "replay".equals(signatureError) ? 409 : 401;
+                log(route, request, status, null, started, "signature: " + signatureError);
+                return error(servletResponse, status == 409 ? HttpStatus.CONFLICT : HttpStatus.UNAUTHORIZED,
+                        "请求签名校验失败：" + signatureError);
             }
             List<String> targets = weightedTargets(route);
             java.util.Set<String> unhealthy = healthService.unhealthyTargets(route.getId(), targets);
@@ -770,6 +797,7 @@ public class GatewayService {
         m.put("healthPath", route.getHealthPath() == null ? "/" : route.getHealthPath());
         m.put("healthCheckEnabled", route.getHealthCheckEnabled() == null || route.getHealthCheckEnabled() != 0);
         m.put("wsMaxConnections", route.getWsMaxConnections() == null ? 100 : route.getWsMaxConnections());
+        m.put("signingEnabled", route.getSigningSecret() != null && !route.getSigningSecret().isBlank());
         m.put("enabled", route.getEnabled() != null && route.getEnabled() == 1);
         m.put("createdAt", route.getCreatedAt());
         m.put("updatedAt", route.getUpdatedAt());
@@ -803,6 +831,37 @@ public class GatewayService {
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    private String verifySignature(GatewayRoute route, HttpServletRequest request, byte[] body) {
+        if (route.getSigningSecret() == null || route.getSigningSecret().isBlank()) return null;
+        String secret;
+        try {
+            secret = cryptoService.decrypt(route.getSigningSecret());
+        } catch (Exception e) {
+            return "signing key invalid";
+        }
+        String error = GatewaySignature.verifyHeader(secret,
+                request.getMethod(), request.getRequestURI(), request.getQueryString(),
+                request.getHeader("X-Gateway-Timestamp"), request.getHeader("X-Gateway-Nonce"),
+                body, request.getHeader("X-Gateway-Signature"));
+        if (error != null) return error;
+        String nonce = request.getHeader("X-Gateway-Nonce");
+        try {
+            String key = "gateway:nonce:" + route.getId() + ":" + nonce;
+            Boolean fresh = redis.opsForValue().setIfAbsent(key, "1", GatewaySignature.nonceTtl());
+            if (!Boolean.TRUE.equals(fresh)) return "replay";
+        } catch (Exception e) {
+            // 与限流/熔断一致：Redis 故障优先保证网关可用，nonce 唯一性降级。
+            log.warn("网关 nonce 校验失败（已放行）route={}：{}", route.getId(), e.getMessage());
+        }
+        return null;
+    }
+
+    private String newSigningSecret() {
+        byte[] bytes = new byte[32];
+        new SecureRandom().nextBytes(bytes);
+        return "gws_" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
     private String healthPath(Object raw) {

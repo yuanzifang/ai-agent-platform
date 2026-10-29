@@ -22,6 +22,8 @@ public class GatewayRoute {
     private String upstreamUrls;
     /** URL -> weight 的 JSON；未配置按主 100、其余 0。 */
     private String upstreamWeights;
+    /** AES-GCM 加密的 HMAC 签名密钥；空=关闭请求签名。 */
+    private String signingSecret;
     private Integer timeoutMs;
     private Integer retries;
     private Integer rateLimitPerMin;
