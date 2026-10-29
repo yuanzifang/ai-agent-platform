@@ -1,0 +1,101 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "最近 5 分钟可用性",
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "(sum(rate(http_server_requests_seconds_count{status!~\"5..\",uri!~\"/actuator.*\"}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{uri!~\"/actuator.*\"}[5m])), 0.001)) or vector(1)",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "type": "stat",
+      "title": "最近 5 分钟错误率",
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "(sum(rate(http_server_requests_seconds_count{status=~\"5..\",uri!~\"/actuator.*\"}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{uri!~\"/actuator.*\"}[5m])), 0.001)) or vector(0)",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "type": "stat",
+      "title": "API P95 延迟",
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{uri!~\"/actuator.*\"}[5m])) by (le))",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "type": "timeseries",
+      "title": "可用性 SLI（5 分钟）",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{status!~\"5..\",uri!~\"/actuator.*\"}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{uri!~\"/actuator.*\"}[5m])), 0.001)",
+          "legendFormat": "availability",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } }
+    },
+    {
+      "type": "timeseries",
+      "title": "错误预算燃烧率（1 小时）",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "(sum(rate(http_server_requests_seconds_count{status=~\"5..\",uri!~\"/actuator.*\"}[1h])) / clamp_min(sum(rate(http_server_requests_seconds_count{uri!~\"/actuator.*\"}[1h])), 0.001)) / 0.001",
+          "legendFormat": "burn rate",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "custom": { "thresholdsStyle": { "mode": "line" } }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 14 }] } } }
+    },
+    {
+      "type": "timeseries",
+      "title": "API 请求量",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\"/actuator.*\"}[5m]))",
+          "legendFormat": "requests/s",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "title": "AI Agent Platform - SLO",
+  "uid": "aap-slo",
+  "time": { "from": "now-6h", "to": "now" },
+  "version": 1
+}
