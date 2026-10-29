@@ -31,7 +31,7 @@ ddl_reorganize_pmax_ms=51
 ddl_drop_partition_ms=36
 ```
 
-并发写入（每轮一个 INSERT）：
+并发写入（单连接）：
 
 ```text
 rows_before_drop=100021
@@ -42,7 +42,18 @@ ddl_drop_partition_ms=52
 concurrent_writes=24 max_ms=42 p95_ms=37
 ```
 
-环境：本机 MySQL 8.x，InnoDB，临时表，单连接写入。该结果仍是 **本地 DDL 基准**，不是生产锁表 SLA；生产窗口仍需在真实数据量/复制拓扑/多连接并发下复测。
+并发写入（4 连接）：
+
+```text
+rows_before_drop=100076
+rows_after_drop=91591
+partitions=13
+ddl_reorganize_pmax_ms=60
+ddl_drop_partition_ms=57
+concurrent_writes=84 max_ms=44 p95_ms=42
+```
+
+环境：本机 MySQL 8.x，InnoDB，临时表。该结果仍是 **本地 DDL 基准**，不是生产锁表 SLA；生产窗口仍需在真实数据量/复制拓扑/更高并发下复测。
 
 ## 用途
 
