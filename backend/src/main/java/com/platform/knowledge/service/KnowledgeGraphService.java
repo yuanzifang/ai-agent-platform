@@ -212,6 +212,40 @@ public class KnowledgeGraphService implements ApplicationRunner {
         return out;
     }
 
+    /** 为社区生成短摘要；不持久化，供前端展示或后续写入社区索引。 */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> summarizeCommunities(Long kbId, String modelName, int limit,
+                                                    KnowledgePermissionService.Viewer viewer) {
+        Map<String, Object> data = communities(kbId, viewer);
+        List<Map<String, Object>> communities = (List<Map<String, Object>>) data.get("communities");
+        int size = Math.max(1, Math.min(limit, 10));
+        List<Map<String, Object>> result = new ArrayList<>();
+        String model = modelName == null || modelName.isBlank() ? "deepseek-flash" : modelName;
+        for (Map<String, Object> community : communities.stream().limit(size).toList()) {
+            Map<String, Object> row = new LinkedHashMap<>(community);
+            List<Map<String, Object>> members = (List<Map<String, Object>>) community.get("members");
+            String names = members.stream().map(m -> String.valueOf(m.get("name")))
+                    .limit(20).collect(Collectors.joining("、"));
+            try {
+                ChatResponse response = ChatClient.create(modelRouter.resolve(model)).prompt()
+                        .system("你是知识图谱编辑，只输出一句不超过80字的中文社区摘要，不要解释。")
+                        .user("社区实体：" + names)
+                        .call().chatResponse();
+                row.put("summary", response.getResult() == null ? ""
+                        : response.getResult().getOutput().getText());
+            } catch (Exception e) {
+                log.warn("社区摘要生成失败 kb={} community={}: {}", kbId, community.get("id"), e.getMessage());
+                row.put("summary", community.get("name"));
+            }
+            result.add(row);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("model", model);
+        out.put("communityCount", communities.size());
+        out.put("communities", result);
+        return out;
+    }
+
     /** 实体详情：提及证据、关联关系、来源文档。 */
     public Map<String, Object> entityDetail(Long kbId, Long entityId,
                                             KnowledgePermissionService.Viewer viewer) {
