@@ -1,6 +1,7 @@
 package com.platform.gateway.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.platform.common.validation.ToolInputValidator;
 import com.platform.common.security.CryptoService;
 import com.platform.common.security.NetworkPolicyService;
 import com.platform.gateway.entity.GatewayRoute;
@@ -21,7 +22,8 @@ class GatewayServiceWeightsTest {
             mock(GatewayRouteMapper.class), mock(GatewayRequestLogMapper.class),
             mock(NetworkPolicyService.class), mock(StringRedisTemplate.class),
             mock(AuditService.class), mock(GatewayApiKeyService.class),
-            new ObjectMapper(), mock(GatewayHealthService.class), mock(CryptoService.class));
+            new ObjectMapper(), mock(GatewayHealthService.class), mock(CryptoService.class),
+            mock(ToolInputValidator.class));
 
     @Test
     void keepsTargetFirstWhenFallbackWeightIsZero() {

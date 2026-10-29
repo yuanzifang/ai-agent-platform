@@ -1,4 +1,4 @@
-package com.platform.capability.runtime;
+package com.platform.common.validation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
