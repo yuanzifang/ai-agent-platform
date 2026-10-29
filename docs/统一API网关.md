@@ -24,7 +24,7 @@ X-Gateway-Key: gw_xxx
 - 主上游 5xx/连接失败自动切备用上游；另支持最多 5 个额外上游，按顺序故障切换，日志记录 fallback；
 - **上游权重**：`targetWeight` / `fallbackWeight` / `upstreamWeights`（URL->权重），默认主上游 100、备用/额外 0；
   权重 >0 的上游按权重随机决定首跳，失败后按剩余顺序切换；全部权重为 0 时保持原有顺序；
-- 最小 WAF：限制代理方法、超长 URI/query、CRLF 和编码目录穿越，拒绝时记录请求日志；
+- 高置信度 WAF：限制代理方法、超长 URI/query、控制字符、CRLF、单/双重编码目录穿越、SQLi/XSS 特征；HTTP 与 WebSocket 握手共用同一规则，拒绝时记录请求日志；
 - **上游轻量熔断**：同一路由+上游 2 分钟内连续 3 次 5xx/IO 失败后打开 60 秒，期间直接跳过主上游走备用；
   无备用时返回 503；Redis 故障 fail-open；路由删除时清理熔断键；
 - **主动健康检查**：默认每 30 秒探测启用路由的每个上游；`healthPath` 默认 `/`，可用 `GET/POST /api/v1/gateway/routes/{id}/health[/check]` 查看/立即检查；
@@ -48,6 +48,8 @@ X-Gateway-Key: gw_xxx
 - 2026-10-29 WebSocket 上游掉线切换手工验证：主 A `18101`、备 B `18102`；连接后发送 `one` 收到 `A:one`，杀掉 A 后再发送 `two` 收到 `B:two`；测试路由/echo 服务已清理；
 - 2026-10-29 主动健康检查手工验证：主上游 `127.0.0.1:19999` DOWN、备用 `127.0.0.1:18080` UP；代理请求自动跳过主上游，返回 200 且日志记录 `fallback upstream`；测试路由已清理；
 - 2026-10-29 权重手工验证：主/备 A/B，`0/100` 三次均 B，`100/0` 三次均 A，`50/50` 20 次采样 A 7/B 13；测试路由和本地服务已清理；
+- 2026-10-29 WAF E2E：网关正常请求 200；查询参数携带 `union select` 被 400 拒绝并返回 WAF 提示；
+- 2026-10-29 WebSocket E2E：鉴权/回显/全局连接配额、权重首跳、上游掉线切换 3 passed；
 - 完整 E2E 46/46。
 
 ## 未完成
@@ -57,5 +59,5 @@ X-Gateway-Key: gw_xxx
 - OAuth2/JWT 上游鉴权、IP 白名单；
 - WebSocket 透传已支持最小双向代理：`/api/v1/gateway/ws/{routeKey}?key=<apiKey>`，targetUrl 使用 http(s)，运行时转换为 ws(s)，文本/二进制帧双向转发；服务端定时 Ping 客户端/上游并按 `gateway.ws.idle-timeout-ms` 回收半开连接；支持 fallback/额外 upstream 建连及已建立连接掉线切换；路由级 `wsMaxConnections`（0=不限，Redis 全局统计，Redis 故障回退实例统计）；
 - 管理端审计报表/用量计费；
-- WAF、防重放、签名；
+- 防重放、请求签名、Body Schema 校验；
 - 生产级 Key 生命周期（过期、scope、多 Key）。

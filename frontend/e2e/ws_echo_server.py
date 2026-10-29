@@ -4,9 +4,12 @@ import base64
 import hashlib
 import socket
 import struct
+import sys
 import threading
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 18100
+PREFIX = sys.argv[2] if len(sys.argv) > 2 else ""
 
 
 def handle(conn):
@@ -55,7 +58,10 @@ def handle(conn):
                 conn.sendall(bytes([0x8A, len(payload)]) + payload)
                 continue
             if opcode in (1, 2):
-                conn.sendall(bytes([0x80 | opcode, len(payload)]) + payload)
+                body = payload
+                if opcode == 1 and PREFIX:
+                    body = f"{PREFIX}:".encode() + payload
+                conn.sendall(bytes([0x80 | opcode, len(body)]) + body)
     except Exception:
         pass
     finally:
@@ -65,9 +71,9 @@ def handle(conn):
 def main():
     server = socket.socket()
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind(("127.0.0.1", 18100))
+    server.bind(("127.0.0.1", PORT))
     server.listen()
-    print("ws echo ready", flush=True)
+    print(f"ws echo ready port={PORT} prefix={PREFIX}", flush=True)
     while True:
         conn, _ = server.accept()
         threading.Thread(target=handle, args=(conn,), daemon=True).start()
