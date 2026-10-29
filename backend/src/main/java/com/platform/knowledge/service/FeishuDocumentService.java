@@ -202,7 +202,7 @@ public class FeishuDocumentService {
 
     private Document fetchDoc(String token, String accessToken, String sourceUrl, String fallbackName)
             throws Exception {
-        JsonNode data = requestJson("/open-apis/doc/v2/" + encode(token) + "/content",
+        JsonNode data = requestJson("/open-apis/doc/v2/" + encode(token) + "/raw_content",
                 accessToken, "GET", null).path("data");
         String content = data.path("content").asText("");
         if (content.isBlank()) throw new BusinessException(502, "飞书旧版文档内容为空：" + token);
@@ -225,9 +225,9 @@ public class FeishuDocumentService {
     private Document textDocument(String title, String content, String sourceUrl) {
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
         String safe = (title == null || title.isBlank() ? "飞书文档" : title)
-                .replaceAll("[\\\\/:*?\"<>|]", "_");
-        if (!safe.toLowerCase().endsWith(".md") && !safe.toLowerCase().endsWith(".txt")) safe += ".md";
-        return new Document(safe, bytes, "text/markdown", sourceUrl);
+                .replaceAll("[\\\\/:*?\"<>|]", "_")
+                .replaceAll("(?i)\\.(md|markdown|txt)$", "");
+        return new Document(safe + ".txt", bytes, "text/plain", sourceUrl);
     }
 
     private String title(JsonNode data, String fallbackName) {
