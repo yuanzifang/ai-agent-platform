@@ -256,6 +256,7 @@ public class GatewayService {
                 req.get("dailyQuota") instanceof Number n ? n.intValue() : null,
                 req.get("allowedMethods") == null ? null : String.valueOf(req.get("allowedMethods")),
                 req.get("allowedPaths") == null ? null : String.valueOf(req.get("allowedPaths")),
+                req.get("allowedIps") == null ? null : String.valueOf(req.get("allowedIps")),
                 expiresAt, principal.userId());
         Map<String, Object> out = new java.util.LinkedHashMap<>();
         out.put("id", created.key().getId());
@@ -277,6 +278,7 @@ public class GatewayService {
                 req.get("dailyQuota") instanceof Number n ? n.intValue() : null,
                 req.get("allowedMethods") == null ? null : String.valueOf(req.get("allowedMethods")),
                 req.get("allowedPaths") == null ? null : String.valueOf(req.get("allowedPaths")),
+                req.get("allowedIps") == null ? null : String.valueOf(req.get("allowedIps")),
                 expiresAt, principal.userId());
     }
 
@@ -346,6 +348,10 @@ public class GatewayService {
         if (!apiKeyService.scopeAllows(callerKey, request.getMethod(), suffix)) {
             log(route, request, 403, null, started, "api key scope denied");
             return error(servletResponse, HttpStatus.FORBIDDEN, "API Key scope 不允许该请求");
+        }
+        if (!apiKeyService.ipAllows(callerKey, request.getRemoteAddr())) {
+            log(route, request, 403, null, started, "api key ip denied");
+            return error(servletResponse, HttpStatus.FORBIDDEN, "API Key IP 不在白名单");
         }
         String query = request.getQueryString();
         try {

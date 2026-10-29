@@ -60,6 +60,7 @@ public class GatewayApiKeyService {
         m.put("dailyQuota", k.getDailyQuota());
         m.put("allowedMethods", k.getAllowedMethods());
         m.put("allowedPaths", k.getAllowedPaths());
+        m.put("allowedIps", k.getAllowedIps());
         m.put("requestCount", k.getRequestCount());
         m.put("lastUsedAt", k.getLastUsedAt());
         m.put("createdAt", k.getCreatedAt());
@@ -82,6 +83,13 @@ public class GatewayApiKeyService {
     public CreatedKey create(Long routeId, Long tenantId, String name,
                              Integer rateLimitPerMin, Integer dailyQuota, String allowedMethods, String allowedPaths,
                              java.time.LocalDateTime expiresAt, Long operatorId) {
+        return create(routeId, tenantId, name, rateLimitPerMin, dailyQuota, allowedMethods, allowedPaths,
+                null, expiresAt, operatorId);
+    }
+
+    public CreatedKey create(Long routeId, Long tenantId, String name,
+                             Integer rateLimitPerMin, Integer dailyQuota, String allowedMethods, String allowedPaths,
+                             String allowedIps, java.time.LocalDateTime expiresAt, Long operatorId) {
         byte[] bytes = new byte[32];
         new SecureRandom().nextBytes(bytes);
         String apiKey = "gwk_" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
@@ -97,6 +105,7 @@ public class GatewayApiKeyService {
         key.setDailyQuota(dailyQuota == null ? null : Math.max(0, dailyQuota));
         key.setAllowedMethods(normalizeMethods(allowedMethods));
         key.setAllowedPaths(normalizePaths(allowedPaths));
+        key.setAllowedIps(normalizeIps(allowedIps));
         key.setRequestCount(0L);
         key.setCreatedBy(operatorId);
         key.setCreatedAt(LocalDateTime.now());
@@ -131,6 +140,51 @@ public class GatewayApiKeyService {
         return true;
     }
 
+    public boolean ipAllows(GatewayApiKey key, String remoteIp) {
+        if (key == null || key.getAllowedIps() == null || key.getAllowedIps().isBlank()) return true;
+        if (remoteIp == null || remoteIp.isBlank()) return false;
+        try {
+            java.net.InetAddress remote = java.net.InetAddress.getByName(remoteIp.replaceAll("%.*$", "").replace("[", "").replace("]", ""));
+            for (String raw : key.getAllowedIps().split("[,\n\r]+")) {
+                String rule = raw.trim();
+                if (rule.isEmpty()) continue;
+                int slash = rule.indexOf('/');
+                String host = slash < 0 ? rule : rule.substring(0, slash);
+                java.net.InetAddress allowed = java.net.InetAddress.getByName(
+                        host.replace("[", "").replace("]", ""));
+                if (remote.isLoopbackAddress() && allowed.isLoopbackAddress()) return true;
+                if (slash < 0) {
+                    if (remote.equals(allowed)) return true;
+                } else {
+                    int prefix = Integer.parseInt(rule.substring(slash + 1));
+                    byte[] r = remote.getAddress();
+                    byte[] a = allowed.getAddress();
+                    if (r.length != a.length || prefix < 0 || prefix > r.length * 8) continue;
+                    int full = prefix / 8;
+                    int rem = prefix % 8;
+                    boolean match = true;
+                    for (int i = 0; i < full; i++) if (r[i] != a[i]) { match = false; break; }
+                    if (match && rem > 0) {
+                        int mask = (0xff << (8 - rem)) & 0xff;
+                        match = (r[full] & mask) == (a[full] & mask);
+                    }
+                    if (match) return true;
+                }
+            }
+        } catch (Exception ignored) {
+            return false;
+        }
+        return false;
+    }
+
+    private String normalizeIps(String value) {
+        if (value == null || value.isBlank()) return null;
+        String ips = java.util.Arrays.stream(value.split("[,\n\r]+"))
+                .map(String::trim).filter(s -> !s.isBlank()).distinct()
+                .collect(java.util.stream.Collectors.joining(","));
+        return ips.isBlank() ? null : ips;
+    }
+
     private String normalizeMethods(String value) {
         if (value == null || value.isBlank()) return null;
         String methods = java.util.Arrays.stream(value.split(","))
@@ -163,6 +217,13 @@ public class GatewayApiKeyService {
     public void update(Long keyId, String name, Boolean enabled,
                        Integer rateLimitPerMin, Integer dailyQuota, String allowedMethods, String allowedPaths,
                        LocalDateTime expiresAt, Long operatorId) {
+        update(keyId, name, enabled, rateLimitPerMin, dailyQuota, allowedMethods, allowedPaths,
+                null, expiresAt, operatorId);
+    }
+
+    public void update(Long keyId, String name, Boolean enabled,
+                       Integer rateLimitPerMin, Integer dailyQuota, String allowedMethods, String allowedPaths,
+                       String allowedIps, LocalDateTime expiresAt, Long operatorId) {
         GatewayApiKey key = keyMapper.selectById(keyId);
         if (key == null) return;
         GatewayApiKey patch = new GatewayApiKey();
@@ -173,6 +234,7 @@ public class GatewayApiKeyService {
         if (dailyQuota != null) patch.setDailyQuota(Math.max(0, dailyQuota));
         if (allowedMethods != null) patch.setAllowedMethods(normalizeMethods(allowedMethods));
         if (allowedPaths != null) patch.setAllowedPaths(normalizePaths(allowedPaths));
+        if (allowedIps != null) patch.setAllowedIps(normalizeIps(allowedIps));
         if (expiresAt != null) patch.setExpiresAt(expiresAt);
         keyMapper.updateById(patch);
         evict(key.getKeyHash());

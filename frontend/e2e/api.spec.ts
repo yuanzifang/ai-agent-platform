@@ -1860,6 +1860,22 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
         headers: { 'X-Gateway-Key': dailyKey.data.apiKey }
       })
       expect(dailySecond.status()).toBe(429)
+
+      const ipDeniedKey = await (await request.post(`${P}/gateway/routes/${scopeRoute.data.id}/keys`, {
+        headers: auth(token!), data: { name: 'ip-denied', allowedIps: '10.0.0.0/8' }
+      })).json()
+      const ipDenied = await request.get(`${P}/gateway/call/${scopeRoute.data.routeKey}/always-ok`, {
+        headers: { 'X-Gateway-Key': ipDeniedKey.data.apiKey }
+      })
+      expect(ipDenied.status()).toBe(403)
+
+      const ipOkKey = await (await request.post(`${P}/gateway/routes/${scopeRoute.data.id}/keys`, {
+        headers: auth(token!), data: { name: 'ip-ok', allowedIps: '127.0.0.1' }
+      })).json()
+      const ipOk = await request.get(`${P}/gateway/call/${scopeRoute.data.routeKey}/always-ok`, {
+        headers: { 'X-Gateway-Key': ipOkKey.data.apiKey }
+      })
+      expect(ipOk.status()).toBe(200)
     } finally {
       await request.delete(`${P}/gateway/routes/${scopeRoute.data.id}`, { headers: auth(token!) })
     }

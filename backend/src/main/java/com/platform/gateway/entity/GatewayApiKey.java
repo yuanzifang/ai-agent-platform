@@ -26,6 +26,8 @@ public class GatewayApiKey {
     private String allowedMethods;
     /** 换行/逗号分隔的路径前缀；空=全部。 */
     private String allowedPaths;
+    /** IP/CIDR 白名单；空=不限制。 */
+    private String allowedIps;
     private Long requestCount;
     private LocalDateTime lastUsedAt;
     private Long createdBy;

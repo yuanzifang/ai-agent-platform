@@ -1000,6 +1000,7 @@ const messages = {
       keyPrefixCol: 'Key 前缀', keyStatus: '状态', keyRateCol: '限流/分', keyCalls: '调用次数',
       keyLastUsed: '最近调用', keyExpires: '过期时间', keyCreate: '生成 Key', keyCreated: 'Key 已生成（仅显示一次，请立即保存）', keyDailyQuota: '日配额',
       keyMethods: '方法', keyPaths: '路径前缀', keyMethodsPh: '方法，如 GET,POST；空=全部', keyPathsPh: '路径前缀，如 /orders；空=全部',
+      keyIps: 'IP 白名单', keyIpsPh: '如 127.0.0.1,10.0.0.0/8；空=全部',
       keyEnabled: '已启用', keyDisabled: '已禁用', keyDeleted: '已删除', keyNameReq: '调用方名称必填',
     },
     page: {
