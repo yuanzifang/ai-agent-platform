@@ -100,7 +100,8 @@ public class ChatService {
             systemPrompt = augmentWithKnowledge(systemPrompt, message, kbs, citations, viewer);
         }
 
-        String modelName = String.valueOf(modelConfig.getOrDefault("modelName", "deepseek-flash"));
+        String modelName = com.platform.conversation.service.ChatStreamService.applyGrayModel(modelConfig,
+                String.valueOf(modelConfig.getOrDefault("modelName", "deepseek-flash")));
         String fallbackModel = String.valueOf(modelConfig.getOrDefault("fallbackModelName", ""));
         Double temperature = toDouble(modelConfig.get("temperature"));
         Boolean thinking = modelConfig.get("thinking") instanceof Boolean b ? b : null;

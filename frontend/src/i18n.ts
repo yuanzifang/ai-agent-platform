@@ -8,7 +8,7 @@ const messages = {
       templates: '模板库', knowledge: '知识库', skills: '技能管理', tools: '工具管理',
       mcp: 'MCP Server', approvals: '审批箱', prompts: 'Prompt 模板', provider: '模型接入',
       usage: '用量看板', billing: '计费管理', users: '成员管理', tenant: '租户设置',
-      metrics: '监控统计', observability: '可观测', audit: '审计日志', alertAck: '告警 ACK', eval: '评测中心', platform: '平台管理', settings: '系统设置', infra: '基础设施', gateway: '开放平台网关', i18n: '国际化字段'
+      metrics: '监控统计', observability: '可观测', audit: '审计日志', alertAck: '告警 ACK', eval: '评测中心', platform: '平台管理', settings: '系统设置', infra: '基础设施', gateway: '开放平台网关', i18n: '国际化字段', grayCompare: '灰度对比'
     },
     agentList: {
       search: '搜索 Agent 名称', fromTemplate: '从模板创建', create: '新建 Agent',
@@ -362,6 +362,26 @@ const messages = {
       value: '译文', description: '说明', updatedAt: '更新时间', save: '保存', saved: '已保存',
       importBtn: '导入', imported: '导入完成：新增 {inserted} 更新 {updated} 跳过 {skipped}'
     },
+    grayPage: {
+      title: '灰度 A/B 对比', desc: '按灰度标记（X-Gray-Tag）对比基线与灰度组的请求/错误率/延迟/token/成本，以及按模型的轨迹分析与评测得分。',
+      tagPh: '输入灰度标记，如 canary-v2', tagRequired: '请先输入灰度标记',
+      last1d: '最近 1 天', last7d: '最近 7 天', last30d: '最近 30 天',
+      baselineGroup: '基线组（未标记流量）', grayGroup: '灰度组', delta: '差值（灰度 - 基线）',
+      requests: '请求数', errorRate: '错误率', avgLatency: '平均延迟 (ms)', avgTokens: '平均 Tokens', totalCost: '总成本', errors: '错误数',
+      byModel: '按模型轨迹分析', evalCompare: '评测得分对比',
+      evals: '评测数', avgScore: '平均得分', passRate: '通过率',
+      emptyHint: '输入灰度标记后点击刷新开始对比'
+    },
+    sysConfig: {    grayPage: {
+      title: 'Gray A/B Compare', desc: 'Compare baseline vs gray group by X-Gray-Tag: requests / error rate / latency / tokens / cost, per-model trace analysis and eval scores.',
+      tagPh: 'Gray tag, e.g. canary-v2', tagRequired: 'Enter a gray tag first',
+      last1d: 'Last 1 day', last7d: 'Last 7 days', last30d: 'Last 30 days',
+      baselineGroup: 'Baseline (untagged)', grayGroup: 'Gray', delta: 'Delta (gray - baseline)',
+      requests: 'Requests', errorRate: 'Error rate', avgLatency: 'Avg latency (ms)', avgTokens: 'Avg tokens', totalCost: 'Total cost', errors: 'Errors',
+      byModel: 'Trace analysis by model', evalCompare: 'Eval score comparison',
+      evals: 'Evals', avgScore: 'Avg score', passRate: 'Pass rate',
+      emptyHint: 'Enter a gray tag and refresh to compare'
+    },
     sysConfig: {
       header: '全局配置项（sys_config，实时生效于新请求）', key: '配置项', value: '值', desc: '说明',
       actions: '操作', save: '保存', cancel: '取消', edit: '编辑', updated: '已更新 ',
@@ -688,6 +708,9 @@ const messages = {
       basic: '基本信息', name: '名称', desc: '描述', category: '分类', categoryPh: '如：客服', tags: '标签',
       tagsPh: '逗号分隔，如：售后,售前', modelSection: '模型选择', model: '模型', fallback: '备用模型',
       fallbackPh: '不启用（失败直接报错）', fallbackHint: '主模型 402/429/5xx/超时自动切换，切换记录在 Trace',
+      grayModel: '灰度模型', grayModelPh: '不启用（灰度未命中走主模型）',
+      grayHint: '请求头 X-Gray-Tag 命中下方灰度标记时，本 Agent 改用灰度模型（失败自动回退主模型）',
+      grayTagLabel: '灰度标记', grayTagPh: '如 canary-v2；命中才切换',
       temperature: '温度', thinking: '思考模式', thinkingHint: '由模型能力决定，开启后模型先推理再作答',
       thinkingUnsupported: '当前模型未开启思考能力（可在「模型接入」中配置）',
       thinkingLevel: '思考级别', thinkingLevelHint: '不同模型支持的级别不同；级别越高越慢、越贵',
@@ -1010,7 +1033,7 @@ const messages = {
       mcp: 'MCP Server', approvals: 'Approvals', prompts: 'Prompt Templates', provider: 'Model Providers',
       usage: 'Usage', billing: 'Billing', users: 'Members', tenant: 'Tenant Settings',
       gateway: 'API Gateway',
-      metrics: 'Metrics', observability: 'Observability', audit: 'Audit Log', alertAck: 'Alert ACK', eval: 'Evaluation', platform: 'Platform Admin', settings: 'System Settings', infra: 'Infrastructure', i18n: 'I18n Fields'
+      metrics: 'Metrics', observability: 'Observability', audit: 'Audit Log', alertAck: 'Alert ACK', eval: 'Evaluation', platform: 'Platform Admin', settings: 'System Settings', infra: 'Infrastructure', i18n: 'I18n Fields', grayCompare: 'Gray Compare'
     },
     agentList: {
       search: 'Search agents', fromTemplate: 'From template', create: 'New Agent',
@@ -1693,7 +1716,9 @@ const messages = {
       basic: 'Basic info', name: 'Name', desc: 'Description', category: 'Category', categoryPh: 'e.g. Support', tags: 'Tags',
       tagsPh: 'Comma separated, e.g. after-sales,pre-sales', modelSection: 'Model', model: 'Model', fallback: 'Fallback model',
       fallbackPh: 'Disabled (fail immediately on error)', fallbackHint: 'Fallback on 402/429/5xx/timeout; recorded in traces',
-      temperature: 'Temperature', thinking: 'Thinking mode',
+      grayModel: 'Gray model', grayModelPh: 'Off (unmatched requests use primary)',
+      grayHint: 'When request header X-Gray-Tag matches the gray tag below, this agent uses the gray model (auto-fallback to primary on failure)',
+      grayTagLabel: 'Gray tag', grayTagPh: 'e.g. canary-v2; switches only on match'      temperature: 'Temperature', thinking: 'Thinking mode',
       thinkingHint: 'Availability follows model capability; the model reasons before answering',
       thinkingUnsupported: 'This model has no thinking capability (enable it under Model providers)',
       thinkingLevel: 'Thinking level', thinkingLevelHint: 'Supported levels differ per model; higher = slower and costlier',

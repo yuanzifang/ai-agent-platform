@@ -176,6 +176,8 @@ public class BackendMessageTranslator {
             }
         } catch (Exception ignored) {
         }
-        return LocaleContextHolder.getLocale();
+        // 无请求上下文（异步/定时任务/单测）：默认中文（与文档优先级一致；
+        // 不回落 JVM 默认 Locale，否则 CI/海外部署 en_US 下错误文案变英文且单测不确定）
+        return Locale.SIMPLIFIED_CHINESE;
     }
 }
