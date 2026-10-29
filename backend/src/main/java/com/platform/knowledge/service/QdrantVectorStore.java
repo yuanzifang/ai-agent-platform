@@ -51,6 +51,11 @@ public class QdrantVectorStore implements VectorStore {
     private int shardNumber = 1;
     private final AtomicInteger urlCursor = new AtomicInteger();
 
+    /** 分布式集群状态；用于 HA 监控。 */
+    public JsonNode clusterStatus() {
+        return request("GET", "/cluster", Map.of());
+    }
+
     @Override
     public String provider() {
         return "qdrant";
