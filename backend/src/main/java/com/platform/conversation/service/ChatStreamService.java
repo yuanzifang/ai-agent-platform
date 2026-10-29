@@ -21,6 +21,7 @@ import com.platform.capability.runtime.ToolRuntimeService;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.observability.service.TraceService;
 import com.platform.common.context.TenantContext;
+import com.platform.common.ratelimit.ModelConcurrencyGuard;
 import com.platform.common.context.GrayTagContext;
 import com.platform.common.exception.BusinessException;
 import com.platform.conversation.entity.ChatAttachment;
@@ -85,6 +86,7 @@ public class ChatStreamService {
     private final ConversationService conversationService;
     private final ModerationService moderationService;
     private final TraceService traceService;
+    private final ModelConcurrencyGuard concurrencyGuard;
     private final ObjectMapper objectMapper;
     private final com.platform.system.service.AuditService auditService;
     private final StreamRegistryService streamRegistry;
@@ -409,6 +411,8 @@ public class ChatStreamService {
         }
         final String effModel = activeModel;
         final String effFallback = activeFallback;
+        // LLM 并发准入：预算满时快速失败（429），流终止/取消/出错时释放名额
+        concurrencyGuard.acquire();
         ChatClient.ChatClientRequestSpec spec = buildSpec(effModel, systemPrompt, history,
                 userMsgWithAttachments, runtime.callbacks(), temperature, thinking, reasoningEffort);
         AtomicBoolean emitted = new AtomicBoolean(false);
@@ -418,6 +422,7 @@ public class ChatStreamService {
                     String d = resp.getResult() == null ? null : resp.getResult().getOutput().getText();
                     if (d != null && !d.isEmpty()) emitted.set(true);
                 })
+                .doFinally(signal -> concurrencyGuard.release())
                 .onErrorResume(err -> {
                     if (emitted.get() || fallbackModel == null || fallbackModel.isBlank()
                             || fallbackModel.equals(modelName) || !chatModelRouter.isFallbackable(err)) {
@@ -763,10 +768,12 @@ public class ChatStreamService {
             usedModel = fallbackModel;
         }
         org.springframework.ai.chat.model.ChatResponse resp;
+        concurrencyGuard.acquire();
         try {
             resp = buildSpec(usedModel, systemPrompt, history, userMsgWithAttachments,
                     runtime.callbacks(), temperature, thinking, reasoningEffort).call().chatResponse();
         } catch (Exception e) {
+            concurrencyGuard.release();           // 主调用失败，先还名额
             chatModelRouter.recordModelFailure(usedModel);
             if (fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(usedModel)
                     || !chatModelRouter.isFallbackable(e)) {
@@ -777,9 +784,11 @@ public class ChatStreamService {
                     java.util.Map.of("from", modelName, "to", fallbackModel,
                             "error", e.getMessage() == null ? "" : e.getMessage()));
             usedModel = fallbackModel;
+            concurrencyGuard.acquire();           // 备用重试重新占用一个名额（精确对称，防超发）
             resp = buildSpec(fallbackModel, systemPrompt, history, userMsgWithAttachments,
                     runtime.callbacks(), temperature, thinking, reasoningEffort).call().chatResponse();
         }
+        concurrencyGuard.release();
         chatModelRouter.recordModelSuccess(usedModel);
         String answer = resp.getResult().getOutput().getText();
         var usage = resp.getMetadata().getUsage();
