@@ -127,6 +127,7 @@
       <div class="key-create">
         <el-input v-model="newKeyName" :placeholder="t('gatewayPage.keyNamePh')" style="width: 180px" />
         <el-input-number v-model="newKeyRate" :min="0" :max="100000" :placeholder="t('gatewayPage.keyRateCol')" />
+        <el-input-number v-model="newKeyDailyQuota" :min="0" :max="100000000" :placeholder="t('gatewayPage.keyDailyQuota')" />
         <el-date-picker v-model="newKeyExpires" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss"
                         :placeholder="t('gatewayPage.keyExpires')" />
         <el-input v-model="newKeyMethods" :placeholder="t('gatewayPage.keyMethodsPh')" style="width: 150px" />
@@ -144,6 +145,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="rateLimitPerMin" :label="t('gatewayPage.keyRateCol')" width="90" />
+        <el-table-column prop="dailyQuota" :label="t('gatewayPage.keyDailyQuota')" width="110" />
         <el-table-column prop="allowedMethods" :label="t('gatewayPage.keyMethods')" width="120" />
         <el-table-column prop="allowedPaths" :label="t('gatewayPage.keyPaths')" min-width="150" show-overflow-tooltip />
         <el-table-column prop="requestCount" :label="t('gatewayPage.keyCalls')" width="100" />
@@ -307,6 +309,7 @@ const keysRouteName = computed(() => keysRoute.value.name || '')
 const apiKeys = ref<any[]>([])
 const newKeyName = ref('')
 const newKeyRate = ref<number | undefined>(undefined)
+const newKeyDailyQuota = ref<number | undefined>(undefined)
 const newKeyExpires = ref<string>('')
 const newKeyMethods = ref('')
 const newKeyPaths = ref('')
@@ -325,6 +328,7 @@ async function createKey() {
     const res = await http.post(`/gateway/routes/${keysRoute.value.id}/keys`, {
       name: newKeyName.value || '调用方',
       rateLimitPerMin: newKeyRate.value ?? null,
+      dailyQuota: newKeyDailyQuota.value ?? null,
       expiresAt: newKeyExpires.value || null,
       allowedMethods: newKeyMethods.value || null,
       allowedPaths: newKeyPaths.value || null
@@ -334,6 +338,7 @@ async function createKey() {
     apiKeys.value = await http.get(`/gateway/routes/${keysRoute.value.id}/keys`) as any
     newKeyName.value = ''
     newKeyRate.value = undefined
+    newKeyDailyQuota.value = undefined
     newKeyExpires.value = ''
     newKeyMethods.value = ''
     newKeyPaths.value = ''

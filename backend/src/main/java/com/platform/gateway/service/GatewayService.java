@@ -253,6 +253,7 @@ public class GatewayService {
         var created = apiKeyService.create(routeId, principal.tenantId(),
                 String.valueOf(req.getOrDefault("name", "")),
                 req.get("rateLimitPerMin") instanceof Number n ? n.intValue() : null,
+                req.get("dailyQuota") instanceof Number n ? n.intValue() : null,
                 req.get("allowedMethods") == null ? null : String.valueOf(req.get("allowedMethods")),
                 req.get("allowedPaths") == null ? null : String.valueOf(req.get("allowedPaths")),
                 expiresAt, principal.userId());
@@ -273,6 +274,7 @@ public class GatewayService {
                 req.get("name") == null ? null : String.valueOf(req.get("name")),
                 req.get("enabled") instanceof Boolean b ? b : null,
                 req.get("rateLimitPerMin") instanceof Number n ? n.intValue() : null,
+                req.get("dailyQuota") instanceof Number n ? n.intValue() : null,
                 req.get("allowedMethods") == null ? null : String.valueOf(req.get("allowedMethods")),
                 req.get("allowedPaths") == null ? null : String.valueOf(req.get("allowedPaths")),
                 expiresAt, principal.userId());
@@ -320,6 +322,10 @@ public class GatewayService {
         if (callerKey != null && !apiKeyService.allowByKey(callerKey)) {
             log(route, request, 429, null, started, "key rate limit");
             return error(servletResponse, HttpStatus.TOO_MANY_REQUESTS, "调用方限流（按 Key）");
+        }
+        if (callerKey != null && !apiKeyService.allowDaily(callerKey)) {
+            log(route, request, 429, null, started, "key daily quota");
+            return error(servletResponse, HttpStatus.TOO_MANY_REQUESTS, "调用方每日配额已用尽");
         }
         if (callerKey != null) apiKeyService.markUsed(callerKey);
         final GatewayApiKey usedCallerKey = callerKey;
