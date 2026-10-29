@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { spawn, type ChildProcess } from 'node:child_process'
 import path from 'node:path'
+import { createHmac, randomUUID } from 'node:crypto'
 
 test.describe.configure({ mode: 'serial' })
 
@@ -124,6 +125,44 @@ test('网关 WebSocket：权重首跳', async ({ request }) => {
     const reply = nextMessage(ws)
     ws.send('weighted')
     expect(await reply).toBe('B:weighted')
+  } finally {
+    ws?.close()
+    await deleteRoute(request, token, route.id)
+    stopEcho(primary)
+  }
+})
+
+test('网关 WebSocket：握手签名与防重放', async ({ request }) => {
+  const token = await login(request)
+  const primary = startEcho(PORT_A, 'A')
+  await waitReady()
+  const route = await createRoute(request, token, {
+    targetUrl: `http://127.0.0.1:${PORT_A}`,
+    signingEnabled: true,
+    timeoutMs: 5000
+  })
+  const path = `/api/v1/gateway/ws/${route.routeKey}`
+  const timestamp = String(Date.now())
+  const nonce = randomUUID()
+  const query = new URLSearchParams({ key: route.apiKey, timestamp, nonce }).toString()
+  const emptyHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+  const canonical = `GET\n${path}\n${query}\n${timestamp}\n${nonce}\n${emptyHash}`
+  const signature = createHmac('sha256', route.signingSecret).update(canonical).digest('hex')
+  const endpoint = `${WS_BACKEND}${path}?${query}&signature=${signature}`
+  let ws: any
+  try {
+    ws = await connect(endpoint)
+    const reply = nextMessage(ws)
+    ws.send('signed')
+    expect(await reply).toBe('A:signed')
+
+    const bad = await connect(`${WS_BACKEND}${path}?${query}&signature=${'0'.repeat(64)}`)
+    const badClose = await closed(bad)
+    expect(badClose.code).toBe(1008)
+
+    const replay = await connect(endpoint)
+    const replayClose = await closed(replay)
+    expect(replayClose.code).toBe(1008)
   } finally {
     ws?.close()
     await deleteRoute(request, token, route.id)

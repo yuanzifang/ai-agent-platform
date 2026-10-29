@@ -25,7 +25,7 @@ X-Gateway-Key: gw_xxx
 - **上游权重**：`targetWeight` / `fallbackWeight` / `upstreamWeights`（URL->权重），默认主上游 100、备用/额外 0；
   权重 >0 的上游按权重随机决定首跳，失败后按剩余顺序切换；全部权重为 0 时保持原有顺序；
 - 高置信度 WAF：限制代理方法、超长 URI/query、控制字符、CRLF、单/双重编码目录穿越、SQLi/XSS 特征；HTTP 与 WebSocket 握手共用同一规则，拒绝时记录请求日志；
-- **请求签名/防重放（HTTP）**：启用后校验 `X-Gateway-Timestamp`、`X-Gateway-Nonce`、`X-Gateway-Signature`（HMAC-SHA256）；时间窗 ±5 分钟，nonce 在 Redis 保留 10 分钟；签名密钥 AES-GCM 存储且仅创建/启用时返回一次；
+- **请求签名/防重放（HTTP + WebSocket 握手）**：启用后校验 `X-Gateway-Timestamp`、`X-Gateway-Nonce`、`X-Gateway-Signature`（HMAC-SHA256）；时间窗 ±5 分钟，nonce 在 Redis 保留 10 分钟；签名密钥 AES-GCM 存储且仅创建/启用时返回一次；
 - **请求体 Schema**：可为路由配置 JSON Schema，POST/PUT/PATCH 请求体在转发前校验 type/required/properties/enum/长度/数值/数组等常用子集；不通过返回 400，不调用上游；
 - **上游轻量熔断**：同一路由+上游 2 分钟内连续 3 次 5xx/IO 失败后打开 60 秒，期间直接跳过主上游走备用；
   无备用时返回 503；Redis 故障 fail-open；路由删除时清理熔断键；
@@ -52,6 +52,7 @@ X-Gateway-Key: gw_xxx
 - 2026-10-29 权重手工验证：主/备 A/B，`0/100` 三次均 B，`100/0` 三次均 A，`50/50` 20 次采样 A 7/B 13；测试路由和本地服务已清理；
 - 2026-10-29 WAF E2E：网关正常请求 200；查询参数携带 `union select` 被 400 拒绝并返回 WAF 提示；
 - 2026-10-29 请求签名 E2E：有效 HMAC `200`，错误签名 `401`，同 nonce 重放 `409`；测试路由已清理；
+- 2026-10-29 WebSocket 握手签名 E2E：有效签名回显成功，错误签名/重复 nonce 均关闭 1008；测试路由已清理；
 - 2026-10-29 请求体 Schema E2E：缺少必填字段/类型错误返回 400，合法 JSON 返回 200；测试路由已清理；
 - 2026-10-29 WebSocket E2E：鉴权/回显/全局连接配额、权重首跳、上游掉线切换 3 passed；
 - 完整 E2E 46/46。
@@ -102,5 +103,5 @@ POST/PUT/PATCH 的请求体在转发前校验；失败返回 400：
 - OAuth2/JWT 上游鉴权、IP 白名单；
 - WebSocket 透传已支持最小双向代理：`/api/v1/gateway/ws/{routeKey}?key=<apiKey>`，targetUrl 使用 http(s)，运行时转换为 ws(s)，文本/二进制帧双向转发；服务端定时 Ping 客户端/上游并按 `gateway.ws.idle-timeout-ms` 回收半开连接；支持 fallback/额外 upstream 建连及已建立连接掉线切换；路由级 `wsMaxConnections`（0=不限，Redis 全局统计，Redis 故障回退实例统计）；
 - 管理端审计报表/用量计费；
-- 请求签名/防重放已支持 HTTP；WebSocket 握手签名未接；
+- 请求签名/防重放已支持 HTTP 与 WebSocket 握手；
 - 生产级 Key 生命周期（过期、scope、多 Key）。
