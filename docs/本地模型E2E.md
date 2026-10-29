@@ -8,6 +8,7 @@
 
 - 计算器工具调用
 - 可选知识库 RAG + citation
+- 长回复停止后从 Checkpoint 继续生成
 
 ## 运行
 
@@ -28,13 +29,15 @@ python3 scripts/local-model-smoke.py --skip-rag
 2. 在平台登记为 CHAT 模型
 3. 创建带计算器工具的临时 Agent，验证 `123+456=579`
 4. 若存在含文档的知识库，创建 RAG Agent 并验证 citation
-5. 删除临时 Agent/会话和 alias
+5. 启动长回复，收到首个 delta 后停止，再从 checkpoint 继续并校验内容增长
+6. 删除临时 Agent/会话和 alias
 
 ## 实测
 
 ```text
 TOOL PASS answer=计算结果是 579。
 RAG PASS kb=591 citations=1 answer=当前提供的信息是关于退款政策的描述...
+CHECKPOINT PASS before=41 after=1491
 LOCAL-MODEL-SMOKE PASS
 ```
 
