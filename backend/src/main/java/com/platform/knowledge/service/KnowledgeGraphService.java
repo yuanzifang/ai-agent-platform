@@ -10,6 +10,7 @@ import com.platform.common.exception.BusinessException;
 import com.platform.knowledge.entity.KnowledgeBase;
 import com.platform.knowledge.entity.KnowledgeChunk;
 import com.platform.knowledge.entity.KnowledgeDocument;
+import com.platform.knowledge.entity.KnowledgeGraphCommunity;
 import com.platform.knowledge.entity.KnowledgeGraphEntity;
 import com.platform.knowledge.entity.KnowledgeGraphJob;
 import com.platform.knowledge.entity.KnowledgeGraphMention;
@@ -18,6 +19,7 @@ import com.platform.knowledge.entity.KnowledgeParent;
 import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.knowledge.mapper.KnowledgeChunkMapper;
 import com.platform.knowledge.mapper.KnowledgeDocumentMapper;
+import com.platform.knowledge.mapper.KnowledgeGraphCommunityMapper;
 import com.platform.knowledge.mapper.KnowledgeGraphEntityMapper;
 import com.platform.knowledge.mapper.KnowledgeGraphJobMapper;
 import com.platform.knowledge.mapper.KnowledgeGraphMentionMapper;
@@ -80,6 +82,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
     private final KnowledgeGraphEntityMapper entityMapper;
     private final KnowledgeGraphRelationMapper relationMapper;
     private final KnowledgeGraphMentionMapper mentionMapper;
+    private final KnowledgeGraphCommunityMapper communityMapper;
     private final KnowledgeGraphJobMapper jobMapper;
     private final KnowledgeBaseMapper kbMapper;
     private final KnowledgeDocumentMapper documentMapper;
@@ -243,6 +246,65 @@ public class KnowledgeGraphService implements ApplicationRunner {
         out.put("model", model);
         out.put("communityCount", communities.size());
         out.put("communities", result);
+        return out;
+    }
+
+    /** 重新生成并持久化社区摘要。 */
+    @Transactional
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> rebuildCommunities(Long kbId, String modelName, int limit,
+                                                  KnowledgePermissionService.Viewer viewer) {
+        KnowledgeBase kb = permissionService.requireView(kbId, viewer);
+        ensureGraphEnabled(kb);
+        Map<String, Object> generated = summarizeCommunities(kbId, modelName, limit, viewer);
+        List<Map<String, Object>> communities = (List<Map<String, Object>>) generated.get("communities");
+        int saved = 0;
+        for (Map<String, Object> community : communities) {
+            List<Map<String, Object>> members = (List<Map<String, Object>>) community.get("members");
+            List<Long> ids = members.stream().map(m -> ((Number) m.get("id")).longValue())
+                    .sorted().toList();
+            String key = ids.stream().map(String::valueOf).collect(Collectors.joining("-"));
+            KnowledgeGraphCommunity row = communityMapper.selectOne(
+                    new LambdaQueryWrapper<KnowledgeGraphCommunity>()
+                            .eq(KnowledgeGraphCommunity::getKbId, kbId)
+                            .eq(KnowledgeGraphCommunity::getCommunityKey, key)
+                            .last("LIMIT 1"));
+            if (row == null) {
+                row = new KnowledgeGraphCommunity();
+                row.setTenantId(kb.getTenantId());
+                row.setKbId(kbId);
+                row.setCommunityKey(key);
+                row.setCreatedAt(LocalDateTime.now());
+            }
+            row.setName(str(community.get("name")));
+            row.setSummary(str(community.getOrDefault("summary", community.get("name"))));
+            row.setEntityIds(ids.stream().map(String::valueOf).collect(Collectors.joining(",")));
+            row.setEntityCount(ids.size());
+            row.setTypes(((java.util.Collection<?>) community.getOrDefault("types", List.of()))
+                    .stream().map(String::valueOf).collect(Collectors.joining(",")));
+            row.setUpdatedAt(LocalDateTime.now());
+            if (row.getId() == null) communityMapper.insert(row);
+            else communityMapper.updateById(row);
+            saved++;
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("saved", saved);
+        out.put("model", generated.get("model"));
+        return out;
+    }
+
+    /** 已保存的社区摘要。 */
+    public Map<String, Object> savedCommunities(Long kbId, KnowledgePermissionService.Viewer viewer) {
+        KnowledgeBase kb = permissionService.requireView(kbId, viewer);
+        ensureGraphEnabled(kb);
+        List<KnowledgeGraphCommunity> rows = communityMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeGraphCommunity>()
+                        .eq(KnowledgeGraphCommunity::getKbId, kbId)
+                        .orderByDesc(KnowledgeGraphCommunity::getEntityCount)
+                        .last("LIMIT 200"));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("communityCount", rows.size());
+        out.put("communities", rows);
         return out;
     }
 
@@ -1864,6 +1926,10 @@ public class KnowledgeGraphService implements ApplicationRunner {
         map.put("startedAt", job.getStartedAt());
         map.put("finishedAt", job.getFinishedAt());
         return map;
+    }
+
+    private String str(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private String stripFence(String raw) {
