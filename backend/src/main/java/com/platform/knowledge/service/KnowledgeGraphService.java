@@ -84,6 +84,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
     private final KnowledgeGraphMentionMapper mentionMapper;
     private final KnowledgeGraphCommunityMapper communityMapper;
     private final EmbeddingService embeddingService;
+    private final GraphVectorIndexService graphVectorIndexService;
     private final KnowledgeGraphJobMapper jobMapper;
     private final KnowledgeBaseMapper kbMapper;
     private final KnowledgeDocumentMapper documentMapper;
@@ -299,6 +300,15 @@ public class KnowledgeGraphService implements ApplicationRunner {
             row.setUpdatedAt(LocalDateTime.now());
             if (row.getId() == null) communityMapper.insert(row);
             else communityMapper.updateById(row);
+            if (row.getEmbedding() != null) {
+                try {
+                    float[] vector = objectMapper.readValue(row.getEmbedding(), float[].class);
+                    graphVectorIndexService.upsert(kb.getTenantId(), kbId, "COMMUNITY",
+                            row.getId(), vector, row.getEmbeddingModel());
+                } catch (Exception ignored) {
+                    // MySQL summary remains available if the dedicated index is unavailable
+                }
+            }
             saved++;
         }
         Map<String, Object> out = new LinkedHashMap<>();
@@ -329,6 +339,34 @@ public class KnowledgeGraphService implements ApplicationRunner {
         ensureGraphEnabled(kb);
         if (query == null || query.isBlank()) throw new BusinessException(400, "查询内容不能为空");
         float[] q = embeddingService.embedOne(query);
+        List<Map<String, Object>> indexed = graphVectorIndexService.search(
+                kb.getTenantId(), kbId, "COMMUNITY", q, topK);
+        if (!indexed.isEmpty()) {
+            List<Long> indexedIds = indexed.stream()
+                    .map(hit -> ((Number) hit.get("objectId")).longValue()).toList();
+            Map<Long, KnowledgeGraphCommunity> byId = communityMapper.selectBatchIds(indexedIds).stream()
+                    .collect(Collectors.toMap(KnowledgeGraphCommunity::getId, c -> c));
+            List<Map<String, Object>> indexedHits = new ArrayList<>();
+            for (Map<String, Object> hit : indexed) {
+                KnowledgeGraphCommunity row = byId.get(((Number) hit.get("objectId")).longValue());
+                if (row == null) continue;
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("id", row.getId());
+                item.put("name", row.getName());
+                item.put("summary", row.getSummary());
+                item.put("entityCount", row.getEntityCount());
+                item.put("score", hit.get("score"));
+                indexedHits.add(item);
+            }
+            if (!indexedHits.isEmpty()) {
+                Map<String, Object> out = new LinkedHashMap<>();
+                out.put("query", query);
+                out.put("total", indexedHits.size());
+                out.put("hits", indexedHits.stream().limit(Math.max(1, Math.min(topK, 50))).toList());
+                out.put("index", "pgvector");
+                return out;
+            }
+        }
         List<KnowledgeGraphCommunity> rows = communityMapper.selectList(
                 new LambdaQueryWrapper<KnowledgeGraphCommunity>()
                         .eq(KnowledgeGraphCommunity::getKbId, kbId)
@@ -388,6 +426,8 @@ public class KnowledgeGraphService implements ApplicationRunner {
                 entity.setDimensions(vector.length);
                 entity.setUpdatedAt(LocalDateTime.now());
                 entityMapper.updateById(entity);
+                graphVectorIndexService.upsert(kb.getTenantId(), kbId, "ENTITY",
+                        entity.getId(), vector, entity.getEmbeddingModel());
                 embedded++;
             } catch (Exception e) {
                 log.warn("实体向量化失败 kb={} entity={}: {}", kbId, entity.getId(), e.getMessage());
@@ -406,6 +446,37 @@ public class KnowledgeGraphService implements ApplicationRunner {
         ensureGraphEnabled(kb);
         if (query == null || query.isBlank()) throw new BusinessException(400, "查询内容不能为空");
         float[] q = embeddingService.embedOne(query);
+        List<Map<String, Object>> indexed = graphVectorIndexService.search(
+                kb.getTenantId(), kbId, "ENTITY", q, topK);
+        if (!indexed.isEmpty()) {
+            List<Long> ids = indexed.stream()
+                    .map(hit -> ((Number) hit.get("objectId")).longValue()).toList();
+            List<KnowledgeGraphEntity> candidates = entityMapper.selectBatchIds(ids);
+            Set<Long> visible = visibleEntityIds(kb, candidates, viewer);
+            List<Map<String, Object>> indexedHits = new ArrayList<>();
+            for (Map<String, Object> hit : indexed) {
+                long id = ((Number) hit.get("objectId")).longValue();
+                if (!visible.contains(id)) continue;
+                KnowledgeGraphEntity entity = candidates.stream()
+                        .filter(e -> e.getId().equals(id)).findFirst().orElse(null);
+                if (entity == null) continue;
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("id", entity.getId());
+                item.put("name", entity.getName());
+                item.put("entityType", entity.getEntityType());
+                item.put("description", entity.getDescription());
+                item.put("score", hit.get("score"));
+                indexedHits.add(item);
+            }
+            if (!indexedHits.isEmpty()) {
+                Map<String, Object> out = new LinkedHashMap<>();
+                out.put("query", query);
+                out.put("total", indexedHits.size());
+                out.put("hits", indexedHits.stream().limit(Math.max(1, Math.min(topK, 50))).toList());
+                out.put("index", "pgvector");
+                return out;
+            }
+        }
         List<KnowledgeGraphEntity> entities = entityMapper.selectList(
                 new LambdaQueryWrapper<KnowledgeGraphEntity>()
                         .eq(KnowledgeGraphEntity::getKbId, kbId)

@@ -80,6 +80,13 @@ POST /api/v1/knowledge-base/{id}/graph/entities/search
 
 实体向量由名称 + 描述生成，并已接入 GraphRAG 主扩展：先做关键词实体匹配，再做语义实体召回，最后沿关系 1-2 跳扩展 chunk。
 
+专用图向量索引（pgvector）：
+
+- 表 `graph_vector_index`，按 `tenant_id/kb_id/object_type/object_id` 唯一；
+- `object_type` 为 `ENTITY` 或 `COMMUNITY`；
+- 使用 HNSW cosine 索引，默认维度跟随 `embedding.dimensions`；
+- 写入失败时自动回退 MySQL cosine，不影响检索可用性。
+
 ## 4. 已验证
 
 - E2E：节点不配置 `next`，仅配置 `edges`，工作流成功执行且包含 LLM 节点；
