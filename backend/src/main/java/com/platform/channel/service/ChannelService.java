@@ -644,11 +644,10 @@ public class ChannelService {
     private void notifyOutboundFailure(AgentChannel channel, String error) {
         try {
             List<Long> recipients = channel.getCreatedBy() == null ? List.of() : List.of(channel.getCreatedBy());
-            notificationService.notify(channel.getTenantId(), recipients, "channel_error",
-                    "渠道出站失败：" + channel.getName(), truncate(error, 500),
+            notificationService.notifyTemplate(channel.getTenantId(), recipients, "channel_error",
                     "/agent/edit/" + channel.getAgentId(),
-                    "Channel delivery failed: " + channel.getName(),
-                    "Outbound webhook failed after retries: " + truncate(error, 500));
+                    "notification.channel.error.title", "notification.channel.error.content",
+                    channel.getName(), truncate(error, 500));
         } catch (Exception e) {
             log.debug("渠道失败通知写入失败：{}", e.getMessage());
         }

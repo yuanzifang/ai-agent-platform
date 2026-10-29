@@ -309,6 +309,37 @@ services:
         condition: service_started
     logging: *default-logging
 
+  loki:
+    image: grafana/loki:3.2.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    user: "0:0"
+    volumes:
+      - ./deploy/observability/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    ports:
+      - "${LOKI_BIND:-127.0.0.1}:${LOKI_PORT:-3100}:3100"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/ready | grep -q ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    logging: *default-logging
+
+  promtail:
+    image: grafana/promtail:3.2.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/promtail.yml"]
+    volumes:
+      - ./deploy/observability/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtail-positions:/promtail
+    depends_on:
+      loki:
+        condition: service_healthy
+    logging: *default-logging
+
   grafana:
     image: grafana/grafana:11.3.0
     restart: unless-stopped
@@ -326,6 +357,7 @@ services:
       - "${GRAFANA_BIND:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
     depends_on:
       - prometheus
+      - loki
     logging: *default-logging
 
   frontend:
@@ -353,6 +385,8 @@ volumes:
   platform-config:
   ollama-data:
   prometheus-data:
+  loki-data:
+  promtail-positions:
   grafana-data:
   alertmanager-data:
   alert-relay-state:

@@ -16,10 +16,12 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 public class GlobalExceptionHandler {
 
     private final com.platform.system.service.AlertWebhookService alertWebhook;
-    private final BackendMessageTranslator translator = new BackendMessageTranslator();
+    private final BackendMessageTranslator translator;
 
-    public GlobalExceptionHandler(com.platform.system.service.AlertWebhookService alertWebhook) {
+    public GlobalExceptionHandler(com.platform.system.service.AlertWebhookService alertWebhook,
+                                  BackendMessageTranslator translator) {
         this.alertWebhook = alertWebhook;
+        this.translator = translator;
     }
 
     @ExceptionHandler(BusinessException.class)

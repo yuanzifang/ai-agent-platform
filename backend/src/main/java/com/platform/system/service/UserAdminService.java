@@ -5,7 +5,7 @@ import com.platform.common.exception.BusinessException;
 import com.platform.agent.entity.AgentRegistry;
 import com.platform.agent.mapper.AgentRegistryMapper;
 import com.platform.auth.mapper.UserSessionMapper;
-import com.platform.common.mail.MailService;
+import com.platform.common.mail.MailTemplateService;
 import com.platform.knowledge.entity.KnowledgeBase;
 import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.security.JwtPrincipal;
@@ -44,7 +44,7 @@ public class UserAdminService {
     private final SysRoleMapper roleMapper;
     private final SysUserRoleMapper userRoleMapper;
     private final UserInvitationMapper invitationMapper;
-    private final MailService mailService;
+    private final MailTemplateService mailTemplateService;
     @org.springframework.beans.factory.annotation.Value("${app.frontend-base:http://localhost:5173}")
     private String frontendBase;
     private final PasswordEncoder passwordEncoder;
@@ -217,14 +217,9 @@ public class UserAdminService {
                 String.valueOf(inv.getId()), "SUCCESS", Map.of("role", role));
         if (email != null && email.contains("@")) {
             String link = frontendBase.replaceAll("/+$", "") + "/login?invite=" + inv.getToken();
-            boolean en = org.springframework.context.i18n.LocaleContextHolder.getLocale().getLanguage()
-                    .toLowerCase().startsWith("en");
-            mailService.sendLocalized(email, en ? "en-US" : "zh-CN",
-                    "AI Agent 平台 - 团队邀请",
-                    "你被邀请加入团队，请在 7 天内打开以下链接设置账号：\n" + link,
-                    "AI Agent Platform - Team invitation",
-                    "You have been invited to join the team. Open this link within 7 days to set up your account:\n"
-                            + link);
+            String locale = org.springframework.context.i18n.LocaleContextHolder.getLocale().getLanguage()
+                    .toLowerCase().startsWith("en") ? "en-US" : "zh-CN";
+            mailTemplateService.send(email, locale, "mail.invite", link);
         }
         return Map.of("invitationId", inv.getId(), "token", inv.getToken(), "expiresAt", inv.getExpiresAt());
     }
