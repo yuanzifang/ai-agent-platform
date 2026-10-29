@@ -1,0 +1,46 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: platform-default
+  group_by: ["alertname", "severity"]
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity="critical"
+      receiver: platform-critical
+      group_wait: 0s
+      group_interval: 15s
+      repeat_interval: 1h
+    - matchers:
+        - severity="warning"
+      receiver: platform-warning
+      group_wait: 10s
+      group_interval: 30s
+      repeat_interval: 4h
+
+receivers:
+  - name: platform-default
+    webhook_configs:
+      - url: http://host.docker.internal:18099/alertmanager?route=default
+        send_resolved: true
+        max_alerts: 20
+  - name: platform-critical
+    webhook_configs:
+      - url: http://host.docker.internal:18099/alertmanager?route=critical
+        send_resolved: true
+        max_alerts: 20
+  - name: platform-warning
+    webhook_configs:
+      - url: http://host.docker.internal:18099/alertmanager?route=warning
+        send_resolved: true
+        max_alerts: 20
+
+inhibit_rules:
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: ["alertname", "instance"]

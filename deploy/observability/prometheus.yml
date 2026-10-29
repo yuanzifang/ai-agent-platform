@@ -19,3 +19,15 @@ scrape_configs:
       credentials_file: /etc/prometheus/metrics-token
     static_configs:
       - targets: ["backend:8080"]
+
+  - job_name: mysqld
+    static_configs:
+      - targets: ["mysqld-exporter:9104"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]

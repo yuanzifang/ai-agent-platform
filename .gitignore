@@ -37,3 +37,5 @@ config/application-platform.yml.*
 backend/config/application-platform.yml.*
 
 runtime/alert-relay/node_modules/
+# 本机原生 Prometheus/Alertmanager 运行时配置（模板见 deploy/observability/*.native.yml）
+runtime/observability/

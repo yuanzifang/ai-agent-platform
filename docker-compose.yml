@@ -309,6 +309,58 @@ services:
         condition: service_started
     logging: *default-logging
 
+  mysqld-exporter-init:
+    image: mysql:8.4
+    restart: "no"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      MYSQL_EXPORTER_PASSWORD: ${MYSQL_EXPORTER_PASSWORD:?MYSQL_EXPORTER_PASSWORD is required}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mysql -h mysql -uroot -p"$$MYSQL_ROOT_PASSWORD" -e "
+          CREATE USER IF NOT EXISTS 'exporter'@'%' IDENTIFIED BY '$$MYSQL_EXPORTER_PASSWORD';
+          GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%';
+          FLUSH PRIVILEGES;"
+    logging: *default-logging
+
+  mysqld-exporter:
+    image: prom/mysqld-exporter:v0.16.0
+    restart: unless-stopped
+    command:
+      - --mysqld.address=mysql:3306
+      - --mysqld.username=exporter
+    environment:
+      MYSQLD_EXPORTER_PASSWORD: ${MYSQL_EXPORTER_PASSWORD:?MYSQL_EXPORTER_PASSWORD is required}
+    ports:
+      - "127.0.0.1:9104:9104"
+    depends_on:
+      mysqld-exporter-init:
+        condition: service_completed_successfully
+    logging: *default-logging
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.67.0
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    ports:
+      - "127.0.0.1:9121:9121"
+    logging: *default-logging
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgresql://${PG_USERNAME:-aiagent}:${PG_PASSWORD}@pgvector:5432/vector?sslmode=disable
+    ports:
+      - "127.0.0.1:9187:9187"
+    logging: *default-logging
+
   loki:
     image: grafana/loki:3.2.1
     restart: unless-stopped
@@ -340,6 +392,30 @@ services:
         condition: service_healthy
     logging: *default-logging
 
+  tempo:
+    image: grafana/tempo:2.6.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./deploy/observability/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "${TEMPO_BIND:-127.0.0.1}:${TEMPO_PORT:-3200}:3200"
+    logging: *default-logging
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yml"]
+    volumes:
+      - ./deploy/observability/otel-collector.yml:/etc/otelcol/config.yml:ro
+    ports:
+      - "${OTEL_GRPC_BIND:-127.0.0.1}:${OTEL_GRPC_PORT:-4317}:4317"
+      - "${OTEL_HTTP_BIND:-127.0.0.1}:${OTEL_HTTP_PORT:-4318}:4318"
+    depends_on:
+      - tempo
+    logging: *default-logging
+
   grafana:
     image: grafana/grafana:11.3.0
     restart: unless-stopped
@@ -358,6 +434,7 @@ services:
     depends_on:
       - prometheus
       - loki
+      - tempo
     logging: *default-logging
 
   frontend:
@@ -387,6 +464,7 @@ volumes:
   prometheus-data:
   loki-data:
   promtail-positions:
+  tempo-data:
   grafana-data:
   alertmanager-data:
   alert-relay-state:
