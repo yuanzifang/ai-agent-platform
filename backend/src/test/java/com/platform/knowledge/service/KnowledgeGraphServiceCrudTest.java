@@ -82,7 +82,8 @@ class KnowledgeGraphServiceCrudTest {
         modelRouter = mock(ChatModelRouter.class);
         auditService = mock(AuditService.class);
         service = new KnowledgeGraphService(entityMapper, relationMapper, mentionMapper,
-                mock(KnowledgeGraphCommunityMapper.class), jobMapper,
+                mock(KnowledgeGraphCommunityMapper.class),
+                mock(com.platform.knowledge.service.EmbeddingService.class), jobMapper,
                 kbMapper, documentMapper, mock(KnowledgeChunkMapper.class),
                 mock(SysConfigMapper.class), mock(BillingUsageMapper.class),
                 mock(PricingService.class), permissionService, auditService, modelRouter,

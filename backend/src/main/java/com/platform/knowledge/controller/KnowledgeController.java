@@ -451,6 +451,15 @@ public class KnowledgeController {
         return ApiResponse.ok(graphService.communities(id, viewer(principal)));
     }
 
+    @PostMapping("/{id}/graph/communities/search")
+    public ApiResponse<Map<String, Object>> searchCommunities(@PathVariable Long id,
+                                                             @RequestBody Map<String, Object> req,
+                                                             @AuthenticationPrincipal JwtPrincipal principal) {
+        String query = req.get("query") == null ? "" : String.valueOf(req.get("query"));
+        int topK = req.get("topK") instanceof Number n ? n.intValue() : 5;
+        return ApiResponse.ok(graphService.searchCommunities(id, query, topK, viewer(principal)));
+    }
+
     @GetMapping("/{id}/graph/communities/saved")
     public ApiResponse<Map<String, Object>> savedCommunities(@PathVariable Long id,
                                                              @AuthenticationPrincipal JwtPrincipal principal) {

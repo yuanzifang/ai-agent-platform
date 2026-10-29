@@ -83,6 +83,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
     private final KnowledgeGraphRelationMapper relationMapper;
     private final KnowledgeGraphMentionMapper mentionMapper;
     private final KnowledgeGraphCommunityMapper communityMapper;
+    private final EmbeddingService embeddingService;
     private final KnowledgeGraphJobMapper jobMapper;
     private final KnowledgeBaseMapper kbMapper;
     private final KnowledgeDocumentMapper documentMapper;
@@ -278,6 +279,19 @@ public class KnowledgeGraphService implements ApplicationRunner {
             }
             row.setName(str(community.get("name")));
             row.setSummary(str(community.getOrDefault("summary", community.get("name"))));
+            if (row.getSummary() != null && !row.getSummary().isBlank()) {
+                try {
+                    float[] vector = embeddingService.embedOne(row.getSummary());
+                    row.setEmbedding(objectMapper.writeValueAsString(vector));
+                    row.setEmbeddingModel("default");
+                    row.setDimensions(vector.length);
+                } catch (Exception e) {
+                    log.warn("社区摘要向量化失败 kb={} community={}: {}", kbId, key, e.getMessage());
+                    row.setEmbedding(null);
+                    row.setEmbeddingModel(null);
+                    row.setDimensions(null);
+                }
+            }
             row.setEntityIds(ids.stream().map(String::valueOf).collect(Collectors.joining(",")));
             row.setEntityCount(ids.size());
             row.setTypes(((java.util.Collection<?>) community.getOrDefault("types", List.of()))
@@ -305,6 +319,52 @@ public class KnowledgeGraphService implements ApplicationRunner {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("communityCount", rows.size());
         out.put("communities", rows);
+        return out;
+    }
+
+    /** 社区摘要向量检索。 */
+    public Map<String, Object> searchCommunities(Long kbId, String query, int topK,
+                                                 KnowledgePermissionService.Viewer viewer) {
+        KnowledgeBase kb = permissionService.requireView(kbId, viewer);
+        ensureGraphEnabled(kb);
+        if (query == null || query.isBlank()) throw new BusinessException(400, "查询内容不能为空");
+        float[] q = embeddingService.embedOne(query);
+        List<KnowledgeGraphCommunity> rows = communityMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeGraphCommunity>()
+                        .eq(KnowledgeGraphCommunity::getKbId, kbId)
+                        .isNotNull(KnowledgeGraphCommunity::getEmbedding)
+                        .last("LIMIT 500"));
+        List<Map<String, Object>> hits = new ArrayList<>();
+        for (KnowledgeGraphCommunity row : rows) {
+            try {
+                float[] vector = objectMapper.readValue(row.getEmbedding(), float[].class);
+                if (vector.length != q.length) continue;
+                double dot = 0;
+                double normA = 0;
+                double normB = 0;
+                for (int i = 0; i < q.length; i++) {
+                    dot += q[i] * vector[i];
+                    normA += q[i] * q[i];
+                    normB += vector[i] * vector[i];
+                }
+                if (normA == 0 || normB == 0) continue;
+                Map<String, Object> hit = new LinkedHashMap<>();
+                hit.put("id", row.getId());
+                hit.put("name", row.getName());
+                hit.put("summary", row.getSummary());
+                hit.put("entityCount", row.getEntityCount());
+                hit.put("score", dot / (Math.sqrt(normA) * Math.sqrt(normB)));
+                hits.add(hit);
+            } catch (Exception ignored) {
+                // 单条损坏向量不影响其他社区
+            }
+        }
+        hits.sort((a, b) -> Double.compare((Double) b.get("score"), (Double) a.get("score")));
+        int size = Math.max(1, Math.min(topK, 50));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("query", query);
+        out.put("total", hits.size());
+        out.put("hits", hits.stream().limit(size).toList());
         return out;
     }
 

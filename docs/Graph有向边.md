@@ -59,7 +59,16 @@ POST /api/v1/knowledge-base/{id}/graph/communities/rebuild
 GET  /api/v1/knowledge-base/{id}/graph/communities/saved
 ```
 
-按社区成员 ID 生成稳定 community_key，写入 `knowledge_graph_community`；社区向量/图嵌入仍未实现。
+按社区成员 ID 生成稳定 community_key，写入 `knowledge_graph_community`。重建时同时用默认 embedding 模型生成社区摘要向量。
+
+社区向量检索：
+
+```http
+POST /api/v1/knowledge-base/{id}/graph/communities/search
+{"query":"退款政策","topK":5}
+```
+
+当前是社区摘要向量检索；实体级图嵌入仍未实现。
 
 ## 4. 已验证
 
