@@ -192,6 +192,8 @@ const messages = {
       refresh: '刷新', create: '新增记忆', profileTitle: '用户画像',
       emptyProfile: '暂无画像，聊天后会自动生成，也可手动添加', total: '共 ', autoCount: ' 条 · 自动生成 ',
       profileJson: '画像 JSON', copyProfile: '复制 JSON', copied: '已复制', copyFail: '复制失败',
+      editProfile: '编辑画像', editProfileTitle: '编辑用户画像', editProfileHint: '按分类集中编辑；内容支持 Markdown，保存后自动刷新画像。',
+      addProfileItem: '＋ 添加一条', markdownHint: '支持 Markdown',
       empty: '还没有长期记忆。可记录称呼、偏好、长期目标等事实。', auto: '自动',
       onlyAgent: '仅 Agent #', allAgents: '全部 Agent', updated: '更新', edit: '编辑', delete: '删除',
       editTitle: '编辑记忆', newTitle: '新增记忆', content: '内容',

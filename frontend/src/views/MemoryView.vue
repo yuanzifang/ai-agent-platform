@@ -15,6 +15,7 @@
       <div class="profile-summary">{{ profile.summary || t('memory.emptyProfile') }}</div>
       <div class="profile-stats">
         {{ t('memory.total') }}{{ profile.total }}{{ t('memory.autoCount') }}{{ profile.autoCount }}
+        <el-button text size="small" @click="openProfileEdit">{{ t('memory.editProfile') }}</el-button>
         <el-button text size="small" @click="copyProfile">{{ t('memory.copyProfile') }}</el-button>
       </div>
       <div class="profile-json-title">{{ t('memory.profileJson') }}</div>
@@ -39,6 +40,37 @@
         </div>
       </div>
     </div>
+
+    <el-drawer v-model="profileEditVisible" :title="t('memory.editProfileTitle')" size="760px">
+      <el-alert type="info" :closable="false" :title="t('memory.editProfileHint')" class="mb12" />
+      <el-tabs v-model="profileEditTab">
+        <el-tab-pane v-for="cat in profileTabs" :key="cat" :label="categoryText(cat)" :name="cat">
+          <div v-for="row in editRowsByCategory(cat)" :key="row.key" class="edit-memory-item">
+            <el-input v-model="row.content" type="textarea" :rows="3" maxlength="2000" show-word-limit
+                      :placeholder="t('memory.contentPh')" />
+            <div class="edit-memory-meta">
+              <el-select v-model="row.category" size="small" style="width: 130px">
+                <el-option v-for="c in profileTabs" :key="c" :label="categoryText(c)" :value="c" />
+              </el-select>
+              <el-select v-model="row.agentId" size="small" clearable :placeholder="t('memory.allAgents')" style="width: 220px">
+                <el-option v-for="a in agents" :key="a.id" :value="a.id" :label="a.name" />
+              </el-select>
+              <span class="hint">{{ t('memory.markdownHint') }}</span>
+              <div class="spacer" />
+              <el-button text size="small" type="danger" @click="removeEditRow(row)">{{ t('memory.delete') }}</el-button>
+            </div>
+            <div v-if="row.content.trim()" class="edit-preview">
+              <MarkdownContent :content="row.content" />
+            </div>
+          </div>
+          <el-button text type="primary" @click="addEditRow(cat)">{{ t('memory.addProfileItem') }}</el-button>
+        </el-tab-pane>
+      </el-tabs>
+      <template #footer>
+        <el-button @click="profileEditVisible = false">{{ t('memory.cancel') }}</el-button>
+        <el-button type="primary" :loading="profileEditSaving" @click="saveProfileEdit">{{ t('memory.save') }}</el-button>
+      </template>
+    </el-drawer>
 
     <el-dialog v-model="dialogVisible" :title="form.id ? t('memory.editTitle') : t('memory.newTitle')" width="520px">
       <el-form label-width="90px">
@@ -89,6 +121,12 @@ const form = reactive({ id: 0, content: '', category: 'FACT', agentId: null as n
 const route = useRoute()
 const profileJson = computed(() => JSON.stringify(profile.value || {}, null, 2))
 const filterAgentId = ref<number | null>(route.query.agentId ? Number(route.query.agentId) : null)
+const profileTabs = ['PROFILE', 'PREFERENCE', 'FACT', 'OTHER']
+const profileEditVisible = ref(false)
+const profileEditSaving = ref(false)
+const profileEditTab = ref('PROFILE')
+const editRows = ref<any[]>([])
+const removedIds = ref<number[]>([])
 
 onMounted(async () => {
   const data = await http.get('/agent', { params: { pageSize: 100 } }) as any
@@ -108,6 +146,56 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+async function openProfileEdit() {
+  const data = await http.get('/memories') as any
+  editRows.value = (data.list || []).map((m: any) => ({
+    key: m.id ? `m-${m.id}` : `n-${Date.now()}-${Math.random()}`,
+    id: m.id || 0,
+    content: m.content || '',
+    category: m.category || 'FACT',
+    agentId: m.agentId || null
+  }))
+  removedIds.value = []
+  profileEditTab.value = editRows.value.some(r => r.category === 'PROFILE') ? 'PROFILE' : 'FACT'
+  profileEditVisible.value = true
+}
+
+function editRowsByCategory(category: string) {
+  return editRows.value.filter(r => r.category === category)
+}
+
+function addEditRow(category: string) {
+  editRows.value.push({
+    key: `n-${Date.now()}-${Math.random()}`,
+    id: 0, content: '', category, agentId: null
+  })
+}
+
+function removeEditRow(row: any) {
+  if (row.id) removedIds.value.push(row.id)
+  editRows.value = editRows.value.filter(r => r.key !== row.key)
+}
+
+async function saveProfileEdit() {
+  const blank = editRows.value.find(r => !r.content.trim())
+  if (blank) {
+    ElMessage.warning(t('memory.contentRequired'))
+    return
+  }
+  profileEditSaving.value = true
+  try {
+    for (const id of removedIds.value) await http.delete(`/memories/${id}`)
+    for (const row of editRows.value) {
+      const payload = { content: row.content.trim(), category: row.category, agentId: row.agentId || null }
+      if (row.id) await http.put(`/memories/${row.id}`, payload)
+      else await http.post('/memories', payload)
+    }
+    ElMessage.success(t('memory.saved'))
+    profileEditVisible.value = false
+    await load()
+  } finally { profileEditSaving.value = false }
 }
 
 function openCreate() {
@@ -191,4 +279,8 @@ function fmt(value?: string) {
 .memory-content { font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .memory-meta { display: flex; align-items: center; gap: 10px; margin-top: 5px; font-size: 12px; color: #909399; }
 .memory-ops { flex-shrink: 0; }
+.mb12 { margin-bottom: 12px; }
+.edit-memory-item { border: 1px solid #ebeef5; border-radius: 6px; padding: 10px; margin-bottom: 10px; }
+.edit-memory-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.edit-preview { margin-top: 8px; padding: 8px 10px; background: #fafbfc; border-radius: 4px; }
 </style>
