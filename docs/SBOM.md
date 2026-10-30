@@ -73,6 +73,15 @@ cosign verify-blob \
   merged-sbom-<tag>.cdx.json
 ```
 
+## v0.1.8 实际验证（2026-10-30）
+
+- Release：`v0.1.8`，workflow run `40981532302`，结论 `success`
+- 5 份 CycloneDX SBOM + 5 份 Sigstore bundle + `SHA256SUMS` + 校验和签名，共 12 个文件
+- 组件数：backend 209、frontend 88、gateway image 219、alert-relay image 231、merged 515
+- `shasum -a 256 -c SHA256SUMS`：5/5 OK
+- `cosign verify-blob`：6/6 `Verified OK`
+- `gh attestation verify backend-sbom-v0.1.8.cdx.json --repo yuanzifang/ai-agent-platform`：exit 0
+
 ## v0.1.7 实际验证（2026-10-30）
 
 - Release：`v0.1.7`，workflow run `40980702969`，结论 `success`
