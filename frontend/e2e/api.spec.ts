@@ -1876,6 +1876,18 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
         headers: { 'X-Gateway-Key': ipOkKey.data.apiKey }
       })
       expect(ipOk.status()).toBe(200)
+
+      const bodyKey = await (await request.post(`${P}/gateway/routes/${scopeRoute.data.id}/keys`, {
+        headers: auth(token!), data: { name: 'body-limit', maxBodyBytes: 10 }
+      })).json()
+      const bodyTooLarge = await request.post(`${P}/gateway/call/${scopeRoute.data.routeKey}/probe`, {
+        headers: { 'X-Gateway-Key': bodyKey.data.apiKey }, data: { name: 'ok' }
+      })
+      expect(bodyTooLarge.status()).toBe(413)
+      const bodySmall = await request.post(`${P}/gateway/call/${scopeRoute.data.routeKey}/probe`, {
+        headers: { 'X-Gateway-Key': bodyKey.data.apiKey }, data: {}
+      })
+      expect(bodySmall.status()).toBe(200)
     } finally {
       await request.delete(`${P}/gateway/routes/${scopeRoute.data.id}`, { headers: auth(token!) })
     }

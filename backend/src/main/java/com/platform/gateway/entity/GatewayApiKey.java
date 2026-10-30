@@ -22,6 +22,8 @@ public class GatewayApiKey {
     private Integer rateLimitPerMin;
     /** 每日调用配额；0/NULL=不限。 */
     private Integer dailyQuota;
+    /** 单请求体上限；0/NULL=全局限制。 */
+    private Integer maxBodyBytes;
     /** 逗号分隔的方法白名单；空=全部。 */
     private String allowedMethods;
     /** 换行/逗号分隔的路径前缀；空=全部。 */
