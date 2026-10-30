@@ -161,6 +161,10 @@ retrieval:
     keyword-weight: ${RETRIEVAL_KEYWORD_WEIGHT:0.35}
 
 knowledge:
+  feishu:
+    # docx 图片除 OCR 外是否调用本地视觉模型生成照片/图表语义，默认关闭避免批量导入被模型拖慢
+    image-vision-enabled: ${FEISHU_IMAGE_VISION_ENABLED:false}
+    image-vision-model: ${FEISHU_IMAGE_VISION_MODEL:qwen3-vl:32b}
   parse:
     # 解析失败手动重试上限（需求 3.6.3(2)，默认 3 次，超限需人工介入）
     max-retries: ${KNOWLEDGE_PARSE_MAX_RETRIES:3}

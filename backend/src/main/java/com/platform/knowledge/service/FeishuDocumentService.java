@@ -55,6 +55,12 @@ public class FeishuDocumentService {
             .build();
     @Autowired(required = false)
     private DocumentParser documentParser;
+    @Autowired(required = false)
+    private ImageUnderstandingService imageUnderstanding;
+    @Value("${knowledge.feishu.image-vision-enabled:false}")
+    private boolean imageVisionEnabled;
+    @Value("${knowledge.feishu.image-vision-model:qwen3-vl:32b}")
+    private String imageVisionModel;
     @Value("${knowledge.feishu.api-base:https://open.feishu.cn}")
     private String apiBase = "https://open.feishu.cn";
     private long lastApiRequestAt;
@@ -730,6 +736,17 @@ public class FeishuDocumentService {
                     text.append("【图片说明】").append(recognized.trim(), 0,
                             Math.min(800, recognized.trim().length()));
                     count++;
+                }
+                if (imageVisionEnabled && imageUnderstanding != null) {
+                    String description = imageUnderstanding.describe(image.content(), extension,
+                            new ParseOptions(false, "", "", 0, 0, true, "",
+                                    imageVisionModel, 1));
+                    if (description != null && !description.isBlank()) {
+                        if (text.length() > 0) text.append("\n\n");
+                        text.append("【图片语义】").append(description.trim(), 0,
+                                Math.min(800, description.trim().length()));
+                        count++;
+                    }
                 }
             } catch (Exception e) {
                 log.warn("飞书图片 OCR 失败 token={} err={}", token, root(e));
