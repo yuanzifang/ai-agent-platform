@@ -12,7 +12,12 @@
         <div v-if="searchVisible" class="gs-panel" @mousedown.prevent>
           <div v-if="searchKeyword.trim().length < 2" class="gs-empty">{{ t('layout.searchHint') }}</div>
           <div v-else-if="searchLoading" class="gs-empty">…</div>
-          <div v-else-if="searchResults.length === 0" class="gs-empty">{{ t('layout.searchEmpty') }}</div>
+          <div v-else-if="searchResults.length === 0" class="gs-empty">
+            <div>{{ t('layout.searchEmpty') }}</div>
+            <button v-if="searchSuggestion" class="gs-suggest" type="button" @click="useSuggestion">
+              {{ t('layout.searchDidYouMean') }} {{ searchSuggestion }}
+            </button>
+          </div>
           <div v-for="(r, i) in searchResults" :key="i" class="gs-item" @click="goSearch(r)">
             <el-tag size="small" :type="r.tagType">{{ r.group }}</el-tag>
             <span class="gs-name" v-html="r.nameHtml || r.name"></span>
@@ -245,6 +250,7 @@ const searchKeyword = ref('')
 const searchVisible = ref(false)
 const searchLoading = ref(false)
 const searchResults = ref<any[]>([])
+const searchSuggestion = ref('')
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 function onSearchFocus() {
@@ -260,6 +266,7 @@ function scheduleSearch() {
   if (searchTimer) clearTimeout(searchTimer)
   if (searchKeyword.value.trim().length < 2) {
     searchResults.value = []
+    searchSuggestion.value = ''
     return
   }
   searchTimer = setTimeout(runSearch, 250)
@@ -277,6 +284,7 @@ async function runSearch() {
       CASE: { group: t('layout.searchCase'), tagType: 'warning' },
       TOOL: { group: t('layout.searchTool'), tagType: 'info' }
     }
+    searchSuggestion.value = data?.suggestion || ''
     searchResults.value = (data?.list || []).map((r: any) => {
       const m = meta[r.type] || { group: r.type, tagType: 'info' }
       return {
@@ -296,6 +304,13 @@ async function runSearch() {
   } finally {
     searchLoading.value = false
   }
+}
+
+function useSuggestion() {
+  if (!searchSuggestion.value) return
+  searchKeyword.value = searchSuggestion.value
+  searchSuggestion.value = ''
+  void runSearch()
 }
 
 function goSearch(row: any) {
@@ -522,6 +537,17 @@ async function copyText(text: string) {
   font-size: 13px;
   text-align: center;
 }
+.gs-suggest {
+  display: block;
+  margin: 8px auto 0;
+  padding: 2px 6px;
+  border: 0;
+  background: transparent;
+  color: #409eff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.gs-suggest:hover { text-decoration: underline; }
 .gs-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
