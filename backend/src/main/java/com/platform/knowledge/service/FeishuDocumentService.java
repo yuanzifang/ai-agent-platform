@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -51,6 +52,8 @@ public class FeishuDocumentService {
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
+    @Autowired(required = false)
+    private DocumentParser documentParser;
     @Value("${knowledge.feishu.api-base:https://open.feishu.cn}")
     private String apiBase = "https://open.feishu.cn";
     private long lastApiRequestAt;
@@ -283,6 +286,10 @@ public class FeishuDocumentService {
         }
         if (document == null) {
             document = fetchDocx(documentToken, accessToken, sourceUrl, fallbackName);
+        }
+        if (blocks != null) {
+            String imageText = extractDocxImageText(blocks, accessToken, skipped, seen);
+            if (!imageText.isBlank()) document = appendDocumentText(document, imageText);
         }
         add(out, document);
         if (blocks != null) importDocxAttachments(blocks, accessToken, out, skipped, seen);
@@ -572,7 +579,47 @@ public class FeishuDocumentService {
         return new Document(safe + ".md", bytes, "text/markdown", sourceUrl);
     }
 
-    /** docx 内的 file block 下载为独立知识库文档；图片仍保留占位符。 */
+    /** 下载 docx 内的图片并做本地 OCR，把文字追加到主文档；失败不影响正文。 */
+    private String extractDocxImageText(List<JsonNode> blocks, String accessToken,
+                                        List<String> skipped, Set<String> seen) {
+        if (documentParser == null) return "";
+        StringBuilder text = new StringBuilder();
+        int count = 0;
+        for (JsonNode block : blocks) {
+            if (block.path("block_type").asInt() != 27 || count >= 20) continue;
+            String token = block.path("image").path("token").asText("");
+            if (token.isBlank() || !seen.add("image:" + token)) continue;
+            try {
+                Document image = fetchMedia(token, "飞书图片-" + token.substring(0, Math.min(8, token.length())),
+                        accessToken);
+                String name = image.name();
+                int dot = name.lastIndexOf('.');
+                String extension = dot >= 0 ? name.substring(dot + 1) : "png";
+                String recognized = documentParser.ocrText(image.content(), extension,
+                        new ParseOptions(true, "tesseract", "chi_sim+eng", 150, 20,
+                                false, "", "", 3));
+                if (recognized != null && !recognized.isBlank()) {
+                    if (text.length() > 0) text.append("\n\n");
+                    text.append("【图片说明】").append(recognized.trim(), 0,
+                            Math.min(800, recognized.trim().length()));
+                    count++;
+                }
+            } catch (Exception e) {
+                log.warn("飞书图片 OCR 失败 token={} err={}", token, root(e));
+                skip(skipped, "图片 OCR 失败，已跳过：" + token);
+            }
+        }
+        return text.toString();
+    }
+
+    private Document appendDocumentText(Document document, String extra) {
+        String content = new String(document.content(), StandardCharsets.UTF_8)
+                + "\n\n" + extra;
+        return new Document(document.name(), content.getBytes(StandardCharsets.UTF_8),
+                document.contentType(), document.sourceUrl());
+    }
+
+    /** docx 内的 file block 下载为独立知识库文档；图片在 extractDocxImageText 中追加 OCR 说明。 */
     private void importDocxAttachments(List<JsonNode> blocks, String accessToken, List<Document> out,
                                        List<String> skipped, Set<String> seen) {
         for (JsonNode block : blocks) {
