@@ -1795,13 +1795,13 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
 
     const signed = await (await request.post(`${P}/gateway/routes`, {
       headers: auth(token!),
-      data: { name: `E2E Gateway Signed-${Date.now()}`, targetUrl: 'http://localhost:8080/actuator',
+      data: { name: `E2E Gateway Signed-${Date.now()}`, targetUrl: `${MOCK}/always-ok`,
         timeoutMs: 5000, rateLimitPerMin: 100, signingEnabled: true }
     })).json()
     expect(signed.code, JSON.stringify(signed)).toBe(0)
     const signedRoute = signed.data
     try {
-      const path = `${P}/gateway/call/${signedRoute.routeKey}/health`
+      const path = `${P}/gateway/call/${signedRoute.routeKey}/always-ok`
       const timestamp = String(Date.now())
       const nonce = randomUUID()
       // 服务器 canonical 使用空 body 的 SHA-256
@@ -1814,11 +1814,11 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
         'X-Gateway-Nonce': nonce,
         'X-Gateway-Signature': signature
       }
-      expect((await request.get(`${P}/gateway/call/${signedRoute.routeKey}/health`, { headers })).status()).toBe(200)
-      expect((await request.get(`${P}/gateway/call/${signedRoute.routeKey}/health`, {
+      expect((await request.get(`${P}/gateway/call/${signedRoute.routeKey}/always-ok`, { headers })).status()).toBe(200)
+      expect((await request.get(`${P}/gateway/call/${signedRoute.routeKey}/always-ok`, {
         headers: { ...headers, 'X-Gateway-Signature': '0'.repeat(64) }
       })).status()).toBe(401)
-      expect((await request.get(`${P}/gateway/call/${signedRoute.routeKey}/health`, { headers })).status()).toBe(409)
+      expect((await request.get(`${P}/gateway/call/${signedRoute.routeKey}/always-ok`, { headers })).status()).toBe(409)
     } finally {
       await request.delete(`${P}/gateway/routes/${signedRoute.id}`, { headers: auth(token!) })
     }
