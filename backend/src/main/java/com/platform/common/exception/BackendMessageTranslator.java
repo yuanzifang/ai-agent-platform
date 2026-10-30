@@ -44,6 +44,13 @@ public class BackendMessageTranslator {
         EXACT_KEYS.put("动态码错误", "error.auth.mfaInvalid");
         EXACT_KEYS.put("恢复码无效", "error.auth.recoveryInvalid");
         EXACT_KEYS.put("邀请链接无效或已过期", "error.auth.inviteInvalid");
+        EXACT_KEYS.put("账号已锁定，请稍后再试", "error.auth.accountLocked");
+        EXACT_KEYS.put("账号不属于该租户", "error.auth.tenantMismatch");
+        EXACT_KEYS.put("MFA 未启用", "error.auth.mfaNotEnabled");
+        EXACT_KEYS.put("MFA 验证码错误", "error.auth.mfaCodeInvalid");
+        EXACT_KEYS.put("重置链接无效", "error.auth.resetInvalid");
+        EXACT_KEYS.put("导入内容为空", "error.import.empty");
+        EXACT_KEYS.put("CSV 缺少数据行", "error.import.csvMissing");
         EXACT_KEYS.put("无操作权限（权限点校验未通过）", "error.permission.denied");
         EXACT_KEYS.put("接口不存在", "error.api.notFound");
         EXACT_KEYS.put("参数错误", "error.param.invalid");

@@ -44,6 +44,10 @@ class BackendMessageTranslatorTest {
         assertEquals("Permission denied", translator.translate("无操作权限（权限点校验未通过）"));
         assertEquals("System busy; please try again later",
                 translator.translate("系统繁忙，请稍后重试"));
+        assertEquals("Account does not belong to this tenant",
+                translator.translate("账号不属于该租户"));
+        assertEquals("Invalid MFA code", translator.translate("MFA 验证码错误"));
+        assertEquals("Import content is empty", translator.translate("导入内容为空"));
     }
 
     @Test
