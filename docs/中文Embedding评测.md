@@ -86,6 +86,29 @@ python3 scripts/eval_chinese_retrieval.py \
 > 该脚本评估 embedding/向量召回本身；平台内的 `RETRIEVAL` 评测步骤还会叠加混合检索、
 > 权限过滤和 chunk 切分，两者应结合使用。
 
+
+## 固定黄金集 v1 实测（2026-10-31）
+
+用 16 条知识片段、21 条查询，在本机 Ollama 上复跑 `scripts/eval_chinese_retrieval.py`：
+
+| 模型 | Recall@1 | Recall@3 | Recall@5 | Recall@10 | MRR | nDCG@5 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `bge-m3:latest` | 0.952 | 1.000 | 1.000 | 1.000 | 0.976 | 0.982 |
+| `nomic-embed-text:latest` | 0.524 | 0.667 | 0.762 | 0.857 | 0.624 | 0.640 |
+
+复现：
+
+```bash
+python3 scripts/eval_chinese_retrieval.py \
+  --endpoint http://127.0.0.1:11434/v1/embeddings \
+  --model bge-m3 \
+  --output target/chinese-retrieval-bge-m3.json \
+  --min-recall5 0.90 --min-mrr 0.90
+```
+
+结论与早先 10 文档小样本一致：中文知识库默认应优先 `bge-m3`；如果回退到
+`nomic-embed-text`，需要在发布门禁中接受明显更低的 Recall@1/MRR，或触发索引重建后再切换。
+
 ## 说明
 
 - 这是小样本评测，不是完整基准；上线前应使用真实知识库、真实用户查询和
