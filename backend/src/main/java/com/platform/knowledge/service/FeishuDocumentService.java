@@ -292,7 +292,10 @@ public class FeishuDocumentService {
             if (!imageText.isBlank()) document = appendDocumentText(document, imageText);
         }
         add(out, document);
-        if (blocks != null) importDocxAttachments(blocks, accessToken, out, skipped, seen);
+        if (blocks != null) {
+            importDocxAttachments(blocks, accessToken, out, skipped, seen);
+            importDocxEmbeddedTables(blocks, accessToken, out, skipped, seen);
+        }
         if (depth >= MAX_NESTING_DEPTH) return;
         Set<String> links = new LinkedHashSet<>();
         if (blocks != null) {
@@ -577,6 +580,40 @@ public class FeishuDocumentService {
                 .replaceAll("[\\\\/:*?\"<>|]", "_")
                 .replaceAll("(?i)\\.(md|markdown|txt)$", "");
         return new Document(safe + ".md", bytes, "text/markdown", sourceUrl);
+    }
+
+    /** docx 正文内嵌的 bitable/sheet 也转成独立知识库文档。 */
+    private void importDocxEmbeddedTables(List<JsonNode> blocks, String accessToken, List<Document> out,
+                                          List<String> skipped, Set<String> seen) {
+        for (JsonNode block : blocks) {
+            try {
+                if (block.path("block_type").asInt() == 18) {
+                    String token = block.path("bitable").path("token").asText("");
+                    String appToken = stripTableSuffix(token);
+                    if (!appToken.isBlank()) {
+                        addBitable(appToken, accessToken, "https://www.feishu.cn/base/" + appToken,
+                                defaultName("飞书内嵌多维表格", appToken), out, skipped, seen);
+                    }
+                } else if (block.path("block_type").asInt() == 30) {
+                    String token = block.path("sheet").path("token").asText("");
+                    String sheetToken = stripTableSuffix(token);
+                    if (!sheetToken.isBlank()) {
+                        addSheet(sheetToken, accessToken, "https://www.feishu.cn/sheets/" + sheetToken,
+                                defaultName("飞书内嵌表格", sheetToken), out, skipped, seen);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("飞书内嵌表格读取失败 block={} err={}",
+                        block.path("block_id").asText(""), root(e));
+                skip(skipped, "内嵌表格读取失败：" + block.path("block_id").asText(""));
+            }
+        }
+    }
+
+    private String stripTableSuffix(String token) {
+        if (token == null || token.isBlank()) return "";
+        int index = token.indexOf('_');
+        return index > 0 ? token.substring(0, index) : token;
     }
 
     /** 下载 docx 内的图片并做本地 OCR，把文字追加到主文档；失败不影响正文。 */
