@@ -1,0 +1,42 @@
+# Loki SSD 组件式：write x3 + read x2 + backend x1 + nginx。
+name: aap-loki-ssd
+x-loki: &loki
+  image: grafana/loki:3.2.1
+  restart: unless-stopped
+  volumes:
+    - ../../../../runtime/observability/loki-ssd/loki.yml:/etc/loki/loki.yml:ro
+    - loki-data:/loki
+services:
+  loki-write-1:
+    <<: *loki
+    command: ["-target=write", "-config.file=/etc/loki/loki.yml"]
+    ports: ["127.0.0.1:24101:3100"]
+  loki-write-2:
+    <<: *loki
+    command: ["-target=write", "-config.file=/etc/loki/loki.yml"]
+    ports: ["127.0.0.1:24102:3100"]
+  loki-write-3:
+    <<: *loki
+    command: ["-target=write", "-config.file=/etc/loki/loki.yml"]
+    ports: ["127.0.0.1:24103:3100"]
+  loki-read-1:
+    <<: *loki
+    command: ["-target=read", "-config.file=/etc/loki/loki.yml"]
+    ports: ["127.0.0.1:24111:3100"]
+  loki-read-2:
+    <<: *loki
+    command: ["-target=read", "-config.file=/etc/loki/loki.yml"]
+    ports: ["127.0.0.1:24112:3100"]
+  loki-backend:
+    <<: *loki
+    command: ["-target=backend", "-config.file=/etc/loki/loki.yml"]
+    ports: ["127.0.0.1:24121:3100"]
+  loki-lb:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./loki-ssd-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports: ["127.0.0.1:24100:8080"]
+    depends_on: [loki-write-1, loki-write-2, loki-write-3, loki-read-1, loki-read-2]
+volumes:
+  loki-data:
