@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
+import java.net.URLDecoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -390,15 +391,34 @@ public class FeishuDocumentService {
 
     /** 飞书文本中的 @文档（mention_doc）按类型转换为可解析的飞书 URL。 */
     private String mentionUrl(JsonNode doc) {
+        String rawUrl = doc.path("url").asText("");
+        if (!rawUrl.isBlank()) {
+            try {
+                return URLDecoder.decode(rawUrl, StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                return rawUrl;
+            }
+        }
         String token = doc.path("token").asText("");
-        String type = doc.path("obj_type").asText("").toLowerCase();
         if (token.isBlank()) return "";
+        int type = doc.path("obj_type").asInt(-1);
+        if (type < 0) {
+            String text = doc.path("obj_type").asText("").toLowerCase();
+            type = switch (text) {
+                case "docx" -> 22;
+                case "doc" -> 1;
+                case "sheet" -> 3;
+                case "bitable" -> 8;
+                case "wiki" -> 16;
+                default -> -1;
+            };
+        }
         return switch (type) {
-            case "docx" -> "https://www.feishu.cn/docx/" + token;
-            case "doc" -> "https://www.feishu.cn/docs/" + token;
-            case "sheet" -> "https://www.feishu.cn/sheets/" + token;
-            case "bitable" -> "https://www.feishu.cn/base/" + token;
-            case "wiki" -> "https://www.feishu.cn/wiki/" + token;
+            case 1 -> "https://www.feishu.cn/docs/" + token;
+            case 3 -> "https://www.feishu.cn/sheets/" + token;
+            case 8 -> "https://www.feishu.cn/base/" + token;
+            case 16 -> "https://www.feishu.cn/wiki/" + token;
+            case 22 -> "https://www.feishu.cn/docx/" + token;
             default -> "";
         };
     }
