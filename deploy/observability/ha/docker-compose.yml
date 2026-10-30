@@ -90,6 +90,26 @@ services:
       - ../../../runtime/observability/thanos-objstore.yml:/etc/thanos/objstore.yml:ro
       - thanos-store-data:/var/thanos/store
 
+  thanos-compactor:
+    image: thanosio/thanos:v0.37.2
+    restart: unless-stopped
+    user: "0:0"
+    command:
+      - compact
+      - --data-dir=/var/thanos/compact
+      - --objstore.config-file=/etc/thanos/objstore.yml
+      - --retention.resolution-raw=7d
+      - --retention.resolution-5m=30d
+      - --retention.resolution-1h=90d
+      - --wait
+      - --wait-interval=30s
+      - --http-address=0.0.0.0:10905
+    volumes:
+      - ../../../runtime/observability/thanos-objstore.yml:/etc/thanos/objstore.yml:ro
+      - thanos-compact-data:/var/thanos/compact
+    ports:
+      - "127.0.0.1:19098:10905"
+
   thanos-query:
     image: thanosio/thanos:v0.37.2
     restart: unless-stopped
@@ -112,3 +132,4 @@ volumes:
   prometheus-a-data:
   prometheus-b-data:
   thanos-store-data:
+  thanos-compact-data:
