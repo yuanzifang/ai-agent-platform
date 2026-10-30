@@ -380,8 +380,27 @@ public class FeishuDocumentService {
             return;
         }
         if (node.isObject()) {
+            if (node.has("mention_doc")) {
+                String url = mentionUrl(node.path("mention_doc"));
+                if (!url.isBlank()) links.add(url);
+            }
             node.fields().forEachRemaining(entry -> collectLinks(entry.getValue(), links));
         }
+    }
+
+    /** 飞书文本中的 @文档（mention_doc）按类型转换为可解析的飞书 URL。 */
+    private String mentionUrl(JsonNode doc) {
+        String token = doc.path("token").asText("");
+        String type = doc.path("obj_type").asText("").toLowerCase();
+        if (token.isBlank()) return "";
+        return switch (type) {
+            case "docx" -> "https://www.feishu.cn/docx/" + token;
+            case "doc" -> "https://www.feishu.cn/docs/" + token;
+            case "sheet" -> "https://www.feishu.cn/sheets/" + token;
+            case "bitable" -> "https://www.feishu.cn/base/" + token;
+            case "wiki" -> "https://www.feishu.cn/wiki/" + token;
+            default -> "";
+        };
     }
 
     private void collectLinks(String text, Set<String> links) {
@@ -563,6 +582,11 @@ public class FeishuDocumentService {
             } else if (element.has("mention")) {
                 JsonNode mention = element.path("mention");
                 out.append('@').append(mention.path("name").asText(mention.path("user_id").asText("")));
+            } else if (element.has("mention_doc")) {
+                JsonNode doc = element.path("mention_doc");
+                String title = doc.path("title").asText(doc.path("token").asText(""));
+                String url = mentionUrl(doc);
+                out.append(url.isBlank() ? title : "[" + title + "](" + url + ")");
             } else if (element.has("equation")) {
                 out.append(element.path("equation").path("content").asText(""));
             }

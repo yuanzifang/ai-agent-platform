@@ -54,6 +54,16 @@ class FeishuDocumentServiceDepthTest {
     }
 
     @Test
+    void followsDocxMentionDocumentLinks() {
+        FeishuDocumentService.Collection result = service.collectDetailed(
+                "https://team.feishu.cn/docx/m1", "app", "secret");
+
+        assertEquals(2, result.documents().size());
+        assertTrue(result.documents().stream()
+                .anyMatch(d -> "https://www.feishu.cn/docx/m2".equals(d.sourceUrl())));
+    }
+
+    @Test
     void followsDocxHyperlinksUpToThreeLevels() {
         FeishuDocumentService.Collection result = service.collectDetailed(
                 "https://team.feishu.cn/docx/l1", "app", "secret");
@@ -97,6 +107,7 @@ class FeishuDocumentServiceDepthTest {
                 // 回链 l1 用来验证循环链接不会重复导入。
                 case "l2" -> blocks(link("l1"), link("l3"));
                 case "l3" -> blocks(link("l4"));
+                case "m1" -> blocks(mention("m2"));
                 default -> "{\"code\":0,\"data\":{\"items\":[],\"has_more\":false}}";
             };
         } else if (path.startsWith("/open-apis/docx/v1/documents/") && path.endsWith("/raw_content")) {
@@ -126,6 +137,11 @@ class FeishuDocumentServiceDepthTest {
         return "{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"link\","
                 + "\"text_element_style\":{\"link\":{\"url\":\"https://team.feishu.cn/docx/"
                 + token + "\"}}}}]}}";
+    }
+
+    private String mention(String token) {
+        return "{\"block_type\":2,\"text\":{\"elements\":[{\"mention_doc\":{\"token\":\""
+                + token + "\",\"obj_type\":\"docx\",\"title\":\"Mentioned document\"}}]}}";
     }
 
     private String param(String query, String key) {
