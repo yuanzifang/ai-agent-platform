@@ -3,6 +3,7 @@
 BASE=http://localhost:8080/api/v1
 # 清理上一轮限流计数，保证可重复执行
 redis-cli --scan --pattern 'ratelimit:*' 2>/dev/null | xargs -r redis-cli DEL >/dev/null 2>&1
+redis-cli --scan --pattern 'quota:apilimit:*' 2>/dev/null | xargs -r redis-cli DEL >/dev/null 2>&1
 PASS=0; FAIL=0
 check() { # name expected_status actual_status
   if [ "$2" = "$3" ]; then PASS=$((PASS+1)); echo "PASS | $1 => $3"
