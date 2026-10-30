@@ -71,7 +71,6 @@ const profileEditVisible = ref(false)
 const profileEditSaving = ref(false)
 const profileEditTab = ref('PROFILE')
 const editRows = ref<any[]>([])
-const removedIds = ref<number[]>([])
 
 onMounted(async () => {
   const data = await http.get('/agent', { params: { pageSize: 100 } }) as any
@@ -90,16 +89,34 @@ async function load() {
 
 async function openProfileEdit() {
   const data = await http.get('/memories') as any
-  editRows.value = (data.list || []).map((m: any) => ({
-    key: m.id ? `m-${m.id}` : `n-${Date.now()}-${Math.random()}`,
-    id: m.id || 0,
-    content: m.content || '',
-    category: m.category || 'FACT',
-    agentId: m.agentId || null
-  }))
-  removedIds.value = []
+  const seen = new Set<string>()
+  editRows.value = []
+  for (const m of data.list || []) {
+    const content = String(m.content || '').trim()
+    if (!meaningfulMemory(content)) continue
+    const key = content.replace(/\s+/g, '').toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    editRows.value.push({
+      key: m.id ? `m-${m.id}` : `n-${Date.now()}-${Math.random()}`,
+      id: m.id || 0,
+      content,
+      category: m.category || 'FACT',
+      agentId: m.agentId || null
+    })
+  }
   profileEditTab.value = editRows.value.some(r => r.category === 'PROFILE') ? 'PROFILE' : 'FACT'
   profileEditVisible.value = true
+}
+
+function meaningfulMemory(content: string) {
+  if (!content) return false
+  if (content.startsWith('用户消息：') || content.startsWith('助手回答：')
+      || content.startsWith('建议您') || content.startsWith('请确认')) return false
+  let value = content
+  const idx = Math.max(content.lastIndexOf('：'), content.lastIndexOf(':'))
+  if (idx >= 0 && idx < content.length - 1) value = content.slice(idx + 1).trim()
+  return !['无', '未知', '未提供', '暂无', '不适用', 'null', 'none'].includes(value.toLowerCase())
 }
 
 function editRowsByCategory(category: string) {
@@ -114,7 +131,6 @@ function addEditRow(category: string) {
 }
 
 function removeEditRow(row: any) {
-  if (row.id) removedIds.value.push(row.id)
   editRows.value = editRows.value.filter(r => r.key !== row.key)
 }
 
@@ -126,12 +142,11 @@ async function saveProfileEdit() {
   }
   profileEditSaving.value = true
   try {
-    for (const id of removedIds.value) await http.delete(`/memories/${id}`)
-    for (const row of editRows.value) {
-      const payload = { content: row.content.trim(), category: row.category, agentId: row.agentId || null }
-      if (row.id) await http.put(`/memories/${row.id}`, payload)
-      else await http.post('/memories', payload)
-    }
+    await http.put('/memories/profile', {
+      items: editRows.value.map(row => ({
+        content: row.content.trim(), category: row.category, agentId: row.agentId || null
+      }))
+    })
     ElMessage.success(t('memory.saved'))
     profileEditVisible.value = false
     await load()

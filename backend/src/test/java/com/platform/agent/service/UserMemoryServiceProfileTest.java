@@ -12,6 +12,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class UserMemoryServiceProfileTest {
@@ -46,5 +48,23 @@ class UserMemoryServiceProfileTest {
         assertEquals(1, categories.get("PROFILE").stream().filter("我的名字是王小明"::equals).count());
         assertEquals(List.of("我的名字是王小明", "用户职业：软件工程师"), categories.get("PROFILE"));
         assertEquals(List.of("用户长期偏好：喜欢阅读"), categories.get("PREFERENCE"));
+    }
+
+    @Test
+    void replaceProfileCleansDuplicatesAndNoise() {
+        UserMemoryMapper mapper = mock(UserMemoryMapper.class);
+        when(mapper.selectList(any())).thenReturn(List.of());
+        UserMemoryService service = new UserMemoryService(mapper);
+        JwtPrincipal principal = new JwtPrincipal(1L, 1L, false, List.of("OWNER"), List.of());
+
+        service.replaceProfile(Map.of("items", List.of(
+                Map.of("content", "我的名字是王小明", "category", "PROFILE"),
+                Map.of("content", "我的名字是王小明", "category", "PROFILE"),
+                Map.of("content", "用户职业：无", "category", "PROFILE"),
+                Map.of("content", "用户职业：软件工程师", "category", "PROFILE")
+        )), principal);
+
+        verify(mapper).delete(any());
+        verify(mapper, times(2)).insert(any(UserMemory.class));
     }
 }
