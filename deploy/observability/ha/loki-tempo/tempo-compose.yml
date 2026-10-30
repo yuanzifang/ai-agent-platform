@@ -1,0 +1,38 @@
+# Tempo 3 节点 S3 集群本地验证；独立于 Loki 集群。
+name: aap-tempo-ha
+services:
+  tempo-1:
+    image: grafana/tempo:2.6.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ../../../../runtime/observability/tempo-ha/tempo-1.yml:/etc/tempo/tempo.yml:ro
+      - tempo-1-data:/var/tempo
+    ports: ["127.0.0.1:23201:3200", "127.0.0.1:23211:4318"]
+  tempo-2:
+    image: grafana/tempo:2.6.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ../../../../runtime/observability/tempo-ha/tempo-2.yml:/etc/tempo/tempo.yml:ro
+      - tempo-2-data:/var/tempo
+    ports: ["127.0.0.1:23202:3200", "127.0.0.1:23212:4318"]
+  tempo-3:
+    image: grafana/tempo:2.6.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ../../../../runtime/observability/tempo-ha/tempo-3.yml:/etc/tempo/tempo.yml:ro
+      - tempo-3-data:/var/tempo
+    ports: ["127.0.0.1:23203:3200", "127.0.0.1:23213:4318"]
+  tempo-lb:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./tempo-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports: ["127.0.0.1:23200:8080"]
+    depends_on: [tempo-1, tempo-2, tempo-3]
+volumes:
+  tempo-1-data:
+  tempo-2-data:
+  tempo-3-data:
