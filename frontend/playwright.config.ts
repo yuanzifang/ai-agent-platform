@@ -35,10 +35,7 @@ export default defineConfig({
     }] : [])
   ],
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    // Edge 兼容（需求 5.1：Chrome/Edge 最新两个大版本）；CI edge job 用 --project=msedge 跑
-    ...(process.env.E2E_BROWSER === 'msedge'
-      ? [{ name: 'msedge', use: { ...devices['Desktop Edge'], channel: 'msedge' } }]
-      : [])
+    // 浏览器支持范围：仅 Google Chrome（Chromium 内核）
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } }
   ]
 })
