@@ -13,7 +13,10 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 长期记忆（需求 3.29 P2）：用户可见、可编辑的事实列表。
@@ -93,18 +96,22 @@ public class UserMemoryService {
                 .orderByDesc(UserMemory::getUpdatedAt)
                 .last("LIMIT " + CONTEXT_LIMIT));
         StringBuilder sb = new StringBuilder();
-        appendGroup(sb, "用户画像", rows, "PROFILE");
-        appendGroup(sb, "用户偏好", rows, "PREFERENCE");
-        appendGroup(sb, "其他稳定事实", rows, "FACT");
+        Set<String> seen = new HashSet<>();
+        appendGroup(sb, "用户画像", rows, "PROFILE", seen);
+        appendGroup(sb, "用户偏好", rows, "PREFERENCE", seen);
+        appendGroup(sb, "其他稳定事实", rows, "FACT", seen);
         return sb.toString();
     }
 
-    private void appendGroup(StringBuilder sb, String title, List<UserMemory> rows, String category) {
+    private void appendGroup(StringBuilder sb, String title, List<UserMemory> rows, String category,
+                             Set<String> seen) {
         List<String> lines = new ArrayList<>();
         for (UserMemory m : rows) {
             if (!category.equals(m.getCategory())) continue;
-            if (m.getContent() == null || m.getContent().isBlank()) continue;
-            lines.add("- " + m.getContent().trim());
+            if (!meaningful(m.getContent())) continue;
+            String content = m.getContent().trim();
+            if (!seen.add(canonical(content))) continue;
+            lines.add("- " + content);
         }
         if (lines.isEmpty()) return;
         String header = "【" + title + "】\n";
@@ -127,22 +134,46 @@ public class UserMemoryService {
         categories.put("PROFILE", new ArrayList<>());
         categories.put("PREFERENCE", new ArrayList<>());
         categories.put("FACT", new ArrayList<>());
+        Set<String> seen = new HashSet<>();
         int auto = 0;
+        int total = 0;
         List<String> summaryParts = new ArrayList<>();
         for (UserMemory m : rows) {
+            if (!meaningful(m.getContent())) continue;
+            String content = m.getContent().trim();
+            if (!seen.add(canonical(content))) continue;
             String category = categories.containsKey(m.getCategory()) ? m.getCategory() : "FACT";
-            categories.get(category).add(m.getContent());
+            categories.get(category).add(content);
+            total++;
             if ("AUTO".equalsIgnoreCase(m.getSource())) auto++;
             if (summaryParts.size() < 5 && List.of("PROFILE", "PREFERENCE").contains(category)) {
-                summaryParts.add(m.getContent());
+                summaryParts.add(content);
             }
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("summary", summaryParts.isEmpty() ? "" : String.join("；", summaryParts));
         result.put("categories", categories);
-        result.put("total", rows.size());
+        result.put("total", total);
         result.put("autoCount", auto);
         return result;
+    }
+
+    /** 展示层去重：忽略空白差异，避免同名事实在摘要/JSON 中重复出现。 */
+    private String canonical(String content) {
+        return content.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+    }
+
+    /** 过滤“无/未知/未提供”以及抽取器误收进记忆的对话原文。 */
+    private boolean meaningful(String content) {
+        if (content == null || content.isBlank()) return false;
+        String text = content.trim();
+        if (text.startsWith("用户消息：") || text.startsWith("助手回答：")
+                || text.startsWith("建议您") || text.startsWith("请确认")) return false;
+        String value = text;
+        int idx = Math.max(text.lastIndexOf('：'), text.lastIndexOf(':'));
+        if (idx >= 0 && idx < text.length() - 1) value = text.substring(idx + 1).trim();
+        return !Set.of("无", "未知", "未提供", "暂无", "不适用", "null", "none")
+                .contains(value.toLowerCase(Locale.ROOT));
     }
 
     private UserMemory owned(Long id, JwtPrincipal principal) {
