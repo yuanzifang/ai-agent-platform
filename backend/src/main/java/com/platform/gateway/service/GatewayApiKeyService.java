@@ -244,18 +244,20 @@ public class GatewayApiKeyService {
                        LocalDateTime expiresAt, Long operatorId) {
         GatewayApiKey key = keyMapper.selectById(keyId);
         if (key == null) return;
-        GatewayApiKey patch = new GatewayApiKey();
-        patch.setId(keyId);
-        if (name != null && !name.isBlank()) patch.setName(name.trim());
-        if (enabled != null) patch.setEnabled(enabled ? 1 : 0);
-        if (rateLimitPerMin != null) patch.setRateLimitPerMin(Math.max(0, rateLimitPerMin));
-        if (dailyQuota != null) patch.setDailyQuota(Math.max(0, dailyQuota));
-        if (maxBodyBytes != null) patch.setMaxBodyBytes(Math.max(0, maxBodyBytes));
-        if (allowedMethods != null) patch.setAllowedMethods(normalizeMethods(allowedMethods));
-        if (allowedPaths != null) patch.setAllowedPaths(normalizePaths(allowedPaths));
-        if (allowedIps != null) patch.setAllowedIps(normalizeIps(allowedIps));
-        if (expiresAt != null) patch.setExpiresAt(expiresAt);
-        keyMapper.updateById(patch);
+        // 显式 set：scope/白名单传空串时需要真正清空，不能依赖 updateById 的 NOT_NULL 策略。
+        LambdaUpdateWrapper<GatewayApiKey> update = new LambdaUpdateWrapper<GatewayApiKey>()
+                .eq(GatewayApiKey::getId, keyId);
+        boolean any = false;
+        if (name != null && !name.isBlank()) { update.set(GatewayApiKey::getName, name.trim()); any = true; }
+        if (enabled != null) { update.set(GatewayApiKey::getEnabled, enabled ? 1 : 0); any = true; }
+        if (rateLimitPerMin != null) { update.set(GatewayApiKey::getRateLimitPerMin, Math.max(0, rateLimitPerMin)); any = true; }
+        if (dailyQuota != null) { update.set(GatewayApiKey::getDailyQuota, Math.max(0, dailyQuota)); any = true; }
+        if (maxBodyBytes != null) { update.set(GatewayApiKey::getMaxBodyBytes, Math.max(0, maxBodyBytes)); any = true; }
+        if (allowedMethods != null) { update.set(GatewayApiKey::getAllowedMethods, normalizeMethods(allowedMethods)); any = true; }
+        if (allowedPaths != null) { update.set(GatewayApiKey::getAllowedPaths, normalizePaths(allowedPaths)); any = true; }
+        if (allowedIps != null) { update.set(GatewayApiKey::getAllowedIps, normalizeIps(allowedIps)); any = true; }
+        if (expiresAt != null) { update.set(GatewayApiKey::getExpiresAt, expiresAt); any = true; }
+        if (any) keyMapper.update(null, update);
         evict(key.getKeyHash());
         auditService.record(operatorId, "gateway.key.update", "gateway_api_key",
                 String.valueOf(keyId), "SUCCESS", Map.of());

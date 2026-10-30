@@ -1888,6 +1888,21 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
         headers: { 'X-Gateway-Key': bodyKey.data.apiKey }, data: {}
       })
       expect(bodySmall.status()).toBe(200)
+
+      const clearKey = await (await request.post(`${P}/gateway/routes/${scopeRoute.data.id}/keys`, {
+        headers: auth(token!), data: { name: 'clear-scope', allowedMethods: 'GET' }
+      })).json()
+      const blockedPost = await request.post(`${P}/gateway/call/${scopeRoute.data.routeKey}/probe`, {
+        headers: { 'X-Gateway-Key': clearKey.data.apiKey }, data: {}
+      })
+      expect(blockedPost.status()).toBe(403)
+      await request.put(`${P}/gateway/routes/${scopeRoute.data.id}/keys/${clearKey.data.id}`, {
+        headers: auth(token!), data: { allowedMethods: '' }
+      })
+      const allowedPost = await request.post(`${P}/gateway/call/${scopeRoute.data.routeKey}/probe`, {
+        headers: { 'X-Gateway-Key': clearKey.data.apiKey }, data: {}
+      })
+      expect(allowedPost.status()).toBe(200)
     } finally {
       await request.delete(`${P}/gateway/routes/${scopeRoute.data.id}`, { headers: auth(token!) })
     }

@@ -409,9 +409,9 @@ async function saveKeyEdit() {
       name: keyEditForm.name, rateLimitPerMin: keyEditForm.rateLimitPerMin,
       dailyQuota: keyEditForm.dailyQuota, maxBodyBytes: keyEditForm.maxBodyBytes,
       expiresAt: keyEditForm.expiresAt || null,
-      allowedMethods: keyEditForm.allowedMethods || null,
-      allowedPaths: keyEditForm.allowedPaths || null,
-      allowedIps: keyEditForm.allowedIps || null
+      allowedMethods: keyEditForm.allowedMethods || '',
+      allowedPaths: keyEditForm.allowedPaths || '',
+      allowedIps: keyEditForm.allowedIps || ''
     })
     keyEditVisible.value = false
     apiKeys.value = await http.get(`/gateway/routes/${keysRoute.value.id}/keys`) as any
