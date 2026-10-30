@@ -1,14 +1,15 @@
 package com.platform.conversation.service;
 
+import com.platform.model.service.ChatModelRouter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.platform.common.context.GrayTagContext;
-import com.platform.model.service.ChatModelRouter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -22,8 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *   simpleModel: "deepseek-flash", complexModel: "deepseek-reasoner" } }</p>
  *
  * <p>优先级：① 规则关键词命中 → 直接切（零额外延迟）；② 无规则命中且配了 classifierModel
- * → 用轻量模型做一次复杂度二分类（结果缓存，同问不重复分类）；③ 都未命中 → 原模型。
- * fail-open 语义：分类器异常/返回不可解析 → 保持原模型，绝不阻断对话。</p>
+ * → 用轻量模型做一次复杂度二分类（结果缓存 30 min TTL，同问不重复分类）；③ 都未命中 → 原模型。
+ * fail-open 语义：分类器异常/超时/返回不可解析 → 保持原模型，绝不阻断对话。</p>
  */
 @Slf4j
 @Service
@@ -31,10 +32,20 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ModelRoutingService {
 
     private static final int CACHE_MAX = 500;
+    private static final long CACHE_TTL_MS = 30 * 60 * 1000L;
+    private static final long CLASSIFY_TIMEOUT_MS = 1_500L;
 
     private final ChatModelRouter chatModelRouter;
     private final ObjectMapper objectMapper;
-    private final Map<String, String> classifyCache = new ConcurrentHashMap<>();
+
+    /** lang → (key → {value, loadedAt})；TTL 30 min + 写入即失效。 */
+    private final Map<String, CachedClassify> classifyCache = new ConcurrentHashMap<>();
+
+    private record CachedClassify(String complexity, long loadedAt) {
+        boolean fresh() {
+            return System.currentTimeMillis() - loadedAt < CACHE_TTL_MS;
+        }
+    }
 
     public record RoutingDecision(String model, String reason) {
     }
@@ -68,31 +79,38 @@ public class ModelRoutingService {
             }
         }
 
-        // ② LLM 复杂度分类器
+        // ② LLM 复杂度分类器（带 1.5s 超时：分类器响应慢时 fail-open 不拖首字节）
         String classifierModel = str(routing.get("classifierModel"));
         String simpleModel = str(routing.get("simpleModel"));
         String complexModel = str(routing.get("complexModel"));
         if (classifierModel == null || classifierModel.isBlank()) return null;
         if (simpleModel == null && complexModel == null) return null;
 
-        String cached = classifyCache.computeIfAbsent(userMessage, k -> classify(classifierModel, k));
-        return switch (cached) {
-            case "simple" -> simpleModel == null || simpleModel.isBlank() ? null
+        CachedClassify cached = classifyCache.get(userMessage);
+        if (cached == null || !cached.fresh()) {
+            String complexity = classifyWithTimeout(classifierModel, userMessage);
+            cached = new CachedClassify(complexity, System.currentTimeMillis());
+            if (classifyCache.size() >= CACHE_MAX) classifyCache.clear();
+            classifyCache.put(userMessage, cached);
+        }
+        String complexity = cached.complexity();
+        return switch (complexity) {
+            case "simple" -> simpleModel.isBlank() ? null
                     : new RoutingDecision(simpleModel, "complexity:simple");
-            case "complex" -> complexModel == null || complexModel.isBlank() ? null
+            case "complex" -> complexModel.isBlank() ? null
                     : new RoutingDecision(complexModel, "complexity:complex");
             default -> null;
         };
     }
 
-    /** 用轻量模型做复杂度二分类，返回 "simple"/"complex"/""（失败返回空不阻断）。 */
-    private String classify(String classifierModel, String userMessage) {
+    /** 复杂度分类（包级可见供单测注入 mock 结果）。 */
+    String classifyComplexity(String classifierModel, String userMessage) {
         try {
             String prompt = "判断以下用户消息的复杂度。只回复 JSON：{\"complexity\":\"simple\"} 或 {\"complexity\":\"complex\"}。"
                     + "simple=打招呼/闲聊/单轮事实查询；complex=多步推理/代码/文档分析/创作。不要回复其他内容。\n用户消息：" + userMessage;
             var chatModel = chatModelRouter.resolve(classifierModel);
             String resp = ChatClient.create(chatModel).prompt().user(prompt)
-                    .options(org.springframework.ai.chat.prompt.ChatOptions.builder()
+                    .options(ChatOptions.builder()
                             .model(classifierModel).maxTokens(20).temperature(0.0).build())
                     .call().entity(String.class);
             if (resp == null || resp.isBlank()) return "";
@@ -102,6 +120,22 @@ public class ModelRoutingService {
             return "";
         } catch (Exception e) {
             log.debug("模型路由分类失败（回原模型）：{}", e.getMessage());
+            return "";
+        }
+    }
+
+    /** 分类 + 1.5s 超时守卫：分类器响应慢时 fail-open（不拖首字节）。 */
+    private String classifyWithTimeout(String classifierModel, String userMessage) {
+        var future = java.util.concurrent.CompletableFuture.supplyAsync(
+                () -> classifyComplexity(classifierModel, userMessage));
+        try {
+            return future.get(CLASSIFY_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            future.cancel(true);
+            log.debug("模型路由分类超时（{}ms）", CLASSIFY_TIMEOUT_MS);
+            return "";
+        } catch (Exception e) {
+            log.debug("模型路由分类异常：{}", e.getMessage());
             return "";
         }
     }
