@@ -161,7 +161,9 @@ final class PdfRectangleTableExtractor {
             for (Cell cell : cells.values()) {
                 if (x < xs.get(cell.x0) - TOLERANCE || x > xs.get(cell.x1) + TOLERANCE) continue;
                 if (y < ys.get(cell.y0) - TOLERANCE || y > ys.get(cell.y1) + TOLERANCE) continue;
+                if (PdfTableText.needsSpace(cell.lastGlyph, glyph, cell.text)) cell.text.append(' ');
                 cell.text.append(text);
+                cell.lastGlyph = glyph;
                 break;
             }
         }
@@ -301,6 +303,7 @@ final class PdfRectangleTableExtractor {
         private final int x0, y0;
         private int x1, y1;
         private final StringBuilder text = new StringBuilder();
+        private TextPosition lastGlyph;
 
         private Cell(int x0, int y0, int x1, int y1) {
             this.x0 = x0;

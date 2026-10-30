@@ -571,6 +571,7 @@ final class PdfTableExtractor {
         StringBuilder text = new StringBuilder();
         float start = -1;
         float end = -1;
+        TextPosition previous = null;
         for (TextPosition position : sorted) {
             String unicode = position.getUnicode();
             if (unicode == null || unicode.isEmpty()
@@ -583,13 +584,36 @@ final class PdfTableExtractor {
                 text.setLength(0);
                 start = -1;
                 end = -1;
+                previous = null;
             }
             if (start < 0) start = x;
+            if (previous != null && needsSpace(previous, position, text)) text.append(' ');
             text.append(unicode);
+            previous = position;
             end = Math.max(end, x + Math.max(position.getWidthDirAdj(), 0));
         }
         addCell(cells, text, start, end);
         return cells;
+    }
+
+    /** 表格单元格内没有显式空格时，按字形间距补空格，避免 TableofContents 这类粘连。 */
+    private static boolean needsSpace(TextPosition previous, TextPosition current, StringBuilder value) {
+        if (previous == null || value.length() == 0) return false;
+        char prev = value.charAt(value.length() - 1);
+        String unicode = current.getUnicode();
+        if (unicode == null || unicode.isEmpty()) return false;
+        char next = unicode.charAt(0);
+        if (Character.isWhitespace(prev) || Character.isWhitespace(next)) return false;
+        float gap = current.getXDirAdj()
+                - (previous.getXDirAdj() + Math.max(previous.getWidthDirAdj(), 0));
+        float size = Math.max(previous.getFontSizeInPt(), current.getFontSizeInPt());
+        if (gap <= Math.max(0.6f, size * 0.12f)) return false;
+        if ("([{/<".indexOf(prev) >= 0) return false;
+        if (",.;:!?)]}%".indexOf(next) >= 0) return false;
+        if (MarkdownText.isCjk(prev) || MarkdownText.isCjk(next)) {
+            return gap > size;
+        }
+        return true;
     }
 
     private static void addCell(List<Cell> cells, StringBuilder text, float start, float end) {

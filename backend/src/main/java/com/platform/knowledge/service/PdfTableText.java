@@ -42,6 +42,25 @@ final class PdfTableText {
         return notes;
     }
 
+    /** 共享的字形间距判断：矩形/线条表格逐字形拼接时也需要补空格。 */
+    static boolean needsSpace(TextPosition previous, TextPosition current, StringBuilder value) {
+        if (previous == null || value.length() == 0) return false;
+        String unicode = current.getUnicode();
+        if (unicode == null || unicode.isEmpty()) return false;
+        if (Math.abs(previous.getYDirAdj() - current.getYDirAdj()) > 2f) return true;
+        char prev = value.charAt(value.length() - 1);
+        char next = unicode.charAt(0);
+        if (Character.isWhitespace(prev) || Character.isWhitespace(next)) return false;
+        float gap = current.getXDirAdj()
+                - (previous.getXDirAdj() + Math.max(previous.getWidthDirAdj(), 0));
+        float size = Math.max(previous.getFontSizeInPt(), current.getFontSizeInPt());
+        if (gap <= Math.max(0.6f, size * 0.12f)) return false;
+        if ("([{/<".indexOf(prev) >= 0) return false;
+        if (",.;:!?)]}%".indexOf(next) >= 0) return false;
+        if (MarkdownText.isCjk(prev) || MarkdownText.isCjk(next)) return gap > size;
+        return true;
+    }
+
     private static List<Line> lines(List<TextPosition> glyphs) {
         List<TextPosition> sorted = new ArrayList<>(glyphs);
         sorted.sort(Comparator.comparingDouble(TextPosition::getYDirAdj)
@@ -72,12 +91,23 @@ final class PdfTableText {
             glyphs.sort(Comparator.comparingDouble(TextPosition::getXDirAdj));
             StringBuilder sb = new StringBuilder();
             float end = -1;
+            TextPosition previous = null;
             for (TextPosition glyph : glyphs) {
                 String value = glyph.getUnicode();
-                if (value == null) continue;
-                if (end >= 0 && glyph.getXDirAdj() - end > 4) sb.append(' ');
+                if (value == null || value.isEmpty()) continue;
+                char prev = sb.length() == 0 ? ' ' : sb.charAt(sb.length() - 1);
+                char next = value.charAt(0);
+                float size = Math.max(previous == null ? 10f : previous.getFontSizeInPt(),
+                        glyph.getFontSizeInPt());
+                if (previous != null && !Character.isWhitespace(prev) && !Character.isWhitespace(next)
+                        && glyph.getXDirAdj() - end > Math.max(0.8f, size * 0.14f)
+                        && "([{/<".indexOf(prev) < 0 && ",.;:!?)]}%".indexOf(next) < 0
+                        && !(MarkdownText.isCjk(prev) || MarkdownText.isCjk(next))) {
+                    sb.append(' ');
+                }
                 sb.append(value);
-                end = glyph.getXDirAdj() + glyph.getWidthDirAdj();
+                previous = glyph;
+                end = glyph.getXDirAdj() + Math.max(glyph.getWidthDirAdj(), 0);
             }
             text = sb.toString();
         }
