@@ -101,6 +101,8 @@ public class FeishuDocumentService {
                 case "folder" -> collectFolder(target.token(), token, documents, skipped, seen, 1);
                 case "sheet" -> addSheet(target.token(), token, rawUrl,
                         defaultName("飞书表格", target.token()), documents, skipped, seen);
+                case "bitable" -> addBitable(target.token(), token, rawUrl,
+                        defaultName("飞书多维表格", target.token()), documents, skipped, seen);
                 default -> throw new BusinessException(400, "无法识别飞书链接类型");
             }
         } catch (BusinessException e) {
@@ -121,7 +123,8 @@ public class FeishuDocumentService {
         String path = rawPath == null ? "" : rawPath;
         String[][] prefixes = {
                 {"/docx/", "docx"}, {"/docs/", "doc"}, {"/wiki/space/", "wiki_space"},
-                {"/wiki/", "wiki"}, {"/drive/folder/", "folder"}, {"/sheets/", "sheet"}
+                {"/wiki/", "wiki"}, {"/drive/folder/", "folder"}, {"/sheets/", "sheet"},
+                {"/base/", "bitable"}
         };
         for (String[] prefix : prefixes) {
             if (path.startsWith(prefix[0])) {
@@ -233,13 +236,12 @@ public class FeishuDocumentService {
                 } else if ("file".equalsIgnoreCase(type)) {
                     add(out, fetchMedia(token, name, accessToken));
                 } else if ("bitable".equalsIgnoreCase(type)) {
-                    if (seen.add("bitable:" + token)) {
-                        try {
-                            add(out, fetchBitable(token, name, accessToken));
-                        } catch (Exception e) {
-                            log.warn("飞书多维表格读取失败 token={} err={}", token, root(e));
-                            skip(skipped, "多维表格读取失败：" + name + "（" + root(e) + "）");
-                        }
+                    try {
+                        addBitable(token, accessToken, "https://www.feishu.cn/base/" + token, name,
+                                out, skipped, seen);
+                    } catch (Exception e) {
+                        log.warn("飞书多维表格读取失败 token={} err={}", token, root(e));
+                        skip(skipped, "多维表格读取失败：" + name + "（" + root(e) + "）");
                     }
                 } else if ("sheet".equalsIgnoreCase(type)) {
                     try {
@@ -405,6 +407,8 @@ public class FeishuDocumentService {
             case "doc" -> addDoc(target.token(), accessToken, rawUrl,
                     defaultName("飞书链接文档", target.token()), out, skipped, seen, depth);
             case "sheet" -> addSheet(target.token(), accessToken, rawUrl,
+                    defaultName("飞书链接表格", target.token()), out, skipped, seen);
+            case "bitable" -> addBitable(target.token(), accessToken, rawUrl,
                     defaultName("飞书链接表格", target.token()), out, skipped, seen);
             case "wiki" -> collectWikiNodeOnly(target.token(), accessToken, rawUrl, out, skipped, seen, depth);
             default -> skip(skipped, "不支持的文档链接类型：" + rawUrl);
@@ -593,6 +597,12 @@ public class FeishuDocumentService {
         if (content.isBlank()) throw new BusinessException(502, "飞书旧版文档内容为空：" + token);
         String title = title(data, fallbackName);
         return textDocument(title, content, sourceUrl);
+    }
+
+    private void addBitable(String appToken, String accessToken, String sourceUrl, String fallbackName,
+                            List<Document> out, List<String> skipped, Set<String> seen) throws Exception {
+        if (!seen.add("bitable:" + appToken)) return;
+        add(out, fetchBitable(appToken, fallbackName, accessToken));
     }
 
     /** 多维表格：每张表的所有记录转成文本，作为独立知识库文档。 */
