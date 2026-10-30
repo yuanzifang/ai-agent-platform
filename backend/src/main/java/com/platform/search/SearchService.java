@@ -82,6 +82,10 @@ public class SearchService {
         result.put("query", query);
         result.put("tokens", terms);
         result.put("list", rows);
+        if (rows.isEmpty()) {
+            String suggestion = suggestion(query, principal, terms);
+            if (suggestion != null) result.put("suggestion", suggestion);
+        }
         result.put("total", rows.size());
         return result;
     }
@@ -142,6 +146,64 @@ public class SearchService {
             score += (int) Math.round(30.0 * matched / terms.size());
         }
         return score;
+    }
+
+    /** 无结果时从权限内实体名称找最近词，返回给前端做“你是不是想搜”。 */
+    private String suggestion(String query, JwtPrincipal principal, List<String> terms) {
+        if (query == null || query.length() < 2 || principal == null) return null;
+        String normalizedQuery = ChineseTextAnalyzer.normalize(query);
+        java.util.Set<String> names = new java.util.LinkedHashSet<>();
+        try {
+            var viewer = new KnowledgePermissionService.Viewer(principal.userId(), principal.roles());
+            for (AgentRegistry a : agentService.list("", null, 1, 100, principal).getRecords()) {
+                if (a.getName() != null) names.add(a.getName());
+            }
+            var kbs = knowledgeService.list("", null, 1, 100, viewer);
+            for (Object raw : (List<?>) kbs.getOrDefault("list", List.of())) {
+                if (raw instanceof Map<?, ?> kb && kb.get("name") != null) names.add(str(kb.get("name")));
+            }
+            var cases = caseService.list(principal, null, null, null, "", null);
+            for (Object raw : (List<?>) cases.getOrDefault("list", List.of())) {
+                if (raw instanceof Map<?, ?> c && c.get("question") != null) names.add(str(c.get("question")));
+            }
+            var tools = toolService.list("", null, null);
+            for (Object raw : (List<?>) tools.getOrDefault("list", List.of())) {
+                if (raw instanceof Map<?, ?> t && t.get("name") != null) names.add(str(t.get("name")));
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        String best = null;
+        int bestDistance = Integer.MAX_VALUE;
+        for (String name : names) {
+            String candidate = ChineseTextAnalyzer.normalize(name);
+            if (candidate.isBlank() || candidate.equals(normalizedQuery)) continue;
+            int distance = levenshtein(normalizedQuery, candidate);
+            if (distance < bestDistance || (distance == bestDistance && best != null
+                    && name.length() < best.length())) {
+                bestDistance = distance;
+                best = name;
+            }
+        }
+        // 两字查询只接受极近的候选，避免把“客服”推荐成完全无关的长名称。
+        int maxDistance = normalizedQuery.length() <= 2 ? 1 : 2;
+        return bestDistance <= maxDistance ? best : null;
+    }
+
+    private int levenshtein(String left, String right) {
+        int[] previous = new int[right.length() + 1];
+        for (int j = 0; j <= right.length(); j++) previous[j] = j;
+        for (int i = 1; i <= left.length(); i++) {
+            int[] current = new int[right.length() + 1];
+            current[0] = i;
+            for (int j = 1; j <= right.length(); j++) {
+                int cost = left.charAt(i - 1) == right.charAt(j - 1) ? 0 : 1;
+                current[j] = Math.min(Math.min(current[j - 1] + 1, previous[j] + 1),
+                        previous[j - 1] + cost);
+            }
+            previous = current;
+        }
+        return previous[right.length()];
     }
 
     /** 记录一次结果点击；Redis 不可用时静默降级，不影响搜索。 */

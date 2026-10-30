@@ -18,6 +18,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -90,6 +91,34 @@ class SearchServiceTest {
         assertEquals("<mark>客服退款</mark>助手", row.get("nameHtml"));
         assertEquals("&lt;script&gt;<mark>客服退款</mark>&lt;/script&gt;", row.get("descHtml"));
         assertEquals(true, (Integer) row.get("score") > 0);
+    }
+
+    @Test
+    void suggestsClosestVisibleNameWhenNoResults() {
+        AgentService agents = mock(AgentService.class);
+        KnowledgeService kbs = mock(KnowledgeService.class);
+        CaseService cases = mock(CaseService.class);
+        ToolService tools = mock(ToolService.class);
+        JwtPrincipal principal = new JwtPrincipal(1L, 1L, false, List.of("OWNER"), List.of());
+        Page<AgentRegistry> none = new Page<>(1, 5);
+        none.setRecords(List.of());
+        Page<AgentRegistry> all = new Page<>(1, 100);
+        AgentRegistry candidate = new AgentRegistry();
+        candidate.setId(1L);
+        candidate.setName("客服助手");
+        all.setRecords(List.of(candidate));
+        when(agents.list(eq("客服住手"), any(), eq(1L), eq(5L), eq(principal))).thenReturn(none);
+        when(agents.list(eq(""), any(), eq(1L), eq(100L), eq(principal))).thenReturn(all);
+        when(kbs.list(any(), any(), anyLong(), anyLong(), any(KnowledgePermissionService.Viewer.class)))
+                .thenReturn(Map.of("list", List.of()));
+        when(cases.list(eq(principal), any(), any(), any(), any(), any()))
+                .thenReturn(Map.of("list", List.of()));
+        when(tools.list(any(), any(), any())).thenReturn(Map.of("list", List.of()));
+
+        Map<String, Object> result = new SearchService(agents, kbs, cases, tools,
+                mock(StringRedisTemplate.class)).search("客服住手", principal);
+
+        assertEquals("客服助手", result.get("suggestion"));
     }
 
     @Test
