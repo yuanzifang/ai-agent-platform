@@ -375,6 +375,7 @@ public class ChatStreamService {
                 contextWindow.fit(modelName, systemPrompt, userMsgWithAttachments, history);
         systemPrompt = fitted.systemPrompt();
         history = fitted.history();
+        emitRagNotice(out, fitted);
         final String fallbackSystemPrompt = systemPrompt;
         final List<org.springframework.ai.chat.messages.Message> fallbackHistory = history;
 
@@ -519,7 +520,8 @@ public class ChatStreamService {
                     collector.events(), steps.steps());
             out.event("done", Map.of("traceId", traceId, "messageId", ai.getId(),
                     "status", ai.getStatus(),
-                    "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1])));
+                    "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1]),
+                    "ragTruncated", fitted.ragTruncated()));
             out.complete();
         });
 
@@ -869,7 +871,15 @@ public class ChatStreamService {
 
         return Map.of("answer", ai.getContent(), "traceId", traceId, "messageId", ai.getId(),
                 "usage", Map.of("inputTokens", in, "outputTokens", out), "citations", citations,
-                "toolCalls", collector.events());
+                "toolCalls", collector.events(), "ragTruncated", fitted.ragTruncated());
+    }
+
+    /** RAG 截断必须在界面上可见，否则用户会误以为知识库资料完整。 */
+    private void emitRagNotice(StreamSink out, com.platform.agent.service.ContextWindowService.Fitted fitted) {
+        if (fitted.ragTruncated()) {
+            out.event("notice", Map.of("code", "RAG_TRUNCATED",
+                    "message", "知识库检索结果超出上下文预算，已按完整片段截断；回答可能未覆盖全部资料。"));
+        }
     }
 
     /** 输入命中 BLOCK：不调用模型，返回仅含 moderation/error/done 的 SSE。 */

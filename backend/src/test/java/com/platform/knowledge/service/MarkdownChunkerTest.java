@@ -59,11 +59,16 @@ class MarkdownChunkerTest {
     }
 
     @Test
-    void doesNotSplitCodeBlock() {
-        String code = "```java\n" + "System.out.println(\"hello\");\n".repeat(40) + "```";
+    void splitsOversizedCodeBlockAndClosesFence() {
+        String code = "```java\n" + "System.out.println(\"hello\");\n".repeat(200) + "```";
         List<MarkdownChunker.Chunk> chunks = MarkdownChunker.split("## 示例\n\n" + code + "\n\n正文");
-        assertTrue(chunks.stream().anyMatch(c -> c.content().startsWith("```java")
-                && c.content().endsWith("```")), "代码块应保持原子");
+        List<MarkdownChunker.Chunk> codeChunks = chunks.stream()
+                .filter(c -> c.content().startsWith("```java")).toList();
+        assertTrue(codeChunks.size() > 1, "超大代码块应拆分");
+        assertTrue(codeChunks.stream().allMatch(c -> c.content().endsWith("```")),
+                "每个代码片段都必须闭合 fence");
+        assertTrue(codeChunks.stream().anyMatch(c -> c.content().contains("hello")),
+                "代码内容不能丢失");
     }
 }
 

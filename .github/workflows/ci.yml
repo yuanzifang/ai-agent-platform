@@ -236,6 +236,10 @@ jobs:
         working-directory: backend
         run: mvn -q package
 
+      - name: PDF 解析快照回归（标题/表格/页码覆盖阈值）
+        working-directory: backend
+        run: mvn -q -Dtest=PdfSnapshotTest test
+
       - name: 校验测试无跳过
         working-directory: backend
         run: |

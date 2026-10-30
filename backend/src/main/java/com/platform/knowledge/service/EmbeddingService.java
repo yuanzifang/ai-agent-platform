@@ -58,6 +58,10 @@ public class EmbeddingService {
     @org.springframework.beans.factory.annotation.Value("${embedding.query-cache-max-entries:2000}")
     private int queryCacheMaxEntries = 2000;
 
+    /** embedding 模型输入上限；在本地先校验，避免服务端静默截断。 */
+    @org.springframework.beans.factory.annotation.Value("${embedding.max-input-tokens:8192}")
+    private int maxInputTokens = 8192;
+
     @org.springframework.beans.factory.annotation.Value("${embedding.query-cache-redis-enabled:true}")
     private boolean redisQueryCacheEnabled = true;
 
@@ -353,6 +357,13 @@ public class EmbeddingService {
             throw new BusinessException(400, "未配置的 embedding 模型：" + effectiveModel);
         }
         if (texts == null || texts.isEmpty()) return new float[0][];
+        for (String text : texts) {
+            int tokens = estimateTokens(text);
+            if (tokens > maxInputTokens) {
+                throw new BusinessException(400, "Embedding 输入超出模型上限（约 " + tokens
+                        + " tokens / 上限 " + maxInputTokens + "），请缩短文本或拆分子块");
+            }
+        }
         long chars = texts.stream().mapToLong(t -> t == null ? 0 : t.length()).sum();
         quotaService.checkTokensToday(Math.max(50, chars / 2));
         int batchSize = Math.max(1, Math.min(properties.getBatchSize(), 128));
@@ -387,6 +398,18 @@ public class EmbeddingService {
             }
         }
         return result;
+    }
+
+    /** CJK 按字、其他按 4 字符/token 的保守估算。 */
+    public int estimateTokens(String text) {
+        if (text == null || text.isEmpty()) return 0;
+        int cjk = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if ((c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3040 && c <= 0x30FF)
+                    || (c >= 0xAC00 && c <= 0xD7AF)) cjk++;
+        }
+        return cjk + (int) Math.ceil((text.length() - cjk) / 4.0) + 4;
     }
 
     @SuppressWarnings("unchecked")
