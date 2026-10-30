@@ -8,6 +8,7 @@ import com.platform.security.JwtPrincipal;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -174,6 +175,44 @@ public class UserMemoryService {
         if (idx >= 0 && idx < text.length() - 1) value = text.substring(idx + 1).trim();
         return !Set.of("无", "未知", "未提供", "暂无", "不适用", "null", "none")
                 .contains(value.toLowerCase(Locale.ROOT));
+    }
+
+    /** 全量替换用户画像：清理重复/噪声后将编辑结果重新落库。 */
+    @Transactional
+    public Map<String, Object> replaceProfile(Map<String, Object> req, JwtPrincipal principal) {
+        Object rawItems = req.get("items");
+        if (!(rawItems instanceof List<?> items)) {
+            throw new BusinessException(400, "画像条目格式错误");
+        }
+        List<UserMemory> rows = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (Object raw : items) {
+            if (!(raw instanceof Map<?, ?> item)) continue;
+            String content = requireContent(item.get("content"));
+            if (!meaningful(content)) continue;
+            String key = canonical(content);
+            if (!seen.add(key)) continue;
+            if (rows.size() >= MAX_MEMORIES) {
+                throw new BusinessException(400, "长期记忆最多保存 " + MAX_MEMORIES + " 条");
+            }
+            UserMemory m = new UserMemory();
+            m.setTenantId(principal.tenantId());
+            m.setUserId(principal.userId());
+            m.setAgentId(toLong(item.get("agentId")));
+            m.setCategory(normalizeCategory(item.get("category")));
+            m.setContent(content);
+            m.setSource("MANUAL");
+            m.setStatus("ACTIVE");
+            m.setCreatedAt(LocalDateTime.now());
+            m.setUpdatedAt(LocalDateTime.now());
+            rows.add(m);
+        }
+        memoryMapper.delete(new LambdaQueryWrapper<UserMemory>()
+                .eq(UserMemory::getTenantId, principal.tenantId())
+                .eq(UserMemory::getUserId, principal.userId())
+                .eq(UserMemory::getStatus, "ACTIVE"));
+        for (UserMemory row : rows) memoryMapper.insert(row);
+        return profile(principal);
     }
 
     private UserMemory owned(Long id, JwtPrincipal principal) {

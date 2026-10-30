@@ -29,6 +29,12 @@ public class UserMemoryController {
         return ApiResponse.ok(service.profile(principal));
     }
 
+    @PutMapping("/profile")
+    public ApiResponse<Map<String, Object>> replaceProfile(@RequestBody Map<String, Object> req,
+                                                           @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(service.replaceProfile(req, principal));
+    }
+
     @PostMapping
     public ApiResponse<Map<String, Object>> create(@RequestBody Map<String, Object> req,
                                                    @AuthenticationPrincipal JwtPrincipal principal) {
