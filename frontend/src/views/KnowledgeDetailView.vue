@@ -1131,8 +1131,12 @@ async function importFeishu() {
       effectiveFrom: range?.[0] ? new Date(range[0]).toISOString() : undefined,
       effectiveTo: range?.[1] ? new Date(range[1]).toISOString() : undefined
     }, { timeout: 600000 }) as any
-    if (result?.failed > 0) {
-      ElMessage.warning(t('kbDetail.feishuPartial', { imported: result.imported, failed: result.failed }))
+    if (result?.failed > 0 || result?.skipped > 0) {
+      ElMessage.warning(t('kbDetail.feishuResult', {
+        imported: result?.imported ?? 0,
+        failed: result?.failed ?? 0,
+        skipped: result?.skipped ?? 0
+      }))
     } else {
       ElMessage.success(t('kbDetail.feishuSubmitted', { count: result?.imported ?? 0 }))
     }

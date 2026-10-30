@@ -294,11 +294,11 @@ public class KnowledgeController {
     public ApiResponse<Map<String, Object>> importFeishu(@PathVariable Long id,
                                                          @Valid @RequestBody FeishuImportRequest req,
                                                          @AuthenticationPrincipal JwtPrincipal principal) {
-        List<FeishuDocumentService.Document> documents =
-                feishuDocumentService.collect(req.url(), req.appId(), req.appSecret());
+        FeishuDocumentService.Collection collection =
+                feishuDocumentService.collectDetailed(req.url(), req.appId(), req.appSecret());
         List<Map<String, Object>> imported = new ArrayList<>();
         List<Map<String, Object>> failed = new ArrayList<>();
-        for (FeishuDocumentService.Document document : documents) {
+        for (FeishuDocumentService.Document document : collection.documents()) {
             try {
                 imported.add(knowledgeService.importContent(id, document.name(), document.content(),
                         document.contentType(), req.effectiveFrom(), req.effectiveTo(),
@@ -308,8 +308,9 @@ public class KnowledgeController {
                         e.getMessage() == null ? "导入失败" : e.getMessage()));
             }
         }
-        return ApiResponse.ok(Map.of("total", documents.size(), "imported", imported.size(),
-                "failed", failed.size(), "documents", imported, "failures", failed));
+        return ApiResponse.ok(Map.of("total", collection.documents().size(), "imported", imported.size(),
+                "failed", failed.size(), "skipped", collection.skipped().size(),
+                "skippedItems", collection.skipped(), "documents", imported, "failures", failed));
     }
 
     @GetMapping("/{id}/documents")
