@@ -15,6 +15,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -265,16 +266,35 @@ public class FeishuDocumentService {
                          List<Document> out, List<String> skipped, Set<String> seen, int depth)
             throws Exception {
         if (!seen.add("docx:" + documentToken)) return;
-        Document document = fetchDocx(documentToken, accessToken, sourceUrl, fallbackName);
+        List<JsonNode> blocks = null;
+        try {
+            blocks = fetchDocxBlocks(documentToken, accessToken);
+        } catch (Exception e) {
+            log.warn("飞书文档 blocks 读取失败，回退 raw_content doc={} err={}", documentToken, root(e));
+        }
+        Document document = null;
+        if (blocks != null) {
+            String markdown = renderDocxMarkdown(blocks);
+            if (!markdown.isBlank()) {
+                document = markdownDocument(fallbackName, markdown, sourceUrl);
+            }
+        }
+        if (document == null) {
+            document = fetchDocx(documentToken, accessToken, sourceUrl, fallbackName);
+        }
         add(out, document);
         if (depth >= MAX_NESTING_DEPTH) return;
-        Set<String> links;
-        try {
-            links = fetchDocxLinks(documentToken, accessToken);
-        } catch (Exception e) {
-            log.warn("飞书文档链接解析失败 doc={} err={}", documentToken, root(e));
-            skip(skipped, "文档链接解析失败：" + fallbackName);
-            return;
+        Set<String> links = new LinkedHashSet<>();
+        if (blocks != null) {
+            collectLinks(blocks, links);
+        } else {
+            try {
+                links = fetchDocxLinks(documentToken, accessToken);
+            } catch (Exception e) {
+                log.warn("飞书文档链接解析失败 doc={} err={}", documentToken, root(e));
+                skip(skipped, "文档链接解析失败：" + fallbackName);
+                return;
+            }
         }
         for (String link : links) {
             try {
@@ -310,18 +330,29 @@ public class FeishuDocumentService {
         }
     }
 
-    private Set<String> fetchDocxLinks(String documentToken, String accessToken) throws Exception {
-        Set<String> links = new LinkedHashSet<>();
+    private List<JsonNode> fetchDocxBlocks(String documentToken, String accessToken) throws Exception {
+        List<JsonNode> blocks = new ArrayList<>();
         String pageToken = null;
         do {
             String path = "/open-apis/docx/v1/documents/" + encode(documentToken)
                     + "/blocks?page_size=500&document_revision_id=-1"
                     + (pageToken == null ? "" : "&page_token=" + encode(pageToken));
             JsonNode data = requestJson(path, accessToken, "GET", null).path("data");
-            collectLinks(data, links);
+            for (JsonNode block : data.path("items")) blocks.add(block);
             pageToken = data.path("page_token").asText(null);
+            if (!data.path("has_more").asBoolean(false)) pageToken = null;
         } while (pageToken != null && !pageToken.isBlank() && !pageToken.equals("null"));
+        return blocks;
+    }
+
+    private Set<String> fetchDocxLinks(String documentToken, String accessToken) throws Exception {
+        Set<String> links = new LinkedHashSet<>();
+        collectLinks(fetchDocxBlocks(documentToken, accessToken), links);
         return links;
+    }
+
+    private void collectLinks(List<JsonNode> blocks, Set<String> links) {
+        for (JsonNode block : blocks) collectLinks(block, links);
     }
 
     /** 递归扫描 blocks JSON，提取 link.url、文本中的飞书文档 URL；外部链接会被正则过滤。 */
@@ -398,6 +429,142 @@ public class FeishuDocumentService {
         } else {
             skip(skipped, "暂不支持的超链接文档类型 " + objType + "：" + title);
         }
+    }
+
+    /** blocks → Markdown；保留标题、列表、引用、表格和超链接，失败时调用方回退 raw_content。 */
+    private String renderDocxMarkdown(List<JsonNode> blocks) {
+        Map<String, JsonNode> byId = new HashMap<>();
+        for (JsonNode block : blocks) {
+            String id = block.path("block_id").asText();
+            if (!id.isBlank()) byId.put(id, block);
+        }
+        JsonNode root = null;
+        for (JsonNode block : blocks) {
+            if (block.path("block_type").asInt() == 1) {
+                root = block;
+                break;
+            }
+        }
+        StringBuilder out = new StringBuilder();
+        if (root != null) {
+            renderBlock(root, byId, out);
+        } else {
+            for (JsonNode block : blocks) renderBlock(block, byId, out);
+        }
+        return out.toString().replaceAll("\\n{3,}", "\n\n").trim();
+    }
+
+    private void renderBlock(JsonNode block, Map<String, JsonNode> byId, StringBuilder out) {
+        if (block == null || block.isMissingNode()) return;
+        int type = block.path("block_type").asInt(-1);
+        switch (type) {
+            case 1 -> {
+                String title = elementsText(block.path("page"));
+                if (!title.isBlank()) out.append("# ").append(title).append("\n\n");
+                renderChildren(block, byId, out);
+            }
+            case 2 -> appendText(out, elementsText(block.path("text")), "\n\n");
+            case 3, 4, 5, 6, 7, 8, 9, 10, 11 -> {
+                String text = elementsText(block.path("heading" + (type - 2)));
+                if (!text.isBlank()) {
+                    out.append("#".repeat(Math.min(6, type - 2))).append(' ')
+                            .append(text).append("\n\n");
+                }
+            }
+            case 12 -> appendText(out, "- " + elementsText(block.path("bullet")), "\n");
+            case 13 -> appendText(out, "1. " + elementsText(block.path("ordered")), "\n");
+            case 14 -> {
+                String code = elementsText(block.path("code"));
+                if (!code.isBlank()) out.append("```\n").append(code).append("\n```\n\n");
+            }
+            case 15 -> appendText(out, "> " + elementsText(block.path("quote")), "\n\n");
+            case 17 -> {
+                boolean done = block.path("todo").path("style").path("done").asBoolean(false);
+                appendText(out, (done ? "- [x] " : "- [ ] ") + elementsText(block.path("todo")), "\n");
+            }
+            case 22 -> out.append("---\n\n");
+            case 31 -> renderTable(block, byId, out);
+            case 18 -> out.append("[多维表格]\n\n");
+            case 23 -> out.append("[附件]").append("\n\n");
+            case 27 -> out.append("[图片]").append("\n\n");
+            default -> renderChildren(block, byId, out);
+        }
+    }
+
+    private void renderChildren(JsonNode block, Map<String, JsonNode> byId, StringBuilder out) {
+        for (JsonNode childId : block.path("children")) {
+            JsonNode child = byId.get(childId.asText());
+            if (child != null) renderBlock(child, byId, out);
+        }
+    }
+
+    private void renderTable(JsonNode block, Map<String, JsonNode> byId, StringBuilder out) {
+        JsonNode cells = block.path("table").path("cells");
+        if (cells.size() == 0) cells = block.path("children");
+        int columns = Math.max(1, block.path("table").path("property").path("column_size").asInt(1));
+        if (cells.size() == 0) {
+            renderChildren(block, byId, out);
+            return;
+        }
+        List<String> values = new ArrayList<>();
+        for (JsonNode cellId : cells) {
+            JsonNode cell = byId.get(cellId.asText());
+            values.add(renderTableCell(cell, byId));
+        }
+        for (int i = 0; i < values.size(); i += columns) {
+            int end = Math.min(values.size(), i + columns);
+            List<String> row = values.subList(i, end);
+            out.append("| ").append(String.join(" | ", row)).append(" |\n");
+            if (i == 0) {
+                out.append("|");
+                for (int c = 0; c < row.size(); c++) out.append(" --- |");
+                out.append("\n");
+            }
+        }
+        out.append("\n");
+    }
+
+    private String renderTableCell(JsonNode cell, Map<String, JsonNode> byId) {
+        if (cell == null) return "";
+        StringBuilder value = new StringBuilder();
+        renderChildren(cell, byId, value);
+        String text = value.toString().trim().replace("\n", "<br>");
+        return text.replace("|", "\\|");
+    }
+
+    private String elementsText(JsonNode payload) {
+        StringBuilder out = new StringBuilder();
+        for (JsonNode element : payload.path("elements")) {
+            if (element.has("text_run")) {
+                JsonNode run = element.path("text_run");
+                String content = run.path("content").asText("");
+                JsonNode style = run.path("text_element_style");
+                if (style.path("inline_code").asBoolean(false)) content = "`" + content + "`";
+                if (style.path("bold").asBoolean(false)) content = "**" + content + "**";
+                if (style.path("italic").asBoolean(false)) content = "*" + content + "*";
+                String url = style.path("link").path("url").asText("");
+                if (!url.isBlank()) content = "[" + content + "](" + url + ")";
+                out.append(content);
+            } else if (element.has("mention")) {
+                JsonNode mention = element.path("mention");
+                out.append('@').append(mention.path("name").asText(mention.path("user_id").asText("")));
+            } else if (element.has("equation")) {
+                out.append(element.path("equation").path("content").asText(""));
+            }
+        }
+        return out.toString();
+    }
+
+    private void appendText(StringBuilder out, String text, String suffix) {
+        if (text != null && !text.isBlank()) out.append(text).append(suffix);
+    }
+
+    private Document markdownDocument(String title, String content, String sourceUrl) {
+        byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+        String safe = (title == null || title.isBlank() ? "飞书文档" : title)
+                .replaceAll("[\\\\/:*?\"<>|]", "_")
+                .replaceAll("(?i)\\.(md|markdown|txt)$", "");
+        return new Document(safe + ".md", bytes, "text/markdown", sourceUrl);
     }
 
     private Document fetchDocx(String token, String accessToken, String sourceUrl) throws Exception {
