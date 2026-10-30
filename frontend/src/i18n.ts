@@ -191,6 +191,7 @@ const messages = {
       sub: '用户可见、可编辑的事实；对话时自动注入（最多 10 条 / 2000 字）', searchPh: '搜索记忆',
       refresh: '刷新', create: '新增记忆', profileTitle: '用户画像',
       emptyProfile: '暂无画像，聊天后会自动生成，也可手动添加', total: '共 ', autoCount: ' 条 · 自动生成 ',
+      profileJson: '画像 JSON', copyProfile: '复制 JSON', copied: '已复制', copyFail: '复制失败',
       empty: '还没有长期记忆。可记录称呼、偏好、长期目标等事实。', auto: '自动',
       onlyAgent: '仅 Agent #', allAgents: '全部 Agent', updated: '更新', edit: '编辑', delete: '删除',
       editTitle: '编辑记忆', newTitle: '新增记忆', content: '内容',

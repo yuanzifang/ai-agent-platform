@@ -15,14 +15,17 @@
       <div class="profile-summary">{{ profile.summary || t('memory.emptyProfile') }}</div>
       <div class="profile-stats">
         {{ t('memory.total') }}{{ profile.total }}{{ t('memory.autoCount') }}{{ profile.autoCount }}
+        <el-button text size="small" @click="copyProfile">{{ t('memory.copyProfile') }}</el-button>
       </div>
+      <div class="profile-json-title">{{ t('memory.profileJson') }}</div>
+      <pre class="profile-json">{{ profileJson }}</pre>
     </div>
 
     <el-empty v-if="!loading && rows.length === 0" :description="t('memory.empty')" />
     <div v-else v-loading="loading" class="memory-list">
       <div v-for="m in rows" :key="m.id" class="memory-card">
         <div class="memory-main">
-          <div class="memory-content">{{ m.content }}</div>
+          <div class="memory-content"><MarkdownContent :content="m.content" /></div>
           <div class="memory-meta">
             <el-tag size="small" effect="plain">{{ categoryText(m.category) }}</el-tag>
             <el-tag v-if="m.source === 'AUTO'" size="small" type="success" effect="plain">{{ t('memory.auto') }}</el-tag>
@@ -67,10 +70,11 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
+import MarkdownContent from '../components/MarkdownContent.vue'
 
 const { t } = useI18n()
 
@@ -83,6 +87,7 @@ const keyword = ref('')
 const dialogVisible = ref(false)
 const form = reactive({ id: 0, content: '', category: 'FACT', agentId: null as number | null })
 const route = useRoute()
+const profileJson = computed(() => JSON.stringify(profile.value || {}, null, 2))
 const filterAgentId = ref<number | null>(route.query.agentId ? Number(route.query.agentId) : null)
 
 onMounted(async () => {
@@ -142,6 +147,13 @@ async function remove(row: any) {
   await load()
 }
 
+async function copyProfile() {
+  try {
+    await navigator.clipboard.writeText(profileJson.value)
+    ElMessage.success(t('memory.copied'))
+  } catch { ElMessage.error(t('memory.copyFail')) }
+}
+
 function categoryText(category: string) {
   return ({ FACT: t('memory.fact'), PREFERENCE: t('memory.preference'), PROFILE: t('memory.profile'), OTHER: t('memory.other') } as any)[category] || category
 }
@@ -163,7 +175,13 @@ function fmt(value?: string) {
 }
 .profile-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
 .profile-summary { font-size: 14px; line-height: 1.6; }
-.profile-stats { font-size: 12px; color: #909399; margin-top: 4px; }
+.profile-stats { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #909399; margin-top: 4px; }
+.profile-json-title { font-size: 12px; color: #909399; margin-top: 10px; }
+.profile-json {
+  margin: 4px 0 0; padding: 10px; max-height: 260px; overflow: auto;
+  background: #f5f7fa; border: 1px solid #ebeef5; border-radius: 4px;
+  font-size: 12px; line-height: 1.55; color: #303133; white-space: pre-wrap;
+}
 .memory-list { display: flex; flex-direction: column; gap: 8px; }
 .memory-card {
   display: flex; align-items: flex-start; gap: 12px;
