@@ -229,6 +229,15 @@ public class FeishuDocumentService {
                             out, skipped, seen, 1);
                 } else if ("file".equalsIgnoreCase(type)) {
                     add(out, fetchMedia(token, name, accessToken));
+                } else if ("bitable".equalsIgnoreCase(type)) {
+                    if (seen.add("bitable:" + token)) {
+                        try {
+                            add(out, fetchBitable(token, name, accessToken));
+                        } catch (Exception e) {
+                            log.warn("飞书多维表格读取失败 token={} err={}", token, root(e));
+                            skip(skipped, "多维表格读取失败：" + name + "（" + root(e) + "）");
+                        }
+                    }
                 } else {
                     skip(skipped, "暂不支持的文件类型 " + type + "：" + name);
                 }
@@ -405,6 +414,80 @@ public class FeishuDocumentService {
         if (content.isBlank()) throw new BusinessException(502, "飞书旧版文档内容为空：" + token);
         String title = title(data, fallbackName);
         return textDocument(title, content, sourceUrl);
+    }
+
+    /** 多维表格：每张表的所有记录转成文本，作为独立知识库文档。 */
+    private Document fetchBitable(String appToken, String name, String accessToken) throws Exception {
+        StringBuilder text = new StringBuilder("# ").append(name == null || name.isBlank() ? "飞书多维表格" : name)
+                .append("\n\n");
+        String tablePageToken = null;
+        int tableCount = 0;
+        do {
+            String path = "/open-apis/bitable/v1/apps/" + encode(appToken) + "/tables?page_size=100"
+                    + (tablePageToken == null ? "" : "&page_token=" + encode(tablePageToken));
+            JsonNode data = requestJson(path, accessToken, "GET", null).path("data");
+            for (JsonNode table : data.path("items")) {
+                tableCount++;
+                String tableId = table.path("table_id").asText();
+                String tableName = table.path("name").asText("表 " + tableCount);
+                text.append("## 表：").append(tableName).append("\n\n");
+                String recordPageToken = null;
+                int recordIndex = 0;
+                do {
+                    String recordPath = "/open-apis/bitable/v1/apps/" + encode(appToken)
+                            + "/tables/" + encode(tableId) + "/records?page_size=500"
+                            + (recordPageToken == null ? "" : "&page_token=" + encode(recordPageToken));
+                    JsonNode records = requestJson(recordPath, accessToken, "GET", null).path("data");
+                    for (JsonNode record : records.path("items")) {
+                        recordIndex++;
+                        text.append("### 记录 ").append(recordIndex).append("\n");
+                        JsonNode fields = record.path("fields");
+                        fields.fields().forEachRemaining(entry -> {
+                            String value = fieldText(entry.getValue());
+                            if (!value.isBlank()) {
+                                text.append("- ").append(entry.getKey()).append(": ")
+                                        .append(value).append("\n");
+                            }
+                        });
+                        text.append("\n");
+                    }
+                    recordPageToken = records.path("page_token").asText(null);
+                    if (!records.path("has_more").asBoolean(false)) recordPageToken = null;
+                } while (recordPageToken != null && !recordPageToken.isBlank()
+                        && !recordPageToken.equals("null"));
+            }
+            tablePageToken = data.path("page_token").asText(null);
+            if (!data.path("has_more").asBoolean(false)) tablePageToken = null;
+        } while (tablePageToken != null && !tablePageToken.isBlank() && !tablePageToken.equals("null"));
+        if (tableCount == 0) throw new BusinessException(404, "多维表格没有可读取的数据表");
+        return textDocument(name, text.toString().trim(), "https://www.feishu.cn/base/" + appToken);
+    }
+
+    /** 将多维表格字段值（文本、人员、链接、附件数组等）转成可读文本。 */
+    private String fieldText(JsonNode value) {
+        if (value == null || value.isNull()) return "";
+        if (value.isValueNode()) return value.asText("");
+        if (value.isArray()) {
+            List<String> parts = new ArrayList<>();
+            for (JsonNode item : value) {
+                String part = fieldText(item);
+                if (!part.isBlank() && !parts.contains(part)) parts.add(part);
+            }
+            return String.join("、", parts);
+        }
+        StringBuilder out = new StringBuilder();
+        for (String key : List.of("text", "name", "en_name", "email", "link", "url", "value")) {
+            JsonNode child = value.get(key);
+            if (child != null && child.isValueNode()) {
+                String part = child.asText("");
+                if (!part.isBlank()) {
+                    if (out.length() > 0) out.append(' ');
+                    out.append(part);
+                }
+            }
+        }
+        if (out.length() > 0) return out.toString();
+        return value.toString();
     }
 
     private Document fetchMedia(String token, String name, String accessToken) throws Exception {
