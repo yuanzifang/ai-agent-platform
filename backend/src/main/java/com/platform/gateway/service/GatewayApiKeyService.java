@@ -58,6 +58,7 @@ public class GatewayApiKeyService {
         m.put("expiresAt", k.getExpiresAt());
         m.put("rateLimitPerMin", k.getRateLimitPerMin());
         m.put("dailyQuota", k.getDailyQuota());
+        m.put("maxBodyBytes", k.getMaxBodyBytes());
         m.put("allowedMethods", k.getAllowedMethods());
         m.put("allowedPaths", k.getAllowedPaths());
         m.put("allowedIps", k.getAllowedIps());
@@ -90,6 +91,14 @@ public class GatewayApiKeyService {
     public CreatedKey create(Long routeId, Long tenantId, String name,
                              Integer rateLimitPerMin, Integer dailyQuota, String allowedMethods, String allowedPaths,
                              String allowedIps, java.time.LocalDateTime expiresAt, Long operatorId) {
+        return create(routeId, tenantId, name, rateLimitPerMin, dailyQuota, null,
+                allowedMethods, allowedPaths, allowedIps, expiresAt, operatorId);
+    }
+
+    public CreatedKey create(Long routeId, Long tenantId, String name,
+                             Integer rateLimitPerMin, Integer dailyQuota, Integer maxBodyBytes,
+                             String allowedMethods, String allowedPaths, String allowedIps,
+                             java.time.LocalDateTime expiresAt, Long operatorId) {
         byte[] bytes = new byte[32];
         new SecureRandom().nextBytes(bytes);
         String apiKey = "gwk_" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
@@ -103,6 +112,7 @@ public class GatewayApiKeyService {
         key.setExpiresAt(expiresAt);
         key.setRateLimitPerMin(rateLimitPerMin);
         key.setDailyQuota(dailyQuota == null ? null : Math.max(0, dailyQuota));
+        key.setMaxBodyBytes(maxBodyBytes == null ? null : Math.max(0, maxBodyBytes));
         key.setAllowedMethods(normalizeMethods(allowedMethods));
         key.setAllowedPaths(normalizePaths(allowedPaths));
         key.setAllowedIps(normalizeIps(allowedIps));
@@ -224,6 +234,14 @@ public class GatewayApiKeyService {
     public void update(Long keyId, String name, Boolean enabled,
                        Integer rateLimitPerMin, Integer dailyQuota, String allowedMethods, String allowedPaths,
                        String allowedIps, LocalDateTime expiresAt, Long operatorId) {
+        update(keyId, name, enabled, rateLimitPerMin, dailyQuota, null,
+                allowedMethods, allowedPaths, allowedIps, expiresAt, operatorId);
+    }
+
+    public void update(Long keyId, String name, Boolean enabled,
+                       Integer rateLimitPerMin, Integer dailyQuota, Integer maxBodyBytes,
+                       String allowedMethods, String allowedPaths, String allowedIps,
+                       LocalDateTime expiresAt, Long operatorId) {
         GatewayApiKey key = keyMapper.selectById(keyId);
         if (key == null) return;
         GatewayApiKey patch = new GatewayApiKey();
@@ -232,6 +250,7 @@ public class GatewayApiKeyService {
         if (enabled != null) patch.setEnabled(enabled ? 1 : 0);
         if (rateLimitPerMin != null) patch.setRateLimitPerMin(Math.max(0, rateLimitPerMin));
         if (dailyQuota != null) patch.setDailyQuota(Math.max(0, dailyQuota));
+        if (maxBodyBytes != null) patch.setMaxBodyBytes(Math.max(0, maxBodyBytes));
         if (allowedMethods != null) patch.setAllowedMethods(normalizeMethods(allowedMethods));
         if (allowedPaths != null) patch.setAllowedPaths(normalizePaths(allowedPaths));
         if (allowedIps != null) patch.setAllowedIps(normalizeIps(allowedIps));

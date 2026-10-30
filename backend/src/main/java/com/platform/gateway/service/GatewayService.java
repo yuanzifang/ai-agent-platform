@@ -254,6 +254,7 @@ public class GatewayService {
                 String.valueOf(req.getOrDefault("name", "")),
                 req.get("rateLimitPerMin") instanceof Number n ? n.intValue() : null,
                 req.get("dailyQuota") instanceof Number n ? n.intValue() : null,
+                req.get("maxBodyBytes") instanceof Number n ? n.intValue() : null,
                 req.get("allowedMethods") == null ? null : String.valueOf(req.get("allowedMethods")),
                 req.get("allowedPaths") == null ? null : String.valueOf(req.get("allowedPaths")),
                 req.get("allowedIps") == null ? null : String.valueOf(req.get("allowedIps")),
@@ -276,6 +277,7 @@ public class GatewayService {
                 req.get("enabled") instanceof Boolean b ? b : null,
                 req.get("rateLimitPerMin") instanceof Number n ? n.intValue() : null,
                 req.get("dailyQuota") instanceof Number n ? n.intValue() : null,
+                req.get("maxBodyBytes") instanceof Number n ? n.intValue() : null,
                 req.get("allowedMethods") == null ? null : String.valueOf(req.get("allowedMethods")),
                 req.get("allowedPaths") == null ? null : String.valueOf(req.get("allowedPaths")),
                 req.get("allowedIps") == null ? null : String.valueOf(req.get("allowedIps")),
@@ -360,6 +362,11 @@ public class GatewayService {
             if (body.length > MAX_BODY) {
                 log(route, request, 413, null, started, "body too large");
                 return error(servletResponse, HttpStatus.PAYLOAD_TOO_LARGE, "请求体不能超过 5MB");
+            }
+            if (callerKey != null && callerKey.getMaxBodyBytes() != null
+                    && callerKey.getMaxBodyBytes() > 0 && body.length > callerKey.getMaxBodyBytes()) {
+                log(route, request, 413, null, started, "api key body limit");
+                return error(servletResponse, HttpStatus.PAYLOAD_TOO_LARGE, "请求体超过 Key 配额");
             }
             String signatureError = verifySignature(route, request, body);
             if (signatureError != null) {
