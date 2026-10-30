@@ -8,6 +8,7 @@ import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.knowledge.service.KnowledgeService;
 import com.platform.security.JwtPrincipal;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -31,6 +32,15 @@ public class SearchService {
     private final CaseService caseService;
     private final ToolService toolService;
     private final StringRedisTemplate redis;
+
+    @Value("${search.weights.agent:1.10}")
+    private double agentWeight = 1.10;
+    @Value("${search.weights.kb:1.05}")
+    private double kbWeight = 1.05;
+    @Value("${search.weights.case:1.00}")
+    private double caseWeight = 1.00;
+    @Value("${search.weights.tool:0.95}")
+    private double toolWeight = 0.95;
 
     public Map<String, Object> search(String rawQuery, JwtPrincipal principal) {
         String query = rawQuery == null ? "" : rawQuery.trim();
@@ -103,7 +113,8 @@ public class SearchService {
         row.put("nameHtml", SearchHighlighter.highlight(displayName, terms));
         row.put("descHtml", SearchHighlighter.highlight(displayDesc, terms));
         row.put("path", path);
-        row.put("score", score(displayName, displayDesc, query, terms));
+        int baseScore = score(displayName, displayDesc, query, terms);
+        row.put("score", Math.max(0, (int) Math.round(baseScore * weight(type))));
         return row;
     }
 
@@ -243,6 +254,16 @@ public class SearchService {
 
     private String str(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private double weight(String type) {
+        return switch (type) {
+            case "AGENT" -> agentWeight;
+            case "KB" -> kbWeight;
+            case "CASE" -> caseWeight;
+            case "TOOL" -> toolWeight;
+            default -> 1.0;
+        };
     }
 
     private int typeRank(String type) {
