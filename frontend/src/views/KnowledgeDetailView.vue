@@ -80,6 +80,27 @@
       <el-button text size="small" @click="clearFinishedUploads">{{ t('kbDetail.clearFinished') }}</el-button>
     </div>
 
+    <div v-if="feishuJob" class="upload-tasks">
+      <div class="upload-task">
+        <div class="upload-task-head">
+          <span class="upload-task-name">{{ t('kbDetail.feishuJobTitle') }}</span>
+          <span class="upload-task-status">{{ feishuJob.status }}</span>
+        </div>
+        <el-progress :percentage="feishuJobPercent"
+                     :status="feishuJob.status === 'FAILED' ? 'exception' : feishuJob.status === 'DONE' ? 'success' : undefined" />
+        <div class="hint">
+          {{ tf('kbDetail.feishuJobProgress', {
+            done: (feishuJob.imported || 0) + (feishuJob.failed || 0) + (feishuJob.skipped || 0),
+            total: feishuJob.total || 0,
+            imported: feishuJob.imported || 0
+          }) }}
+        </div>
+        <div v-if="feishuJob.message" :class="feishuJob.status === 'FAILED' ? 'err' : 'hint'">
+          {{ feishuJob.message }}
+        </div>
+      </div>
+    </div>
+
     <div class="body">
       <!-- 文档列表 + 分段 -->
       <div class="docs">
@@ -628,6 +649,15 @@ const feishuImporting = ref(false)
 const feishuForm = reactive({
   url: '', appId: '', appSecret: '', effectiveRange: null as Date[] | null
 })
+const feishuJob = ref<any>(null)
+let feishuJobTimer: ReturnType<typeof setTimeout> | null = null
+const feishuJobPercent = computed(() => {
+  if (!feishuJob.value) return 0
+  if (feishuJob.value.status === 'DONE' || feishuJob.value.status === 'FAILED') return 100
+  const done = (feishuJob.value.imported || 0) + (feishuJob.value.failed || 0)
+    + (feishuJob.value.skipped || 0)
+  return Math.min(99, Math.round(done * 100 / Math.max(1, feishuJob.value.total || 0)))
+})
 const searching = ref(false)
 const searched = ref(false)
 const results = ref<any[]>([])
@@ -697,6 +727,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (upgradeTimer) clearTimeout(upgradeTimer)
+  stopFeishuJobPolling()
 })
 
 async function loadDetail() {
@@ -1117,6 +1148,40 @@ function clearFinishedUploads() {
     task => task.status === 'uploading' || task.status === 'parsing')
 }
 
+function stopFeishuJobPolling() {
+  if (feishuJobTimer) {
+    clearTimeout(feishuJobTimer)
+    feishuJobTimer = null
+  }
+}
+
+async function pollFeishuJob(jobId: string) {
+  try {
+    const job = await http.get(`/knowledge-base/${kbId}/documents/feishu/jobs/${jobId}`,
+      { timeout: 15000 }) as any
+    feishuJob.value = job
+    if (job.status === 'DONE' || job.status === 'FAILED') {
+      stopFeishuJobPolling()
+      await loadDocs()
+      pollDocs()
+      if (job.status === 'FAILED') {
+        ElMessage.error(job.message || t('kbDetail.feishuJobFailed'))
+      } else if ((job.failed || 0) > 0 || (job.skipped || 0) > 0) {
+        ElMessage.warning(t('kbDetail.feishuResult', {
+          imported: job.imported ?? 0, failed: job.failed ?? 0, skipped: job.skipped ?? 0
+        }))
+      } else {
+        ElMessage.success(t('kbDetail.feishuSubmitted', { count: job.imported ?? 0 }))
+      }
+      return
+    }
+    feishuJobTimer = setTimeout(() => pollFeishuJob(jobId), 1500)
+  } catch (e: any) {
+    stopFeishuJobPolling()
+    ElMessage.error(e?.message || t('kbDetail.feishuJobFailed'))
+  }
+}
+
 async function importFeishu() {
   if (!feishuForm.url.trim() || !feishuForm.appId.trim() || !feishuForm.appSecret.trim()) {
     ElMessage.warning(t('kbDetail.feishuRequired')); return
@@ -1124,26 +1189,19 @@ async function importFeishu() {
   feishuImporting.value = true
   try {
     const range = feishuForm.effectiveRange
-    const result = await http.post(`/knowledge-base/${kbId}/documents/feishu`, {
+    const result = await http.post(`/knowledge-base/${kbId}/documents/feishu/jobs`, {
       url: feishuForm.url.trim(),
       appId: feishuForm.appId.trim(),
       appSecret: feishuForm.appSecret.trim(),
       effectiveFrom: range?.[0] ? new Date(range[0]).toISOString() : undefined,
       effectiveTo: range?.[1] ? new Date(range[1]).toISOString() : undefined
-    }, { timeout: 600000 }) as any
-    if (result?.failed > 0 || result?.skipped > 0) {
-      ElMessage.warning(t('kbDetail.feishuResult', {
-        imported: result?.imported ?? 0,
-        failed: result?.failed ?? 0,
-        skipped: result?.skipped ?? 0
-      }))
-    } else {
-      ElMessage.success(t('kbDetail.feishuSubmitted', { count: result?.imported ?? 0 }))
-    }
+    }, { timeout: 30000 }) as any
+    if (!result?.jobId) throw new Error(t('kbDetail.feishuJobFailed'))
     feishuVisible.value = false
     feishuForm.appSecret = ''
-    await loadDocs()
-    pollDocs()
+    stopFeishuJobPolling()
+    feishuJob.value = { status: 'QUEUED', total: 0, imported: 0, failed: 0, skipped: 0 }
+    pollFeishuJob(result.jobId)
   } catch (e: any) {
     ElMessage.error(e?.message || String(e))
   } finally {

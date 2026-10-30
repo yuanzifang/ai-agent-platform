@@ -43,6 +43,21 @@ public class AsyncConfig {
         return executor;
     }
 
+    /** 飞书批量导入专用池：长文件夹/多链接导入不阻塞 HTTP 请求。 */
+    @Bean("feishuTaskExecutor")
+    public ThreadPoolTaskExecutor feishuTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("feishu-import-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+        executor.initialize();
+        return executor;
+    }
+
     @Bean("documentParseExecutor")
     public ThreadPoolTaskExecutor documentParseExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
