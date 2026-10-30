@@ -24,6 +24,7 @@ class FeishuDocumentServiceDepthTest {
     private HttpServer server;
     private FeishuDocumentService service;
     private final AtomicBoolean fourthLevelRequested = new AtomicBoolean(false);
+    private final AtomicBoolean fourthLinkedDocRequested = new AtomicBoolean(false);
 
     @BeforeEach
     void setUp() throws IOException {
@@ -52,6 +53,21 @@ class FeishuDocumentServiceDepthTest {
         assertFalse(fourthLevelRequested.get(), "第四层文件夹不应被请求");
     }
 
+    @Test
+    void followsDocxHyperlinksUpToThreeLevels() {
+        FeishuDocumentService.Collection result = service.collectDetailed(
+                "https://team.feishu.cn/docx/l1", "app", "secret");
+
+        assertEquals(3, result.documents().size());
+        assertTrue(result.documents().stream()
+                .anyMatch(d -> "https://team.feishu.cn/docx/l1".equals(d.sourceUrl())));
+        assertTrue(result.documents().stream()
+                .anyMatch(d -> "https://team.feishu.cn/docx/l2".equals(d.sourceUrl())));
+        assertTrue(result.documents().stream()
+                .anyMatch(d -> "https://team.feishu.cn/docx/l3".equals(d.sourceUrl())));
+        assertFalse(fourthLinkedDocRequested.get(), "第四层超链接文档不应被请求");
+    }
+
     private void handle(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
         String query = exchange.getRequestURI().getQuery();
@@ -72,9 +88,20 @@ class FeishuDocumentServiceDepthTest {
                     yield "{\"code\":0,\"data\":{\"files\":[]}}";
                 }
             };
+        } else if (path.startsWith("/open-apis/docx/v1/documents/") && path.endsWith("/blocks")) {
+            String token = path.substring("/open-apis/docx/v1/documents/".length(),
+                    path.length() - "/blocks".length());
+            if ("l4".equals(token)) fourthLinkedDocRequested.set(true);
+            body = switch (token) {
+                case "l1" -> blocks(link("l2"));
+                case "l2" -> blocks(link("l3"));
+                case "l3" -> blocks(link("l4"));
+                default -> "{\"code\":0,\"data\":{\"items\":[],\"has_more\":false}}";
+            };
         } else if (path.startsWith("/open-apis/docx/v1/documents/") && path.endsWith("/raw_content")) {
             String token = path.substring("/open-apis/docx/v1/documents/".length(),
                     path.length() - "/raw_content".length());
+            if ("l4".equals(token)) fourthLinkedDocRequested.set(true);
             body = "{\"code\":0,\"data\":{\"content\":\"content-" + token + "\"}}";
         } else {
             body = "{\"code\":404,\"msg\":\"not found\"}";
@@ -88,6 +115,16 @@ class FeishuDocumentServiceDepthTest {
 
     private String files(String... items) {
         return "{\"code\":0,\"data\":{\"files\":[" + String.join(",", items) + "],\"has_more\":false}}";
+    }
+
+    private String blocks(String item) {
+        return "{\"code\":0,\"data\":{\"items\":[" + item + "],\"has_more\":false}}";
+    }
+
+    private String link(String token) {
+        return "{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"link\","
+                + "\"text_element_style\":{\"link\":{\"url\":\"https://team.feishu.cn/docx/"
+                + token + "\"}}}}]}}";
     }
 
     private String param(String query, String key) {

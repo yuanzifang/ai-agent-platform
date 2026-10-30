@@ -16,9 +16,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 飞书文档/知识库/云盘文件夹导入。
@@ -36,8 +39,11 @@ public class FeishuDocumentService {
     private static final int PAGE_SIZE = 50;
     private static final int MAX_RETRIES = 3;
     private static final long MIN_API_INTERVAL_MS = 220;
-    /** 文件夹/知识库树最多导入三层：根层为 1，子层为 2，孙层为 3。 */
+    /** 文件夹/知识库树和正文超链接文档最多导入三层：根层为 1，子层为 2，孙层为 3。 */
     private static final int MAX_NESTING_DEPTH = 3;
+    private static final Pattern FEISHU_DOC_URL = Pattern.compile(
+            "https?://[^\\s\"'<>]*\\.feishu\\.cn/(?:docx|docs|wiki)/[^\\s\"'<>，。；、）】]+",
+            Pattern.CASE_INSENSITIVE);
 
     private final ObjectMapper objectMapper;
     private final HttpClient http = HttpClient.newBuilder()
@@ -84,10 +90,10 @@ public class FeishuDocumentService {
         Set<String> seen = new HashSet<>();
         try {
             switch (target.type()) {
-                case "docx" -> add(documents, fetchDocx(target.token(), token, rawUrl,
-                        defaultName("飞书文档", target.token())));
-                case "doc" -> add(documents, fetchDoc(target.token(), token, rawUrl,
-                        defaultName("飞书文档", target.token())));
+                case "docx" -> addDocx(target.token(), token, rawUrl,
+                        defaultName("飞书文档", target.token()), documents, skipped, seen, 1);
+                case "doc" -> addDoc(target.token(), token, rawUrl,
+                        defaultName("飞书文档", target.token()), documents, skipped, seen, 1);
                 case "wiki" -> collectWiki(target.token(), token, documents, skipped, seen, 1);
                 case "wiki_space" -> collectWikiChildren(target.token(), null, token, documents,
                         skipped, seen, 1);
@@ -136,9 +142,11 @@ public class FeishuDocumentService {
         String objToken = node.path("obj_token").asText();
         String title = node.path("title").asText("飞书文档");
         if ("docx".equalsIgnoreCase(objType) && !objToken.isBlank()) {
-            add(out, fetchDocx(objToken, accessToken, "https://www.feishu.cn/docx/" + objToken, title));
+            addDocx(objToken, accessToken, "https://www.feishu.cn/docx/" + objToken, title,
+                    out, skipped, seen, 1);
         } else if ("doc".equalsIgnoreCase(objType) && !objToken.isBlank()) {
-            add(out, fetchDoc(objToken, accessToken, "https://www.feishu.cn/docs/" + objToken, title));
+            addDoc(objToken, accessToken, "https://www.feishu.cn/docs/" + objToken, title,
+                    out, skipped, seen, 1);
         } else if (!objType.isBlank()) {
             skip(skipped, "暂不支持的知识库节点类型 " + objType + "：" + title);
         }
@@ -177,9 +185,11 @@ public class FeishuDocumentService {
         String objToken = node.path("obj_token").asText();
         String title = node.path("title").asText("飞书文档");
         if ("docx".equalsIgnoreCase(objType) && !objToken.isBlank()) {
-            add(out, fetchDocx(objToken, accessToken, "https://www.feishu.cn/docx/" + objToken, title));
+            addDocx(objToken, accessToken, "https://www.feishu.cn/docx/" + objToken, title,
+                    out, skipped, seen, 1);
         } else if ("doc".equalsIgnoreCase(objType) && !objToken.isBlank()) {
-            add(out, fetchDoc(objToken, accessToken, "https://www.feishu.cn/docs/" + objToken, title));
+            addDoc(objToken, accessToken, "https://www.feishu.cn/docs/" + objToken, title,
+                    out, skipped, seen, 1);
         } else if (!objType.isBlank()) {
             skip(skipped, "暂不支持的知识库节点类型 " + objType + "：" + title);
         }
@@ -212,9 +222,11 @@ public class FeishuDocumentService {
                         skip(skipped, "超过三层嵌套，跳过子文件夹：" + name);
                     }
                 } else if ("docx".equalsIgnoreCase(type)) {
-                    add(out, fetchDocx(token, accessToken, "https://www.feishu.cn/docx/" + token, name));
+                    addDocx(token, accessToken, "https://www.feishu.cn/docx/" + token, name,
+                            out, skipped, seen, 1);
                 } else if ("doc".equalsIgnoreCase(type)) {
-                    add(out, fetchDoc(token, accessToken, "https://www.feishu.cn/docs/" + token, name));
+                    addDoc(token, accessToken, "https://www.feishu.cn/docs/" + token, name,
+                            out, skipped, seen, 1);
                 } else if ("file".equalsIgnoreCase(type)) {
                     add(out, fetchMedia(token, name, accessToken));
                 } else {
@@ -227,6 +239,144 @@ public class FeishuDocumentService {
 
     private void skip(List<String> skipped, String message) {
         if (skipped.size() < MAX_FILES) skipped.add(message);
+    }
+
+    /** 导入 docx，并继续解析正文中的飞书文档超链接；超链接文档各自独立入库。 */
+    private void addDocx(String documentToken, String accessToken, String sourceUrl, String fallbackName,
+                         List<Document> out, List<String> skipped, Set<String> seen, int depth)
+            throws Exception {
+        if (!seen.add("docx:" + documentToken)) return;
+        Document document = fetchDocx(documentToken, accessToken, sourceUrl, fallbackName);
+        add(out, document);
+        if (depth >= MAX_NESTING_DEPTH) return;
+        Set<String> links;
+        try {
+            links = fetchDocxLinks(documentToken, accessToken);
+        } catch (Exception e) {
+            log.warn("飞书文档链接解析失败 doc={} err={}", documentToken, root(e));
+            skip(skipped, "文档链接解析失败：" + fallbackName);
+            return;
+        }
+        for (String link : links) {
+            try {
+                collectLinkedUrl(link, accessToken, out, skipped, seen, depth + 1);
+            } catch (BusinessException e) {
+                skip(skipped, "超链接文档导入失败 " + link + "：" + e.getMessage());
+            } catch (Exception e) {
+                log.warn("飞书超链接文档读取失败 url={} err={}", link, root(e));
+                skip(skipped, "超链接文档导入失败：" + link);
+            }
+        }
+    }
+
+    /** 旧版文档没有 blocks 接口，从纯文本中提取飞书文档链接并继续导入。 */
+    private void addDoc(String documentToken, String accessToken, String sourceUrl, String fallbackName,
+                        List<Document> out, List<String> skipped, Set<String> seen, int depth)
+            throws Exception {
+        if (!seen.add("doc:" + documentToken)) return;
+        Document document = fetchDoc(documentToken, accessToken, sourceUrl, fallbackName);
+        add(out, document);
+        if (depth >= MAX_NESTING_DEPTH) return;
+        Set<String> links = new LinkedHashSet<>();
+        collectLinks(new String(document.content(), StandardCharsets.UTF_8), links);
+        for (String link : links) {
+            try {
+                collectLinkedUrl(link, accessToken, out, skipped, seen, depth + 1);
+            } catch (BusinessException e) {
+                skip(skipped, "超链接文档导入失败 " + link + "：" + e.getMessage());
+            } catch (Exception e) {
+                log.warn("飞书超链接文档读取失败 url={} err={}", link, root(e));
+                skip(skipped, "超链接文档导入失败：" + link);
+            }
+        }
+    }
+
+    private Set<String> fetchDocxLinks(String documentToken, String accessToken) throws Exception {
+        Set<String> links = new LinkedHashSet<>();
+        String pageToken = null;
+        do {
+            String path = "/open-apis/docx/v1/documents/" + encode(documentToken)
+                    + "/blocks?page_size=500&document_revision_id=-1"
+                    + (pageToken == null ? "" : "&page_token=" + encode(pageToken));
+            JsonNode data = requestJson(path, accessToken, "GET", null).path("data");
+            collectLinks(data, links);
+            pageToken = data.path("page_token").asText(null);
+        } while (pageToken != null && !pageToken.isBlank() && !pageToken.equals("null"));
+        return links;
+    }
+
+    /** 递归扫描 blocks JSON，提取 link.url、文本中的飞书文档 URL；外部链接会被正则过滤。 */
+    private void collectLinks(JsonNode node, Set<String> links) {
+        if (node == null || node.isNull()) return;
+        if (node.isTextual()) {
+            collectLinks(node.asText(), links);
+            return;
+        }
+        if (node.isArray()) {
+            for (JsonNode child : node) collectLinks(child, links);
+            return;
+        }
+        if (node.isObject()) {
+            node.fields().forEachRemaining(entry -> collectLinks(entry.getValue(), links));
+        }
+    }
+
+    private void collectLinks(String text, Set<String> links) {
+        if (text == null || text.isBlank()) return;
+        Matcher matcher = FEISHU_DOC_URL.matcher(text);
+        while (matcher.find()) {
+            String url = matcher.group();
+            int end = url.length();
+            while (end > 0 && ".,;:!?)]}，。；：！？）】".indexOf(url.charAt(end - 1)) >= 0) end--;
+            if (end > 0) links.add(url.substring(0, end));
+        }
+    }
+
+    private void collectLinkedUrl(String rawUrl, String accessToken, List<Document> out,
+                                  List<String> skipped, Set<String> seen, int depth) throws Exception {
+        URI uri;
+        try {
+            uri = URI.create(rawUrl);
+        } catch (Exception e) {
+            return;
+        }
+        if (uri.getScheme() == null || uri.getHost() == null
+                || !uri.getHost().endsWith(".feishu.cn")) return;
+        Target target;
+        try {
+            target = parseTarget(uri.getPath());
+        } catch (BusinessException e) {
+            skip(skipped, "不支持的文档链接：" + rawUrl);
+            return;
+        }
+        switch (target.type()) {
+            case "docx" -> addDocx(target.token(), accessToken, rawUrl,
+                    defaultName("飞书链接文档", target.token()), out, skipped, seen, depth);
+            case "doc" -> addDoc(target.token(), accessToken, rawUrl,
+                    defaultName("飞书链接文档", target.token()), out, skipped, seen, depth);
+            case "wiki" -> collectWikiNodeOnly(target.token(), accessToken, rawUrl, out, skipped, seen, depth);
+            default -> skip(skipped, "不支持的文档链接类型：" + rawUrl);
+        }
+    }
+
+    /** 超链接指向 wiki 节点时只导入该节点本身，不再展开整棵 wiki 树。 */
+    private void collectWikiNodeOnly(String nodeToken, String accessToken, String sourceUrl,
+                                     List<Document> out, List<String> skipped, Set<String> seen, int depth)
+            throws Exception {
+        if (!seen.add("wiki:" + nodeToken)) return;
+        JsonNode node = requestJson("/open-apis/wiki/v2/spaces/get_node?token=" + encode(nodeToken),
+                accessToken, "GET", null).path("data");
+        if (node.path("node").isObject()) node = node.path("node");
+        String objType = node.path("obj_type").asText();
+        String objToken = node.path("obj_token").asText();
+        String title = node.path("title").asText("飞书文档");
+        if ("docx".equalsIgnoreCase(objType) && !objToken.isBlank()) {
+            addDocx(objToken, accessToken, sourceUrl, title, out, skipped, seen, depth);
+        } else if ("doc".equalsIgnoreCase(objType) && !objToken.isBlank()) {
+            addDoc(objToken, accessToken, sourceUrl, title, out, skipped, seen, depth);
+        } else {
+            skip(skipped, "暂不支持的超链接文档类型 " + objType + "：" + title);
+        }
     }
 
     private Document fetchDocx(String token, String accessToken, String sourceUrl) throws Exception {
