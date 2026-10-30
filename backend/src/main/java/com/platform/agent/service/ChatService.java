@@ -40,6 +40,9 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class ChatService {
 
+    /** RAG 片段分隔符：不能被正文里的 Markdown 水平线误识别。 */
+    static final String RAG_FRAGMENT_SEPARATOR = "<!--rag-fragment-->";
+
     private final com.platform.model.service.ChatModelRouter chatModelRouter;
     private final BillingUsageMapper billingMapper;
     private final PricingService pricingService;
@@ -296,7 +299,8 @@ public class ChatService {
                             injectionHits.stream().map(ModerationService.Hit::ruleId).toList());
                     continue;
                 }
-                context.append("\n---\n").append(contextText);
+                context.append("\n").append(RAG_FRAGMENT_SEPARATOR).append("\n")
+                        .append(neutralizeRetrievalBoundary(String.valueOf(contextText)));
                 Map<String, Object> citation = new LinkedHashMap<>();
                 citation.put("content", hit.get("content"));
                 citation.put("score", hit.get("score"));
@@ -320,6 +324,17 @@ public class ChatService {
                 + "\n</untrusted_retrieval>";
         return systemPrompt == null || systemPrompt.isBlank()
                 ? rag : systemPrompt + "\n\n" + rag;
+    }
+
+    /**
+     * 知识库正文可能包含伪造的边界标签/片段分隔符，必须转义，避免提前闭合不可信块
+     * 或把自己的内容伪装成可信系统指令。
+     */
+    private static String neutralizeRetrievalBoundary(String text) {
+        if (text == null || text.isEmpty()) return "";
+        return text.replaceAll("(?i)<(/?)untrusted_retrieval\\s*>",
+                        "&lt;$1untrusted_retrieval&gt;")
+                .replace(RAG_FRAGMENT_SEPARATOR, "&lt;!--rag-fragment--&gt;");
     }
 
     /**

@@ -123,7 +123,9 @@ final class MarkdownChunker {
                     }
                     i++;
                 }
-                blocks.add(new Block(Kind.CODE, 0, code.toString().trim(), page, path(headings)));
+                for (String part : splitCode(code.toString().trim(), TABLE_PART_SIZE)) {
+                    blocks.add(new Block(Kind.CODE, 0, part, page, path(headings)));
+                }
                 continue;
             }
             if (isTableStart(trimmed)) {
@@ -338,6 +340,36 @@ final class MarkdownChunker {
             children.add(new Child(content, startPage, Math.max(startPage, endPage), headingPath));
         }
         buffer.setLength(0);
+    }
+
+    /** 超大代码块按行切分，每片保留原语言 fence，避免一个块撑爆父块和 embedding。 */
+    private static List<String> splitCode(String code, int maxChars) {
+        if (code == null || code.isBlank() || code.length() <= maxChars) {
+            return List.of(code == null ? "" : code);
+        }
+        String[] lines = code.split("\n", -1);
+        String open = lines.length > 0 ? lines[0] : "```";
+        String close = lines.length > 0 && lines[lines.length - 1].trim().startsWith("```")
+                ? lines[lines.length - 1].trim() : "```";
+        int last = lines.length > 0 && lines[lines.length - 1].trim().startsWith("```")
+                ? lines.length - 1 : lines.length;
+        List<String> parts = new ArrayList<>();
+        StringBuilder part = new StringBuilder(open).append('\n');
+        boolean body = false;
+        for (int i = 1; i < last; i++) {
+            String line = lines[i];
+            if (body && part.length() + line.length() + close.length() + 2 > maxChars) {
+                part.append(close);
+                parts.add(part.toString());
+                part = new StringBuilder(open).append('\n');
+                body = false;
+            }
+            part.append(line).append('\n');
+            body = true;
+        }
+        part.append(close);
+        if (body || parts.isEmpty()) parts.add(part.toString());
+        return parts;
     }
 
     private static List<String> splitText(String text) {

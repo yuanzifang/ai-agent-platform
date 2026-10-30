@@ -62,6 +62,30 @@ API 限制：默认每个 API Key 每分钟最多 600 次请求，超限返回 4
 服务器扩容需要多长时间
 ```
 
+## 固定中文检索黄金集（v1）
+
+为避免只验证“能入库、能检索”，仓库增加了固定中文 QA 集：
+
+- 数据：`docs/fixtures/中文检索黄金集-v1.json`
+- 16 条中文知识片段、21 条口语化查询；
+- 使用稳定 slug（如 `refund`、`invoice`）关联相关文档，不依赖数据库自增 ID；
+- 脚本：`scripts/eval_chinese_retrieval.py`
+
+```bash
+# Ollama / OpenAI 兼容 embedding 端点均可
+python3 scripts/eval_chinese_retrieval.py \
+  --endpoint http://127.0.0.1:11434/v1/embeddings \
+  --model bge-m3 \
+  --output target/chinese-retrieval.json \
+  --min-recall5 0.80 --min-mrr 0.80
+```
+
+输出 Recall@1/3/5/10、MRR、nDCG@5 和逐查询排名。切换 embedding 模型、分块策略或
+向量库前后，应使用同一份 fixture 和相同 topK 对比；建议把结果 JSON 作为发布附件。
+
+> 该脚本评估 embedding/向量召回本身；平台内的 `RETRIEVAL` 评测步骤还会叠加混合检索、
+> 权限过滤和 chunk 切分，两者应结合使用。
+
 ## 说明
 
 - 这是小样本评测，不是完整基准；上线前应使用真实知识库、真实用户查询和

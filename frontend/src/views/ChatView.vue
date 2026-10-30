@@ -77,6 +77,7 @@
             </div>
             <div v-if="m.status === 'STOPPED'" class="stopped-tag">{{ t('chatPage.stopped') }}</div>
             <div v-if="m.status === 'BLOCKED'" class="blocked-tag">{{ t('chatPage.blocked') }}</div>
+            <div v-if="m.notice || m.ragTruncated" class="rag-notice">⚠️ {{ m.notice || t('chatPage.ragTruncated') }}</div>
             <div v-if="(m.citations || []).length" class="citations">
               <el-collapse>
                 <el-collapse-item :title="`${t('chatPage.citationsPrefix')}${m.citations?.length ?? 0}${t('chatPage.citationsSuffix')}`">
@@ -216,7 +217,7 @@ interface SessionItem { id: number; agentId: number; agentName: string; title: s
 interface ChatMessage {
   id?: number; role: string; content: string; status?: string; feedback?: string | null
   citations?: any[]; tools?: any[]; streaming?: boolean; attachments?: any[]
-  traceId?: string
+  traceId?: string; notice?: string; ragTruncated?: boolean
 }
 interface Attachment { attachmentId: number; fileName: string; previewUrl?: string }
 
@@ -438,6 +439,7 @@ async function streamCall(url: string, body: any, pending: ChatMessage) {
       pending.content = data.answer || ''
       ;(pending.citations ||= []).push(...(data.citations || []))
       if (data.messageId) pending.id = data.messageId
+      if (data.ragTruncated) pending.ragTruncated = true
       return
     }
     const reader = resp.body.getReader()
@@ -490,6 +492,8 @@ function handleEvent(event: string, data: any, pending: ChatMessage) {
   } else if (event === 'tool') {
     upsertTool(pending, data, false)
     scrollToBottom()
+  } else if (event === 'notice') {
+    pending.notice = data.message || t('chatPage.ragTruncated')
   } else if (event === 'moderation') {
     ElMessage.warning(data.tip || t('chatPage.auditTip'))
   } else if (event === 'meta') {
@@ -498,6 +502,7 @@ function handleEvent(event: string, data: any, pending: ChatMessage) {
     // usage 汇总在 done 里，这里忽略
   } else if (event === 'done') {
     if (data.messageId) pending.id = data.messageId
+    if (data.ragTruncated) pending.ragTruncated = true
     if (data.status === 'STOPPED' || data.status === 'BLOCKED') pending.status = data.status
     loadSessions()
   } else if (event === 'error') {
@@ -1013,6 +1018,7 @@ function clip(text: string, n: number) {
   font-size: 12px;
   color: #f56c6c;
 }
+.rag-notice { margin: 8px 0; padding: 7px 10px; border-radius: 6px; background: #fdf6ec; color: #b88230; font-size: 12px; line-height: 1.5; }
 .citations {
   margin-top: 8px;
   font-size: 12px;

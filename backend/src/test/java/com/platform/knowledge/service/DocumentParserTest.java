@@ -23,6 +23,7 @@ import org.apache.poi.xddf.usermodel.chart.XDDFChartData;
 import org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory;
 import org.apache.poi.xddf.usermodel.chart.XDDFValueAxis;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
@@ -54,6 +55,7 @@ import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.graphics.image.PDInlineImage;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
+import org.apache.poi.openxml4j.util.ZipSecureFile;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.Document;
@@ -3335,4 +3337,22 @@ class DocumentParserTest {
         assertTrue(csv.contains("张三"));
         assertTrue(csv.contains("上海"));
     }
+    @Test
+    void limitsPdfPageRenderPixels() throws Exception {
+        try (PDDocument doc = new PDDocument()) {
+            doc.addPage(new PDPage(PDRectangle.A0));
+            ReflectionTestUtils.setField(parser, "maxPdfRenderPixels", 1_000_000L);
+            BufferedImage image = ReflectionTestUtils.invokeMethod(parser, "renderPdfPage",
+                    new PDFRenderer(doc), doc, 0, 150);
+            assertTrue((long) image.getWidth() * image.getHeight() <= 1_000_000L,
+                    "超大一页必须在渲染前降 DPI，像素数不能超过上限");
+        }
+    }
+
+    @Test
+    void configuresExplicitZipBombLimits() {
+        assertEquals(64L * 1024 * 1024, ZipSecureFile.getMaxEntrySize());
+        assertEquals(0.01d, ZipSecureFile.getMinInflateRatio(), 0.0001d);
+    }
+
 }

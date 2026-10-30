@@ -11,6 +11,7 @@ import org.apache.pdfbox.pdfparser.PDFStreamParser;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.openxml4j.util.ZipSecureFile;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.Row;
@@ -64,6 +65,8 @@ import org.w3c.dom.NodeList;
 import javax.imageio.ImageIO;
 import javax.xml.parsers.DocumentBuilderFactory;
 import jakarta.annotation.PreDestroy;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -101,9 +104,18 @@ import java.util.zip.ZipInputStream;
 public class DocumentParser {
 
     /** 解析器版本：解析行为/结构化输出变化时递增，用于存量升级和复用判断。 */
-    public static final String PARSER_VERSION = "2026-10-27.10";
+    public static final String PARSER_VERSION = "2026-10-30.11";
 
     private static final long MAX_BYTES = 20 * 1024 * 1024;
+
+    /**
+     * Office OOXML 解压炸弹防护：单个 zip entry 上限 64MB，压缩比不得低于 1%。
+     * POI 默认单条上限很大，在 1GB 堆下仍可能被精心构造的 DOCX/XLSX 打爆。
+     */
+    static {
+        ZipSecureFile.setMaxEntrySize(64L * 1024 * 1024);
+        ZipSecureFile.setMinInflateRatio(0.01d);
+    }
 
     /** OSD 方向纠正的置信度门槛：表格/稀疏文本的误报（如把 6° 倾斜报成 180°）置信度通常远低于此。 */
     private static final float OSD_MIN_CONFIDENCE = 1.0f;
@@ -191,6 +203,9 @@ public class DocumentParser {
     private boolean ocrDenoise;
     @Value("${knowledge.pdf.vector-chart-render-enabled:true}")
     private boolean vectorChartRenderEnabled;
+    /** 单页渲染像素上限；A0/A1 工程图按面积自动降 DPI，避免 4 路并发 OOM。 */
+    @Value("${knowledge.pdf.max-render-pixels:16000000}")
+    private long maxPdfRenderPixels = 16_000_000L;
     private final ThreadLocal<Integer> attachmentDepth = ThreadLocal.withInitial(() -> 0);
     private volatile ExecutorService ocrExecutor;
 
@@ -288,7 +303,7 @@ public class DocumentParser {
                         }
                         // 矢量图表可能和照片/位图同页；独立检测并渲染整页，避免组合页漏图表。
                         if (count < 20 && vectorChartRenderEnabled && hasVectorDrawing(page, 6)) {
-                            BufferedImage rendered = renderer.renderImageWithDPI(p, 150);
+                            BufferedImage rendered = renderPdfPage(renderer, doc, p, 150);
                             ByteArrayOutputStream out = new ByteArrayOutputStream();
                             ImageIO.write(rendered, "png", out);
                             addImage(images, out.toByteArray(), "png");
@@ -513,7 +528,7 @@ public class DocumentParser {
             synchronized (doc) {
                 direct = singleLargePageImage(doc, pageIndex);
                 base = direct != null ? direct
-                        : renderer.renderImageWithDPI(pageIndex, Math.max(72, opts().ocrDpi()));
+                        : renderPdfPage(renderer, doc, pageIndex, Math.max(72, opts().ocrDpi()));
             }
             boolean enhanced = direct == null || ocrPreprocess || ocrAutoOrient || ocrDeskew;
             PdfMarkdownConverter.OcrResult result = ocrPageVariant(base, direct == null, true);
@@ -1444,13 +1459,63 @@ public class DocumentParser {
         }
     }
 
+    /**
+     * 按页面物理尺寸限制渲染像素：超过上限时自动降低 DPI，而不是硬渲染一张超大 ARGB 图。
+     * 返回值仍可能被 {@link #limitImagePixels(BufferedImage)} 兜底缩放。
+     */
+    private BufferedImage renderPdfPage(PDFRenderer renderer, PDDocument doc, int pageIndex, int desiredDpi) {
+        int dpi = Math.max(16, desiredDpi);
+        try {
+            PDPage page = doc.getPage(pageIndex);
+            float widthPt = page.getCropBox().getWidth();
+            float heightPt = page.getCropBox().getHeight();
+            if (widthPt > 0 && heightPt > 0) {
+                double points = (double) widthPt * heightPt;
+                double pixelsAtDpi = points * dpi * dpi / (72.0 * 72.0);
+                if (pixelsAtDpi > maxPdfRenderPixels) {
+                    int safeDpi = (int) Math.floor(72.0 * Math.sqrt(maxPdfRenderPixels / points));
+                    dpi = Math.max(16, Math.min(dpi, safeDpi));
+                    warn("第 " + (pageIndex + 1) + " 页尺寸较大，渲染 DPI 已从 "
+                            + Math.max(16, desiredDpi) + " 降至 " + dpi + "（像素上限 "
+                            + maxPdfRenderPixels + "）");
+                }
+            }
+            return limitImagePixels(renderer.renderImageWithDPI(pageIndex, dpi));
+        } catch (Exception e) {
+            throw new BusinessException(500, "PDF 页面渲染失败：第 " + (pageIndex + 1) + " 页 " + e.getMessage());
+        }
+    }
+
+    /** 兜底限制单张图片像素，防止内嵌扫描图绕过 DPI 计算直接占满堆。 */
+    private BufferedImage limitImagePixels(BufferedImage image) {
+        if (image == null) return null;
+        long pixels = (long) image.getWidth() * image.getHeight();
+        if (pixels <= maxPdfRenderPixels) return image;
+        double scale = Math.sqrt((double) maxPdfRenderPixels / pixels);
+        int width = Math.max(1, (int) Math.floor(image.getWidth() * scale));
+        int height = Math.max(1, (int) Math.floor(image.getHeight() * scale));
+        int type = image.getType() == BufferedImage.TYPE_CUSTOM ? BufferedImage.TYPE_INT_RGB : image.getType();
+        BufferedImage scaled = new BufferedImage(width, height, type);
+        Graphics2D g = scaled.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(image, 0, 0, width, height, null);
+        } finally {
+            g.dispose();
+        }
+        log.warn("PDF 图片像素超过上限，已缩放 {}x{} → {}x{}（上限 {} 像素）",
+                image.getWidth(), image.getHeight(), width, height, maxPdfRenderPixels);
+        return scaled;
+    }
+
     /** 单页扫描件通常是一张整页图片，直接 OCR 原图可保留分辨率与方向信息。 */
     private BufferedImage singleLargePageImage(PDDocument doc, int pageIndex) {
         List<BufferedImage> images = new ArrayList<>();
         collectPageImages(doc.getPage(pageIndex).getResources(), images, 0, new HashSet<>());
         if (images.size() != 1) return null;
         BufferedImage image = images.get(0);
-        return image.getWidth() >= 300 && image.getHeight() >= 300 ? image : null;
+        return image.getWidth() >= 300 && image.getHeight() >= 300 ? limitImagePixels(image) : null;
     }
 
     private void collectPageImages(PDResources resources, List<BufferedImage> images, int depth,

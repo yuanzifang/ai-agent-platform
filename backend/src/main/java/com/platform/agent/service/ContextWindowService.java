@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * 上下文窗口管理（需求 3.1.3）：按模型 context_window（创建/同步模型时配置）估算 Token；
@@ -45,8 +46,13 @@ public class ContextWindowService {
     @Value("${llm.context.compress-enabled:true}")
     private boolean compressEnabled;
 
+    /** RAG 在系统提示预算中的目标占比；剩余留给系统指令。 */
+    @Value("${llm.context.rag-budget-ratio:0.4}")
+    private double ragBudgetRatio = 0.4;
+
     public record Fitted(String systemPrompt, List<Message> history,
-                         boolean compressed, int droppedMessages, int estimatedTokens) {
+                         boolean compressed, int droppedMessages, int estimatedTokens,
+                         boolean ragTruncated) {
     }
 
     /** 完整对话裁剪：系统提示/用户输入/历史消息适配模型上下文。 */
@@ -64,12 +70,15 @@ public class ContextWindowService {
         int promptTokens = estimate(prompt);
         int availableForPrompt = Math.max(budget - userTokens - 32, 100);
         boolean truncated = false;
+        boolean ragTruncated = false;
         if (promptTokens > availableForPrompt) {
-            prompt = truncateChars(prompt, Math.max(availableForPrompt, 50));
+            PromptFit promptFit = fitSystemPrompt(prompt, Math.max(availableForPrompt, 50), modelName);
+            prompt = promptFit.text();
             promptTokens = estimate(prompt);
             truncated = true;
-            log.info("系统提示超出上下文，已截断 model={} 原 {} tokens → {} tokens",
-                    modelName, estimate(systemPrompt), promptTokens);
+            ragTruncated = promptFit.ragTruncated();
+            log.info("系统提示超出上下文，已按 RAG 片段边界截断 model={} 原 {} tokens → {} tokens ragTruncated={}",
+                    modelName, estimate(systemPrompt), promptTokens, ragTruncated);
         }
 
         // 从最新历史向前保留，超出的进入待压缩列表
@@ -107,7 +116,7 @@ public class ContextWindowService {
             log.info("上下文压缩 model={} 丢弃/摘要 {} 条历史，剩余 {} 条，约 {} tokens（上限 {}，预留 {}）",
                     modelName, droppedCount, kept.size(), used, limit, reserve);
         }
-        return new Fitted(prompt, kept, compressed, droppedCount, used);
+        return new Fitted(prompt, kept, compressed, droppedCount, used, ragTruncated);
     }
 
     /** 无历史场景（调试/子 Agent）：仅裁剪系统提示，用户输入超限直接报错。 */
@@ -123,9 +132,10 @@ public class ContextWindowService {
         int allowed = Math.max(budget - userTokens - 32, 50);
         if (estimate(prompt) > allowed) {
             int original = estimate(prompt);
-            prompt = truncateChars(prompt, allowed);
-            log.info("系统提示超出上下文，已截断 model={} 原 {} tokens → {} tokens",
-                    modelName, original, estimate(prompt));
+            PromptFit fitted = fitSystemPrompt(prompt, allowed, modelName);
+            prompt = fitted.text();
+            log.info("系统提示超出上下文，已按 RAG 片段边界截断 model={} 原 {} tokens → {} tokens ragTruncated={}",
+                    modelName, original, estimate(prompt), fitted.ragTruncated());
         }
         return prompt;
     }
@@ -209,6 +219,80 @@ public class ContextWindowService {
             sb.append(m instanceof UserMessage ? "用户：" : "助手：").append(m.getText());
         }
         return truncateChars(sb.toString(), maxTokens);
+    }
+
+    record PromptFit(String text, boolean truncated, boolean ragTruncated) {
+    }
+
+    /**
+     * 系统提示裁剪：普通提示仍按字符兜底；包含 RAG 时按完整片段保留，
+     * 不切断 <untrusted_retrieval> 边界，并给 RAG 单独预算。
+     */
+    private PromptFit fitSystemPrompt(String prompt, int budget, String modelName) {
+        if (prompt == null || prompt.isEmpty()) return new PromptFit("", false, false);
+        int open = prompt.indexOf("<untrusted_retrieval>");
+        int close = prompt.lastIndexOf("</untrusted_retrieval>");
+        if (open < 0 || close < open) {
+            if (open >= 0) {
+                // 不完整的不可信边界不能交给模型：去掉孤立标签，保留标签前指令。
+                String base = prompt.substring(0, open).trim();
+                String note = "\n\n【系统提示：知识库检索结果因边界不完整已省略。】";
+                return new PromptFit(truncateChars(base + note, budget), true, true);
+            }
+            return new PromptFit(truncateChars(prompt, budget), true, false);
+        }
+
+        String header = "<untrusted_retrieval>";
+        String trailer = "</untrusted_retrieval>";
+        // RAG 后面可能还有长期记忆等可信系统内容（ChatStreamService 的拼接顺序），必须保留。
+        String suffix = prompt.substring(close + trailer.length()).trim();
+        String base = prompt.substring(0, open).trim();
+        if (!suffix.isBlank()) base = (base + "\n\n" + suffix).trim();
+        String block = prompt.substring(open + header.length(), close).trim();
+        List<String> fragments = new ArrayList<>();
+        String[] rawParts = block.contains(ChatService.RAG_FRAGMENT_SEPARATOR)
+                ? block.split(Pattern.quote(ChatService.RAG_FRAGMENT_SEPARATOR))
+                : block.split("\n---\n");
+        for (String part : rawParts) {
+            if (!part.isBlank()) fragments.add(part.trim());
+        }
+        int ragReserve = Math.max(128, (int) (budget * Math.max(0.15, Math.min(ragBudgetRatio, 0.7))));
+        int baseBudget = Math.max(100, budget - ragReserve);
+        String fittedBase = estimate(base) > baseBudget ? truncateChars(base, baseBudget) : base;
+
+        // 从全部片段开始向下收缩，确保“片段 + 截断提示 + 闭合标签”整体仍在预算内。
+        // 不能在最后做字符级兜底，否则又会切断 </untrusted_retrieval>。
+        int keptCount = fragments.size();
+        String result = buildRagPrompt(fittedBase, fragments, keptCount);
+        while (estimate(result) > budget && keptCount > 0) {
+            keptCount--;
+            result = buildRagPrompt(fittedBase, fragments, keptCount);
+        }
+        boolean ragTruncated = keptCount < fragments.size();
+        if (keptCount == 0) {
+            String omitted = "\n\n【系统提示：知识库检索结果因上下文预算不足已省略，请勿假设未提供的资料。】";
+            result = fittedBase + omitted;
+            if (estimate(result) > budget) {
+                // 只裁剪可信的系统指令，绝不再拼接/裁剪不可信边界。
+                result = truncateChars(fittedBase, Math.max(32, budget - estimate(omitted))) + omitted;
+            }
+        }
+        return new PromptFit(result, true, ragTruncated);
+    }
+
+    /** 按完整片段重建 RAG 提示；片段内部不做任何字符截断。 */
+    private String buildRagPrompt(String base, List<String> fragments, int keptCount) {
+        if (keptCount <= 0) return base;
+        StringBuilder kept = new StringBuilder();
+        for (int i = 0; i < keptCount && i < fragments.size(); i++) {
+            if (kept.length() > 0) kept.append("\n").append(ChatService.RAG_FRAGMENT_SEPARATOR).append("\n");
+            kept.append(fragments.get(i));
+        }
+        String note = keptCount < fragments.size()
+                ? "\n\n【系统提示：知识库检索结果因上下文预算被截断，仅保留 " + keptCount
+                + "/" + fragments.size() + " 个完整片段；如回答依赖被截断内容，请明确说明资料不完整。】"
+                : "";
+        return base + "\n\n<untrusted_retrieval>\n" + kept + "\n</untrusted_retrieval>" + note;
     }
 
     /** 按估算 Token 截断（CJK 按字，其他按 4 字符/token 的保守比例）。 */

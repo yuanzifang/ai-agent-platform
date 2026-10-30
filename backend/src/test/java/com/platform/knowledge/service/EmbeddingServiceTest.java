@@ -2,6 +2,7 @@ package com.platform.knowledge.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.billing.service.QuotaService;
+import com.platform.common.exception.BusinessException;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -19,6 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 
 class EmbeddingServiceTest {
@@ -245,4 +247,18 @@ class EmbeddingServiceTest {
             server.stop(0);
         }
     }
+    @Test
+    void rejectsInputOverModelTokenLimitBeforeCallingProvider() {
+        EmbeddingProperties props = new EmbeddingProperties();
+        props.setModel("test-embed");
+        props.setDimensions(2);
+        props.setAvailable(Map.of("test-embed", 2));
+        EmbeddingService service = new EmbeddingService(props, mock(QuotaService.class));
+        ReflectionTestUtils.setField(service, "maxInputTokens", 16);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.embedBatch(List.of("这是一段明显超过十六个 token 的中文文本".repeat(3)), "test-embed"));
+        assertTrue(error.getMessage().contains("超出模型上限"));
+    }
+
 }

@@ -131,6 +131,14 @@ PDF_BENCH_DIR=/path/to/pdf-samples mvn -Dtest=PdfScannedBenchmarkTest test
 - `med-review` 的 PRISMA 流程图被识别为 HTML 表格；内容可用，但不是严格数据表。
 - NIST 的签名/职责名单被识别为小表格；影响较小。
 
+## 本轮安全加固（2026-10-30）
+
+- PDF 整页渲染统一经过像素上限：默认 1600 万像素，A0/A1 页面自动降 DPI；单页扫描件的内嵌图也会做兜底缩放。
+- `DocumentParser` 显式设置 POI `ZipSecureFile`：单 entry 64MB、最小解压比 1%，防 DOCX/XLSX 解压炸弹。
+- 超大代码块按行切分并保留 fence；超大表格优先按行拆且重复表头，无法安全拆分的 HTML 表格由 embedding 层显式报错。
+- 新增 `PdfSnapshotTest`（合成三页 PDF，校验标题数/表格数/页码覆盖），并接入 CI。
+- 详细配置见 `docs/上下文与解析安全.md`。
+
 ## 仍未解决 / 后续
 
 - **扫描版专业 PDF 未纳入本轮样本**（本轮 9 份均有文本层）；需要补医学扫描件、
@@ -140,5 +148,6 @@ PDF_BENCH_DIR=/path/to/pdf-samples mvn -Dtest=PdfScannedBenchmarkTest test
 - 金融年报中部分无标题、列数超过 12 的真实表格会被丢弃（正文文字保留）；
   后续应改为“按版面区域切分 + 表格密度判断”，而不是整页判断。
 - 复杂合并单元格/多行表头的单元格切分仍需真实样本迭代。
-- 大表格按行拆分目前只对 Markdown 管道表生效；含合并单元格的 HTML 表格保持原子，
-  超大 HTML 表格可能超过单块 embedding 长度。
+- 大表格按行拆分目前对 Markdown 管道表和多数 HTML 表生效；含合并单元格/多行表头的
+  HTML 表格仍保持原子。超过 `embedding.max-input-tokens` 时会明确报错，不再静默截断，
+  但还需要针对真实合并单元格样本做安全切分。
