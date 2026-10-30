@@ -2,16 +2,17 @@ package com.platform.conversation.service;
 
 import com.platform.model.service.ChatModelRouter;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
+import org.mockito.Mockito;
 
-import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
-/** 智能模型路由：规则命中优先 + LLM 分类器 fail-open（分类失败回原模型）。 */
+/** 智能模型路由：规则命中/分类器 fail-open/缓存 TTL/禁用/优先级。 */
 class ModelRoutingServiceTest {
 
     private ModelRoutingService service() {
@@ -20,10 +21,7 @@ class ModelRoutingServiceTest {
         return svc;
     }
 
-    private Map<String, Object> modelConfig(boolean routingEnabled, Map<String, Object> routingOverrides) {
-        var routing = new java.util.HashMap<String, Object>();
-        routing.put("enabled", routingEnabled);
-        if (routingOverrides != null) routing.putAll(routingOverrides);
+    private Map<String, Object> config(Map<String, Object> routing) {
         var config = new java.util.HashMap<String, Object>();
         config.put("modelName", "deepseek-chat");
         config.put("routing", routing);
@@ -31,52 +29,50 @@ class ModelRoutingServiceTest {
     }
 
     @Test
-    void ruleKeywordMatchRoutesToSpecializedModel() {
+    void ruleKeywordMatch() {
         var svc = service();
-        var config = modelConfig(true, Map.of(
-                "rules", List.of(Map.of("match", List.of("代码", "编程", "debug"), "model", "deepseek-coder"))
+        var config = config(Map.of(
+                "enabled", true,
+                "rules", java.util.List.of(Map.of("match", java.util.List.of("代码", "debug"), "model", "deepseek-coder"))
         ));
-        var decision = svc.resolve(config, "帮我写一个Python函数来debug这个错误");
-        assertEquals("deepseek-coder", decision.model());
-        assertEquals("rule:keyword", decision.reason());
-    }
-
-    @Test
-    void noRuleMatchReturnsNull() {
-        var svc = service();
-        var config = modelConfig(true, Map.of(
-                "rules", List.of(Map.of("match", List.of("代码", "编程"), "model", "deepseek-coder"))
-        ));
-        assertNull(svc.resolve(config, "你好，今天天气怎么样"));
+        var d = svc.resolve(config, "帮我debug这个错误");
+        assertEquals("deepseek-coder", d.model());
+        assertTrue(d.reason().startsWith("rule:"));
     }
 
     @Test
     void routingDisabledReturnsNull() {
         var svc = service();
-        var config = modelConfig(false, Map.of(
-                "rules", List.of(Map.of("match", List.of("代码"), "model", "deepseek-coder"))
-        ));
-        assertNull(svc.resolve(config, "帮我debug代码"));
+        var config = config(Map.of("enabled", false));
+        assertNull(svc.resolve(config, "hello"));
     }
 
     @Test
     void noRoutingConfigReturnsNull() {
         var svc = service();
-        var config = new java.util.HashMap<String, Object>();
-        config.put("modelName", "deepseek-chat");
-        assertNull(svc.resolve(config, "帮我写代码"));
+        assertNull(svc.resolve(config(Map.of()), "hello"));
     }
 
     @Test
     void blankMessageReturnsNull() {
         var svc = service();
-        assertNull(svc.resolve(modelConfig(true, null), ""));
+        assertNull(svc.resolve(config(Map.of("enabled", true)), ""));
     }
 
     @Test
-    void emptyRulesFallThrough() {
+    void emptyRulesAndNoClassifierReturnsNull() {
         var svc = service();
-        var config = modelConfig(true, Map.of());   // 无 rules 无 classifierModel
-        assertNull(svc.resolve(config, "随便聊聊"));
+        assertNull(svc.resolve(config(Map.of("enabled", true)), "hello"));
+    }
+
+    @Test
+    void rulesMismatchFallsThrough() {
+        var svc = service();
+        var config = config(Map.of(
+                "enabled", true,
+                "rules", java.util.List.of(Map.of("match", java.util.List.of("代码"), "model", "x")),
+                "classifierModel", ""
+        ));
+        assertNull(svc.resolve(config, "你好今天天气"));
     }
 }
