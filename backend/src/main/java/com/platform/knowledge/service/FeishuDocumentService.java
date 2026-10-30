@@ -151,22 +151,32 @@ public class FeishuDocumentService {
         String objType = node.path("obj_type").asText();
         String objToken = node.path("obj_token").asText();
         String title = node.path("title").asText("飞书文档");
-        if ("docx".equalsIgnoreCase(objType) && !objToken.isBlank()) {
-            addDocx(objToken, accessToken, "https://www.feishu.cn/docx/" + objToken, title,
-                    out, skipped, seen, 1);
-        } else if ("doc".equalsIgnoreCase(objType) && !objToken.isBlank()) {
-            addDoc(objToken, accessToken, "https://www.feishu.cn/docs/" + objToken, title,
-                    out, skipped, seen, 1);
-        } else if (!objType.isBlank()) {
-            skip(skipped, "暂不支持的知识库节点类型 " + objType + "：" + title);
+        try {
+            if ("docx".equalsIgnoreCase(objType) && !objToken.isBlank()) {
+                addDocx(objToken, accessToken, "https://www.feishu.cn/docx/" + objToken, title,
+                        out, skipped, seen, 1);
+            } else if ("doc".equalsIgnoreCase(objType) && !objToken.isBlank()) {
+                addDoc(objToken, accessToken, "https://www.feishu.cn/docs/" + objToken, title,
+                        out, skipped, seen, 1);
+            } else if (!objType.isBlank()) {
+                skip(skipped, "暂不支持的知识库节点类型 " + objType + "：" + title);
+            }
+        } catch (Exception e) {
+            log.warn("飞书知识库根节点文档读取失败 token={} err={}", objToken, root(e));
+            skip(skipped, "知识库文档读取失败：" + title + "（" + root(e) + "）");
         }
         String spaceId = node.path("space_id").asText();
         String childToken = node.path("node_token").asText();
         if (!spaceId.isBlank() && !childToken.isBlank()) {
-            if (depth < MAX_NESTING_DEPTH) {
-                collectWikiChildren(spaceId, childToken, accessToken, out, skipped, seen, depth + 1);
-            } else {
-                skip(skipped, "超过三层嵌套，跳过子节点：" + title);
+            try {
+                if (depth < MAX_NESTING_DEPTH) {
+                    collectWikiChildren(spaceId, childToken, accessToken, out, skipped, seen, depth + 1);
+                } else {
+                    skip(skipped, "超过三层嵌套，跳过子节点：" + title);
+                }
+            } catch (Exception e) {
+                log.warn("飞书知识库子节点列表读取失败 space={} node={} err={}", spaceId, childToken, root(e));
+                skip(skipped, "知识库子节点读取失败：" + title);
             }
         }
     }
@@ -181,7 +191,13 @@ public class FeishuDocumentService {
                     + (pageToken == null ? "" : "&page_token=" + encode(pageToken));
             JsonNode data = requestJson(path, accessToken, "GET", null).path("data");
             for (JsonNode item : data.path("items")) {
-                collectWikiNode(item, accessToken, out, skipped, seen, depth);
+                try {
+                    collectWikiNode(item, accessToken, out, skipped, seen, depth);
+                } catch (Exception e) {
+                    String title = item.path("title").asText("飞书节点");
+                    log.warn("飞书知识库节点读取失败 node={} err={}", item.path("node_token").asText(), root(e));
+                    skip(skipped, "知识库节点读取失败：" + title + "（" + root(e) + "）");
+                }
             }
             pageToken = data.path("page_token").asText(null);
         } while (pageToken != null && !pageToken.isBlank() && !pageToken.equals("null"));
@@ -194,21 +210,31 @@ public class FeishuDocumentService {
         String objType = node.path("obj_type").asText();
         String objToken = node.path("obj_token").asText();
         String title = node.path("title").asText("飞书文档");
-        if ("docx".equalsIgnoreCase(objType) && !objToken.isBlank()) {
-            addDocx(objToken, accessToken, "https://www.feishu.cn/docx/" + objToken, title,
-                    out, skipped, seen, 1);
-        } else if ("doc".equalsIgnoreCase(objType) && !objToken.isBlank()) {
-            addDoc(objToken, accessToken, "https://www.feishu.cn/docs/" + objToken, title,
-                    out, skipped, seen, 1);
-        } else if (!objType.isBlank()) {
-            skip(skipped, "暂不支持的知识库节点类型 " + objType + "：" + title);
+        try {
+            if ("docx".equalsIgnoreCase(objType) && !objToken.isBlank()) {
+                addDocx(objToken, accessToken, "https://www.feishu.cn/docx/" + objToken, title,
+                        out, skipped, seen, 1);
+            } else if ("doc".equalsIgnoreCase(objType) && !objToken.isBlank()) {
+                addDoc(objToken, accessToken, "https://www.feishu.cn/docs/" + objToken, title,
+                        out, skipped, seen, 1);
+            } else if (!objType.isBlank()) {
+                skip(skipped, "暂不支持的知识库节点类型 " + objType + "：" + title);
+            }
+        } catch (Exception e) {
+            log.warn("飞书知识库节点文档读取失败 token={} err={}", objToken, root(e));
+            skip(skipped, "知识库文档读取失败：" + title + "（" + root(e) + "）");
         }
         String spaceId = node.path("space_id").asText();
         if (node.path("has_child").asBoolean(false) && !spaceId.isBlank() && !nodeToken.isBlank()) {
-            if (depth < MAX_NESTING_DEPTH) {
-                collectWikiChildren(spaceId, nodeToken, accessToken, out, skipped, seen, depth + 1);
-            } else {
-                skip(skipped, "超过三层嵌套，跳过子节点：" + title);
+            try {
+                if (depth < MAX_NESTING_DEPTH) {
+                    collectWikiChildren(spaceId, nodeToken, accessToken, out, skipped, seen, depth + 1);
+                } else {
+                    skip(skipped, "超过三层嵌套，跳过子节点：" + title);
+                }
+            } catch (Exception e) {
+                log.warn("飞书知识库子节点列表读取失败 space={} node={} err={}", spaceId, nodeToken, root(e));
+                skip(skipped, "知识库子节点读取失败：" + title);
             }
         }
     }
@@ -226,19 +252,39 @@ public class FeishuDocumentService {
                 String token = file.path("token").asText();
                 String name = file.path("name").asText("飞书文件");
                 if ("folder".equalsIgnoreCase(type)) {
-                    if (depth < MAX_NESTING_DEPTH) {
-                        collectFolder(token, accessToken, out, skipped, seen, depth + 1);
-                    } else {
-                        skip(skipped, "超过三层嵌套，跳过子文件夹：" + name);
+                    try {
+                        if (depth < MAX_NESTING_DEPTH) {
+                            collectFolder(token, accessToken, out, skipped, seen, depth + 1);
+                        } else {
+                            skip(skipped, "超过三层嵌套，跳过子文件夹：" + name);
+                        }
+                    } catch (Exception e) {
+                        log.warn("飞书子文件夹读取失败 token={} err={}", token, root(e));
+                        skip(skipped, "子文件夹读取失败：" + name + "（" + root(e) + "）");
                     }
                 } else if ("docx".equalsIgnoreCase(type)) {
-                    addDocx(token, accessToken, "https://www.feishu.cn/docx/" + token, name,
-                            out, skipped, seen, 1);
+                    try {
+                        addDocx(token, accessToken, "https://www.feishu.cn/docx/" + token, name,
+                                out, skipped, seen, 1);
+                    } catch (Exception e) {
+                        log.warn("飞书文档读取失败 token={} err={}", token, root(e));
+                        skip(skipped, "文档读取失败：" + name + "（" + root(e) + "）");
+                    }
                 } else if ("doc".equalsIgnoreCase(type)) {
-                    addDoc(token, accessToken, "https://www.feishu.cn/docs/" + token, name,
-                            out, skipped, seen, 1);
+                    try {
+                        addDoc(token, accessToken, "https://www.feishu.cn/docs/" + token, name,
+                                out, skipped, seen, 1);
+                    } catch (Exception e) {
+                        log.warn("飞书旧版文档读取失败 token={} err={}", token, root(e));
+                        skip(skipped, "文档读取失败：" + name + "（" + root(e) + "）");
+                    }
                 } else if ("file".equalsIgnoreCase(type)) {
-                    add(out, fetchMedia(token, name, accessToken));
+                    try {
+                        add(out, fetchMedia(token, name, accessToken));
+                    } catch (Exception e) {
+                        log.warn("飞书文件读取失败 token={} err={}", token, root(e));
+                        skip(skipped, "文件读取失败：" + name + "（" + root(e) + "）");
+                    }
                 } else if ("bitable".equalsIgnoreCase(type)) {
                     try {
                         addBitable(token, accessToken, "https://www.feishu.cn/base/" + token, name,

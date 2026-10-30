@@ -48,8 +48,9 @@ class FeishuDocumentServiceDepthTest {
 
         assertEquals(List.of("d1.txt", "d2.txt", "d3.txt"),
                 result.documents().stream().map(FeishuDocumentService.Document::name).toList());
-        assertEquals(1, result.skipped().size());
-        assertTrue(result.skipped().get(0).contains("超过三层嵌套"));
+        assertEquals(2, result.skipped().size());
+        assertTrue(result.skipped().stream().anyMatch(s -> s.contains("超过三层嵌套")));
+        assertTrue(result.skipped().stream().anyMatch(s -> s.contains("文档读取失败：denied")));
         assertFalse(fourthLevelRequested.get(), "第四层文件夹不应被请求");
     }
 
@@ -88,6 +89,7 @@ class FeishuDocumentServiceDepthTest {
             String folder = param(query, "folder_token");
             body = switch (folder) {
                 case "root" -> files("{\"type\":\"docx\",\"token\":\"d1\",\"name\":\"d1\"}",
+                        "{\"type\":\"docx\",\"token\":\"denied\",\"name\":\"denied\"}",
                         "{\"type\":\"folder\",\"token\":\"f2\",\"name\":\"f2\"}");
                 case "f2" -> files("{\"type\":\"docx\",\"token\":\"d2\",\"name\":\"d2\"}",
                         "{\"type\":\"folder\",\"token\":\"f3\",\"name\":\"f3\"}");
@@ -114,7 +116,9 @@ class FeishuDocumentServiceDepthTest {
             String token = path.substring("/open-apis/docx/v1/documents/".length(),
                     path.length() - "/raw_content".length());
             if ("l4".equals(token)) fourthLinkedDocRequested.set(true);
-            body = "{\"code\":0,\"data\":{\"content\":\"content-" + token + "\"}}";
+            body = "denied".equals(token)
+                    ? "{\"code\":1770032,\"msg\":\"forbidden\"}"
+                    : "{\"code\":0,\"data\":{\"content\":\"content-" + token + "\"}}";
         } else {
             body = "{\"code\":404,\"msg\":\"not found\"}";
         }
