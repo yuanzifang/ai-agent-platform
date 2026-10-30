@@ -233,6 +233,60 @@ test('工作流模板与运行', async ({ request }) => {
   }
 })
 
+test('工作流测试运行使用当前草稿，正式运行使用发布版', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E工作流草稿-${Date.now()}`)
+  try {
+    const published = {
+      name: 'draft-run-test', status: 'ENABLED',
+      definition: { nodes: [
+        { id: 'start', type: 'START', name: 'start', next: 'state1' },
+        { id: 'state1', type: 'STATE', name: 'published-state', stateKey: 'k', valueTemplate: 'v', next: 'end' },
+        { id: 'end', type: 'END', name: 'published-end' }
+      ], edges: [] }
+    }
+    expect((await (await request.put(`${P}/agent/${agentId}/workflow`, {
+      headers: auth(token!), data: published
+    })).json()).code).toBe(0)
+    expect((await (await request.post(`${P}/agent/${agentId}/workflow/publish`, {
+      headers: auth(token!), data: {}
+    })).json()).code).toBe(0)
+
+    const draft = {
+      name: 'draft-run-test', status: 'ENABLED',
+      definition: { nodes: [
+        { id: 'start', type: 'START', name: 'start', next: 'end' },
+        { id: 'end', type: 'END', name: 'draft-end' }
+      ], edges: [] }
+    }
+    expect((await (await request.put(`${P}/agent/${agentId}/workflow`, {
+      headers: auth(token!), data: draft
+    })).json()).code).toBe(0)
+
+    const draftRun = await request.post(`${P}/agent/${agentId}/workflow/run`, {
+      headers: auth(token!), data: { input: 'x', draft: true }
+    })
+    const draftBody = await draftRun.json()
+    expect(draftBody.code, JSON.stringify(draftBody)).toBe(0)
+    const draftNames = (draftBody.data.nodeRuns || []).map((x: any) => x.name)
+    expect(draftNames).toContain('start')
+    expect(draftNames).not.toContain('published-state')
+
+    const pinnedRun = await request.post(`${P}/agent/${agentId}/workflow/run`, {
+      headers: auth(token!), data: { input: 'x' }
+    })
+    const pinnedBody = await pinnedRun.json()
+    expect(pinnedBody.code, JSON.stringify(pinnedBody)).toBe(0)
+    const pinnedNames = (pinnedBody.data.nodeRuns || []).map((x: any) => x.name)
+    expect(pinnedNames).toContain('published-state')
+    expect(pinnedNames).not.toContain('draft-end')
+  } finally {
+    await request.delete(`${P}/agent/${agentId}/workflow`, { headers: auth(token!) })
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
 test('Prompt 模板 AI 优化', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()

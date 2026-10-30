@@ -1,6 +1,10 @@
 <template>
   <div class="wf-node-body">
-
+            <div class="wf-line wf-name-line">
+              <span class="hint">{{ t('wf.name') }}</span>
+              <el-input v-model="node.name" size="small" style="width: 260px" />
+              <span class="hint">#{{ node.id }}</span>
+            </div>
             <template v-if="node.type === 'LLM'">
               <el-input v-model="node.prompt" type="textarea" :rows="2" :placeholder="t('wf.nodePromptPh')" />
               <el-input v-model="node.modelName" :placeholder="t('wf.modelPh')" style="width: 240px" class="mt8" />
@@ -187,6 +191,7 @@ function branchTargets(currentId: string) {
 
 <style scoped>
 .wf-node-body { margin-top: 8px; }
+.wf-name-line { margin-bottom: 8px; }
 .wf-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .mt8 { margin-top: 8px; }
 .hint { color: #909399; font-size: 12px; }

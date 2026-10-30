@@ -853,7 +853,7 @@
         <el-button @click="openWorkflowTemplates">{{ t('wf.templates') }}</el-button>
         <el-button @click="openWorkflowVersions">{{ t('agentEdit.versions') }}</el-button>
         <el-button type="success" :loading="workflowPublishing" @click="publishWorkflow">{{ t('agentEdit.publish') }}</el-button>
-        <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow">{{ t('wf.saveDraft') }}</el-button>
+        <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow()">{{ t('wf.saveDraft') }}</el-button>
       </div>
 
       <el-radio-group v-model="wfMode" size="small" class="wf-mode">
@@ -966,13 +966,18 @@
                  :data-node-id="n.id"
                  :style="{ left: nodeX(n) + 'px', top: nodeY(n) + 'px' }"
                  @mousedown.stop="startNodeDrag($event, n)"
-                 @dblclick="openNodePanel(n)"
                  @click="onCanvasNodeClick(n, $event)">
               <el-tag size="small" :type="wfTagType(n.type)">{{ wfTypeText(n.type) }}</el-tag>
               <div class="wf-cn-name">{{ n.name }}</div>
               <div class="wf-cn-id">#{{ n.id }}</div>
-              <span v-if="n.type !== 'END'" class="wf-port" :title="t('wf.dragPortHint')"
+              <span v-if="n.type !== 'END' && n.type !== 'CONDITION'" class="wf-port" :title="t('wf.dragPortHint')"
                     @mousedown.stop="startLinkDrag($event, n)" @click.stop />
+              <template v-if="n.type === 'CONDITION'">
+                <span class="wf-port wf-port-true" :title="t('wf.trueBranch')"
+                      @mousedown.stop="startLinkDrag($event, n, 'true')">T</span>
+                <span class="wf-port wf-port-false" :title="t('wf.falseBranch')"
+                      @mousedown.stop="startLinkDrag($event, n, 'false')">F</span>
+              </template>
               <span v-if="n.type !== 'START'" class="wf-port wf-port-in" />
             </div>
             <div v-if="wfBoxSelect" class="wf-select-box" :style="wfBoxStyle" />
@@ -1068,7 +1073,7 @@
       </div>
       <template #footer>
         <el-button @click="workflowVisible = false">{{ t('wf.close') }}</el-button>
-        <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow">{{ t('wf.saveWorkflow') }}</el-button>
+        <el-button type="primary" :loading="workflowSaving" @click="saveWorkflow()">{{ t('wf.saveWorkflow') }}</el-button>
       </template>
     </el-dialog>
 
@@ -1523,7 +1528,7 @@ const wfHistoryIndex = ref(-1)
 const wfSelectedEdge = ref<number | null>(null)
 const wfDraggingType = ref('')
 const wfDropActive = ref(false)
-const wfLinkDrag = ref<null | { from: string; x1: number; y1: number; x2: number; y2: number }>(null)
+const wfLinkDrag = ref<null | { from: string; branch: string; x1: number; y1: number; x2: number; y2: number }>(null)
 const wfNodePanel = ref(false)
 const wfRewireMode = ref(false)
 const wfMultiSelected = ref<string[]>([])
@@ -2503,13 +2508,13 @@ function onCanvasDrop(ev: DragEvent) {
   insertWorkflowNode(type, { x: Math.round(x), y: Math.round(y) })
 }
 
-function startLinkDrag(ev: MouseEvent, n: any) {
+function startLinkDrag(ev: MouseEvent, n: any, branch = '') {
   ensureWorkflowPositions()
   const canvas = wfCanvasEl.value?.querySelector('.wf-canvas') as HTMLElement | null
   if (!canvas) return
   const x1 = n.position.x + 190
-  const y1 = n.position.y + 34
-  wfLinkDrag.value = { from: n.id, x1, y1, x2: x1, y2: y1 }
+  const y1 = n.position.y + (branch === 'true' ? 16 : branch === 'false' ? 52 : 34)
+  wfLinkDrag.value = { from: n.id, branch, x1, y1, x2: x1, y2: y1 }
   const toCanvas = (e: MouseEvent) => {
     const rect = canvas.getBoundingClientRect()
     return { x: (e.clientX - rect.left) / wfZoom.value, y: (e.clientY - rect.top) / wfZoom.value }
@@ -2524,32 +2529,45 @@ function startLinkDrag(ev: MouseEvent, n: any) {
     window.removeEventListener('mousemove', move)
     window.removeEventListener('mouseup', up)
     const fromId = wfLinkDrag.value?.from
+    const branch = wfLinkDrag.value?.branch || ''
     wfLinkDrag.value = null
     if (!fromId) return
     const target = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)
       ?.closest('.wf-canvas-node') as HTMLElement | null
     const toId = target?.dataset.nodeId
-    if (toId && toId !== fromId) connectNodes(fromId, toId)
+    if (toId && toId !== fromId) connectNodes(fromId, toId, branch)
   }
   window.addEventListener('mousemove', move)
   window.addEventListener('mouseup', up)
   ev.preventDefault()
 }
 
-function connectNodes(fromId: string, toId: string) {
+function connectNodes(fromId: string, toId: string, branch = '') {
   const from = workflowForm.nodes.find((x: any) => x.id === fromId)
   if (!from) return
-  if (workflowForm.edges.some((e: any) => e.from === fromId && e.to === toId)) {
-    ElMessage.info(t('agentMsg.edgeExists'))
-    return
-  }
-  // 顺序/条件/分支已经自动画出的连线不需要再手动加，避免"加了但看不到"
-  if (wfEdges.value.some((e: any) => !e.explicit && e.id === `derived-${fromId}-${toId}`)) {
-    ElMessage.info(t('agentMsg.edgeDerivedExists'))
+  const to = workflowForm.nodes.find((x: any) => x.id === toId)
+  if (!to) return
+  if (from.type === 'PARALLEL' || from.type === 'LOOP') {
+    ElMessage.warning(t('wf.connectUnsupported'))
     return
   }
   const before = snapshotWorkflow()
-  workflowForm.edges.push({ from: fromId, to: toId, label: from.type === 'CONDITION' ? 'true' : '' })
+  if (from.type === 'CONDITION') {
+    const label = branch === 'false' ? 'false' : 'true'
+    if (label === 'true') from.trueNext = toId
+    else from.falseNext = toId
+    // 条件分支由 trueNext/falseNext 推导，清理同分支的旧 Graph edge，避免双线。
+    workflowForm.edges = workflowForm.edges.filter((e: any) =>
+      !(e.from === fromId && String(e.label || 'true') === label))
+    wfSelectedEdge.value = null
+    commitWorkflowHistory(before)
+    ElMessage.success(t('agentMsg.edgeAdded'))
+    return
+  }
+  // 普通节点/汇合节点：画布连线直接更新语义 next，而不是只加一条不会生效的边。
+  from.next = toId
+  workflowForm.edges = workflowForm.edges.filter((e: any) => e.from !== fromId)
+  wfSelectedEdge.value = null
   commitWorkflowHistory(before)
   ElMessage.success(t('agentMsg.edgeAdded'))
 }
@@ -2761,7 +2779,7 @@ function onCanvasNodeClick(n: any, ev?: MouseEvent) {
   wfMultiSelected.value = []
   wfSelected.value = n.id
   if (!wfLinkMode.value) {
-    if (wfNodePanel.value) openNodePanel(n)
+    openNodePanel(n)
     return
   }
   if (!wfLinkFrom.value) {
@@ -2775,11 +2793,9 @@ function onCanvasNodeClick(n: any, ev?: MouseEvent) {
   }
   const from = workflowForm.nodes.find((x: any) => x.id === wfLinkFrom.value)
   const fromType = String(from?.type || '')
-  const label = fromType === 'CONDITION' ? 'true' : ''
-  const exists = workflowForm.edges.some((e: any) => e.from === wfLinkFrom.value && e.to === n.id)
-  if (!exists) workflowForm.edges.push({ from: wfLinkFrom.value, to: n.id, label })
+  const targetId = wfLinkFrom.value
   wfLinkFrom.value = ''
-  ElMessage.success(t('agentMsg.edgeAdded'))
+  connectNodes(targetId, n.id, fromType === 'CONDITION' ? 'true' : '')
 }
 
 function zoomCanvas(delta: number) {
@@ -3172,7 +3188,7 @@ function rewireWorkflow() {
   }
 }
 
-async function saveWorkflow() {
+async function saveWorkflow(silent = false) {
   if (!workflowForm.nodes.some((n: any) => n.type === 'START')
       || !workflowForm.nodes.some((n: any) => n.type === 'END')) {
     ElMessage.warning(t('agentMsg.workflowRequired'))
@@ -3200,12 +3216,14 @@ async function saveWorkflow() {
     const fresh = await http.get(`/agent/${agentId}/workflow`) as any
     workflowPublishedVersion.value = fresh?.publishedVersion || ''
     workflowHasUnpublishedChanges.value = !!fresh?.hasUnpublishedChanges
-    ElMessage.success(t('agentMsg.workflowSaved'))
+    if (!silent) ElMessage.success(t('agentMsg.workflowSaved'))
     return true
+  } catch (e: any) {
+    if (!silent) ElMessage.error(e?.response?.data?.message || e?.message || t('agentMsg.workflowSaveFailed'))
+    return false
   } finally {
     workflowSaving.value = false
   }
-  return false
 }
 
 async function publishWorkflow() {
@@ -3261,15 +3279,19 @@ async function resumeWorkflow() {
 
 async function runWorkflow() {
   if (!workflowRunInput.value.trim()) { ElMessage.warning(t('agentMsg.testInputRequired')); return }
+  // 测试必须跑“当前草稿”：先保存草稿，再以 draft=true 运行，避免实际跑旧的已发布版本。
+  if (!(await saveWorkflow(true))) return
   workflowRunning.value = true
   stopReplay()
   workflowRunResult.value = null
   try {
     workflowRunResult.value = await http.post(`/agent/${agentId}/workflow/run`,
-      { input: workflowRunInput.value.trim() }, { timeout: 180000 }) as any
+      { input: workflowRunInput.value.trim(), draft: true }, { timeout: 180000 }) as any
     if (workflowRunResult.value?.status === 'WAITING_APPROVAL') {
       ElMessage.info(t('agentMsg.pausedApproval'))
     }
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || t('agentMsg.workflowRunFailed'))
   } finally {
     workflowRunning.value = false
   }
@@ -3917,6 +3939,12 @@ onUnmounted(() => {
 }
 .wf-port:hover { transform: scale(1.25); }
 .wf-port-in { left: -7px; right: auto; border-color: #c0c4cc; cursor: default; }
+.wf-port-true, .wf-port-false {
+  width: 16px; height: 16px; line-height: 12px; text-align: center;
+  font-size: 9px; font-weight: 700; color: #67c23a; border-color: #67c23a;
+}
+.wf-port-true { top: 8px; }
+.wf-port-false { top: 44px; color: #f56c6c; border-color: #f56c6c; }
 .wf-node-panel {
   width: 340px; flex-shrink: 0; padding: 10px; border: 1px solid #ebeef5; border-radius: 8px;
   background: #fff; max-height: 52vh; overflow-y: auto;

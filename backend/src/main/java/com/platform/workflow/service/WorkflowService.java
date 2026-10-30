@@ -323,6 +323,11 @@ public class WorkflowService {
     // ---------- 运行 ----------
 
     public Map<String, Object> run(Long agentId, String input, JwtPrincipal principal) {
+        return run(agentId, input, principal, false);
+    }
+
+    /** draft=true 用于 Agent 编辑页测试当前草稿；正式调用仍默认使用已发布版本。 */
+    public Map<String, Object> run(Long agentId, String input, JwtPrincipal principal, boolean draft) {
         requireAgent(agentId);
         if (input == null || input.isBlank()) throw new BusinessException(400, "运行输入不能为空");
         if (input.length() > 10000) throw new BusinessException(400, "运行输入过长（上限 10000 字）");
@@ -330,7 +335,9 @@ public class WorkflowService {
                 .eq(AgentWorkflow::getAgentId, agentId).last("LIMIT 1"));
         if (wf == null) throw new BusinessException(400, "该 Agent 尚未配置工作流");
         if (!"ENABLED".equals(wf.getStatus())) throw new BusinessException(400, "工作流已停用");
-        String runDefinition = wf.getPublishedDefinition() != null ? wf.getPublishedDefinition() : wf.getDefinition();
+        String runDefinition = draft
+                ? wf.getDefinition()
+                : (wf.getPublishedDefinition() != null ? wf.getPublishedDefinition() : wf.getDefinition());
         Map<String, Object> normalizedDefinition = parse(runDefinition);
         normalizeGraph(normalizedDefinition);
         validate(normalizedDefinition);

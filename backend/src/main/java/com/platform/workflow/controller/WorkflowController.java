@@ -75,7 +75,7 @@ public class WorkflowController {
         return ApiResponse.ok();
     }
 
-    public record RunRequest(@NotBlank String input) {
+    public record RunRequest(@NotBlank String input, Boolean draft) {
     }
 
     @PostMapping("/agent/{agentId}/workflow/run")
@@ -83,7 +83,7 @@ public class WorkflowController {
     public ApiResponse<Map<String, Object>> run(@PathVariable Long agentId,
                                                 @Valid @RequestBody RunRequest req,
                                                 @AuthenticationPrincipal JwtPrincipal principal) {
-        return ApiResponse.ok(workflowService.run(agentId, req.input(), principal));
+        return ApiResponse.ok(workflowService.run(agentId, req.input(), principal, Boolean.TRUE.equals(req.draft())));
     }
 
     @GetMapping("/agent/{agentId}/workflow/runs")
