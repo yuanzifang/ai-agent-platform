@@ -35,7 +35,7 @@ export default defineConfig({
     }] : [])
   ],
   projects: [
-    // 浏览器支持范围：仅 Google Chrome（Chromium 内核）
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } }
+    // 浏览器支持范围：仅 Google Chrome（使用本机/CI 安装的 chrome channel）
+    { name: 'chromium', use: { ...devices['Desktop Chrome'], channel: 'chrome' } }
   ]
 })

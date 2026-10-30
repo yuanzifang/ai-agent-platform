@@ -269,7 +269,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        browser: [chromium]
+        browser: [chromium]   # project name 保持 chromium，实际使用 channel: chrome
     services:
       mysql:
         image: mysql:8.4
@@ -370,10 +370,10 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: 安装 Playwright 浏览器（chromium）
+      - name: 安装 Playwright 浏览器（Google Chrome）
         working-directory: frontend
         run: |
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chrome
 
       - name: 启动离线模型/嵌入/渠道 Mock
         working-directory: frontend
