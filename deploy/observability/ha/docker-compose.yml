@@ -1,5 +1,5 @@
-# 本地 Prometheus 双副本 + nginx 查询 LB。
-# 长期存储（Thanos/S3）不在本文件，后续单独接入。
+# 本地 Prometheus 双副本 + Thanos sidecar/query/store。
+# 生产长期存储仍需对象存储、Thanos Store/Compactor 的资源与备份策略。
 name: aap-mon-ha
 
 services:
@@ -10,6 +10,8 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.min-block-duration=10s
+      - --storage.tsdb.max-block-duration=10s
     volumes:
       - ./prometheus-a.yml:/etc/prometheus/prometheus.yml:ro
       - ../alerts.yml:/etc/prometheus/alerts.yml:ro
@@ -22,6 +24,8 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.min-block-duration=10s
+      - --storage.tsdb.max-block-duration=10s
     volumes:
       - ./prometheus-b.yml:/etc/prometheus/prometheus.yml:ro
       - ../alerts.yml:/etc/prometheus/alerts.yml:ro
@@ -38,6 +42,73 @@ services:
       - prometheus-a
       - prometheus-b
 
+  thanos-sidecar-a:
+    image: thanosio/thanos:v0.37.2
+    restart: unless-stopped
+    user: "65534:65534"
+    command:
+      - sidecar
+      - --prometheus.url=http://prometheus-a:9090
+      - --tsdb.path=/prometheus
+      - --objstore.config-file=/etc/thanos/objstore.yml
+      - --grpc-address=0.0.0.0:10901
+      - --http-address=0.0.0.0:10902
+    volumes:
+      - prometheus-a-data:/prometheus
+      - ../../../runtime/observability/thanos-objstore.yml:/etc/thanos/objstore.yml:ro
+    depends_on:
+      - prometheus-a
+
+  thanos-sidecar-b:
+    image: thanosio/thanos:v0.37.2
+    restart: unless-stopped
+    user: "65534:65534"
+    command:
+      - sidecar
+      - --prometheus.url=http://prometheus-b:9090
+      - --tsdb.path=/prometheus
+      - --objstore.config-file=/etc/thanos/objstore.yml
+      - --grpc-address=0.0.0.0:10901
+      - --http-address=0.0.0.0:10902
+    volumes:
+      - prometheus-b-data:/prometheus
+      - ../../../runtime/observability/thanos-objstore.yml:/etc/thanos/objstore.yml:ro
+    depends_on:
+      - prometheus-b
+
+  thanos-store:
+    image: thanosio/thanos:v0.37.2
+    restart: unless-stopped
+    user: "0:0"
+    command:
+      - store
+      - --data-dir=/var/thanos/store
+      - --objstore.config-file=/etc/thanos/objstore.yml
+      - --grpc-address=0.0.0.0:10901
+      - --http-address=0.0.0.0:10902
+    volumes:
+      - ../../../runtime/observability/thanos-objstore.yml:/etc/thanos/objstore.yml:ro
+      - thanos-store-data:/var/thanos/store
+
+  thanos-query:
+    image: thanosio/thanos:v0.37.2
+    restart: unless-stopped
+    command:
+      - query
+      - --http-address=0.0.0.0:10904
+      - --grpc-address=0.0.0.0:10903
+      - --store=thanos-sidecar-a:10901
+      - --store=thanos-sidecar-b:10901
+      - --store=thanos-store:10901
+      - --query.replica-label=replica
+    ports:
+      - "127.0.0.1:19097:10904"
+    depends_on:
+      - thanos-sidecar-a
+      - thanos-sidecar-b
+      - thanos-store
+
 volumes:
   prometheus-a-data:
   prometheus-b-data:
+  thanos-store-data:
