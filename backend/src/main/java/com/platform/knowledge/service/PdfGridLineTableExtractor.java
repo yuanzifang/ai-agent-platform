@@ -233,7 +233,11 @@ final class PdfGridLineTableExtractor {
             int y = edgeIndex(ys, glyph.getYDirAdj());
             if (x < 0 || y < 0) continue;
             Component c = components.get(dsu.find(y * cols + x));
-            if (c != null) c.text.append(text);
+            if (c != null) {
+                if (PdfTableText.needsSpace(c.lastGlyph, glyph, c.text)) c.text.append(' ');
+                c.text.append(text);
+                c.lastGlyph = glyph;
+            }
         }
         long withText = components.values().stream().filter(c -> !c.text.toString().trim().isEmpty()).count();
         if (withText < 2) return "";
@@ -370,6 +374,7 @@ final class PdfGridLineTableExtractor {
     private static final class Component {
         private int minX, maxX, minY, maxY;
         private final StringBuilder text = new StringBuilder();
+        private TextPosition lastGlyph;
 
         private Component(int x, int y) {
             minX = maxX = x;

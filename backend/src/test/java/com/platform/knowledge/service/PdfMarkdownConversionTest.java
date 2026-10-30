@@ -20,6 +20,28 @@ class PdfMarkdownConversionTest {
     private final DocumentParser parser = new DocumentParser();
 
     @Test
+    void recognizesLongFirstPagePaperTitle() throws Exception {
+        String title = "Chemical Reactivity Studies by Natural Orbital Functional Methods "
+                + "for Transition Metal Water Dehydrogenation";
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD), 17);
+                text(content, 50, 790, title);
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 10);
+                text(content, 50, 700, "Abstract. This paper studies the reaction pathway.");
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+
+        String text = String.join("\n", parser.parse("paper.pdf", pdf));
+        assertTrue(text.contains("# " + title), "首页长标题应识别为标题，实际=" + text);
+    }
+
+    @Test
     void convertsPdfToStructuredMarkdownWithInlineTableAndPages() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
