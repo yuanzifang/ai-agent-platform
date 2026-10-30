@@ -94,7 +94,8 @@ class FeishuDocumentServiceDepthTest {
             if ("l4".equals(token)) fourthLinkedDocRequested.set(true);
             body = switch (token) {
                 case "l1" -> blocks(link("l2"));
-                case "l2" -> blocks(link("l3"));
+                // 回链 l1 用来验证循环链接不会重复导入。
+                case "l2" -> blocks(link("l1"), link("l3"));
                 case "l3" -> blocks(link("l4"));
                 default -> "{\"code\":0,\"data\":{\"items\":[],\"has_more\":false}}";
             };
@@ -117,8 +118,8 @@ class FeishuDocumentServiceDepthTest {
         return "{\"code\":0,\"data\":{\"files\":[" + String.join(",", items) + "],\"has_more\":false}}";
     }
 
-    private String blocks(String item) {
-        return "{\"code\":0,\"data\":{\"items\":[" + item + "],\"has_more\":false}}";
+    private String blocks(String... items) {
+        return "{\"code\":0,\"data\":{\"items\":[" + String.join(",", items) + "],\"has_more\":false}}";
     }
 
     private String link(String token) {
