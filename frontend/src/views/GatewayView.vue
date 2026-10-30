@@ -155,14 +155,34 @@
         <el-table-column prop="requestCount" :label="t('gatewayPage.keyCalls')" width="100" />
         <el-table-column prop="lastUsedAt" :label="t('gatewayPage.keyLastUsed')" width="170" />
         <el-table-column prop="expiresAt" :label="t('gatewayPage.keyExpires')" width="170" />
-        <el-table-column :label="t('gatewayPage.actions')" width="80" fixed="right">
+        <el-table-column :label="t('gatewayPage.actions')" width="140" fixed="right">
           <template #default="{ row }">
+            <el-button size="small" text @click="openEditKey(row)">{{ t('gatewayPage.edit') }}</el-button>
             <el-button size="small" text type="danger" @click="removeKey(row)">{{ t('gatewayPage.delete') }}</el-button>
           </template>
         </el-table-column>
         <template #empty><el-empty :description="t('gatewayPage.noKeys')" :image-size="50" /></template>
       </el-table>
     </el-drawer>
+
+    <el-dialog v-model="keyEditVisible" :title="t('gatewayPage.editKey')" width="560px">
+      <el-form label-width="130px">
+        <el-form-item :label="t('gatewayPage.keyName')"><el-input v-model="keyEditForm.name" /></el-form-item>
+        <el-form-item :label="t('gatewayPage.keyRateCol')"><el-input-number v-model="keyEditForm.rateLimitPerMin" :min="0" :max="100000" /></el-form-item>
+        <el-form-item :label="t('gatewayPage.keyDailyQuota')"><el-input-number v-model="keyEditForm.dailyQuota" :min="0" :max="100000000" /></el-form-item>
+        <el-form-item :label="t('gatewayPage.keyMaxBody')"><el-input-number v-model="keyEditForm.maxBodyBytes" :min="0" :max="104857600" /></el-form-item>
+        <el-form-item :label="t('gatewayPage.keyExpires')">
+          <el-date-picker v-model="keyEditForm.expiresAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" />
+        </el-form-item>
+        <el-form-item :label="t('gatewayPage.keyMethods')"><el-input v-model="keyEditForm.allowedMethods" :placeholder="t('gatewayPage.keyMethodsPh')" /></el-form-item>
+        <el-form-item :label="t('gatewayPage.keyPaths')"><el-input v-model="keyEditForm.allowedPaths" :placeholder="t('gatewayPage.keyPathsPh')" /></el-form-item>
+        <el-form-item :label="t('gatewayPage.keyIps')"><el-input v-model="keyEditForm.allowedIps" :placeholder="t('gatewayPage.keyIpsPh')" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="keyEditVisible = false">{{ t('gatewayPage.cancel') }}</el-button>
+        <el-button type="primary" :loading="keyEditSaving" @click="saveKeyEdit">{{ t('gatewayPage.save') }}</el-button>
+      </template>
+    </el-dialog>
 
     <el-drawer v-model="healthVisible" :title="`${t('gatewayPage.healthTitle')}${healthRoute.name || ''}`" size="720px">
       <div class="health-toolbar">
@@ -319,6 +339,9 @@ const newKeyExpires = ref<string>('')
 const newKeyMethods = ref('')
 const newKeyPaths = ref('')
 const newKeyIps = ref('')
+const keyEditVisible = ref(false)
+const keyEditSaving = ref(false)
+const keyEditForm = reactive<any>({})
 const keyCreating = ref(false)
 const newKeyPlain = ref('')
 
@@ -367,6 +390,33 @@ async function removeKey(row: any) {
   await http.delete(`/gateway/routes/${keysRoute.value.id}/keys/${row.id}`)
   ElMessage.success(t('gatewayPage.keyDeleted'))
   apiKeys.value = await http.get(`/gateway/routes/${keysRoute.value.id}/keys`) as any
+}
+
+function openEditKey(row: any) {
+  Object.assign(keyEditForm, {
+    id: row.id, name: row.name, rateLimitPerMin: row.rateLimitPerMin,
+    dailyQuota: row.dailyQuota, maxBodyBytes: row.maxBodyBytes,
+    expiresAt: row.expiresAt || '', allowedMethods: row.allowedMethods || '',
+    allowedPaths: row.allowedPaths || '', allowedIps: row.allowedIps || ''
+  })
+  keyEditVisible.value = true
+}
+
+async function saveKeyEdit() {
+  keyEditSaving.value = true
+  try {
+    await http.put(`/gateway/routes/${keysRoute.value.id}/keys/${keyEditForm.id}`, {
+      name: keyEditForm.name, rateLimitPerMin: keyEditForm.rateLimitPerMin,
+      dailyQuota: keyEditForm.dailyQuota, maxBodyBytes: keyEditForm.maxBodyBytes,
+      expiresAt: keyEditForm.expiresAt || null,
+      allowedMethods: keyEditForm.allowedMethods || null,
+      allowedPaths: keyEditForm.allowedPaths || null,
+      allowedIps: keyEditForm.allowedIps || null
+    })
+    keyEditVisible.value = false
+    apiKeys.value = await http.get(`/gateway/routes/${keysRoute.value.id}/keys`) as any
+    ElMessage.success(t('gatewayPage.keyUpdated'))
+  } finally { keyEditSaving.value = false }
 }
 
 async function openLogs(row: any) {
