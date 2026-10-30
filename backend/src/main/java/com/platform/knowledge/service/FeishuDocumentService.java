@@ -98,6 +98,8 @@ public class FeishuDocumentService {
                 case "wiki_space" -> collectWikiChildren(target.token(), null, token, documents,
                         skipped, seen, 1);
                 case "folder" -> collectFolder(target.token(), token, documents, skipped, seen, 1);
+                case "sheet" -> addSheet(target.token(), token, rawUrl,
+                        defaultName("飞书表格", target.token()), documents, skipped, seen);
                 default -> throw new BusinessException(400, "无法识别飞书链接类型");
             }
         } catch (BusinessException e) {
@@ -118,7 +120,7 @@ public class FeishuDocumentService {
         String path = rawPath == null ? "" : rawPath;
         String[][] prefixes = {
                 {"/docx/", "docx"}, {"/docs/", "doc"}, {"/wiki/space/", "wiki_space"},
-                {"/wiki/", "wiki"}, {"/drive/folder/", "folder"}
+                {"/wiki/", "wiki"}, {"/drive/folder/", "folder"}, {"/sheets/", "sheet"}
         };
         for (String[] prefix : prefixes) {
             if (path.startsWith(prefix[0])) {
@@ -237,6 +239,14 @@ public class FeishuDocumentService {
                             log.warn("飞书多维表格读取失败 token={} err={}", token, root(e));
                             skip(skipped, "多维表格读取失败：" + name + "（" + root(e) + "）");
                         }
+                    }
+                } else if ("sheet".equalsIgnoreCase(type)) {
+                    try {
+                        addSheet(token, accessToken, "https://www.feishu.cn/sheets/" + token, name,
+                                out, skipped, seen);
+                    } catch (Exception e) {
+                        log.warn("飞书电子表格读取失败 token={} err={}", token, root(e));
+                        skip(skipped, "电子表格读取失败：" + name + "（" + root(e) + "）");
                     }
                 } else {
                     skip(skipped, "暂不支持的文件类型 " + type + "：" + name);
@@ -363,6 +373,8 @@ public class FeishuDocumentService {
                     defaultName("飞书链接文档", target.token()), out, skipped, seen, depth);
             case "doc" -> addDoc(target.token(), accessToken, rawUrl,
                     defaultName("飞书链接文档", target.token()), out, skipped, seen, depth);
+            case "sheet" -> addSheet(target.token(), accessToken, rawUrl,
+                    defaultName("飞书链接表格", target.token()), out, skipped, seen);
             case "wiki" -> collectWikiNodeOnly(target.token(), accessToken, rawUrl, out, skipped, seen, depth);
             default -> skip(skipped, "不支持的文档链接类型：" + rawUrl);
         }
@@ -461,6 +473,87 @@ public class FeishuDocumentService {
         } while (tablePageToken != null && !tablePageToken.isBlank() && !tablePageToken.equals("null"));
         if (tableCount == 0) throw new BusinessException(404, "多维表格没有可读取的数据表");
         return textDocument(name, text.toString().trim(), "https://www.feishu.cn/base/" + appToken);
+    }
+
+    /** 电子表格：每个工作表读取单元格并转成独立文本，支持文件夹和 /sheets/ 直达链接。 */
+    private void addSheet(String spreadsheetToken, String accessToken, String sourceUrl, String fallbackName,
+                          List<Document> out, List<String> skipped, Set<String> seen) throws Exception {
+        if (!seen.add("sheet:" + spreadsheetToken)) return;
+        add(out, fetchSheet(spreadsheetToken, accessToken, sourceUrl, fallbackName));
+    }
+
+    private Document fetchSheet(String spreadsheetToken, String accessToken, String sourceUrl,
+                                String fallbackName) throws Exception {
+        JsonNode data = requestJson("/open-apis/sheets/v3/spreadsheets/" + encode(spreadsheetToken)
+                + "/sheets/query", accessToken, "GET", null).path("data");
+        StringBuilder text = new StringBuilder();
+        int sheetCount = 0;
+        for (JsonNode sheet : data.path("sheets")) {
+            sheetCount++;
+            String sheetId = sheet.path("sheet_id").asText();
+            String title = sheet.path("title").asText("Sheet " + sheetCount);
+            JsonNode grid = sheet.path("grid_properties");
+            int rows = Math.max(1, Math.min(1000, grid.path("row_count").asInt(200)));
+            int cols = Math.max(1, Math.min(30, grid.path("column_count").asInt(20)));
+            String range = sheetId + "!A1:" + columnName(cols) + rows;
+            JsonNode values = requestJson("/open-apis/sheets/v2/spreadsheets/" + encode(spreadsheetToken)
+                            + "/values/" + encode(range), accessToken, "GET", null)
+                    .path("data").path("valueRange").path("values");
+            text.append("## 工作表：").append(title).append("\n\n");
+            for (JsonNode row : values) {
+                List<String> cells = new ArrayList<>();
+                boolean hasValue = false;
+                for (JsonNode cell : row) {
+                    String value = cellText(cell);
+                    cells.add(value);
+                    if (!value.isBlank()) hasValue = true;
+                }
+                while (!cells.isEmpty() && cells.get(cells.size() - 1).isBlank()) {
+                    cells.remove(cells.size() - 1);
+                }
+                if (hasValue) {
+                    text.append(String.join(" | ", cells)).append("\n");
+                }
+            }
+            text.append("\n");
+        }
+        if (sheetCount == 0 || text.toString().isBlank()) {
+            throw new BusinessException(404, "电子表格没有可读取的数据");
+        }
+        String name = fallbackName == null || fallbackName.isBlank() ? "飞书表格" : fallbackName;
+        return textDocument(name, text.toString().trim(), sourceUrl);
+    }
+
+    private String cellText(JsonNode cell) {
+        if (cell == null || cell.isNull()) return "";
+        if (cell.isValueNode()) return cell.asText("");
+        if (cell.isArray()) {
+            List<String> parts = new ArrayList<>();
+            for (JsonNode item : cell) {
+                String part = cellText(item);
+                if (!part.isBlank()) parts.add(part);
+            }
+            return String.join("、", parts);
+        }
+        for (String key : List.of("text", "name", "link", "url", "value")) {
+            JsonNode child = cell.get(key);
+            if (child != null && !child.isNull() && child.isValueNode()) {
+                String part = child.asText("");
+                if (!part.isBlank()) return part;
+            }
+        }
+        return cell.toString();
+    }
+
+    private String columnName(int column) {
+        StringBuilder name = new StringBuilder();
+        int value = Math.max(1, column);
+        while (value > 0) {
+            value--;
+            name.insert(0, (char) ('A' + value % 26));
+            value /= 26;
+        }
+        return name.toString();
     }
 
     /** 将多维表格字段值（文本、人员、链接、附件数组等）转成可读文本。 */
