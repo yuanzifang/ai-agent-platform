@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -35,21 +36,33 @@ public class FeishuDocumentService {
     private static final int PAGE_SIZE = 50;
     private static final int MAX_RETRIES = 3;
     private static final long MIN_API_INTERVAL_MS = 220;
+    /** 文件夹/知识库树最多导入三层：根层为 1，子层为 2，孙层为 3。 */
+    private static final int MAX_NESTING_DEPTH = 3;
 
     private final ObjectMapper objectMapper;
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
+    @Value("${knowledge.feishu.api-base:https://open.feishu.cn}")
+    private String apiBase = "https://open.feishu.cn";
     private long lastApiRequestAt;
 
     public record Document(String name, byte[] content, String contentType, String sourceUrl) {
+    }
+
+    /** documents 为实际可导入内容；skipped 记录不支持的资源或超过三层嵌套的节点。 */
+    public record Collection(List<Document> documents, List<String> skipped) {
     }
 
     private record Target(String type, String token) {
     }
 
     public List<Document> collect(String rawUrl, String appId, String appSecret) {
+        return collectDetailed(rawUrl, appId, appSecret).documents();
+    }
+
+    public Collection collectDetailed(String rawUrl, String appId, String appSecret) {
         if (appId == null || appId.isBlank() || appSecret == null || appSecret.isBlank()) {
             throw new BusinessException(400, "飞书 App ID/Secret 不能为空");
         }
@@ -67,6 +80,7 @@ public class FeishuDocumentService {
         Target target = parseTarget(uri.getPath());
         String token = token(appId, appSecret);
         List<Document> documents = new ArrayList<>();
+        List<String> skipped = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         try {
             switch (target.type()) {
@@ -74,9 +88,10 @@ public class FeishuDocumentService {
                         defaultName("飞书文档", target.token())));
                 case "doc" -> add(documents, fetchDoc(target.token(), token, rawUrl,
                         defaultName("飞书文档", target.token())));
-                case "wiki" -> collectWiki(target.token(), token, documents, seen);
-                case "wiki_space" -> collectWikiChildren(target.token(), null, token, documents, seen);
-                case "folder" -> collectFolder(target.token(), token, documents, seen);
+                case "wiki" -> collectWiki(target.token(), token, documents, skipped, seen, 1);
+                case "wiki_space" -> collectWikiChildren(target.token(), null, token, documents,
+                        skipped, seen, 1);
+                case "folder" -> collectFolder(target.token(), token, documents, skipped, seen, 1);
                 default -> throw new BusinessException(400, "无法识别飞书链接类型");
             }
         } catch (BusinessException e) {
@@ -84,8 +99,12 @@ public class FeishuDocumentService {
         } catch (Exception e) {
             throw new BusinessException(502, "飞书文档读取失败：" + root(e));
         }
-        if (documents.isEmpty()) throw new BusinessException(404, "飞书链接下没有可导入的文档");
-        return documents;
+        if (documents.isEmpty()) {
+            String detail = skipped.isEmpty() ? "" : "；已跳过：" + String.join("、",
+                    skipped.subList(0, Math.min(3, skipped.size())));
+            throw new BusinessException(404, "飞书链接下没有可导入的文档" + detail);
+        }
+        return new Collection(List.copyOf(documents), List.copyOf(skipped));
     }
 
     /** 只接受 /docx、/docs、/wiki、/drive/folder 这几种链接，token 取路径最后一段。 */
@@ -107,8 +126,8 @@ public class FeishuDocumentService {
         throw new BusinessException(400, "无法识别飞书链接类型，请使用 /docx/、/wiki/ 或 /drive/folder/ 链接");
     }
 
-    private void collectWiki(String nodeToken, String accessToken, List<Document> out, Set<String> seen)
-            throws Exception {
+    private void collectWiki(String nodeToken, String accessToken, List<Document> out,
+                             List<String> skipped, Set<String> seen, int depth) throws Exception {
         if (!seen.add("wiki:" + nodeToken)) return;
         JsonNode node = requestJson("/open-apis/wiki/v2/spaces/get_node?token=" + encode(nodeToken),
                 accessToken, "GET", null).path("data");
@@ -120,16 +139,23 @@ public class FeishuDocumentService {
             add(out, fetchDocx(objToken, accessToken, "https://www.feishu.cn/docx/" + objToken, title));
         } else if ("doc".equalsIgnoreCase(objType) && !objToken.isBlank()) {
             add(out, fetchDoc(objToken, accessToken, "https://www.feishu.cn/docs/" + objToken, title));
+        } else if (!objType.isBlank()) {
+            skip(skipped, "暂不支持的知识库节点类型 " + objType + "：" + title);
         }
         String spaceId = node.path("space_id").asText();
         String childToken = node.path("node_token").asText();
         if (!spaceId.isBlank() && !childToken.isBlank()) {
-            collectWikiChildren(spaceId, childToken, accessToken, out, seen);
+            if (depth < MAX_NESTING_DEPTH) {
+                collectWikiChildren(spaceId, childToken, accessToken, out, skipped, seen, depth + 1);
+            } else {
+                skip(skipped, "超过三层嵌套，跳过子节点：" + title);
+            }
         }
     }
 
     private void collectWikiChildren(String spaceId, String parentToken, String accessToken,
-                                     List<Document> out, Set<String> seen) throws Exception {
+                                     List<Document> out, List<String> skipped, Set<String> seen, int depth)
+            throws Exception {
         String pageToken = null;
         do {
             String path = "/open-apis/wiki/v2/spaces/" + encode(spaceId) + "/nodes?page_size=" + PAGE_SIZE
@@ -137,14 +163,14 @@ public class FeishuDocumentService {
                     + (pageToken == null ? "" : "&page_token=" + encode(pageToken));
             JsonNode data = requestJson(path, accessToken, "GET", null).path("data");
             for (JsonNode item : data.path("items")) {
-                collectWikiNode(item, accessToken, out, seen);
+                collectWikiNode(item, accessToken, out, skipped, seen, depth);
             }
             pageToken = data.path("page_token").asText(null);
         } while (pageToken != null && !pageToken.isBlank() && !pageToken.equals("null"));
     }
 
-    private void collectWikiNode(JsonNode node, String accessToken, List<Document> out, Set<String> seen)
-            throws Exception {
+    private void collectWikiNode(JsonNode node, String accessToken, List<Document> out,
+                                 List<String> skipped, Set<String> seen, int depth) throws Exception {
         String nodeToken = node.path("node_token").asText();
         if (!seen.add("wiki:" + nodeToken)) return;
         String objType = node.path("obj_type").asText();
@@ -154,15 +180,21 @@ public class FeishuDocumentService {
             add(out, fetchDocx(objToken, accessToken, "https://www.feishu.cn/docx/" + objToken, title));
         } else if ("doc".equalsIgnoreCase(objType) && !objToken.isBlank()) {
             add(out, fetchDoc(objToken, accessToken, "https://www.feishu.cn/docs/" + objToken, title));
+        } else if (!objType.isBlank()) {
+            skip(skipped, "暂不支持的知识库节点类型 " + objType + "：" + title);
         }
         String spaceId = node.path("space_id").asText();
         if (node.path("has_child").asBoolean(false) && !spaceId.isBlank() && !nodeToken.isBlank()) {
-            collectWikiChildren(spaceId, nodeToken, accessToken, out, seen);
+            if (depth < MAX_NESTING_DEPTH) {
+                collectWikiChildren(spaceId, nodeToken, accessToken, out, skipped, seen, depth + 1);
+            } else {
+                skip(skipped, "超过三层嵌套，跳过子节点：" + title);
+            }
         }
     }
 
-    private void collectFolder(String folderToken, String accessToken, List<Document> out, Set<String> seen)
-            throws Exception {
+    private void collectFolder(String folderToken, String accessToken, List<Document> out,
+                               List<String> skipped, Set<String> seen, int depth) throws Exception {
         if (!seen.add("folder:" + folderToken)) return;
         String pageToken = null;
         do {
@@ -174,17 +206,27 @@ public class FeishuDocumentService {
                 String token = file.path("token").asText();
                 String name = file.path("name").asText("飞书文件");
                 if ("folder".equalsIgnoreCase(type)) {
-                    collectFolder(token, accessToken, out, seen);
+                    if (depth < MAX_NESTING_DEPTH) {
+                        collectFolder(token, accessToken, out, skipped, seen, depth + 1);
+                    } else {
+                        skip(skipped, "超过三层嵌套，跳过子文件夹：" + name);
+                    }
                 } else if ("docx".equalsIgnoreCase(type)) {
                     add(out, fetchDocx(token, accessToken, "https://www.feishu.cn/docx/" + token, name));
                 } else if ("doc".equalsIgnoreCase(type)) {
                     add(out, fetchDoc(token, accessToken, "https://www.feishu.cn/docs/" + token, name));
                 } else if ("file".equalsIgnoreCase(type)) {
                     add(out, fetchMedia(token, name, accessToken));
+                } else {
+                    skip(skipped, "暂不支持的文件类型 " + type + "：" + name);
                 }
             }
             pageToken = data.path("page_token").asText(null);
         } while (pageToken != null && !pageToken.isBlank() && !pageToken.equals("null"));
+    }
+
+    private void skip(List<String> skipped, String message) {
+        if (skipped.size() < MAX_FILES) skipped.add(message);
     }
 
     private Document fetchDocx(String token, String accessToken, String sourceUrl) throws Exception {
@@ -219,7 +261,7 @@ public class FeishuDocumentService {
         String path = "/open-apis/drive/v1/medias/" + encode(token) + "/download";
         for (int attempt = 0; ; attempt++) {
             throttle();
-            HttpRequest request = HttpRequest.newBuilder(URI.create("https://open.feishu.cn" + path))
+            HttpRequest request = HttpRequest.newBuilder(URI.create(apiBase + path))
                     .timeout(Duration.ofSeconds(30))
                     .header("Authorization", "Bearer " + accessToken)
                     .GET().build();
@@ -264,7 +306,7 @@ public class FeishuDocumentService {
 
     private String token(String appId, String appSecret) {
         try {
-            JsonNode response = postJson("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            JsonNode response = postJson(apiBase + "/open-apis/auth/v3/tenant_access_token/internal",
                     Map.of("app_id", appId, "app_secret", appSecret));
             int code = response.path("code").asInt(-1);
             if (code != 0) {
@@ -285,7 +327,7 @@ public class FeishuDocumentService {
     }
 
     private JsonNode requestJson(String path, String token, String method, Object body) throws Exception {
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create("https://open.feishu.cn" + path))
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(apiBase + path))
                 .timeout(Duration.ofSeconds(20))
                 .header("Authorization", "Bearer " + token)
                 .header("Content-Type", "application/json");
