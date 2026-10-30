@@ -176,6 +176,36 @@ PDF_BENCH_DIR="$PWD/target/pdf-samples" mvn -Dtest=PdfBenchmarkTest test
 > 表格块数是 `PdfTableLayout` 输出的原始表块数；“表格”分段数还会因 1500 字符切分和重复表头而变大，
 > 所以基准报告中 BRK 的表格数会明显高于表格块数。
 
+### 扫描版专业样本（2026-10-31 追加）
+
+| 样本 | 页数 | 类型 | 处理方式 | 结果 |
+| --- | ---: | --- | --- | --- |
+| scanned-nbs-chem-1972.pdf | 122 | 1972 年 NBS 电解质数据中心报告 | 自带部分 OCR 文本层，按页补 OCR | 1.1s；76,464 字符；正文可读，老式打字/公式噪声明显 |
+| scanned-nbs-catalog-table-pages.pdf | 3 | 1986 年 NBS 标准物质目录表格页 | 从目录 PDF 渲染为无文本层图片 PDF，150 DPI OCR | 2.7s；4,202 字符；标题和表格文字可识别 |
+
+扫描表格页能识别出 `Copper-Base Alloys (Solid Form)`、元素列和数值，但当前
+`OcrTableExtractor` 未稳定重建出 HTML 表格结构，表格内容仍以文本行保留。
+这说明 OCR 正文链路可用，扫描表格结构仍是后续重点。
+
+复现：
+
+```bash
+# 下载 NBS 报告和目录
+bash scripts/download_pdf_samples.sh backend/target/pdf-samples
+# 用 PyMuPDF 选取目录表格页生成无文本层图片 PDF（示例页 39-41）
+python3 - <<'PY'
+import pymupdf
+src = pymupdf.open("backend/target/pdf-samples/scanned-nbs-catalog-1986.pdf")
+out = pymupdf.open()
+for i in [38, 39, 40]:
+    page = src[i]
+    pix = page.get_pixmap(dpi=200, colorspace=pymupdf.csRGB, alpha=False)
+    p = out.new_page(width=page.rect.width, height=page.rect.height)
+    p.insert_image(p.rect, stream=pix.tobytes("png"))
+out.save("backend/target/pdf-samples/scanned-nbs-catalog-table-pages.pdf", garbage=4, deflate=True)
+PY
+```
+
 ### 仍未解决
 
 - 首页标题跨行时，第二行和作者行仍可能被拆成普通段落（`2012.13202` 的标题后半段）。

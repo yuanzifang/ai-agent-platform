@@ -27,6 +27,10 @@ download "chem-2610.40621.pdf" "https://arxiv.org/pdf/2610.40621"
 download "math-2012.13167.pdf" "https://arxiv.org/pdf/2012.13167"
 download "nist-sp800-53r5.pdf" "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-53r5.pdf"
 
+# 扫描/老式印刷样本（部分页面自带 OCR 文本层；可再用 PyMuPDF 转成纯图片页压测 OCR）
+download "scanned-nbs-chem-1972.pdf" "https://nvlpubs.nist.gov/nistpubs/Legacy/RPT/nbsreport10907.pdf"
+download "scanned-nbs-catalog-1986.pdf" "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nbsspecialpublication260e1986.pdf"
+
 # JPM 完整年报约 34MB，超过平台 20MB 上传上限；截取前 120 页做解析压测。
 if python3 -c 'import pymupdf' >/dev/null 2>&1; then
   python3 - "$OUT/jpm-2024-full.pdf" "$OUT/jpm-2024-first120.pdf" <<'PY'
