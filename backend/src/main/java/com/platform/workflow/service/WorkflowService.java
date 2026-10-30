@@ -636,7 +636,8 @@ public class WorkflowService {
                     next = str(node.get("next"));
                 } else if ("CONDITION".equals(type)) {
                     boolean matched = evaluate(node, lastOutput == null ? run.getInputText() : lastOutput);
-                    output = matched ? "true" : "false";
+                    // 保留前序输出，CONDITION 只负责路由；避免审批/结束节点展示 "true/false"。
+                    output = lastOutput == null ? run.getInputText() : lastOutput;
                     next = matched ? str(node.get("trueNext")) : str(node.get("falseNext"));
                 } else if ("APPROVAL".equals(type)) {
                     output = lastOutput == null ? run.getInputText() : lastOutput;
@@ -1311,7 +1312,7 @@ public class WorkflowService {
                 next = str(node.get("next"));
             } else if ("CONDITION".equals(type)) {
                 boolean matched = evaluate(node, lastOutput == null ? run.getInputText() : lastOutput);
-                output = matched ? "true" : "false";
+                output = lastOutput == null ? run.getInputText() : lastOutput;
                 next = matched ? str(node.get("trueNext")) : str(node.get("falseNext"));
             } else {
                 throw new BusinessException(400, "分支内不支持的节点类型：" + type);
