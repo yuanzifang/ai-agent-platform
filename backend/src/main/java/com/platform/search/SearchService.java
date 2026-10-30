@@ -48,38 +48,43 @@ public class SearchService {
         List<String> terms = ChineseTextAnalyzer.tokenize(query);
         if (query.length() >= 2) {
             var viewer = new KnowledgePermissionService.Viewer(principal.userId(), principal.roles());
-
-            for (AgentRegistry a : agentService.list(query, null, 1, 5, principal).getRecords()) {
-                rows.add(row("AGENT", a.getId(), a.getName(), a.getDescription(),
-                        "/agent/edit/" + a.getId(), query, terms));
-            }
-            var kbs = knowledgeService.list(query, null, 1, 5, viewer);
-            for (Object raw : (List<?>) kbs.getOrDefault("list", List.of())) {
-                if (raw instanceof Map<?, ?> kb) {
-                    String name = str(kb.get("name"));
-                    String desc = str(kb.get("description"));
-                    rows.add(row("KB", kb.get("id"), name, desc,
-                            "/knowledge/" + kb.get("id"), query, terms));
+            java.util.Set<String> seen = new java.util.HashSet<>();
+            for (String retrievalQuery : retrievalQueries(query, terms)) {
+                var agentPage = agentService.list(retrievalQuery, null, 1, 5, principal);
+                if (agentPage != null) {
+                    for (AgentRegistry a : agentPage.getRecords()) {
+                        addRow(rows, seen, "AGENT", a.getId(), a.getName(), a.getDescription(),
+                                "/agent/edit/" + a.getId(), query, terms);
+                    }
                 }
-            }
-            var cases = caseService.list(principal, null, null, null, query, null);
-            int caseCount = 0;
-            for (Object raw : (List<?>) cases.getOrDefault("list", List.of())) {
-                if (caseCount++ >= 5) break;
-                if (raw instanceof Map<?, ?> c) {
-                    String question = str(c.get("question"));
-                    String answer = str(c.get("expectedAnswer"));
-                    rows.add(row("CASE", c.get("id"), question, answer, "/cases", query, terms));
+                var kbs = knowledgeService.list(retrievalQuery, null, 1, 5, viewer);
+                if (kbs != null) {
+                    for (Object raw : (List<?>) kbs.getOrDefault("list", List.of())) {
+                        if (raw instanceof Map<?, ?> kb) {
+                            String name = str(kb.get("name"));
+                            String desc = str(kb.get("description"));
+                            addRow(rows, seen, "KB", kb.get("id"), name, desc,
+                                    "/knowledge/" + kb.get("id"), query, terms);
+                        }
+                    }
                 }
-            }
-            var tools = toolService.list(query, null, null);
-            int toolCount = 0;
-            for (Object raw : (List<?>) tools.getOrDefault("list", List.of())) {
-                if (toolCount++ >= 5) break;
-                if (raw instanceof Map<?, ?> t) {
-                    String name = str(t.get("name"));
-                    String desc = str(t.get("description"));
-                    rows.add(row("TOOL", t.get("id"), name, desc, "/tools", query, terms));
+                var cases = caseService.list(principal, null, null, null, retrievalQuery, null);
+                if (cases != null) {
+                    for (Object raw : (List<?>) cases.getOrDefault("list", List.of())) {
+                        if (raw instanceof Map<?, ?> c) {
+                            addRow(rows, seen, "CASE", c.get("id"), str(c.get("question")),
+                                    str(c.get("expectedAnswer")), "/cases", query, terms);
+                        }
+                    }
+                }
+                var tools = toolService.list(retrievalQuery, null, null);
+                if (tools != null) {
+                    for (Object raw : (List<?>) tools.getOrDefault("list", List.of())) {
+                        if (raw instanceof Map<?, ?> t) {
+                            addRow(rows, seen, "TOOL", t.get("id"), str(t.get("name")),
+                                    str(t.get("description")), "/tools", query, terms);
+                        }
+                    }
                 }
             }
         }
@@ -98,6 +103,23 @@ public class SearchService {
         }
         result.put("total", rows.size());
         return result;
+    }
+
+    private List<String> retrievalQueries(String query, List<String> terms) {
+        java.util.LinkedHashSet<String> queries = new java.util.LinkedHashSet<>();
+        queries.add(query);
+        for (String term : terms) {
+            if (term != null && !term.isBlank() && queries.size() < 8) queries.add(term);
+        }
+        return List.copyOf(queries);
+    }
+
+    private void addRow(List<Map<String, Object>> rows, java.util.Set<String> seen,
+                        String type, Object id, String name, String desc, String path,
+                        String query, List<String> terms) {
+        String key = type + ":" + (id == null ? path : id);
+        if (!seen.add(key)) return;
+        rows.add(row(type, id, name, desc, path, query, terms));
     }
 
     private Map<String, Object> row(String type, Object id, String name, String desc, String path,
