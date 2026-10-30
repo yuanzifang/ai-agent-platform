@@ -280,6 +280,8 @@ async function runSearch() {
     searchResults.value = (data?.list || []).map((r: any) => {
       const m = meta[r.type] || { group: r.type, tagType: 'info' }
       return {
+        type: r.type,
+        id: r.id == null ? '' : String(r.id),
         group: m.group,
         tagType: m.tagType,
         name: r.name,
@@ -297,6 +299,11 @@ async function runSearch() {
 }
 
 function goSearch(row: any) {
+  const query = searchKeyword.value.trim()
+  if (row.type && row.id != null && query) {
+    // 点击反馈是排序增强，失败不阻断跳转。
+    void http.post('/search/feedback', { type: row.type, id: row.id, query }).catch(() => {})
+  }
   searchVisible.value = false
   searchKeyword.value = ''
   if (row.path) router.push(row.path)

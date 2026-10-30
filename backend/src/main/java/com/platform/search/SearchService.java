@@ -8,6 +8,7 @@ import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.knowledge.service.KnowledgeService;
 import com.platform.security.JwtPrincipal;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -29,6 +30,7 @@ public class SearchService {
     private final KnowledgeService knowledgeService;
     private final CaseService caseService;
     private final ToolService toolService;
+    private final StringRedisTemplate redis;
 
     public Map<String, Object> search(String rawQuery, JwtPrincipal principal) {
         String query = rawQuery == null ? "" : rawQuery.trim();
@@ -38,14 +40,16 @@ public class SearchService {
             var viewer = new KnowledgePermissionService.Viewer(principal.userId(), principal.roles());
 
             for (AgentRegistry a : agentService.list(query, null, 1, 5, principal).getRecords()) {
-                rows.add(row("AGENT", a.getName(), a.getDescription(), "/agent/edit/" + a.getId(), query, terms));
+                rows.add(row("AGENT", a.getId(), a.getName(), a.getDescription(),
+                        "/agent/edit/" + a.getId(), query, terms));
             }
             var kbs = knowledgeService.list(query, null, 1, 5, viewer);
             for (Object raw : (List<?>) kbs.getOrDefault("list", List.of())) {
                 if (raw instanceof Map<?, ?> kb) {
                     String name = str(kb.get("name"));
                     String desc = str(kb.get("description"));
-                    rows.add(row("KB", name, desc, "/knowledge/" + kb.get("id"), query, terms));
+                    rows.add(row("KB", kb.get("id"), name, desc,
+                            "/knowledge/" + kb.get("id"), query, terms));
                 }
             }
             var cases = caseService.list(principal, null, null, null, query, null);
@@ -55,7 +59,7 @@ public class SearchService {
                 if (raw instanceof Map<?, ?> c) {
                     String question = str(c.get("question"));
                     String answer = str(c.get("expectedAnswer"));
-                    rows.add(row("CASE", question, answer, "/cases", query, terms));
+                    rows.add(row("CASE", c.get("id"), question, answer, "/cases", query, terms));
                 }
             }
             var tools = toolService.list(query, null, null);
@@ -65,10 +69,11 @@ public class SearchService {
                 if (raw instanceof Map<?, ?> t) {
                     String name = str(t.get("name"));
                     String desc = str(t.get("description"));
-                    rows.add(row("TOOL", name, desc, "/tools", query, terms));
+                    rows.add(row("TOOL", t.get("id"), name, desc, "/tools", query, terms));
                 }
             }
         }
+        applyClickFeedback(rows, principal);
         rows.sort(Comparator.comparingInt((Map<String, Object> r) -> (Integer) r.get("score"))
                 .reversed()
                 .thenComparingInt(r -> typeRank(String.valueOf(r.get("type")))));
@@ -81,12 +86,13 @@ public class SearchService {
         return result;
     }
 
-    private Map<String, Object> row(String type, String name, String desc, String path,
+    private Map<String, Object> row(String type, Object id, String name, String desc, String path,
                                     String query, List<String> terms) {
         String displayName = name == null || name.isBlank() ? "(未命名)" : name;
         String displayDesc = desc == null ? "" : desc;
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("type", type);
+        row.put("id", id);
         row.put("name", displayName);
         row.put("desc", displayDesc);
         // nameHtml/descHtml 已经过 HTML 转义，只含后端生成的 <mark>，可安全交给前端 v-html。
@@ -136,6 +142,41 @@ public class SearchService {
             score += (int) Math.round(30.0 * matched / terms.size());
         }
         return score;
+    }
+
+    /** 记录一次结果点击；Redis 不可用时静默降级，不影响搜索。 */
+    public void feedback(String type, Object id, String rawQuery, JwtPrincipal principal) {
+        if (principal == null || id == null) return;
+        String normalizedType = type == null ? "" : type.trim().toUpperCase();
+        if (!List.of("AGENT", "KB", "CASE", "TOOL").contains(normalizedType)) return;
+        String key = feedbackKey(principal, normalizedType, String.valueOf(id));
+        try {
+            redis.opsForValue().increment(key);
+            redis.expire(key, java.time.Duration.ofDays(30));
+        } catch (Exception ignored) {
+            // 点击反馈是排序增强，Redis 故障不能影响搜索本身。
+        }
+    }
+
+    private void applyClickFeedback(List<Map<String, Object>> rows, JwtPrincipal principal) {
+        if (rows.isEmpty() || principal == null) return;
+        for (Map<String, Object> row : rows) {
+            try {
+                String key = feedbackKey(principal, String.valueOf(row.get("type")), String.valueOf(row.get("id")));
+                String value = redis.opsForValue().get(key);
+                int clicks = value == null ? 0 : Integer.parseInt(value);
+                if (clicks > 0) {
+                    row.put("score", (Integer) row.get("score") + Math.min(30, clicks * 3));
+                }
+            } catch (Exception ignored) {
+                // ignore feedback cache failures
+            }
+        }
+    }
+
+    private String feedbackKey(JwtPrincipal principal, String type, String id) {
+        String tenant = principal.tenantId() == null ? "platform" : String.valueOf(principal.tenantId());
+        return "search:click:" + tenant + ":" + type + ":" + id;
     }
 
     private String str(Object value) {
