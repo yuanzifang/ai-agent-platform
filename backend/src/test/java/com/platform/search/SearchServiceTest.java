@@ -8,8 +8,11 @@ import com.platform.capability.service.ToolService;
 import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.knowledge.service.KnowledgeService;
 import com.platform.security.JwtPrincipal;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -46,7 +49,7 @@ class SearchServiceTest {
                 .thenReturn(Map.of("list", List.of(Map.of("name", "工单工具",
                         "description", "客服工单"))));
 
-        Map<String, Object> result = new SearchService(agents, kbs, cases, tools).search("客服", principal);
+        Map<String, Object> result = new SearchService(agents, kbs, cases, tools, mock(StringRedisTemplate.class)).search("客服", principal);
 
         List<?> list = (List<?>) result.get("list");
         assertEquals(4, list.size());
@@ -80,7 +83,7 @@ class SearchServiceTest {
                 .thenReturn(Map.of("list", List.of()));
         when(tools.list(eq("客服退款"), any(), any())).thenReturn(Map.of("list", List.of()));
 
-        Map<String, Object> result = new SearchService(agents, kbs, cases, tools).search("客服退款", principal);
+        Map<String, Object> result = new SearchService(agents, kbs, cases, tools, mock(StringRedisTemplate.class)).search("客服退款", principal);
         Map<?, ?> row = (Map<?, ?>) ((List<?>) result.get("list")).get(0);
 
         assertEquals(List.of("客服", "退款"), result.get("tokens"));
@@ -90,9 +93,25 @@ class SearchServiceTest {
     }
 
     @Test
+    void feedbackIncrementsTenantResultCounter() {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> values = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(values);
+        JwtPrincipal principal = new JwtPrincipal(1L, 7L, false, List.of("OWNER"), List.of());
+        SearchService service = new SearchService(mock(AgentService.class), mock(KnowledgeService.class),
+                mock(CaseService.class), mock(ToolService.class), redis);
+
+        service.feedback("AGENT", 9L, "客服", principal);
+
+        verify(values).increment("search:click:7:AGENT:9");
+        verify(redis).expire("search:click:7:AGENT:9", Duration.ofDays(30));
+    }
+
+    @Test
     void shortQueryDoesNotQueryModules() {
         SearchService service = new SearchService(mock(AgentService.class), mock(KnowledgeService.class),
-                mock(CaseService.class), mock(ToolService.class));
+                mock(CaseService.class), mock(ToolService.class), mock(StringRedisTemplate.class));
         JwtPrincipal principal = new JwtPrincipal(1L, 1L, false, List.of(), List.of());
 
         Map<String, Object> result = service.search("客", principal);
