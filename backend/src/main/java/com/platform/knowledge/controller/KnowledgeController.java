@@ -1,10 +1,12 @@
 package com.platform.knowledge.controller;
 
+import com.platform.common.context.TenantContext;
 import com.platform.common.response.ApiResponse;
 import com.platform.knowledge.entity.KnowledgeBase;
 import com.platform.knowledge.entity.KnowledgeDocument;
 import com.platform.knowledge.service.EmbeddingService;
 import com.platform.knowledge.service.FeishuDocumentService;
+import com.platform.knowledge.service.FeishuImportJobService;
 import com.platform.knowledge.service.KnowledgePermissionService;
 import com.platform.knowledge.service.KnowledgeGraphService;
 import com.platform.knowledge.service.KnowledgeSearchIndexService;
@@ -42,6 +44,7 @@ public class KnowledgeController {
     private final EmbeddingService embeddingService;
     private final KnowledgeUpgradeService upgradeService;
     private final FeishuDocumentService feishuDocumentService;
+    private final FeishuImportJobService feishuImportJobService;
     private final VectorStore vectorRepository;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private KnowledgeSearchIndexService searchIndexService;
@@ -311,6 +314,24 @@ public class KnowledgeController {
         return ApiResponse.ok(Map.of("total", collection.documents().size(), "imported", imported.size(),
                 "failed", failed.size(), "skipped", collection.skipped().size(),
                 "skippedItems", collection.skipped(), "documents", imported, "failures", failed));
+    }
+
+    /** 大文件夹异步导入：立即返回 jobId，前端轮询进度。 */
+    @PostMapping("/{id}/documents/feishu/jobs")
+    public ApiResponse<Map<String, Object>> startFeishuJob(@PathVariable Long id,
+                                                           @Valid @RequestBody FeishuImportRequest req,
+                                                           @AuthenticationPrincipal JwtPrincipal principal) {
+        KnowledgePermissionService.Viewer current = viewer(principal);
+        permissionService.requireEdit(id, current);
+        String jobId = feishuImportJobService.start(id, req.url(), req.appId(), req.appSecret(),
+                req.effectiveFrom(), req.effectiveTo(), current, TenantContext.getTenantId());
+        return ApiResponse.ok(Map.of("jobId", jobId));
+    }
+
+    @GetMapping("/{id}/documents/feishu/jobs/{jobId}")
+    public ApiResponse<Map<String, Object>> feishuJob(@PathVariable Long id, @PathVariable String jobId,
+                                                      @AuthenticationPrincipal JwtPrincipal principal) {
+        return ApiResponse.ok(feishuImportJobService.status(id, jobId, viewer(principal)));
     }
 
     @GetMapping("/{id}/documents")
