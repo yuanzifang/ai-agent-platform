@@ -269,7 +269,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        browser: [chromium, msedge]   # Edge 兼容（需求 5.1）先观察，稳定后可移除 msedge
+        browser: [chromium]
     services:
       mysql:
         image: mysql:8.4
@@ -370,17 +370,10 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: 安装 Playwright 浏览器（chromium / msedge）
+      - name: 安装 Playwright 浏览器（chromium）
         working-directory: frontend
         run: |
           npx playwright install --with-deps chromium
-          if [ "${{ matrix.browser }}" = "msedge" ]; then
-            curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft.gpg
-            echo "deb [signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/edge stable main" | sudo tee /etc/apt/sources.list.d/microsoft-edge.list
-            sudo apt-get update -qq
-            sudo apt-get install -y microsoft-edge-stable
-            npx playwright install --with-deps msedge
-          fi
 
       - name: 启动离线模型/嵌入/渠道 Mock
         working-directory: frontend
