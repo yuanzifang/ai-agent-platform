@@ -285,6 +285,7 @@ public class FeishuDocumentService {
             document = fetchDocx(documentToken, accessToken, sourceUrl, fallbackName);
         }
         add(out, document);
+        if (blocks != null) importDocxAttachments(blocks, accessToken, out, skipped, seen);
         if (depth >= MAX_NESTING_DEPTH) return;
         Set<String> links = new LinkedHashSet<>();
         if (blocks != null) {
@@ -571,6 +572,24 @@ public class FeishuDocumentService {
         return new Document(safe + ".md", bytes, "text/markdown", sourceUrl);
     }
 
+    /** docx 内的 file block 下载为独立知识库文档；图片仍保留占位符。 */
+    private void importDocxAttachments(List<JsonNode> blocks, String accessToken, List<Document> out,
+                                       List<String> skipped, Set<String> seen) {
+        for (JsonNode block : blocks) {
+            if (block.path("block_type").asInt() != 23) continue;
+            JsonNode file = block.path("file");
+            String token = file.path("token").asText("");
+            if (token.isBlank() || !seen.add("media:" + token)) continue;
+            String name = file.path("name").asText("飞书附件");
+            try {
+                add(out, fetchMedia(token, name, accessToken));
+            } catch (Exception e) {
+                log.warn("飞书附件下载失败 token={} err={}", token, root(e));
+                skip(skipped, "附件下载失败：" + name + "（" + root(e) + "）");
+            }
+        }
+    }
+
     private Document fetchDocx(String token, String accessToken, String sourceUrl) throws Exception {
         return fetchDocx(token, accessToken, sourceUrl, null);
     }
@@ -777,8 +796,28 @@ public class FeishuDocumentService {
                 throw new BusinessException(502, "飞书文件下载失败 HTTP " + response.statusCode());
             }
             String contentType = response.headers().firstValue("Content-Type").orElse("application/octet-stream");
-            return new Document(name, response.body(), contentType, "https://www.feishu.cn/drive/file/" + token);
+            String fileName = name == null || name.isBlank() ? "飞书附件" : name;
+            if (!fileName.matches(".*\\.[A-Za-z0-9]{1,8}$")) {
+                fileName += extensionFor(contentType);
+            }
+            return new Document(fileName, response.body(), contentType, "https://www.feishu.cn/drive/file/" + token);
         }
+    }
+
+    private String extensionFor(String contentType) {
+        String type = contentType == null ? "" : contentType.toLowerCase().split(";")[0].trim();
+        return switch (type) {
+            case "application/pdf" -> ".pdf";
+            case "text/plain", "text/markdown" -> ".txt";
+            case "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> ".docx";
+            case "application/msword" -> ".doc";
+            case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> ".xlsx";
+            case "application/vnd.ms-excel" -> ".xls";
+            case "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> ".pptx";
+            case "image/png" -> ".png";
+            case "image/jpeg" -> ".jpg";
+            default -> ".bin";
+        };
     }
 
     private Document textDocument(String title, String content, String sourceUrl) {
