@@ -227,6 +227,11 @@ jobs:
           java-version: '17'
           cache: maven
 
+      - name: 中文检索黄金集/脚本校验
+        run: |
+          python3 -m py_compile scripts/eval_chinese_retrieval.py
+          python3 -c "import json; d=json.load(open('docs/fixtures/中文检索黄金集-v1.json')); ids={x['id'] for x in d['documents']}; assert d['queries'] and all(set(q['relevant'])<=ids for q in d['queries']); print('chinese retrieval fixture ok')"
+
       - name: 安装 OCR 测试依赖
         run: |
           sudo apt-get update -qq
