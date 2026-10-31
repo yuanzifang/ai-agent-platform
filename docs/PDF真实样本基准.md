@@ -184,8 +184,8 @@ PDF_BENCH_DIR="$PWD/target/pdf-samples" mvn -Dtest=PdfBenchmarkTest test
 | scanned-nbs-catalog-table-pages.pdf | 3 | 1986 年 NBS 标准物质目录表格页 | 从目录 PDF 渲染为无文本层图片 PDF，150 DPI OCR | 2.7s；4,202 字符；标题和表格文字可识别，已能重建 HTML 表块 |
 
 扫描表格页能识别出 `Copper-Base Alloys (Solid Form)`、元素列和数值。新增按行间距/列数
-逐级尝试、以最宽行作为列锚点的表块重建后，样例可生成 8 列、128 个单元格的 HTML 表；
-但 OCR 噪声仍会造成少量空单元格、列错位和合并单元格偏差，需要人工复核，不能把扫描表格当成
+逐级尝试、以最宽行作为列锚点的表块重建后，样例可生成含表头的 8 列左右 HTML 表；
+但 OCR 噪声仍会造成空单元格、列错位和合并单元格偏差，需要人工复核，不能把扫描表格当成
 与文本层 PDF 同等级的结构化结果。
 
 复现：

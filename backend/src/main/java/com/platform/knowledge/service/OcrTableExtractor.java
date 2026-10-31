@@ -141,6 +141,7 @@ final class OcrTableExtractor {
         String best = "";
         double bestDensity = 0;
         int bestRows = 0;
+        boolean bestHasHeader = false;
         for (int minCells = 2; minCells <= 8; minCells++) {
             final int min = minCells;
             List<Line> candidates = block.stream()
@@ -152,11 +153,16 @@ final class OcrTableExtractor {
             int empty = count(table, "></td>") + count(table, "></th>");
             if (cells == 0) continue;
             double density = (double) (cells - empty) / cells;
-            // 优先选择填充率高、行数足够的版本；避免把正文空白行拼成超大表。
-            if (density > bestDensity + 0.02
-                    || (Math.abs(density - bestDensity) <= 0.02 && candidates.size() > bestRows)) {
+            boolean hasHeader = table.contains("<thead>");
+            // 表头优先，其次填充率；避免为了高填充率把表头整行丢掉。
+            boolean betterHeader = hasHeader && !bestHasHeader && density >= 0.30;
+            boolean sameHeaderQuality = hasHeader == bestHasHeader
+                    && (density > bestDensity + 0.02
+                    || (Math.abs(density - bestDensity) <= 0.02 && candidates.size() > bestRows));
+            if (betterHeader || sameHeaderQuality) {
                 bestDensity = density;
                 bestRows = candidates.size();
+                bestHasHeader = hasHeader;
                 best = table;
             }
         }
