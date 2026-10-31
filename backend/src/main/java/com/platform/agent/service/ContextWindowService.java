@@ -52,7 +52,7 @@ public class ContextWindowService {
 
     public record Fitted(String systemPrompt, List<Message> history,
                          boolean compressed, int droppedMessages, int estimatedTokens,
-                         boolean ragTruncated) {
+                         boolean ragTruncated, int ragKeptFragments, int ragTotalFragments) {
     }
 
     /** 完整对话裁剪：系统提示/用户输入/历史消息适配模型上下文。 */
@@ -71,14 +71,19 @@ public class ContextWindowService {
         int availableForPrompt = Math.max(budget - userTokens - 32, 100);
         boolean truncated = false;
         boolean ragTruncated = false;
+        int ragKeptFragments = 0;
+        int ragTotalFragments = 0;
         if (promptTokens > availableForPrompt) {
             PromptFit promptFit = fitSystemPrompt(prompt, Math.max(availableForPrompt, 50), modelName);
             prompt = promptFit.text();
             promptTokens = estimate(prompt);
             truncated = true;
             ragTruncated = promptFit.ragTruncated();
-            log.info("系统提示超出上下文，已按 RAG 片段边界截断 model={} 原 {} tokens → {} tokens ragTruncated={}",
-                    modelName, estimate(systemPrompt), promptTokens, ragTruncated);
+            ragKeptFragments = promptFit.ragKeptFragments();
+            ragTotalFragments = promptFit.ragTotalFragments();
+            log.info("系统提示超出上下文，已按 RAG 片段边界截断 model={} 原 {} tokens → {} tokens ragTruncated={} fragments={}/{}",
+                    modelName, estimate(systemPrompt), promptTokens, ragTruncated,
+                    ragKeptFragments, ragTotalFragments);
         }
 
         // 从最新历史向前保留，超出的进入待压缩列表
@@ -116,7 +121,8 @@ public class ContextWindowService {
             log.info("上下文压缩 model={} 丢弃/摘要 {} 条历史，剩余 {} 条，约 {} tokens（上限 {}，预留 {}）",
                     modelName, droppedCount, kept.size(), used, limit, reserve);
         }
-        return new Fitted(prompt, kept, compressed, droppedCount, used, ragTruncated);
+        return new Fitted(prompt, kept, compressed, droppedCount, used, ragTruncated,
+                ragKeptFragments, ragTotalFragments);
     }
 
     /** 无历史场景（调试/子 Agent）：仅裁剪系统提示，用户输入超限直接报错。 */
@@ -134,8 +140,9 @@ public class ContextWindowService {
             int original = estimate(prompt);
             PromptFit fitted = fitSystemPrompt(prompt, allowed, modelName);
             prompt = fitted.text();
-            log.info("系统提示超出上下文，已按 RAG 片段边界截断 model={} 原 {} tokens → {} tokens ragTruncated={}",
-                    modelName, original, estimate(prompt), fitted.ragTruncated());
+            log.info("系统提示超出上下文，已按 RAG 片段边界截断 model={} 原 {} tokens → {} tokens ragTruncated={} fragments={}/{}",
+                    modelName, original, estimate(prompt), fitted.ragTruncated(),
+                    fitted.ragKeptFragments(), fitted.ragTotalFragments());
         }
         return prompt;
     }
@@ -221,7 +228,8 @@ public class ContextWindowService {
         return truncateChars(sb.toString(), maxTokens);
     }
 
-    record PromptFit(String text, boolean truncated, boolean ragTruncated) {
+    record PromptFit(String text, boolean truncated, boolean ragTruncated,
+                     int ragKeptFragments, int ragTotalFragments) {
     }
 
     /**
@@ -229,7 +237,7 @@ public class ContextWindowService {
      * 不切断 <untrusted_retrieval> 边界，并给 RAG 单独预算。
      */
     private PromptFit fitSystemPrompt(String prompt, int budget, String modelName) {
-        if (prompt == null || prompt.isEmpty()) return new PromptFit("", false, false);
+        if (prompt == null || prompt.isEmpty()) return new PromptFit("", false, false, 0, 0);
         int open = prompt.indexOf("<untrusted_retrieval>");
         int close = prompt.lastIndexOf("</untrusted_retrieval>");
         if (open < 0 || close < open) {
@@ -237,9 +245,9 @@ public class ContextWindowService {
                 // 不完整的不可信边界不能交给模型：去掉孤立标签，保留标签前指令。
                 String base = prompt.substring(0, open).trim();
                 String note = "\n\n【系统提示：知识库检索结果因边界不完整已省略。】";
-                return new PromptFit(truncateChars(base + note, budget), true, true);
+                return new PromptFit(truncateChars(base + note, budget), true, true, 0, 0);
             }
-            return new PromptFit(truncateChars(prompt, budget), true, false);
+            return new PromptFit(truncateChars(prompt, budget), true, false, 0, 0);
         }
 
         String header = "<untrusted_retrieval>";
@@ -277,7 +285,7 @@ public class ContextWindowService {
                 result = truncateChars(fittedBase, Math.max(32, budget - estimate(omitted))) + omitted;
             }
         }
-        return new PromptFit(result, true, ragTruncated);
+        return new PromptFit(result, true, ragTruncated, keptCount, fragments.size());
     }
 
     /** 按完整片段重建 RAG 提示；片段内部不做任何字符截断。 */
