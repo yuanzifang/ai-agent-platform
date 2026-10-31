@@ -132,6 +132,19 @@ kubectl -n ai-agent get pods
 helm test ai-agent -n ai-agent
 ```
 
+## 7. 额外环境变量
+
+`config.extraEnv` 可以注入 ES/Qdrant/平台运行时等非敏感变量，避免为每个环境 fork Chart：
+
+```yaml
+config:
+  extraEnv:
+    ELASTICSEARCH_URL: http://elasticsearch:9200
+    QDRANT_URL: http://qdrant:6333
+```
+
+敏感值仍应放在 `secrets.existingSecret`。
+
 ## 7. 多副本注意事项
 
 - 审计哈希链使用 MySQL 租户行锁；定时任务/指标汇总使用 Redis 互斥。

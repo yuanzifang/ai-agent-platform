@@ -57,3 +57,6 @@ data:
   SMTP_PORT: {{ .Values.config.smtpPort | quote }}
   SMTP_AUTH: {{ .Values.config.smtpAuth | quote }}
   SMTP_TLS: {{ .Values.config.smtpTls | quote }}
+  {{- range $key, $value := .Values.config.extraEnv }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

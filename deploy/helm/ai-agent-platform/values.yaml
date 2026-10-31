@@ -87,6 +87,7 @@ frontend:
   service:
     type: ClusterIP
     port: 80
+    nodePort: ""
   autoscaling:
     enabled: false
     minReplicas: 2
@@ -156,6 +157,8 @@ config:
   smtpPort: "587"
   smtpAuth: "true"
   smtpTls: "true"
+  # 可选：追加非敏感环境变量（ES/Qdrant/平台运行时等）
+  extraEnv: {}
 
 # 敏感配置（写入 Secret 或引用 existingSecret）
 # existingSecret 非空时不再创建 Secret，Secret 需包含下列同名 key。

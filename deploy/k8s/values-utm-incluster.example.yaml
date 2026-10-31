@@ -1,0 +1,52 @@
+imagePullSecrets: []
+backend:
+  image:
+    repository: aap/backend
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  pdb:
+    enabled: true
+    minAvailable: 1
+frontend:
+  image:
+    repository: aap/frontend
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  service:
+    type: NodePort
+    port: 80
+    nodePort: 30080
+  pdb:
+    enabled: true
+    minAvailable: 1
+config:
+  timezone: Asia/Shanghai
+  mysqlHost: mysql.aap-data.svc.cluster.local
+  mysqlPort: "3306"
+  mysqlDatabase: ai_agent_platform
+  mysqlUsername: root
+  redisHost: redis.aap-data.svc.cluster.local
+  redisPort: "6379"
+  pgUrl: jdbc:postgresql://pgvector.aap-data.svc.cluster.local:5432/vector
+  pgUsername: aiagent
+  minioEndpoint: http://minio.aap-data.svc.cluster.local:9000
+  ollamaEndpoint: http://192.168.64.1:11434
+  embeddingProvider: ollama
+  embeddingEndpoint: http://192.168.64.1:11434
+  appEnv: development
+  authCookieSecure: "false"
+  publicBase: http://192.168.64.2:18080
+  frontendBase: http://192.168.64.2:18080
+  extraEnv:
+    ELASTICSEARCH_URL: http://elasticsearch.aap-data.svc.cluster.local:9200
+    QDRANT_URL: http://qdrant.aap-data.svc.cluster.local:6333
+secrets:
+  existingSecret: aap-secrets
+ingress:
+  enabled: false
+networkPolicy:
+  enabled: false
+esSnapshot:
+  enabled: false

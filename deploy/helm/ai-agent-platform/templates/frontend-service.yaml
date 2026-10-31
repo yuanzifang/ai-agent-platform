@@ -12,6 +12,9 @@ spec:
       port: {{ .Values.frontend.service.port }}
       targetPort: http
       protocol: TCP
+      {{- if .Values.frontend.service.nodePort }}
+      nodePort: {{ .Values.frontend.service.nodePort }}
+      {{- end }}
   selector:
     {{- include "ai-agent-platform.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: frontend
