@@ -556,8 +556,12 @@ final class OcrTableExtractor {
         boolean any = false;
         for (Cell cell : line.cells) {
             if (cell.text.isBlank()) continue;
-            if (!cell.text.matches("(19|20)\\d{2}")) return false;
-            any = true;
+            String value = cell.text.trim();
+            if (value.matches("(19|20)\\d{2}")) {
+                any = true;
+                continue;
+            }
+            if (value.matches(".*\\d.*") || value.length() > 30) return false;
         }
         return any;
     }
