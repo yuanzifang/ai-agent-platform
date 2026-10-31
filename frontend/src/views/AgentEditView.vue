@@ -2890,9 +2890,9 @@ async function openWorkflowTemplates() {
   wfTemplatesVisible.value = true
 }
 
-function applyWorkflowTemplate(t: any) {
+function applyWorkflowTemplate(tpl: any) {
   const before = snapshotWorkflow()
-  let def: any = t?.definition
+  let def: any = tpl?.definition
   if (typeof def === 'string') {
     try { def = JSON.parse(def) } catch { def = {} }
   }

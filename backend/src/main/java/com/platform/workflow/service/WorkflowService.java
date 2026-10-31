@@ -248,6 +248,14 @@ public class WorkflowService {
                         tool("tool1", null),
                         node("llm1", "LLM", "基于工具结果回答", "end", "结合工具结果回答用户，简洁。", null),
                         node("end", "END", "结束", null, null, null))));
+        // 本地意图分类模板：JSON 资源与前端 E2E fixture 保持同构，便于直接加载和回归。
+        try (java.io.InputStream in = new org.springframework.core.io.ClassPathResource(
+                "workflow-templates/local-intent-triage.json").getInputStream()) {
+            Map<String, Object> localIntent = objectMapper.readValue(in, new TypeReference<>() {});
+            list.add(localIntent);
+        } catch (Exception e) {
+            log.warn("加载本地意图分类工作流模板失败：{}", e.getMessage());
+        }
         return list;
     }
 
