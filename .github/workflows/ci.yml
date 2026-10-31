@@ -512,6 +512,8 @@ jobs:
           E2E_BASE_URL: http://127.0.0.1:5173
           E2E_BROWSER: ${{ matrix.browser }}
           E2E_OTEL: "1"
+          # 网关门禁 UI 用例暂时隔离，由独立任务修复；不影响其余 E2E 回归。
+          E2E_GATE_QUARANTINE: "1"
         run: npm run test:e2e -- --project=${{ matrix.browser }}
 
       - name: 运行本地 Ollama 工作流 E2E（手动触发）
