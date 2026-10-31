@@ -60,9 +60,10 @@ public class ToolService {
     public Map<String, Object> list(String keyword, String category, String type) {
         Long tenantId = TenantContext.getTenantId();
         List<Map<String, Object>> list = new ArrayList<>();
-        for (ToolRegistry t : toolMapper.selectVisible(tenantId)) {
-            if (keyword != null && !keyword.isBlank()
-                    && !contains(t.getName(), keyword) && !contains(t.getDescription(), keyword)) continue;
+        List<ToolRegistry> visible = keyword == null || keyword.isBlank()
+                ? toolMapper.selectVisible(tenantId)
+                : toolMapper.searchVisible(tenantId, keyword);
+        for (ToolRegistry t : visible) {
             if (category != null && !category.isBlank() && !category.equals(t.getCategory())) continue;
             if (type != null && !type.isBlank() && !type.equalsIgnoreCase(t.getToolType())) continue;
             list.add(view(t));

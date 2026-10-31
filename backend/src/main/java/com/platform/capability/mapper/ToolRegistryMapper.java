@@ -23,6 +23,15 @@ public interface ToolRegistryMapper extends BaseMapper<ToolRegistry> {
     @InterceptorIgnore(tenantLine = "true")
     @Select("""
             SELECT * FROM tool_registry
+            WHERE status <> 'DELETED' AND (tenant_id IS NULL OR tenant_id = #{tenantId})
+              AND MATCH(name, description) AGAINST(#{keyword} IN NATURAL LANGUAGE MODE)
+            ORDER BY is_builtin DESC, id ASC
+            """)
+    List<ToolRegistry> searchVisible(@Param("tenantId") Long tenantId, @Param("keyword") String keyword);
+
+    @InterceptorIgnore(tenantLine = "true")
+    @Select("""
+            SELECT * FROM tool_registry
             WHERE id = #{id} AND status <> 'DELETED' AND (tenant_id IS NULL OR tenant_id = #{tenantId})
             """)
     ToolRegistry findVisible(@Param("id") Long id, @Param("tenantId") Long tenantId);

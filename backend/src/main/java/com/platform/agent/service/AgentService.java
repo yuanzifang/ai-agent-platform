@@ -104,7 +104,8 @@ public class AgentService {
         LambdaQueryWrapper<AgentRegistry> qw = new LambdaQueryWrapper<AgentRegistry>()
                 .ne(AgentRegistry::getStatus, "DELETED")
                 .eq(status != null && !status.isBlank(), AgentRegistry::getStatus, status)
-                .like(keyword != null && !keyword.isBlank(), AgentRegistry::getName, keyword)
+                .apply(keyword != null && !keyword.isBlank(),
+                        "MATCH(name, description) AGAINST({0} IN NATURAL LANGUAGE MODE)", keyword)
                 .orderByDesc(AgentRegistry::getUpdatedAt);
         Page<AgentRegistry> result = agentMapper.selectPage(new Page<>(page, size), qw);
         boolean admin = principal.roles().stream().anyMatch(r -> r.equals("ADMIN") || r.equals("OWNER"));
