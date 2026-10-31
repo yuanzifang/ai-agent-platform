@@ -36,6 +36,11 @@ class PdfSnapshotTest {
         System.out.println("PDF SNAPSHOT headings=" + headings + " tables=" + tables + " pageTo=" + pageTo
                 + "\n" + preview(text, 4000));
         assertTrue(chunks.size() >= 3, "多页文档应至少有多个分段");
+        var tableMetrics = TableStructureMetrics.fromText(text);
+        assertTrue(tableMetrics.tables() >= 1, "应至少识别一个表格");
+        assertTrue(tableMetrics.headerRows() >= 1, "表格应有表头");
+        assertTrue(tableMetrics.columns() >= 3, "表格至少应有 3 列，实际=" + tableMetrics);
+        assertTrue(tableMetrics.nonEmptyCells() >= 9, "表格数据单元格不应丢失，实际=" + tableMetrics);
         assertTrue(headings >= 3, "每页主标题应被识别，实际=" + headings);
         assertTrue(tables >= 1, "带网格线的表格应被识别，实际=" + tables);
         assertTrue(pageTo >= 3, "页码覆盖应包含最后一页，实际=" + pageTo);
