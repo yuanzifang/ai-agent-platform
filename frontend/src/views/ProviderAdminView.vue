@@ -94,7 +94,7 @@
         <el-table-column :label="t('providerPage.actions')" width="170">
           <template #default="{ row }">
             <el-button size="small" text type="primary" @click="editPrice(row)">{{ t('providerPage.config') }}</el-button>
-            <el-button size="small" text type="danger" @click="removeModel(row)">{{ t('providerPage.deleteModel') }}</el-button>
+            <el-button v-if="!row.providerPreset" size="small" text type="danger" @click="removeModel(row)">{{ t('providerPage.deleteModel') }}</el-button>
           </template>
         </el-table-column>
       </el-table>

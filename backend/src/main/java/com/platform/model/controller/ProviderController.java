@@ -45,7 +45,7 @@ public class ProviderController {
                             String modelName, String displayName, String purpose,
                             String capabilities, String defaultParams,
                             java.math.BigDecimal inputPrice, java.math.BigDecimal outputPrice,
-                            Integer contextWindow, String status) {
+                            Integer contextWindow, String status, Boolean providerPreset) {
     }
 
     /** Provider 列表：平台预置（tenant_id 空）+ 本租户自建；不含凭证。 */
@@ -83,7 +83,8 @@ public class ProviderController {
                             p == null ? "" : p.getName(), p == null ? "" : p.getProviderType(),
                             m.getModelName(), m.getDisplayName(), m.getPurpose(),
                             m.getCapabilities(), m.getDefaultParams(),
-                            m.getInputPrice(), m.getOutputPrice(), m.getContextWindow(), m.getStatus());
+                            m.getInputPrice(), m.getOutputPrice(), m.getContextWindow(), m.getStatus(),
+                            p != null && p.getTenantId() == null);
                 }).toList());
     }
 
