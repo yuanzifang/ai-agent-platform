@@ -35,4 +35,15 @@ class PdfManualReviewInspectorTest {
 
         assertTrue(warnings.stream().anyMatch(w -> w.contains("表格标题")));
     }
+    @Test
+    void flagsTableWithHighEmptyCellRatio() {
+        String html = "<table>" + "<tr><td>A</td><td></td><td></td><td></td></tr>".repeat(8) + "</table>";
+        List<String> warnings = new ArrayList<>();
+
+        PdfManualReviewInspector.inspect(List.of(new DocumentParser.ParsedChunk(
+                html, 0, "", null, 1, 1, List.of())), warnings);
+
+        assertTrue(warnings.stream().anyMatch(w -> w.contains("空单元格比例较高")));
+    }
+
 }

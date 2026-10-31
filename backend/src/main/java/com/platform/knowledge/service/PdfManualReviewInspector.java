@@ -1,5 +1,7 @@
 package com.platform.knowledge.service;
 
+import org.jsoup.Jsoup;
+
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -20,6 +22,7 @@ final class PdfManualReviewInspector {
         StringBuilder text = new StringBuilder();
         boolean hasTable = false;
         boolean complexTable = false;
+        boolean sparseTable = false;
         boolean chartUnverified = false;
         for (DocumentParser.ParsedChunk chunk : chunks) {
             if (chunk == null || chunk.content() == null) continue;
@@ -27,8 +30,13 @@ final class PdfManualReviewInspector {
             text.append(content).append('\n');
             String lower = content.toLowerCase(Locale.ROOT);
             if (lower.contains("<table") || content.startsWith("|")) hasTable = true;
-            if (lower.contains("<table") && (lower.contains("rowspan=") || lower.contains("colspan="))) {
-                complexTable = true;
+            if (lower.contains("<table")) {
+                if (lower.contains("rowspan=") || lower.contains("colspan=")) complexTable = true;
+                var cells = Jsoup.parseBodyFragment(content).select("td,th");
+                if (cells.size() >= 20) {
+                    long empty = cells.stream().filter(cell -> cell.text().isBlank()).count();
+                    if (empty * 2 > cells.size()) sparseTable = true;
+                }
             }
             if (lower.contains("\"ischart\"")
                     && (lower.contains("\"validationstatus\":\"unverified\"")
@@ -37,6 +45,7 @@ final class PdfManualReviewInspector {
             }
         }
         if (complexTable) add(warnings, PREFIX + "检测到复杂合并单元格表格，自动解析可能不完整，请人工核对");
+        if (sparseTable) add(warnings, PREFIX + "检测到空单元格比例较高的表格，列/合并结构可能不完整，请人工核对");
         if (!hasTable && TABLE_CAPTION.matcher(text).find()) {
             add(warnings, PREFIX + "检测到表格标题但未生成结构化表格，请人工核对");
         }
