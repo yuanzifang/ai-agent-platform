@@ -452,6 +452,47 @@ test('全局搜索支持用例期望答案全文匹配', async ({ request }) => 
   }
 })
 
+test('工作流错误按 Accept-Language 返回英文', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E工作流i18n-${Date.now()}`)
+  try {
+    const invalidSource = await request.put(`${P}/agent/${agentId}/workflow`, {
+      headers: { ...auth(token!), 'Accept-Language': 'en-US,en;q=0.9' },
+      data: {
+        name: 'E2E 工作流 i18n', status: 'ENABLED',
+        definition: { nodes: [
+          { id: 'start', type: 'START', name: 'start', next: 'cond' },
+          { id: 'cond', type: 'CONDITION', name: 'cond', conditionSource: 'bogus',
+            conditionType: 'contains', conditionValue: 'x', trueNext: 'end', falseNext: 'end' },
+          { id: 'end', type: 'END', name: 'end' }
+        ], edges: [] }
+      }
+    })
+    const invalidBody = await invalidSource.json()
+    expect(invalidBody.code).toBe(400)
+    expect(String(invalidBody.message)).toContain('Condition source')
+
+    const invalidState = await request.put(`${P}/agent/${agentId}/workflow`, {
+      headers: { ...auth(token!), 'Accept-Language': 'en-US,en;q=0.9' },
+      data: {
+        name: 'E2E 工作流 i18n', status: 'ENABLED',
+        definition: { nodes: [
+          { id: 'start', type: 'START', name: 'start', next: 'state' },
+          { id: 'state', type: 'STATE', name: 'state', valueTemplate: 'x', next: 'end' },
+          { id: 'end', type: 'END', name: 'end' }
+        ], edges: [] }
+      }
+    })
+    const stateBody = await invalidState.json()
+    expect(stateBody.code).toBe(400)
+    expect(String(stateBody.message)).toContain('STATE node requires stateKey')
+  } finally {
+    await request.delete(`${P}/agent/${agentId}/workflow`, { headers: auth(token!) })
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
 test('Prompt 模板 AI 优化', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()
