@@ -65,6 +65,7 @@ class AgentDeploymentServiceLifecycleTest {
         service = new AgentDeploymentService(deploymentMapper, runtimeKeyService, cryptoService, eventMapper,
                 agentMapper, versionMapper, apiKeyService, auditService, runtime,
                 deployProfileService, meterRegistry);
+        ReflectionTestUtils.setField(service, "deployEnabled", true);
 
         deployment = new AgentDeployment();
         deployment.setId(5L);
@@ -172,6 +173,16 @@ class AgentDeploymentServiceLifecycleTest {
         ReflectionTestUtils.setField(service, "logMaxSize", "");
         ReflectionTestUtils.setField(service, "logMaxFile", 0);
         assertEquals(List.of("--security-opt", "no-new-privileges"), service.containerLimits());
+    }
+
+    @Test
+    void deployIsDisabledByDefault() {
+        ReflectionTestUtils.setField(service, "deployEnabled", false);
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.deploy(1L, principal));
+        assertEquals(403, error.getCode());
+        assertTrue(error.getMessage().contains("agent.deploy.enabled=false"));
+        verify(runtime, never()).create(any());
     }
 
     @Test
