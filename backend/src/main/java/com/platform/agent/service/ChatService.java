@@ -227,9 +227,11 @@ public class ChatService {
                 continue;
             }
             List<Map<String, Object>> hits = new ArrayList<>(retrieved.hits());
-            // GraphRAG：向量/关键词命中之外，沿实体关系扩展证据分段（可用 retrievalConfig.graphEnabled=false 关闭）
+            // GraphRAG：显式检索配置优先；未配置时仅知识库显式开启才扩展，MVP 默认关闭。
+            boolean graphEnabled = Boolean.TRUE.equals(rc.get("graphEnabled"))
+                    || (!rc.containsKey("graphEnabled") && Boolean.TRUE.equals(visibleKb.getGraphEnabled()));
             int graphHits = 0;
-            if (!Boolean.FALSE.equals(rc.get("graphEnabled"))) {
+            if (graphEnabled) {
                 try {
                     java.util.Set<Long> existingChunkIds = new java.util.LinkedHashSet<>();
                     List<String> hitContents = new ArrayList<>();

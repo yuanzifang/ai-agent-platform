@@ -313,6 +313,7 @@ services:
 
   mysqld-exporter-init:
     image: mysql:8.4
+    profiles: ["obs"]
     restart: "no"
     depends_on:
       mysql:
@@ -331,6 +332,7 @@ services:
 
   mysqld-exporter:
     image: prom/mysqld-exporter:v0.16.0
+    profiles: ["obs"]
     restart: unless-stopped
     command:
       - --mysqld.address=mysql:3306
@@ -346,6 +348,7 @@ services:
 
   redis-exporter-init:
     image: redis:7.4-alpine
+    profiles: ["obs"]
     restart: "no"
     depends_on:
       redis:
@@ -361,6 +364,7 @@ services:
 
   redis-exporter:
     image: oliver006/redis_exporter:v1.67.0
+    profiles: ["obs"]
     restart: unless-stopped
     environment:
       REDIS_ADDR: redis:6379
@@ -375,6 +379,7 @@ services:
 
   postgres-exporter-init:
     image: postgres:16
+    profiles: ["obs"]
     restart: "no"
     depends_on:
       pgvector:
@@ -393,6 +398,7 @@ services:
 
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.17.1
+    profiles: ["obs"]
     restart: unless-stopped
     environment:
       DATA_SOURCE_NAME: postgresql://exporter:${PG_EXPORTER_PASSWORD:?PG_EXPORTER_PASSWORD is required}@pgvector:5432/vector?sslmode=disable
@@ -405,6 +411,7 @@ services:
 
   loki:
     image: grafana/loki:3.2.1
+    profiles: ["obs"]
     restart: unless-stopped
     command: ["-config.file=/etc/loki/loki.yml"]
     user: "0:0"
@@ -423,11 +430,12 @@ services:
 
   promtail:
     image: grafana/promtail:3.2.1
+    profiles: ["obs"]
     restart: unless-stopped
     command: ["-config.file=/etc/promtail/promtail.yml"]
     volumes:
       - ./deploy/observability/promtail.yml:/etc/promtail/promtail.yml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${DOCKER_LOG_DIR:-/var/lib/docker/containers}:/var/lib/docker/containers:ro
       - promtail-positions:/promtail
     depends_on:
       loki:
@@ -436,6 +444,7 @@ services:
 
   tempo:
     image: grafana/tempo:2.6.1
+    profiles: ["obs"]
     restart: unless-stopped
     command: ["-config.file=/etc/tempo/tempo.yml"]
     volumes:
@@ -447,6 +456,7 @@ services:
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.115.1
+    profiles: ["obs"]
     restart: unless-stopped
     command: ["--config=/etc/otelcol/config.yml"]
     volumes:
@@ -475,8 +485,6 @@ services:
       - "${GRAFANA_BIND:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
     depends_on:
       - prometheus
-      - loki
-      - tempo
     logging: *default-logging
 
   frontend:
