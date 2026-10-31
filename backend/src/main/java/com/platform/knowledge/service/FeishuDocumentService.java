@@ -61,6 +61,8 @@ public class FeishuDocumentService {
     private boolean imageVisionEnabled;
     @Value("${knowledge.feishu.image-vision-model:qwen3-vl:32b}")
     private String imageVisionModel;
+    @Value("${knowledge.feishu.include-comments:true}")
+    private boolean includeComments;
     @Value("${knowledge.feishu.api-base:https://open.feishu.cn}")
     private String apiBase = "https://open.feishu.cn";
     private long lastApiRequestAt;
@@ -343,6 +345,10 @@ public class FeishuDocumentService {
         if (blocks != null) {
             String imageText = extractDocxImageText(blocks, accessToken, skipped, seen);
             if (!imageText.isBlank()) document = appendDocumentText(document, imageText);
+        }
+        if (includeComments) {
+            String commentText = extractDocxComments(documentToken, accessToken);
+            if (!commentText.isBlank()) document = appendDocumentText(document, commentText);
         }
         add(out, document);
         if (blocks != null) {
@@ -704,6 +710,59 @@ public class FeishuDocumentService {
                 skip(skipped, "内嵌表格读取失败：" + block.path("block_id").asText(""));
             }
         }
+    }
+
+    /** 读取 docx 评论及回复，追加为文档末尾的评论章节；无权限/失败静默跳过。 */
+    private String extractDocxComments(String documentToken, String accessToken) {
+        try {
+            StringBuilder out = new StringBuilder();
+            String pageToken = null;
+            do {
+                String path = "/open-apis/drive/v1/files/" + encode(documentToken)
+                        + "/comments?file_type=docx&page_size=100"
+                        + (pageToken == null ? "" : "&page_token=" + encode(pageToken));
+                JsonNode data = requestJson(path, accessToken, "GET", null).path("data");
+                for (JsonNode comment : data.path("items")) {
+                    String quote = comment.path("quote").asText("");
+                    boolean solved = comment.path("is_solved").asBoolean(false);
+                    String replies = commentRepliesText(comment);
+                    if (replies.isBlank()) continue;
+                    if (out.length() == 0) out.append("## 评论\n");
+                    out.append("\n- ");
+                    if (!quote.isBlank()) out.append("引用：").append(quote).append("；");
+                    out.append(solved ? "已解决；" : "").append(replies).append("\n");
+                }
+                pageToken = data.path("page_token").asText(null);
+                if (!data.path("has_more").asBoolean(false)) pageToken = null;
+            } while (pageToken != null && !pageToken.isBlank() && !pageToken.equals("null"));
+            return out.toString().trim();
+        } catch (Exception e) {
+            log.debug("飞书评论读取跳过 doc={} err={}", documentToken, root(e));
+            return "";
+        }
+    }
+
+    private String commentRepliesText(JsonNode comment) {
+        JsonNode replies = comment.path("reply_list").path("replies");
+        StringBuilder out = new StringBuilder();
+        for (JsonNode reply : replies) {
+            JsonNode elements = reply.path("content").path("elements");
+            StringBuilder text = new StringBuilder();
+            for (JsonNode element : elements) {
+                if (element.has("text_run")) {
+                    text.append(element.path("text_run").path("text").asText(""));
+                } else if (element.has("docs_link")) {
+                    text.append(element.path("docs_link").path("text").asText(""));
+                } else if (element.has("person")) {
+                    text.append('@').append(element.path("person").path("name").asText(""));
+                }
+            }
+            if (text.length() > 0) {
+                if (out.length() > 0) out.append("；");
+                out.append(text);
+            }
+        }
+        return out.toString();
     }
 
     private String stripTableSuffix(String token) {
