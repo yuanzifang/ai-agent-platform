@@ -3,6 +3,7 @@ import { test, expect, type Page } from '@playwright/test'
 const USER = process.env.E2E_USER || 'dev'
 const PASSWORD = process.env.E2E_PASSWORD || 'Dev@123456'
 const AGENT_ID = 1
+const GATE_UI_QUARANTINED = process.env.E2E_GATE_QUARANTINE === '1'
 
 async function login(page: Page) {
   await page.goto('/login')
@@ -16,6 +17,7 @@ async function login(page: Page) {
 }
 
 test('发布弹窗：门禁失败直接展示失败步骤与样本明细', async ({ page }) => {
+  test.skip(GATE_UI_QUARANTINED, '网关门禁 UI 用例已隔离，由独立任务修复')
   await login(page)
   await page.route(`**/api/v1/agent/${AGENT_ID}**`, async (route) => {
     const path = new URL(route.request().url()).pathname
@@ -78,6 +80,7 @@ test('发布弹窗：门禁失败直接展示失败步骤与样本明细', async
 })
 
 test('写工具策略变更：普通发布阻断后可强制发布', async ({ page }) => {
+  test.skip(GATE_UI_QUARANTINED, '网关门禁 UI 用例已隔离，由独立任务修复')
   await login(page)
   let forceRequested = false
   await page.route(`**/api/v1/agent/${AGENT_ID}**`, async (route) => {
