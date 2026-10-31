@@ -357,6 +357,7 @@ class DocumentParserTest {
 
         String text = String.join("\n", parser.parse("wide-sparse.pdf", pdf));
 
+        assertTrue(text.contains("<table") || text.contains("| C1"), "完整宽表应保留结构，实际=" + text);
         assertTrue(text.contains("C13"), "完整表头应保留，实际=" + text);
         assertTrue(text.contains("R4C13"), "稀疏数据行应保留，实际=" + text);
     }
