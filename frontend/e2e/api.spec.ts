@@ -507,10 +507,12 @@ test('模型与 Provider 安全删除', async ({ request }) => {
   expect(provider.code, JSON.stringify(provider)).toBe(0)
   const providerId = provider.data.id as number
   let modelId: number | null = null
+  let agentId: number | null = null
+  const modelName = `E2E-delete-model-${Date.now()}`
   try {
     const model = await (await request.post(`${P}/provider/${providerId}/models`, {
       headers: auth(token!),
-      data: { modelName: `E2E-delete-model-${Date.now()}`, purpose: 'CHAT', contextWindow: 8192 }
+      data: { modelName, purpose: 'CHAT', contextWindow: 8192 }
     })).json()
     expect(model.code, JSON.stringify(model)).toBe(0)
     modelId = model.data.id
@@ -518,6 +520,31 @@ test('模型与 Provider 安全删除', async ({ request }) => {
     const listed = await (await request.get(`${P}/provider/models`, { headers: auth(token!) })).json()
     const customModel = (listed.data || []).find((m: any) => m.modelId === modelId)
     expect(customModel?.providerPreset, '租户模型应允许删除').toBe(false)
+    const platformModel = (listed.data || []).find((m: any) => m.providerPreset)
+    if (platformModel) {
+      const platformDelete = await request.delete(`${P}/models/${platformModel.modelId}`, {
+        headers: auth(token!)
+      })
+      expect((await platformDelete.json()).code, '平台预置模型不可删除').toBe(403)
+    }
+
+    const referencedAgent = await (await request.post(`${P}/agent`, {
+      headers: auth(token!),
+      data: {
+        name: `E2E删除引用-${Date.now()}`,
+        description: '模型删除引用保护',
+        systemPrompt: '只回答 OK',
+        modelConfig: { modelName },
+        visibility: 'PRIVATE'
+      }
+    })).json()
+    expect(referencedAgent.code, JSON.stringify(referencedAgent)).toBe(0)
+    agentId = referencedAgent.data.id
+    expect((await (await request.delete(`${P}/models/${modelId}`, {
+      headers: auth(token!)
+    })).json()).code, '被 Agent 引用的模型不可删除').toBe(409)
+    await deleteAgent(request, token!, agentId)
+    agentId = null
 
     const blocked = await request.delete(`${P}/provider/${providerId}`, { headers: auth(token!) })
     const blockedBody = await blocked.json()
@@ -534,6 +561,7 @@ test('模型与 Provider 安全删除', async ({ request }) => {
     const providers = await (await request.get(`${P}/provider`, { headers: auth(token!) })).json()
     expect((providers.data || []).some((p: any) => p.id === providerId)).toBe(false)
   } finally {
+    if (agentId) await deleteAgent(request, token!, agentId)
     if (modelId) await request.delete(`${P}/models/${modelId}`, { headers: auth(token!) })
     await request.delete(`${P}/provider/${providerId}`, { headers: auth(token!) })
   }
