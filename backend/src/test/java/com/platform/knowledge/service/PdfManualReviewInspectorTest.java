@@ -46,4 +46,15 @@ class PdfManualReviewInspectorTest {
         assertTrue(warnings.stream().anyMatch(w -> w.contains("空单元格比例较高")));
     }
 
+    @Test
+    void flagsHeaderlessTable() {
+        String html = "<table><tr><td>A</td><td>1</td></tr>".repeat(6) + "</table>";
+        List<String> warnings = new ArrayList<>();
+
+        PdfManualReviewInspector.inspect(List.of(new DocumentParser.ParsedChunk(
+                html, 0, "", null, 1, 1, List.of())), warnings);
+
+        assertTrue(warnings.stream().anyMatch(w -> w.contains("缺少表头")));
+    }
+
 }
