@@ -248,6 +248,9 @@ jobs:
         working-directory: backend
         run: mvn -q package
 
+      - name: 后端 i18n key 一致性
+        run: python3 scripts/check-backend-i18n.py
+
       - name: PDF 解析快照回归（标题/表格/页码覆盖阈值）
         working-directory: backend
         run: mvn -q -Dtest=PdfSnapshotTest test
