@@ -515,6 +515,10 @@ test('模型与 Provider 安全删除', async ({ request }) => {
     expect(model.code, JSON.stringify(model)).toBe(0)
     modelId = model.data.id
 
+    const listed = await (await request.get(`${P}/provider/models`, { headers: auth(token!) })).json()
+    const customModel = (listed.data || []).find((m: any) => m.modelId === modelId)
+    expect(customModel?.providerPreset, '租户模型应允许删除').toBe(false)
+
     const blocked = await request.delete(`${P}/provider/${providerId}`, { headers: auth(token!) })
     const blockedBody = await blocked.json()
     expect(blockedBody.code, '仍有模型时 Provider 不能删除').toBe(409)
