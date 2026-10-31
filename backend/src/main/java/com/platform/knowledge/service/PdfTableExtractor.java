@@ -488,10 +488,19 @@ final class PdfTableExtractor {
                 value = true;
                 if (cell.matches("[-+]?\\d+([.,]\\d+)?%?")) numeric = true;
             }
-            if (!value || (numeric && !yearLabels(row))) break;
+            if (!value || (numeric && !yearLabels(row)) || isSectionRow(row)) break;
             count++;
         }
         return count >= rows.size() ? 0 : count;
+    }
+
+    /** 表体中常见 ASSETS:/Current assets: 分组行，不能继续当成表头。 */
+    private static boolean isSectionRow(LogicalRow row) {
+        if (yearLabels(row)) return false;
+        for (String cell : row.values) {
+            if (cell != null && !cell.isBlank() && cell.trim().endsWith(":")) return true;
+        }
+        return false;
     }
 
     private static boolean yearLabels(LogicalRow row) {
