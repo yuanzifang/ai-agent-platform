@@ -24,8 +24,8 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 部署容器的调用方 Key：按 Key 日配额、可停用/删除。
- * 明文只在创建时返回一次；容器里只注入 SHA-256 哈希（CALLER_KEYS_JSON）。
+ * Agent 运行时调用方 Key：按 Key 日配额、可停用/删除。
+ * 默认 nginx 平台网关运行时由平台直接查询本表；只有旧 Node gateway 兼容路径才会注入哈希。
  */
 @Slf4j
 @Service

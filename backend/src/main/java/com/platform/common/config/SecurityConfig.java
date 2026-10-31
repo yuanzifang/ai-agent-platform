@@ -39,6 +39,8 @@ public class SecurityConfig {
                                 "/api/v1/share/**", "/api/v1/open/**", "/api/v1/channels/**", "/api/v1/auth/sso/**",
                                 // 统一 API 网关公开入口（X-Gateway-Key 在控制器内校验）
                                 "/api/v1/gateway/call/**", "/api/v1/gateway/ws/**",
+                                // Agent 平台运行时入口（Bearer 部署令牌/调用方 Key 在控制器内校验）
+                                "/api/v1/gateway/agent-runtime/**",
                                 "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html",
                                 // OAuth 2.1 浏览器回调（一次性 state 校验）
                                 "/api/v1/mcp-servers/oauth/callback",

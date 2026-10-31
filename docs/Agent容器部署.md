@@ -1,12 +1,12 @@
 # Agent 容器部署（MVP：本机 Docker）
 
-> 2026-10-31 安全默认值：Agent 容器部署默认开启；默认只绑定 `AGENT_DEPLOY_BIND=127.0.0.1`、CORS 默认空、API Key/运行时令牌只读文件。需要临时冻结部署入口时显式设置 `AGENT_DEPLOY_ENABLED=false`。
+> 2026-10-31 运行时收敛：默认 `agent.deploy.runtime=nginx`。nginx 容器只做入口、CORS/静态健康检查和 `/v1` 反向代理；Bearer 部署令牌、调用方 Key、分钟限流、日配额、用量统计全部由 Spring 平台网关 `/api/v1/gateway/agent-runtime/{agentId}/v1/*` 执行。
 >
-> 默认 `gateway` runtime 的 API Key 和运行时令牌通过只读 Secret 文件传入（`API_KEY_FILE` / `RUNTIME_TOKEN_FILE`），不再写入容器环境变量；旧 `nginx` fallback 仍使用环境变量，仅保留兼容。
+> 旧 Node `aap/agent-gateway` 运行时保留为 `AGENT_DEPLOY_RUNTIME=gateway` 兼容回滚，不再是默认路径；默认 nginx 容器不再接触集成 API Key 或运行时令牌明文。迁移细节见 `docs/Agent运行时网关迁移.md`。
 
 目标：**发布 → 一键部署 → 容器里跑起来 → 直接调用**。
 
-> 外部 Docker（UTM/Docker Desktop）必须把 `AGENT_DEPLOY_WORKDIR` 配成宿主共享目录；后端容器写入的 `secrets/<container>/api-key`、`runtime-token` 只有被 Docker 守护进程看到，才能以只读文件挂载进 Agent 容器。若后端运行在平台容器内而 Docker 在宿主，需为该目录配置共享卷，不能使用容器内私有路径。
+> 外部 Docker（UTM/Docker Desktop）仍必须把 `AGENT_DEPLOY_WORKDIR` 配成宿主共享目录；nginx 模板需要从后端写入该目录，再由 Docker 以只读方式挂载。旧 Node gateway 的只读 Secret 目录仅在使用 `AGENT_DEPLOY_RUNTIME=gateway` 时需要。
 
 ## 前提
 
@@ -41,7 +41,7 @@
    - 容器名、镜像、更新时间
    - 可直接复制的 curl 示例
    - 启动 / 停止 / 日志 / **部署历史（可按版本回滚并重新部署）** / 重新部署 / 删除部署
-4. 调用示例（需带访问令牌；平台 Key 已注入容器，不需要再传 X-Api-Key）：
+4. 调用示例（需带访问令牌；平台集成 Key 保留在平台侧，不需要再传 X-Api-Key）：
 
 ```bash
 curl -s http://100.82.118.40:19000/v1/chat/completions \
@@ -54,20 +54,23 @@ curl -s http://100.82.118.40:19000/v1/chat/completions \
 
 ## 实现方式
 
-默认使用**自研运行时镜像** `aap/agent-gateway:1`（见 `docs/Agent运行时镜像.md`），每个 Agent 至少一个运行时容器；多副本时额外一个 nginx LB 容器：
+默认使用**平台网关运行时**：每个 Agent 至少一个 `nginx:alpine` 容器，容器内只有模板和入口，不再运行 Node 鉴权进程；多副本时额外一个 nginx LB 容器：
 
 ```
-client → container:8080 /v1/chat/completions
-       → 校验运行时令牌 / 限流 / 日配额
-       → 平台 /api/v1/open/chat/completions（自动带 X-Api-Key）
+client → container:80 /v1/chat/completions
+       → nginx 透明反代（保留 Authorization / X-Gray-Tag）
+       → 平台 /api/v1/gateway/agent-runtime/{agentId}/v1/chat/completions
+       → 平台校验部署令牌/调用方 Key、限流、日配额、用量
+       → 平台 /api/v1/open 内部链路（对话/审核/记忆/RAG/工具/计费/Trace）
        → 透传响应（含 SSE）
 ```
 
-- 先在仓库构建镜像：`docker build -t aap/agent-gateway:1 runtime/agent-gateway`
-- 部署时自动创建该 Agent 的集成 API Key（`container:aap-agent-<id>`），删除/重新部署时清理
-- 镜像内置鉴权、限流、CORS、`/stats` 用量统计，不挂载宿主机目录
-- 兼容旧的 nginx 方案：`agent.deploy.runtime=nginx` 时仍使用 `nginx:alpine` + 模板挂载
+- 默认无需构建 Node 镜像；`agent.deploy.runtime=gateway` 时仍可构建 `aap/agent-gateway:1` 作为兼容回滚
+- 部署时仍会创建该 Agent 的内部集成 API Key（`container:aap-agent-<id>`），但**只留在平台数据库**，不注入 nginx、不写入容器环境变量
+- 运行时令牌（部署令牌）加密保存在 `agent_deployment`；平台网关在每次请求时校验，nginx 不持有明文
+- 调用方 Key 从 `agent_runtime_key` 表实时读取；新增/停用/删除不需要重建容器
 - 容器带 `--restart unless-stopped` 与基于 `/healthz` 的 healthcheck（按容器端口自动生成）
+- 旧 Node 运行时仍保留 `docs/Agent运行时镜像.md` 的兼容说明
 
 ### 表结构
 
@@ -96,26 +99,26 @@ client → container:8080 /v1/chat/completions
 
 | 配置 | 环境变量 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| `runtime` | `AGENT_DEPLOY_RUNTIME` | `gateway` | `gateway`=自研运行时，`nginx`=旧模板方案 |
-| `gateway-image` | `AGENT_DEPLOY_GATEWAY_IMAGE` | `aap/agent-gateway:1` | 自研运行时镜像 |
-| `image` | `AGENT_DEPLOY_IMAGE` | `nginx:alpine` | nginx 回退方案镜像 |
-| `caller-quota-daily` | `AGENT_DEPLOY_CALLER_QUOTA_DAILY` | 0 | 主令牌日配额（0=不限） |
-| `caller-keys` | `AGENT_DEPLOY_CALLER_KEYS` | 空 | 额外调用方 Key：`key1:配额,key2:0` |
+| `runtime` | `AGENT_DEPLOY_RUNTIME` | `nginx` | `nginx`=平台网关运行时（推荐）；`gateway`=旧 Node 运行时（兼容回滚） |
+| `gateway-image` | `AGENT_DEPLOY_GATEWAY_IMAGE` | `aap/agent-gateway:1` | 旧 Node 运行时镜像 |
+| `image` | `AGENT_DEPLOY_IMAGE` | `nginx:alpine` | 平台网关运行时入口镜像 |
+| `caller-quota-daily` | `AGENT_DEPLOY_CALLER_QUOTA_DAILY` | 0 | 主令牌日配额（0=不限，平台网关执行） |
+| `caller-keys` | `AGENT_DEPLOY_CALLER_KEYS` | 空 | 旧 Node 运行时兼容配置；平台网关从 `agent_runtime_key` 读取 |
 | `replicas` | `AGENT_DEPLOY_REPLICAS` | 1 | 默认副本数（1-5）；部署时可单独指定 |
-| `redis-url` | `AGENT_DEPLOY_REDIS_URL` | `redis://host.docker.internal:6379/0` | 多副本共享限流/配额/用量 |
+| `redis-url` | `AGENT_DEPLOY_REDIS_URL` | `redis://host.docker.internal:6379/0` | 旧 Node 多副本兼容配置；平台网关使用平台自身 Redis |
 | `port-start/port-end` | `AGENT_DEPLOY_PORT_START/END` | 19000-19999 | 宿主端口池（自动挑空端口） |
-| `bind` | `AGENT_DEPLOY_BIND` | `0.0.0.0` | 端口绑定地址；改 `127.0.0.1` 则只允许本机 |
+| `bind` | `AGENT_DEPLOY_BIND` | `127.0.0.1` | 端口绑定地址；默认仅本机 |
 | `cpu-limit` | `AGENT_DEPLOY_CPU_LIMIT` | `1` | 每个运行时/LB 容器的 CPU 上限（Docker `--cpus`） |
 | `memory-limit` | `AGENT_DEPLOY_MEMORY_LIMIT` | `512m` | 每个运行时/LB 容器的内存上限 |
 | `pids-limit` | `AGENT_DEPLOY_PIDS_LIMIT` | `256` | 每个容器的 PID 上限，防止进程失控 |
 | `log-max-size` | `AGENT_DEPLOY_LOG_MAX_SIZE` | `10m` | Docker json-file 单文件日志上限 |
 | `log-max-file` | `AGENT_DEPLOY_LOG_MAX_FILE` | `3` | Docker 日志保留文件数 |
-| `platform-base-url` | `AGENT_DEPLOY_PLATFORM_BASE` | `http://host.docker.internal:8080` | 容器访问平台的地址 |
-| `rate-limit-per-min` | `AGENT_DEPLOY_RATE_LIMIT` | 60 | 每 IP 每分钟请求数（作用于 /v1/ 代理请求） |
-| `rate-limit-burst` | `AGENT_DEPLOY_RATE_BURST` | 20 | 突发配额，超出返回 429 |
-| `cors-origins` | `AGENT_DEPLOY_CORS_ORIGINS` | `*` | 允许的跨域来源 |
+| `platform-base-url` | `AGENT_DEPLOY_PLATFORM_BASE` | `http://host.docker.internal:8080` | nginx 容器访问平台网关的地址 |
+| `rate-limit-per-min` | `AGENT_DEPLOY_RATE_LIMIT` | 60 | 平台网关每调用方每分钟限流（nginx 不做业务限流） |
+| `rate-limit-burst` | `AGENT_DEPLOY_RATE_BURST` | 20 | 平台网关令牌桶突发额度 |
+| `cors-origins` | `AGENT_DEPLOY_CORS_ORIGINS` | 空 | 允许的跨域来源，需显式配置 |
 | `public-base` | `AGENT_DEPLOY_PUBLIC_BASE` | 空 | 对外地址前缀，空则自动取 Tailscale/内网 IP |
-| `workdir` | `AGENT_DEPLOY_WORKDIR` | `~/.aap-agent-runtime` | 模板和只读 Secret 文件目录；必须位于 Docker 守护进程可见的共享路径（外部 UTM Docker 需要显式配置卷/共享目录） |
+| `workdir` | `AGENT_DEPLOY_WORKDIR` | `~/.aap-agent-runtime` | 模板/旧 gateway Secret 文件目录；必须位于 Docker 守护进程可见的共享路径 |
 | `docker-bin` | `AGENT_DEPLOY_DOCKER_BIN` | `docker` | Docker CLI 路径 |
 
 > `host.docker.internal` 在 Docker Desktop / colima 下可用；Linux 上已通过 `--add-host host.docker.internal:host-gateway` 兜底。若后端本身跑在 compose 里，请把 `platform-base-url` 改成平台在容器网络中的地址（如 `http://backend:8080`）。
@@ -126,20 +129,21 @@ client → container:8080 /v1/chat/completions
 
 - 副本明细在弹窗内展示（容器名/端口/状态/地址），`agent_deployment` 主行保存第一个副本，明细存 `replicas_json`
 - 启停/删除/日志/统计会作用于全部副本
-- **多副本必须配置 Redis**（`agent.deploy.redis-url`），限流、日配额与用量跨副本共享；未配置时只允许 1 副本
+- **平台网关运行时**的限流、日配额与用量统一在 Spring/Redis，跨副本天然共享；不再要求旧 Node 的 `agent.deploy.redis-url`
 - 多副本自动创建一个 nginx LB 容器（`aap-agent-<id>-lb`，迁移 V100），对外暴露稳定「统一入口」，按 `least_conn` 轮询副本；副本故障时自动转发到健康副本
 - 统一入口地址写入 `lb_endpoint`/`lb_local_endpoint`，部署弹窗的对外地址和 curl 示例优先使用 LB；副本表仍展示各自端口
 
 ## 调用方 Key 与日配额
 
-部署弹窗的「调用方 Key」面板（gateway 运行时时可用）：
+部署弹窗的「调用方 Key」面板直接管理平台侧的 `agent_runtime_key`：
 
 - **新建 Key**：名称 + 日配额（0=不限），明文只显示一次，可复制给调用方
 - 列表显示：名称、前缀、日配额、**今日调用**、状态；支持编辑、停用/启用、删除
-- 每次变更都会**自动重建容器**使 Key 生效；未部署时保存，部署后生效
+- Key 变更**不需要重建容器**：平台网关每次请求实时读取数据库
 - 调用方式：`Authorization: Bearer sk-run-...`（与部署主令牌等价，独立配额）
-- 平台只把 **SHA-256 哈希 + 配额 + 名称** 注入容器（`CALLER_KEYS_JSON`），容器内没有明文
-- 「今日调用」来自容器 `/stats`，按 UTC 日重置；主令牌用量同时显示
+- 容器内不再保存调用方 Key 哈希或明文；`nginx` 只透传 Authorization
+- 「今日调用」来自平台网关 `/stats`，按 UTC 日重置；主令牌用量同时显示
+- 旧 Node `gateway` 运行时仍兼容 `CALLER_KEYS_JSON` 注入，但仅作为回滚路径
 
 接口：
 
@@ -149,17 +153,17 @@ client → container:8080 /v1/chat/completions
 | POST | `/api/v1/agent/{id}/runtime-keys` | 新建（仅本次返回明文） |
 | PUT | `/api/v1/agent/{id}/runtime-keys/{keyId}` | 改名/配额/启停 |
 | DELETE | `/api/v1/agent/{id}/runtime-keys/{keyId}` | 删除 |
-| GET | `/api/v1/agent/{id}/deployment/stats` | 代理容器 `/stats`，按 Key 当日用量 |
+| GET | `/api/v1/agent/{id}/deployment/stats` | 平台网关按 Key 当日用量 |
 
 > 配额与限流都是运行时单实例内存实现，重启容器后当日统计清零。
 
 ## 安全说明
 
-- 容器接口需要 `Authorization: Bearer <访问令牌>`；令牌随部署生成、加密存储，可一键重置（重置即重建容器）。`/healthz` 不需要令牌，供容器 healthcheck 使用。
-- 运行时网关支持多调用方 Key（UI 管理，容器内只存哈希）与各自日配额，`/stats` 查看当日用量；限流按 Key 令牌桶，超出返回 429。
-- CORS 默认 `*`，生产建议改成具体前端域名。
-- API Key 与令牌以环境变量形式存在容器里，`docker inspect` 可见；删除部署时会一并删除该 Key。
-- 默认绑定 `0.0.0.0` 是为了 Tailscale/手机访问；仍建议只在内网/网关后面暴露该端口。
+- 容器接口需要 `Authorization: Bearer <访问令牌>`；令牌随部署生成、加密存储，可一键重置。nginx 容器**不持有**令牌明文；`/healthz` 不需要令牌，供容器 healthcheck 使用。
+- 平台网关支持部署主令牌 + 多调用方 Key（数据库管理，各自日配额），限流/配额/用量在 Spring 侧执行；超出返回 429。
+- 默认 nginx 容器不注入集成 API Key，也不挂载 Secret 文件；`docker inspect` 看不到平台 Key。
+- CORS 默认空，生产需显式配置允许来源。
+- 默认绑定 `127.0.0.1`；需 Tailscale/手机访问时显式改 `AGENT_DEPLOY_BIND=0.0.0.0` 并放在网关/内网后。
 - 运行时与 LB 容器默认限制 CPU=1、内存=512m、PID=256，并带 `no-new-privileges`；日志使用 Docker json-file 轮转，默认单文件 10m、保留 3 个；可由 `agent.deploy.*` 调整。
 - 每个 Agent 只保留一个部署记录（1–5 个运行时副本 + 可选 LB 容器），重新部署 = 删旧建新（短暂不可用）。重新部署优先复用原端口，最多等待 3 秒。
 - 「回滚并部署」= 完整恢复该版本的 Agent 配置（含知识库/工具/技能/子 Agent）+ 重新部署容器，详见 `docs/Agent版本与回滚.md`。
@@ -183,10 +187,12 @@ client → container:8080 /v1/chat/completions
 ## 验证
 
 - 自动化：`DockerCliRuntimeTest` 3 个单测（create 参数、Docker 失败、inspect JSON）；CI `gateway` job 构建 `agent-gateway:ci` 后执行 `DockerCliRuntimeIT`，真实 Docker 完成 create→start→inspect→logs→stop→remove，并等 `/healthz` 返回 ok
-- 服务编排：`AgentDeploymentServiceLifecycleTest` 4 个单测覆盖多副本 start/stop、remove 清理容器/Key/事件、未发布拦截、多副本缺 Redis 拦截
+- 服务编排：`AgentDeploymentServiceLifecycleTest` 12 个单测覆盖多副本 start/stop、remove 清理容器/Key/事件、未发布拦截、旧 gateway 多副本缺 Redis 拦截、nginx 模板不持有 Key/令牌、平台统计分支
+- 平台运行时单测：`AgentRuntimeGatewayServiceTest` 6 个用例覆盖部署令牌、调用方 Key、停用/非法令牌、限流、日配额、平台用量统计
 
 - 后端：`mvn -q -DskipTests compile` / `test-compile`，思考模式单测 7 + 路由单测 2 通过
 - 部署链路（假 Docker CLI + 真实后端/数据库）：部署→运行态、端口 19000、环境变量/挂载/健康检查参数、停止/启动/日志、未发布拦截、删除并回收 Key，全部通过
+- **以下 gateway/nginx 历史验证为迁移前结果；2026-10-31 后默认路径需重新做平台网关实测**：
 - **真实 Docker（colima + agent-gateway:1）**：
   - 自研运行时：无令牌 401、正确令牌 200、SSE 对话正常、CORS 预检 204、限流 429、多 Key 配额与 `/stats` 验证通过
   - 调用方 Key：新建（配额 2）→ 调用 200/200/429 → `/stats` 显示名称与 2 次；停用后 401；删除后 401、主令牌仍 200；UI 新建→自动重建→停用→删除全流程通过
@@ -209,5 +215,5 @@ client → container:8080 /v1/chat/completions
 ## 下一步（如需）
 
 1. K8s 实现：`ContainerRuntime` 增加 `KubernetesRuntime`，按租户配额创建 Deployment/Service/Ingress
-2. 运行时多副本：token 级配额（限流/日配额/统计已 Redis 共享）
+2. 平台网关运行时：继续补真实 Docker/nginx 全链路回归与 token 级配额
 3. 容器日志集中存储（Loki）

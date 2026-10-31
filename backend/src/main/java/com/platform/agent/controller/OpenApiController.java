@@ -99,10 +99,18 @@ public class OpenApiController {
         return TenantContext.runWith(key.getTenantId(), () -> handle(key, agent, body, finalGrayTag, httpResponse));
     }
 
+    /**
+     * 平台运行时网关复用入口：调用方已完成 Bearer/调用方 Key 鉴权，
+     * 这里不再重复校验集成 API Key，但仍走完整对话链路。
+     */
+    public Object completeFor(IntegrationApiKey key, AgentRegistry agent, Map<String, Object> body,
+                              String grayTag, jakarta.servlet.http.HttpServletResponse httpResponse) {
+        return TenantContext.runWith(key.getTenantId(), () -> handle(key, agent, body, grayTag, httpResponse));
+    }
+
     private Object handle(IntegrationApiKey key, AgentRegistry agent, Map<String, Object> body,
                           String grayTag, jakarta.servlet.http.HttpServletResponse httpResponse) {
-        String message = extractUserMessage(body.get("messages"));
-        if (message == null || message.isBlank()) {
+        String message = extractUserMessage(body.get("messages"));        if (message == null || message.isBlank()) {
             throw new BusinessException(400, "messages 中缺少 user 消息");
         }
         String sessionId = str(body.get("session_id"));

@@ -1,4 +1,6 @@
-# Agent 运行时镜像（agent-gateway）
+# Agent 运行时镜像（agent-gateway，兼容回滚）
+
+> 2026-10-31 起默认运行时已迁移到 **Spring 平台网关 + nginx 透明入口**（`agent.deploy.runtime=nginx`）。本文档描述的是旧 Node 运行时，仅在显式设置 `AGENT_DEPLOY_RUNTIME=gateway` 时用于兼容回滚，不再是默认构建/部署路径。
 
 自研的单 Agent 运行时：把「一个已发布 Agent」暴露成独立的 OpenAI 兼容接口，镜像内置鉴权、限流、日配额、CORS 与用量统计，不再依赖 nginx 模板挂载。
 
@@ -15,7 +17,7 @@ docker build -t aap/agent-gateway:1 .
 - 镜像无 npm 依赖，构建即用
 - 自带 `HEALTHCHECK`，部署服务也会按宿主端口再探一次 `/healthz`
 
-平台默认通过 `agent.deploy.runtime=gateway` 使用该镜像；`agent.deploy.runtime=nginx` 可回退旧的 nginx 模板方案。
+旧版本默认通过 `agent.deploy.runtime=gateway` 使用该镜像；当前默认是 `nginx` + 平台网关。
 
 ## 架构
 
@@ -38,7 +40,7 @@ client → container:8080 /v1/chat/completions
 | `AGENT_SLUG` | `agent` | `/v1/models` 返回的模型 ID |
 | `RUNTIME_TOKEN` / `RUNTIME_TOKEN_FILE` | 空 | 主访问令牌；`RUNTIME_TOKEN_FILE` 优先，平台部署时写只读文件 |
 | `PORT` | `8080` | 监听端口 |
-| `CORS_ORIGIN` | 空 | 允许的跨域来源；空=不返回 CORS 头，必须显式配置 |
+| `CORS_ORIGIN` | 空 | 允许的跨域来源；空=不返回 CORS 头，必须显式配置；不要使用 `*` |
 | `RATE_LIMIT_PER_MIN` | `60` | 每 Key 每分钟令牌回填速率，0=不限 |
 | `RATE_BURST` | `20` | 突发额度（令牌桶容量 = burst + 1） |
 | `CALLER_QUOTA_DAILY` | `0` | 主令牌日调用配额，0=不限 |
@@ -83,6 +85,9 @@ Redis 不可用时自动回退内存统计（并打印一次告警），单副�
 ```text
 PLATFORM_BASE / API_KEY / AGENT_SLUG / RUNTIME_TOKEN / PORT
 RATE_LIMIT_PER_MIN / RATE_BURST / CORS_ORIGIN / CALLER_QUOTA_DAILY
+
+CI 的网关容器冒烟从 GitHub 仓库 Variable `CORS_ORIGIN` 读取；未配置时使用
+`https://app.example`，不把通配符写入测试或生产配置。
 （可选 CALLER_KEYS）
 ```
 
