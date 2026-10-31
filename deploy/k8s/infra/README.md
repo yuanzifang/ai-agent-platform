@@ -72,7 +72,9 @@ kubectl -n aap-data get pods,pvc -o wide
 当前 UTM 的迁移过程保留了原 UTM Docker 栈作为回滚，不删除源数据。
 
 
-## 5. Agent Gateway
+## 5. Agent Gateway（旧版兼容，可选）
+
+> 2026-10-31 起默认运行时是 **Spring 平台网关 + 每 Agent nginx 透明入口**，不需要单独部署 Node agent-gateway。本节只用于旧版兼容/回滚；外部已有 `aap-agent-gateway` Pod 不会被默认部署流程修改。
 
 统计/运行时网关是无状态服务，可单独部署到 K8s。创建 Secret：
 
