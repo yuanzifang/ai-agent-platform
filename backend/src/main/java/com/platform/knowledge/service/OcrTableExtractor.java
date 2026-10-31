@@ -17,6 +17,7 @@ final class OcrTableExtractor {
     private static final float LINE_TOLERANCE = 8f;
     private static final float CELL_GAP = 20f;
     private static final float ALIGN_TOLERANCE = 15f;
+    private static final float ANCHOR_TOLERANCE = 28f;
 
     private OcrTableExtractor() {
     }
@@ -104,14 +105,76 @@ final class OcrTableExtractor {
                 .filter(line -> !isCaption(line.text) && !isNote(line.text))
                 .toList();
         if (candidates.size() < 3) return "";
+        StringBuilder tables = new StringBuilder();
+        for (List<Line> block : contiguousBlocks(candidates)) {
+            String table = bestTableBlock(block, lines);
+            if (table.isBlank()) continue;
+            if (tables.length() > 0) tables.append('\n');
+            tables.append(table);
+        }
+        return tables.toString();
+    }
+
+    /** 同一页可能有多段表格；按行间距切块，避免正文行把列锚点撑散。 */
+    private static List<List<Line>> contiguousBlocks(List<Line> lines) {
+        List<List<Line>> blocks = new ArrayList<>();
+        List<Line> current = new ArrayList<>();
+        Line previous = null;
+        for (Line line : lines) {
+            if (previous != null) {
+                float gap = line.top - previous.top;
+                float height = Math.max(previous.height(), line.height());
+                if (gap > Math.max(40f, height * 5.0f)) {
+                    if (current.size() >= 3) blocks.add(current);
+                    current = new ArrayList<>();
+                }
+            }
+            current.add(line);
+            previous = line;
+        }
+        if (current.size() >= 3) blocks.add(current);
+        return blocks;
+    }
+
+    /** 页眉/正文也可能形成 2–9 个“单元格”，逐级提高最小列数，选最完整的表。 */
+    private static String bestTableBlock(List<Line> block, List<Line> lines) {
+        String best = "";
+        double bestDensity = 0;
+        int bestRows = 0;
+        for (int minCells = 2; minCells <= 8; minCells++) {
+            final int min = minCells;
+            List<Line> candidates = block.stream()
+                    .filter(line -> line.cells.size() >= min).toList();
+            if (candidates.size() < 3) continue;
+            String table = toTableBlock(candidates, lines);
+            if (table.isBlank()) continue;
+            int cells = count(table, "<td") + count(table, "<th");
+            int empty = count(table, "></td>") + count(table, "></th>");
+            if (cells == 0) continue;
+            double density = (double) (cells - empty) / cells;
+            // 优先选择填充率高、行数足够的版本；避免把正文空白行拼成超大表。
+            if (density > bestDensity + 0.02
+                    || (Math.abs(density - bestDensity) <= 0.02 && candidates.size() > bestRows)) {
+                bestDensity = density;
+                bestRows = candidates.size();
+                best = table;
+            }
+        }
+        return best;
+    }
+
+    private static String toTableBlock(List<Line> candidates, List<Line> lines) {
+        if (candidates.size() < 3) return "";
         int maxColumns = candidates.stream().mapToInt(line -> line.cells.size()).max().orElse(0);
-        // 两列表格从至少 4 行放宽到 3 行；仍要求列锚点对齐，降低双栏正文误判。
-        if (maxColumns == 2 && candidates.size() < 3) return "";
+        if (maxColumns < 2) return "";
+        boolean hasDigit = candidates.stream().anyMatch(line -> line.cells.stream()
+                .anyMatch(cell -> cell.text.matches(".*\\d.*")));
+        if (maxColumns == 2 && !hasDigit) return "";
+        boolean alignedTable = aligned(candidates);
+        List<Float> anchors = anchors(candidates);
+        if (!alignedTable || anchors.size() < 2 || anchors.size() > 30) return "";
         String caption = findCaption(lines, candidates.get(0).top);
         List<String> notes = findNotes(lines, candidates.get(candidates.size() - 1).top);
-        if (maxColumns < 2 || !aligned(candidates)) return "";
-        List<Float> anchors = anchors(candidates);
-        if (anchors.size() < 2 || anchors.size() > 30) return "";
 
         StringBuilder table = new StringBuilder("<table border=\"1\">\n");
         if (caption != null) table.append("<caption>").append(escape(caption)).append("</caption>\n");
@@ -532,7 +595,7 @@ final class OcrTableExtractor {
         List<Float> anchors = new ArrayList<>();
         for (Line line : lines) {
             for (Cell cell : line.cells) {
-                if (anchors.stream().noneMatch(anchor -> Math.abs(anchor - cell.left) <= ALIGN_TOLERANCE)) {
+                if (anchors.stream().noneMatch(anchor -> Math.abs(anchor - cell.left) <= ANCHOR_TOLERANCE)) {
                     anchors.add(cell.left);
                 }
             }
@@ -569,6 +632,12 @@ final class OcrTableExtractor {
         return best;
     }
 
+    private static int count(String text, String value) {
+        int n = 0, i = 0;
+        while ((i = text.indexOf(value, i)) >= 0) { n++; i += value.length(); }
+        return n;
+    }
+
     private static String escape(String value) {
         return value.replace("&", "&amp;")
                 .replace("<", "&lt;")
@@ -590,6 +659,10 @@ final class OcrTableExtractor {
 
         private Line(float top) {
             this.top = top;
+        }
+
+        private float height() {
+            return (float) words.stream().mapToDouble(Word::height).max().orElse(12f);
         }
 
         private void build() {
