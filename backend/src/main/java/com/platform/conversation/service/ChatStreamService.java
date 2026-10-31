@@ -375,6 +375,7 @@ public class ChatStreamService {
                 contextWindow.fit(modelName, systemPrompt, userMsgWithAttachments, history);
         systemPrompt = fitted.systemPrompt();
         history = fitted.history();
+        trimUnusedRagCitations(citations, fitted);
         emitRagNotice(out, fitted);
         final String fallbackSystemPrompt = systemPrompt;
         final List<org.springframework.ai.chat.messages.Message> fallbackHistory = history;
@@ -761,6 +762,7 @@ public class ChatStreamService {
                 contextWindow.fit(modelName, systemPrompt, userMsgWithAttachments, history);
         systemPrompt = fitted.systemPrompt();
         history = fitted.history();
+        trimUnusedRagCitations(citations, fitted);
 
         String usedModel = modelName;
         if (chatModelRouter.modelCooling(modelName) && fallbackModel != null && !fallbackModel.isBlank()
@@ -872,6 +874,16 @@ public class ChatStreamService {
         return Map.of("answer", ai.getContent(), "traceId", traceId, "messageId", ai.getId(),
                 "usage", Map.of("inputTokens", in, "outputTokens", out), "citations", citations,
                 "toolCalls", collector.events(), "ragTruncated", fitted.ragTruncated());
+    }
+
+    /** 未进入提示的 RAG 片段不再作为“引用来源”展示，避免引用与实际上下文不一致。 */
+    static void trimUnusedRagCitations(List<Map<String, Object>> citations,
+                                        com.platform.agent.service.ContextWindowService.Fitted fitted) {
+        if (!fitted.ragTruncated() || fitted.ragTotalFragments() <= 0) return;
+        int kept = Math.min(citations.size(), Math.max(0, fitted.ragKeptFragments()));
+        if (kept < citations.size()) {
+            citations.subList(kept, citations.size()).clear();
+        }
     }
 
     /** RAG 截断必须在界面上可见，否则用户会误以为知识库资料完整。 */
