@@ -7,7 +7,12 @@ import com.platform.model.mapper.ModelMapper;
 import com.platform.model.entity.ModelEntity;
 import com.platform.model.entity.Provider;
 import com.platform.model.mapper.ProviderMapper;
+import com.platform.model.mapper.ProviderCredentialMapper;
+import com.platform.agent.entity.AgentRegistry;
+import com.platform.agent.mapper.AgentRegistryMapper;
+import com.platform.system.service.AuditService;
 import com.platform.model.service.ProviderService;
+import com.platform.model.service.ChatModelRouter;
 import com.platform.security.JwtPrincipal;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -31,6 +36,10 @@ public class ProviderController {
     private final ProviderMapper providerMapper;
     private final ModelMapper modelMapper;
     private final ProviderService providerService;
+    private final ChatModelRouter modelRouter;
+    private final ProviderCredentialMapper credentialMapper;
+    private final AgentRegistryMapper agentRegistryMapper;
+    private final AuditService auditService;
 
     public record ModelItem(Long modelId, Long providerId, String providerName, String providerType,
                             String modelName, String displayName, String purpose,
@@ -246,6 +255,63 @@ public class ProviderController {
     @PostMapping("/provider/{id}/test")
     public ApiResponse<Map<String, Object>> test(@PathVariable Long id) {
         return ApiResponse.ok(providerService.test(id));
+    }
+
+    /** 删除本租户自建模型；平台预置模型和仍被 Agent 引用的模型禁止删除。 */
+    @DeleteMapping("/models/{id}")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('model:manage')")
+    public ApiResponse<Void> deleteModel(@PathVariable Long id,
+                                         @AuthenticationPrincipal JwtPrincipal principal) {
+        ModelEntity model = modelMapper.findByIdIgnore(id);
+        if (model == null) throw new BusinessException(404, "模型不存在");
+        if (model.getTenantId() == null) throw new BusinessException(403, "平台预置模型不可删除");
+        Long tenantId = principal.tenantId() != null ? principal.tenantId() : TenantContext.getTenantId();
+        if (!model.getTenantId().equals(tenantId)) throw new BusinessException(403, "无权删除该模型");
+        if (referencedByAgent(model.getModelName())) {
+            throw new BusinessException(409, "模型仍被 Agent 引用，请先切换 Agent 模型");
+        }
+        modelMapper.deleteById(id);
+        modelRouter.evictAll();
+        auditService.record(principal.userId(), "model.delete", "model", String.valueOf(id),
+                "SUCCESS", Map.of("modelName", model.getModelName()));
+        return ApiResponse.ok();
+    }
+
+    /** 删除本租户自建 Provider；平台预置 Provider 或仍有模型的 Provider 禁止删除。 */
+    @DeleteMapping("/provider/{id}")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('model:manage')")
+    public ApiResponse<Void> deleteProvider(@PathVariable Long id,
+                                            @AuthenticationPrincipal JwtPrincipal principal) {
+        Provider provider = providerMapper.findByIdIgnore(id);
+        if (provider == null) throw new BusinessException(404, "Provider 不存在");
+        if (provider.getTenantId() == null) throw new BusinessException(403, "平台预置 Provider 不可删除");
+        Long tenantId = principal.tenantId() != null ? principal.tenantId() : TenantContext.getTenantId();
+        if (!provider.getTenantId().equals(tenantId)) throw new BusinessException(403, "无权删除该 Provider");
+        long modelCount = modelMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ModelEntity>()
+                .eq(ModelEntity::getProviderId, id));
+        if (modelCount > 0) throw new BusinessException(409, "请先删除该 Provider 下的模型");
+        credentialMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.platform.model.entity.ProviderCredential>()
+                .eq(com.platform.model.entity.ProviderCredential::getProviderId, id));
+        providerMapper.deleteById(id);
+        modelRouter.evictAll();
+        auditService.record(principal.userId(), "provider.delete", "provider", String.valueOf(id),
+                "SUCCESS", Map.of("name", provider.getName()));
+        return ApiResponse.ok();
+    }
+
+    private boolean referencedByAgent(String modelName) {
+        if (modelName == null || modelName.isBlank()) return false;
+        List<AgentRegistry> agents = agentRegistryMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AgentRegistry>()
+                        .ne(AgentRegistry::getStatus, "DELETED"));
+        for (AgentRegistry agent : agents) {
+            Map<String, Object> config = readJson(agent.getModelConfig());
+            if (modelName.equals(String.valueOf(config.get("modelName")))
+                    || modelName.equals(String.valueOf(config.get("fallbackModelName")))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @PostMapping("/provider/{id}/models/sync")

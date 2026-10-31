@@ -493,6 +493,48 @@ test('工作流错误按 Accept-Language 返回英文', async ({ request }) => {
   }
 })
 
+test('模型与 Provider 安全删除', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const provider = await (await request.post(`${P}/provider`, {
+    headers: auth(token!),
+    data: {
+      name: `E2E删除Provider-${Date.now()}`,
+      providerType: 'OPENAI_COMPATIBLE',
+      baseUrl: 'http://127.0.0.1:18092'
+    }
+  })).json()
+  expect(provider.code, JSON.stringify(provider)).toBe(0)
+  const providerId = provider.data.id as number
+  let modelId: number | null = null
+  try {
+    const model = await (await request.post(`${P}/provider/${providerId}/models`, {
+      headers: auth(token!),
+      data: { modelName: `E2E-delete-model-${Date.now()}`, purpose: 'CHAT', contextWindow: 8192 }
+    })).json()
+    expect(model.code, JSON.stringify(model)).toBe(0)
+    modelId = model.data.id
+
+    const blocked = await request.delete(`${P}/provider/${providerId}`, { headers: auth(token!) })
+    const blockedBody = await blocked.json()
+    expect(blockedBody.code, '仍有模型时 Provider 不能删除').toBe(409)
+
+    expect((await (await request.delete(`${P}/models/${modelId}`, {
+      headers: auth(token!)
+    })).json()).code).toBe(0)
+    modelId = null
+    expect((await (await request.delete(`${P}/provider/${providerId}`, {
+      headers: auth(token!)
+    })).json()).code).toBe(0)
+
+    const providers = await (await request.get(`${P}/provider`, { headers: auth(token!) })).json()
+    expect((providers.data || []).some((p: any) => p.id === providerId)).toBe(false)
+  } finally {
+    if (modelId) await request.delete(`${P}/models/${modelId}`, { headers: auth(token!) })
+    await request.delete(`${P}/provider/${providerId}`, { headers: auth(token!) })
+  }
+})
+
 test('Prompt 模板 AI 优化', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()
