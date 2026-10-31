@@ -36,6 +36,14 @@ export default defineConfig({
   ],
   projects: [
     // 浏览器支持范围：仅 Google Chrome（使用本机/CI 安装的 chrome channel）
-    { name: 'chromium', use: { ...devices['Desktop Chrome'], channel: 'chrome' } }
+    { name: 'chromium', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
+    // 可选：指定 Chrome for Testing 历史版本做上一版本回归
+    ...(process.env.CHROME_PREVIOUS_PATH ? [{
+      name: 'chrome-previous',
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: { executablePath: process.env.CHROME_PREVIOUS_PATH }
+      }
+    }] : [])
   ]
 })
