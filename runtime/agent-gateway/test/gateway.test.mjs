@@ -61,7 +61,7 @@ async function request(port, urlPath, options = {}) {
 }
 
 test('健康检查、CORS、鉴权与模型列表', async (t) => {
-  const gateway = await startGateway(t, { AGENT_SLUG: 'unit-agent', STATS_TOKEN: 'stats-token' })
+  const gateway = await startGateway(t, { AGENT_SLUG: 'unit-agent', STATS_TOKEN: 'stats-token', CORS_ORIGIN: 'https://app.example' })
 
   const health = await request(gateway.port, '/healthz')
   assert.equal(health.status, 200)
@@ -69,7 +69,7 @@ test('健康检查、CORS、鉴权与模型列表', async (t) => {
 
   const preflight = await request(gateway.port, '/v1/models', { method: 'OPTIONS' })
   assert.equal(preflight.status, 204)
-  assert.equal(preflight.headers.get('access-control-allow-origin'), '*')
+  assert.equal(preflight.headers.get('access-control-allow-origin'), 'https://app.example')
 
   const unauthorized = await request(gateway.port, '/v1/models')
   assert.equal(unauthorized.status, 401)
@@ -89,6 +89,13 @@ test('健康检查、CORS、鉴权与模型列表', async (t) => {
   assert.equal(stats.status, 200)
   assert.equal(JSON.parse(stats.text).store, 'memory')
   assert.equal(JSON.parse(stats.text).callers[0].name, 'deployment token')
+})
+
+test('默认不放开跨域来源', async (t) => {
+  const gateway = await startGateway(t, { RUNTIME_TOKEN: 'test-token' })
+  const preflight = await request(gateway.port, '/v1/models', { method: 'OPTIONS' })
+  assert.equal(preflight.status, 204)
+  assert.equal(preflight.headers.get('access-control-allow-origin'), null)
 })
 
 test('调用方 Key 鉴权、日配额与统计', async (t) => {

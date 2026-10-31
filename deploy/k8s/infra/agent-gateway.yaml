@@ -49,7 +49,7 @@ spec:
             - name: PLATFORM_BASE
               value: http://aap-ai-agent-platform-backend.aap.svc.cluster.local:8080
             - name: CORS_ORIGIN
-              value: "*"
+              value: ""
             - name: RATE_LIMIT_PER_MIN
               value: "60"
             - name: RATE_BURST

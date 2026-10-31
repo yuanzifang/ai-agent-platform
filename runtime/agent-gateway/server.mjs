@@ -17,7 +17,7 @@ const API_KEY = process.env.API_KEY || ''
 const AGENT_SLUG = process.env.AGENT_SLUG || 'agent'
 const RUNTIME_TOKEN = process.env.RUNTIME_TOKEN || ''
 const STATS_TOKEN = process.env.STATS_TOKEN || RUNTIME_TOKEN
-const CORS_ORIGIN = process.env.CORS_ORIGIN || '*'
+const CORS_ORIGIN = process.env.CORS_ORIGIN || ''
 const RATE_LIMIT_PER_MIN = Math.max(0, Number(process.env.RATE_LIMIT_PER_MIN || 60))
 const RATE_BURST = Math.max(0, Number(process.env.RATE_BURST || 20))
 const CALLER_QUOTA_DAILY = Math.max(0, Number(process.env.CALLER_QUOTA_DAILY || 0))
@@ -239,7 +239,7 @@ const server = http.createServer(async (req, res) => {
   const startedAt = Date.now()
   const context = { caller: '-', stream: false }
   const cors = {
-    'Access-Control-Allow-Origin': CORS_ORIGIN,
+    ...(CORS_ORIGIN ? { 'Access-Control-Allow-Origin': CORS_ORIGIN } : {}),
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Requested-With',
     'Access-Control-Max-Age': '600'

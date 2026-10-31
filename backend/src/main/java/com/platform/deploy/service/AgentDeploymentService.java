@@ -101,7 +101,7 @@ public class AgentDeploymentService {
     @Value("${agent.deploy.port-end:19999}")
     private int portEnd;
 
-    @Value("${agent.deploy.bind:0.0.0.0}")
+    @Value("${agent.deploy.bind:127.0.0.1}")
     private String bind;
 
     @Value("${agent.deploy.platform-base-url:http://host.docker.internal:8080}")
@@ -119,7 +119,7 @@ public class AgentDeploymentService {
     @Value("${agent.deploy.rate-limit-burst:20}")
     private int rateLimitBurst;
 
-    @Value("${agent.deploy.cors-origins:*}")
+    @Value("${agent.deploy.cors-origins:}")
     private String corsOrigins;
 
     @Value("${agent.deploy.cpu-limit:1}")
@@ -301,7 +301,7 @@ public class AgentDeploymentService {
             env.put("AGENT_SLUG", slug);
             env.put("RUNTIME_TOKEN", ensureRuntimeToken(deployment));
             env.put("RATE_BURST", String.valueOf(Math.max(0, rateLimitBurst)));
-            env.put("CORS_ORIGIN", corsOrigins == null || corsOrigins.isBlank() ? "*" : corsOrigins.trim());
+            env.put("CORS_ORIGIN", corsOrigins == null ? "" : corsOrigins.trim());
             if (gateway && redisUrl != null && !redisUrl.isBlank()) env.put("REDIS_URL", redisUrl.trim());
             List<String> mounts;
             if (gateway) {
