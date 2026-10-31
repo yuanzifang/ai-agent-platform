@@ -45,6 +45,7 @@ final class PdfTableLayout {
 
         selected.removeIf(block -> !isUsefulBlock(block));
         selected = dedupeOverlapping(selected);
+        selected = new ArrayList<>(selected.stream().map(PdfTableLayout::promoteHeader).toList());
         selected.sort(Comparator.comparingInt(PdfTableBlock::pageFrom)
                 .thenComparing(PdfTableBlock::top));
         return mergeAcrossPages(doc, selected);
@@ -122,6 +123,61 @@ final class PdfTableLayout {
             return false;
         }
         return true;
+    }
+
+    /**
+     * 几何/文本提取器偶尔会把首行表头留在 tbody；首行是短标签、第二行开始出现数字时，
+     * 提升为 thead，保证检索结果和 Markdown 转换能识别列语义。
+     */
+    static PdfTableBlock promoteHeader(PdfTableBlock block) {
+        String html = block.html();
+        if (html == null || html.contains("<thead")) return block;
+        try {
+            var doc = Jsoup.parseBodyFragment(html);
+            Element table = doc.selectFirst("table");
+            if (table == null) return block;
+            var rows = table.select("tr");
+            if (rows.size() < 2) return block;
+            List<Element> directRows = new ArrayList<>();
+            for (Element row : rows) {
+                Element parent = row.parent();
+                if (parent != null && ("tbody".equals(parent.tagName()) || parent == table)) {
+                    directRows.add(row);
+                }
+            }
+            if (directRows.size() < 2) return block;
+            int headerCount = 0;
+            while (headerCount < Math.min(3, directRows.size() - 1)) {
+                Element row = directRows.get(headerCount);
+                var cells = row.select("td,th");
+                if (cells.size() < 2) break;
+                boolean numeric = cells.stream().anyMatch(cell -> cell.text().trim().matches(".*\\d.*"));
+                boolean section = cells.stream().anyMatch(cell -> cell.text().trim().endsWith(":"));
+                if (numeric || section) break;
+                headerCount++;
+            }
+            if (headerCount == 0) return block;
+            String firstText = directRows.get(0).text().trim();
+            if (firstText.length() > 60 || firstText.toLowerCase(Locale.ROOT).contains("table")) return block;
+            Element dataRow = directRows.get(headerCount);
+            boolean dataNumeric = dataRow.select("td,th").stream()
+                    .anyMatch(cell -> cell.text().trim().matches(".*\\d.*"));
+            if (!dataNumeric) return block;
+
+            Element thead = doc.createElement("thead");
+            for (int i = 0; i < headerCount; i++) {
+                Element row = directRows.get(i);
+                for (Element cell : row.select("td")) cell.tagName("th");
+                row.remove();
+                thead.appendChild(row);
+            }
+            Element caption = table.selectFirst("caption");
+            if (caption != null) caption.after(thead); else table.prependChild(thead);
+            return new PdfTableBlock(block.pageFrom(), block.pageTo(), block.top(), block.bottom(),
+                    table.outerHtml(), block.spans(), block.mergeable());
+        } catch (Exception e) {
+            return block;
+        }
     }
 
     /** 同一页上重叠且内容高度相似的表块只保留一份，避免文本抽取器重复捕获。 */

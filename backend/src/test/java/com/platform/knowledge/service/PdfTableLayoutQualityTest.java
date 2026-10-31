@@ -46,4 +46,35 @@ class PdfTableLayoutQualityTest {
     private static PdfTableBlock block(String html) {
         return PdfTableBlock.singlePage(0, 0, 100, 0, 500, html, false);
     }
+    @Test
+    void promotesLabelRowBeforeNumericDataToHeader() {
+        PdfTableBlock raw = block("""
+                <table>
+                <tr><td>Exhibit</td><td>Period End</td><td>Exhibit Description</td></tr>
+                <tr><td>101</td><td>2024</td><td>Inline XBRL</td></tr>
+                <tr><td>102</td><td>2024</td><td>Cover page</td></tr>
+                </table>""");
+
+        PdfTableBlock promoted = PdfTableLayout.promoteHeader(raw);
+
+        assertTrue(promoted.html().contains("<thead>"), promoted.html());
+        assertTrue(promoted.html().contains("<th>Exhibit</th>"), promoted.html());
+    }
+
+    @Test
+    void promotesTwoRowHeaderBeforeNumericData() {
+        PdfTableBlock raw = block("""
+                <table>
+                <tr><td>Exhibit</td><td></td><td></td><td></td><td></td><td></td><td>Period End</td></tr>
+                <tr><td>Number</td><td></td><td>Exhibit Description</td><td></td><td>Form</td><td>Exhibit</td><td>Date</td></tr>
+                <tr><td>101</td><td></td><td>Inline XBRL</td><td></td><td>10-K</td><td>101</td><td>2024</td></tr>
+                </table>""");
+
+        PdfTableBlock promoted = PdfTableLayout.promoteHeader(raw);
+
+        assertTrue(promoted.html().contains("<thead>"), promoted.html());
+        assertTrue(promoted.html().contains("<th>Exhibit</th>"), promoted.html());
+        assertTrue(promoted.html().contains("<th>Number</th>"), promoted.html());
+    }
+
 }
