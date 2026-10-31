@@ -938,6 +938,7 @@
             <div class="hint">{{ t('wf.paletteHint') }}</div>
           </div>
           <div ref="wfCanvasEl" class="wf-canvas-wrap" :class="{ 'drop-active': wfDropActive }"
+               data-testid="wf-canvas"
                @mousedown="startCanvasPan"
                @dragover.prevent="wfDropActive = true"
                @dragleave="wfDropActive = false"
@@ -984,7 +985,7 @@
           </div>
           <div class="hint mt8">{{ t('wf.canvasHint') }}</div>
           </div>
-          <div v-if="wfNodePanel && wfSelectedNode" class="wf-node-panel">
+          <div v-if="wfNodePanel && wfSelectedNode" class="wf-node-panel" data-testid="wf-node-panel">
             <div class="wf-node-panel-head">
               <el-tag size="small" :type="wfTagType(wfSelectedNode.type)">{{ wfTypeText(wfSelectedNode.type) }}</el-tag>
               <span class="wf-cn-id">#{{ wfSelectedNode.id }}</span>
@@ -1022,14 +1023,16 @@
       </el-collapse>
 
       <el-divider content-position="left">{{ t('wf.runTest') }}</el-divider>
-      <el-input v-model="workflowRunInput" type="textarea" :rows="2" :placeholder="t('wf.runInputPh')" />
+      <el-input v-model="workflowRunInput" type="textarea" :rows="2" :placeholder="t('wf.runInputPh')"
+                data-testid="wf-run-input" />
       <div class="hint mt8">{{ t('wf.runHint') }}</div>
       <div class="mt8">
-        <el-button type="primary" :loading="workflowRunning" @click="runWorkflow">{{ t('wf.run') }}</el-button>
+        <el-button type="primary" :loading="workflowRunning" @click="runWorkflow"
+                   data-testid="wf-run-button">{{ t('wf.run') }}</el-button>
         <el-link v-if="workflowRunResult?.status === 'WAITING_APPROVAL'" type="warning"
                  @click="goApprovals">{{ t('wf.waitingApproval') }}</el-link>
       </div>
-      <div v-if="workflowRunResult" class="wf-run">
+      <div v-if="workflowRunResult" class="wf-run" data-testid="wf-run-result">
         <div>
           {{ t('wf.status') }}{{ workflowRunResult.status }}{{ t('wf.currentNode') }}{{ workflowRunResult.currentNode || '-' }}
           · {{ t('wf.tokenLabel') }}{{ workflowRunResult.inputTokens || 0 }}/{{ workflowRunResult.outputTokens || 0 }}
