@@ -102,6 +102,36 @@ test('审批箱可通过工作流审批并继续运行', async ({ page, request 
     expect(detail.data.status).toBe('SUCCESS')
     expect(detail.data.state?.approved).toBe('yes')
     expect((detail.data.nodeRuns || []).some((x: any) => x.name === '审批节点')).toBe(true)
+
+    // 再发起一次运行，验证审批箱拒绝路径与拒绝原因必填
+    const rejectWaiting = await (await request.post(`${P}/agent/${agentId}/workflow/run`, {
+      headers: { ...auth(admin), 'X-Tenant-Id': '1' },
+      data: { input: '需要拒绝审批' }, timeout: 60_000
+    })).json()
+    expect(rejectWaiting.code, JSON.stringify(rejectWaiting)).toBe(0)
+    expect(rejectWaiting.data.status).toBe('WAITING_APPROVAL')
+    runId = rejectWaiting.data.id
+
+    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    const rejectRow = page.locator('.el-table__row').filter({ hasText: title }).first()
+    await expect(rejectRow).toBeVisible({ timeout: 20_000 })
+    await rejectRow.getByRole('button', { name: '拒绝', exact: true }).click()
+    const rejectDialog = page.locator('.el-dialog:visible').filter({
+      has: page.locator('.el-dialog__title', { hasText: '拒绝审批' })
+    })
+    await expect(rejectDialog).toBeVisible()
+    await rejectDialog.getByRole('button', { name: '确认拒绝' }).click()
+    await expect(page.getByText('拒绝时请填写原因')).toBeVisible()
+    await rejectDialog.locator('textarea').fill('UI 审批拒绝')
+    await rejectDialog.getByRole('button', { name: '确认拒绝' }).click()
+    await expect(page.locator('.el-message__content').filter({ hasText: '已拒绝' })).toBeVisible({ timeout: 20_000 })
+
+    const rejectedDetail = await (await request.get(`${P}/workflow/runs/${runId}`, {
+      headers: auth(token)
+    })).json()
+    expect(rejectedDetail.code, JSON.stringify(rejectedDetail)).toBe(0)
+    expect(rejectedDetail.data.status).toBe('REJECTED')
+    expect(String(rejectedDetail.data.error || '')).toContain('UI 审批拒绝')
   } finally {
     // 若审批未完成，确保不留下阻塞测试数据。
     if (runId) {
