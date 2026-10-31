@@ -41,6 +41,12 @@ cat target/pdf-bench-report.md
 
 全部 100 篇状态均为 `OK`，页码覆盖完整（允许末尾空白页不产生分段）。
 
+## CI
+
+`.github/workflows/pdf-corpus-nightly.yml` 每周或手动下载 100 篇语料并执行
+`PdfBenchmarkTest`，上传 `pdf-bench-report.md` 和 `manifest.json`。首次运行需要下载约
+176MB 样本。
+
 ## 说明
 
 - 这套语料用于发现“标题/表格整体消失、正文为空、页面大段丢失”这类回归；

@@ -1,0 +1,46 @@
+name: PDF 100-document Corpus
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * 1'
+
+jobs:
+  corpus:
+    name: 100 篇金融/化学物理 PDF 回归
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 下载 100 篇公开 arXiv PDF
+        run: |
+          python3 scripts/download_pdf_corpus.py \
+            --limit 100 \
+            --out backend/target/pdf-corpus
+
+      - name: 运行百文档 PDF 基准
+        working-directory: backend
+        env:
+          PDF_BENCH_DIR: ${{ github.workspace }}/backend/target/pdf-corpus
+        run: mvn -q -Dtest=PdfBenchmarkTest test
+
+      - name: 上传报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf-corpus-report
+          path: |
+            backend/target/pdf-bench-report.md
+            backend/target/pdf-corpus/manifest.json
+          if-no-files-found: warn
