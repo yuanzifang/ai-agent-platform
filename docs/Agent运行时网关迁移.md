@@ -78,9 +78,10 @@ location /v1/ {
 ## 验证
 
 - `AgentRuntimeGatewayServiceTest` 6 个用例：部署令牌、调用方 Key、缺失/非法令牌、停止部署、限流、日配额、内存统计
+- `AgentRuntimeGatewayControllerTest` 4 个用例：入口复用、OpenAI 错误结构、stats 仅部署令牌
 - `AgentDeploymentServiceLifecycleTest` 11 个用例：nginx 模板不持有 Key/令牌、平台统计分支、启停/清理/资源限制
 - `ArchitectureTest` 3 个用例：gateway 薄层、deploy 依赖边界
-- 后端全量单测：560/560
+- 后端全量单测：564/564
 - 静态门禁：`scripts/check-mvp-freeze.py` 通过
 - 待补：真实 Docker + nginx 容器 + 平台网关全链路实测；外部集群镜像重建
 

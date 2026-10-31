@@ -178,8 +178,9 @@ client → container:80 /v1/chat/completions
 
 ## 验证
 
-- 后端全量单测：560/560
+- 后端全量单测：564/564
 - `AgentRuntimeGatewayServiceTest`：部署令牌、调用方 Key、非法令牌、停止部署、限流、日配额、内存统计
+- `AgentRuntimeGatewayControllerTest`：模型/对话入口、OpenAI 错误结构、stats 仅部署令牌
 - `AgentDeploymentServiceLifecycleTest`：nginx 模板不持有 Key/令牌、平台统计分支、启停/清理/资源限制
 - `DockerCliRuntimeTest`：Docker 命令构造、失败处理、inspect JSON；CI 用 `alert-relay:ci` 跑真实 Docker create→start→inspect→logs→stop→remove
 - `ArchitectureTest`：gateway 薄层、deploy 依赖边界
