@@ -203,6 +203,12 @@ test('工作流模板与运行', async ({ request }) => {
     const tpl = await templates.json()
     expect(tpl.code).toBe(0)
     expect(tpl.data.length).toBeGreaterThanOrEqual(5)
+    const localIntent = (tpl.data || []).find((t: any) => t.id === 'local_intent_triage')
+    expect(localIntent, '应存在本地意图分类模板').toBeTruthy()
+    const localNodes = localIntent.definition?.nodes || []
+    expect(localNodes).toHaveLength(17)
+    expect(localNodes.filter((n: any) => n.type === 'LLM').every((n: any) => n.modelName === 'qwen2.5:7b')).toBe(true)
+    expect(localNodes.filter((n: any) => n.type === 'CONDITION' && n.conditionSource === 'state')).toHaveLength(4)
 
     const workflow = {
       name: 'E2E 简单问答',

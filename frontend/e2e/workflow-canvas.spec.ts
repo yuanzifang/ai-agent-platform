@@ -176,6 +176,20 @@ test('工作流画布：拖入、单击配置、T/F 连线、删除边、草稿�
     await saveDraft(page, dialog, agentId)
     const withoutEdge = await getWorkflow(request, token, agentId)
     expect((withoutEdge.definition.edges || []).length).toBe(0)
+
+    // 6. 内置本地意图模板可直接加载
+    await dialog.getByRole('button', { name: '模板', exact: true }).click()
+    const templateDialog = page.locator('.el-dialog:visible').filter({
+      has: page.locator('.el-dialog__title', { hasText: '工作流模板' })
+    })
+    const templateRow = templateDialog.locator('.el-table__row').filter({
+      hasText: '本地意图分类客服（本地模型）'
+    })
+    await expect(templateRow).toBeVisible()
+    await templateRow.getByRole('button', { name: '使用' }).click()
+    await expect(templateDialog).toBeHidden()
+    await expect(dialog.locator('.wf-node')).toHaveCount(17)
+    await expect(page.getByText('模板已载入，请补充知识库/工具等配置后保存')).toBeVisible()
   } finally {
     await request.delete(`${P}/agent/${agentId}/workflow`, { headers: auth(token) })
     await request.delete(`${P}/agent/${agentId}`, { headers: auth(token) })
