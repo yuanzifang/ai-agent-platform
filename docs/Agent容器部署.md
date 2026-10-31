@@ -1,6 +1,8 @@
 # Agent 容器部署（MVP：本机 Docker）
 
 > 2026-10-31 MVP 冻结：默认 `AGENT_DEPLOY_ENABLED=false`，部署/重新部署 API 会拒绝；已有部署仍可查看、停止、删除。需要启用时显式设置 `AGENT_DEPLOY_ENABLED=true`，并建议同时设置 `AGENT_DEPLOY_BIND=127.0.0.1`、`AGENT_DEPLOY_CORS_ORIGINS`。
+>
+> 默认 `gateway` runtime 的 API Key 和运行时令牌通过只读 Secret 文件传入（`API_KEY_FILE` / `RUNTIME_TOKEN_FILE`），不再写入容器环境变量；旧 `nginx` fallback 仍使用环境变量，仅保留兼容。
 
 目标：**发布 → 一键部署 → 容器里跑起来 → 直接调用**。
 

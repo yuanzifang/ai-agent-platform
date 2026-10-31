@@ -304,9 +304,8 @@ public class AgentDeploymentService {
         try {
             Map<String, String> env = new LinkedHashMap<>();
             env.put("PLATFORM_BASE", platformBase.replaceAll("/+$", ""));
-            env.put("API_KEY", apiKey);
             env.put("AGENT_SLUG", slug);
-            env.put("RUNTIME_TOKEN", ensureRuntimeToken(deployment));
+            String runtimeToken = ensureRuntimeToken(deployment);
             env.put("RATE_BURST", String.valueOf(Math.max(0, rateLimitBurst)));
             env.put("CORS_ORIGIN", corsOrigins == null ? "" : corsOrigins.trim());
             if (gateway && redisUrl != null && !redisUrl.isBlank()) env.put("REDIS_URL", redisUrl.trim());
@@ -327,8 +326,14 @@ public class AgentDeploymentService {
                     env.put("CALLER_KEYS_JSON", JSON.writeValueAsString(callerKeyPayload));
                 }
                 if (callerKeys != null && !callerKeys.isBlank()) env.put("CALLER_KEYS", callerKeys.trim());
-                mounts = List.of();
+                Path secretDir = writeRuntimeSecrets(baseName, apiKey, runtimeToken);
+                env.put("API_KEY_FILE", "/run/secrets/aap/api-key");
+                env.put("RUNTIME_TOKEN_FILE", "/run/secrets/aap/runtime-token");
+                mounts = List.of(secretDir + ":/run/secrets/aap:ro");
             } else {
+                // 旧 nginx 模板仍依赖环境变量；默认已冻结且推荐 gateway runtime。
+                env.put("API_KEY", apiKey);
+                env.put("RUNTIME_TOKEN", runtimeToken);
                 env.put("RATE_LIMIT", String.valueOf(Math.max(1, rateLimitPerMin)));
                 env.put("NGINX_ENTRYPOINT_QUIET_LOGS", "1");
                 mounts = List.of(templateDir().toString() + ":/etc/nginx/templates:ro");
@@ -385,6 +390,7 @@ public class AgentDeploymentService {
                 removeContainerQuietly(String.valueOf(row.get("name")));
             }
             if (rows.isEmpty()) removeContainerQuietly(baseName);
+            deleteRuntimeSecrets(baseName);
             deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
             deployment.setStatus("FAILED");
             deployment.setLastError(message(e));
@@ -448,6 +454,7 @@ public class AgentDeploymentService {
             removeContainerQuietly(String.valueOf(row.get("name")));
         }
         removeContainerQuietly(deployment.getContainerName());
+        deleteRuntimeSecrets("aap-agent-" + agentId);
         deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
         recordEvent(deployment, "REMOVE", "SUCCESS", null, principal);
         clearDeploymentMetrics(deployment);
@@ -579,6 +586,7 @@ public class AgentDeploymentService {
             removeContainerQuietly(String.valueOf(row.get("name")));
         }
         removeContainerQuietly(deployment.getContainerName());
+        deleteRuntimeSecrets("aap-agent-" + agentId);
         deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
         recordEvent(deployment, "REMOVE", "SUCCESS", "agent deleted", principal);
         clearDeploymentMetrics(deployment);
@@ -832,6 +840,38 @@ public class AgentDeploymentService {
         } catch (IOException e) {
             throw new BusinessException(500, "写入容器配置模板失败：" + message(e));
         }
+    }
+
+    private Path writeRuntimeSecrets(String baseName, String apiKey, String runtimeToken) {
+        try {
+            Path dir = runtimeBase().resolve("secrets").resolve(baseName);
+            Files.createDirectories(dir);
+            try {
+                Files.setPosixFilePermissions(dir, java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
+            } catch (UnsupportedOperationException ignored) { }
+            writeSecretFile(dir.resolve("api-key"), apiKey);
+            writeSecretFile(dir.resolve("runtime-token"), runtimeToken);
+            return dir;
+        } catch (IOException e) {
+            throw new BusinessException(500, "写入 Agent 运行时密钥失败：" + message(e));
+        }
+    }
+
+    private void writeSecretFile(Path path, String value) throws IOException {
+        Files.writeString(path, value == null ? "" : value, StandardCharsets.UTF_8,
+                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+        try {
+            Files.setPosixFilePermissions(path, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+        } catch (UnsupportedOperationException ignored) { }
+    }
+
+    private void deleteRuntimeSecrets(String baseName) {
+        try {
+            Path dir = runtimeBase().resolve("secrets").resolve(baseName);
+            Files.deleteIfExists(dir.resolve("api-key"));
+            Files.deleteIfExists(dir.resolve("runtime-token"));
+            Files.deleteIfExists(dir);
+        } catch (IOException ignored) { }
     }
 
     private Path runtimeBase() {

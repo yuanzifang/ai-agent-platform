@@ -5,6 +5,8 @@ import net from 'node:net'
 import crypto from 'node:crypto'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
+import fs from 'node:fs'
+import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -96,6 +98,22 @@ test('默认不放开跨域来源', async (t) => {
   const preflight = await request(gateway.port, '/v1/models', { method: 'OPTIONS' })
   assert.equal(preflight.status, 204)
   assert.equal(preflight.headers.get('access-control-allow-origin'), null)
+})
+
+test('支持从文件读取运行时令牌', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aap-gateway-secret-'))
+  const tokenFile = path.join(dir, 'runtime-token')
+  fs.writeFileSync(tokenFile, 'file-token\n', { mode: 0o600 })
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const gateway = await startGateway(t, {
+    RUNTIME_TOKEN: '',
+    RUNTIME_TOKEN_FILE: tokenFile,
+    STATS_TOKEN: 'stats-token'
+  })
+  const models = await request(gateway.port, '/v1/models', {
+    headers: { Authorization: 'Bearer file-token' }
+  })
+  assert.equal(models.status, 200)
 })
 
 test('调用方 Key 鉴权、日配额与统计', async (t) => {
