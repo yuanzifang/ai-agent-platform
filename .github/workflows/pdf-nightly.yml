@@ -1,0 +1,48 @@
+name: PDF Real Samples
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *'
+
+jobs:
+  real-pdf:
+    name: 真实金融/物化/扫描 PDF 回归
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装 OCR 与样本处理依赖
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-chi-sim
+          python3 -m pip install --quiet pymupdf
+
+      - name: 下载公开样本
+        env:
+          PDF_BENCH_CONTACT: platform@example.com
+        run: bash scripts/download_pdf_samples.sh backend/target/pdf-samples
+
+      - name: 真实 PDF 基准
+        working-directory: backend
+        env:
+          PDF_BENCH_DIR: ${{ github.workspace }}/backend/target/pdf-samples
+        run: mvn -q -Dtest=PdfBenchmarkTest test
+
+      - name: 上传基准报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf-bench-report
+          path: backend/target/pdf-bench-report.md
+          if-no-files-found: warn

@@ -90,11 +90,12 @@ class PdfBenchmarkTest {
                     .append(" | ").append(images)
                     .append(" | 1-").append(maxPage)
                     .append(" | ").append(status).append(" |\n");
-            if (!external) assertTrue(error == null, "自包含 PDF 基准解析失败：" + error);
-            if (error == null) {
-                samples.add("\n## " + file.getFileName() + "\n\n```text\n"
-                        + preview(text, 1200) + "\n```\n");
-            }
+            assertTrue(error == null, "PDF 基准解析失败：" + file.getFileName() + "：" + error);
+            assertTrue(!text.isBlank(), "PDF 基准正文为空：" + file.getFileName());
+            assertTrue(maxPage >= pages, "PDF 页码覆盖不足：" + file.getFileName()
+                    + "，期望至少 " + pages + " 页，实际 " + maxPage);
+            samples.add("\n## " + file.getFileName() + "\n\n```text\n"
+                    + preview(text, 1200) + "\n```\n");
         }
         report.append(String.join("", samples));
         Files.createDirectories(Path.of("target"));
