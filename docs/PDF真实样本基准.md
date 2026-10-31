@@ -151,7 +151,7 @@ cd backend
 PDF_BENCH_DIR="$PWD/target/pdf-samples" mvn -Dtest=PdfBenchmarkTest test
 ```
 
-真实样本基准也已接入 nightly GitHub Actions（`.github/workflows/pdf-nightly.yml`）：
+真实样本基准和扫描件 OCR 基准已接入 nightly GitHub Actions（`.github/workflows/pdf-nightly.yml`）：
 定时或手动下载公开金融/物化/扫描样本，解析失败、正文为空、页码覆盖不足，或标题/表格数量
 低于按样本设定阈值时会直接失败，并上传 `pdf-bench-report.md`。PR 仍使用无需外部下载的合成 `PdfSnapshotTest`。
 

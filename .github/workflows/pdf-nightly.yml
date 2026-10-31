@@ -37,7 +37,7 @@ jobs:
         working-directory: backend
         env:
           PDF_BENCH_DIR: ${{ github.workspace }}/backend/target/pdf-samples
-        run: mvn -q -Dtest=PdfBenchmarkTest test
+        run: mvn -q -Dtest=PdfBenchmarkTest,PdfScannedRealBenchmarkTest test
 
       - name: 上传基准报告
         if: always()
