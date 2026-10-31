@@ -71,6 +71,9 @@ public class AgentDeploymentService {
 
     private final Map<String, AtomicInteger> deploymentGauges = new ConcurrentHashMap<>();
 
+    @Value("${agent.deploy.enabled:false}")
+    private boolean deployEnabled;
+
     @Value("${agent.deploy.runtime:gateway}")
     private String deployRuntime;
 
@@ -200,6 +203,7 @@ public class AgentDeploymentService {
         data.put("agentStatus", agent.getStatus());
         data.put("runtime", gatewayRuntime() ? "gateway" : "nginx");
         data.put("image", gatewayRuntime() ? gatewayImage : nginxImage);
+        data.put("enabled", deployEnabled);
         data.put("dockerAvailable", runtime.available());
         data.put("dockerVersion", runtime.version());
         data.put("deployment", deployment == null ? null : view(deployment));
@@ -220,6 +224,9 @@ public class AgentDeploymentService {
     @Transactional
     public Map<String, Object> deploy(Long agentId, Integer requestedReplicas,
                                       Long deployProfileId, JwtPrincipal principal) {
+        if (!deployEnabled) {
+            throw new BusinessException(403, "Agent 容器部署已冻结（agent.deploy.enabled=false）");
+        }
         AgentRegistry agent = requireAgent(agentId);
         if (!"PUBLISHED".equals(agent.getStatus())) {
             throw new BusinessException(400, "请先发布 Agent，再部署到容器");

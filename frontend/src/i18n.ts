@@ -670,7 +670,8 @@ const messages = {
       toolRag: '知识库', toolApi: 'API', toolMcp: 'MCP', toolSkill: '技能', toolBuiltin: '内置', toolSubAgent: '子 Agent', toolGeneric: '工具'
     },
     deploy: {
-      button: '部署到容器', title: '容器部署',
+      button: '部署到容器', frozen: 'Agent 容器部署已冻结；仅保留已有部署的查看/停止/删除',
+ title: '容器部署',
       publishedOnly: '请先发布 Agent，再部署到容器',
       dockerMissing: '本机 Docker 不可用：请安装并启动 Docker Desktop（或 colima），并确保命令行可执行 docker info',
       empty: '尚未部署。部署后该 Agent 会以独立容器运行，并暴露 OpenAI 兼容接口',
@@ -1714,7 +1715,8 @@ const messages = {
       toolRag: 'Knowledge', toolApi: 'API', toolMcp: 'MCP', toolSkill: 'Skill', toolBuiltin: 'Built-in', toolSubAgent: 'Sub-Agent', toolGeneric: 'Tool'
     },
     deploy: {
-      button: 'Deploy to container', title: 'Container deployment',
+      button: 'Deploy to container', frozen: 'Agent container deployment is frozen; existing deployments can still be viewed/stopped/removed',
+ title: 'Container deployment',
       publishedOnly: 'Publish the agent before deploying to a container',
       dockerMissing: 'Docker is not available: install and start Docker Desktop (or colima) and make sure `docker info` works',
       empty: 'Not deployed yet. After deployment the agent runs in its own container and exposes an OpenAI-compatible API',

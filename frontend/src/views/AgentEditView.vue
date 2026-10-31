@@ -1141,6 +1141,8 @@
     <el-dialog v-model="deployVisible" :title="t('deploy.title')" width="760px">
       <el-alert v-if="form.status !== 'PUBLISHED'" type="warning" :closable="false"
                 :title="t('deploy.publishedOnly')" class="mb8" />
+      <el-alert v-if="deployInfo.enabled === false" type="info" :closable="false"
+                :title="t('deploy.frozen')" class="mb8" />
       <el-alert v-if="!deployInfo.dockerAvailable" type="error" :closable="false"
                 :title="t('deploy.dockerMissing')" class="mb8" />
       <div class="deploy-replicas">
@@ -1212,7 +1214,7 @@
           <el-button @click="openDeployLogs">{{ t('deploy.logs') }}</el-button>
           <el-button @click="openDeployHistory">{{ t('deploy.history') }}</el-button>
           <el-button type="primary" :loading="deploying"
-                     :disabled="!deployInfo.dockerAvailable" @click="doDeploy">{{ t('deploy.redeploy') }}</el-button>
+                     :disabled="deployInfo.enabled === false || !deployInfo.dockerAvailable" @click="doDeploy">{{ t('deploy.redeploy') }}</el-button>
           <el-button type="danger" plain @click="removeDeploy">{{ t('deploy.remove') }}</el-button>
         </div>
 
@@ -1346,7 +1348,7 @@ const grantedIds = ref<number[]>([])
 const ownerId = ref<number>(0)
 const versionsVisible = ref(false)
 const deployVisible = ref(false)
-const deployInfo = reactive({ dockerAvailable: false, dockerVersion: '', image: '' })
+const deployInfo = reactive({ enabled: true, dockerAvailable: false, dockerVersion: '', image: '' })
 const deployment = ref<any>(null)
 const deploying = ref(false)
 const deployLogsVisible = ref(false)
@@ -2019,6 +2021,7 @@ async function refreshDeploy() {
   try {
     if (!deployProfiles.value.length) await loadDeployProfiles()
     const data = await http.get(`/agent/${agentId}/deployment`) as any
+    deployInfo.enabled = data.enabled !== false
     deployInfo.dockerAvailable = !!data.dockerAvailable
     deployInfo.dockerVersion = data.dockerVersion || ''
     deployInfo.image = data.image || ''
@@ -2042,6 +2045,10 @@ async function refreshDeploy() {
 }
 
 async function doDeploy() {
+  if (deployInfo.enabled === false) {
+    ElMessage.warning(t('deploy.frozen'))
+    return
+  }
   if (!deployInfo.dockerAvailable) {
     ElMessage.warning(t('deploy.dockerMissing'))
     return

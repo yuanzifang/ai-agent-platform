@@ -388,6 +388,8 @@ billing:
 agent:
   # Agent 容器部署（MVP：本机 Docker；发布后可把 Agent 跑成独立容器）
   deploy:
+    # MVP 冻结：默认关闭容器部署入口；需要时显式设置 AGENT_DEPLOY_ENABLED=true
+    enabled: ${AGENT_DEPLOY_ENABLED:false}
     # gateway=自研运行时镜像（推荐）；nginx=旧的 nginx 模板方案（保留兼容）
     runtime: ${AGENT_DEPLOY_RUNTIME:gateway}
     image: ${AGENT_DEPLOY_IMAGE:nginx:alpine}
@@ -403,7 +405,7 @@ agent:
     # 多副本共享限流/配额/用量需要 Redis（容器内访问宿主机；留空则单副本内存统计）
     redis-url: ${AGENT_DEPLOY_REDIS_URL:redis://host.docker.internal:6379/0}
     # 容器端口绑定地址：0.0.0.0 允许局域网/Tailscale 访问，127.0.0.1 仅本机
-    bind: ${AGENT_DEPLOY_BIND:0.0.0.0}
+    bind: ${AGENT_DEPLOY_BIND:127.0.0.1}
     # 运行时与 LB 容器的资源边界（Docker --cpus/--memory/--pids-limit）
     cpu-limit: ${AGENT_DEPLOY_CPU_LIMIT:1}
     memory-limit: ${AGENT_DEPLOY_MEMORY_LIMIT:512m}
