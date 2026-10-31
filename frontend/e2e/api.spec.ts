@@ -406,6 +406,52 @@ test('全局搜索知识库和工具描述全文匹配', async ({ request }) => 
   }
 })
 
+test('全局搜索支持用例期望答案全文匹配', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E搜索用例-${Date.now()}`)
+  let conversationId: number | null = null
+  let caseId: number | null = null
+  const phrase = `蓝鲸退款${Date.now()}`
+  try {
+    await publishAgent(request, token!, agentId)
+    const conv = await (await request.post(`${P}/conversations`, {
+      headers: auth(token!), data: { agentId, title: '搜索用例沉淀' }
+    })).json()
+    expect(conv.code, JSON.stringify(conv)).toBe(0)
+    conversationId = conv.data.id
+    const sent = await (await request.post(`${P}/conversations/${conversationId}/messages`, {
+      headers: auth(token!), data: { message: '只回答OK', stream: false }, timeout: 60_000
+    })).json()
+    expect(sent.code, JSON.stringify(sent)).toBe(0)
+    await request.post(`${P}/conversations/${conversationId}/messages/${sent.data.messageId}/feedback`, {
+      headers: auth(token!), data: { type: 'DOWN', comment: '搜索用例' }
+    })
+
+    const cases = await (await request.get(`${P}/cases`, {
+      headers: auth(token!), params: { source: 'AUTO_BAD' }
+    })).json()
+    const row = (cases.data.list || []).find((x: any) => x.assistantMessageId === sent.data.messageId)
+    expect(row, '点踩应自动沉淀用例').toBeTruthy()
+    caseId = row.id
+    const upd = await (await request.put(`${P}/cases/${caseId}`, {
+      headers: auth(token!), data: { expectedAnswer: `${phrase}说明`, status: 'APPROVED' }
+    })).json()
+    expect(upd.code, JSON.stringify(upd)).toBe(0)
+
+    const search = await (await request.get(`${P}/search`, {
+      headers: auth(token!), params: { q: phrase }
+    })).json()
+    expect(search.code, JSON.stringify(search)).toBe(0)
+    expect((search.data.list || []).some((x: any) => x.type === 'CASE' && x.id === caseId),
+      '用例期望答案全文命中').toBeTruthy()
+  } finally {
+    if (caseId) await request.delete(`${P}/cases/${caseId}`, { headers: auth(token!) })
+    if (conversationId) await request.delete(`${P}/conversations/${conversationId}`, { headers: auth(token!) })
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
 test('Prompt 模板 AI 优化', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()
