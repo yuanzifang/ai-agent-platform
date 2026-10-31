@@ -70,4 +70,31 @@ class OcrTableExtractorSmallTableTest {
         assertTrue(!result.table().contains("<td></td>"), "列锚点不应产生空列，实际=" + result.table());
     }
 
+    @Test
+    void keepsYearAndChangeHeaderInThead() {
+        StringBuilder tsv = new StringBuilder(
+                "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n");
+        String[] header = {"Item", "2024", "Change", "2023", "Change", "2022"};
+        String[][] rows = {
+                {"Water", "100", "10%", "90", "5%", "80"},
+                {"Filter", "50", "5%", "45", "3%", "40"},
+                {"Install", "0", "0%", "0", "0%", "0"}
+        };
+        addRow(tsv, 1, 10, header);
+        for (int i = 0; i < rows.length; i++) addRow(tsv, i + 2, 40 + i * 30, rows[i]);
+
+        OcrTableExtractor.Result result = OcrTableExtractor.extract(tsv.toString());
+
+        assertTrue(result.table().contains("<thead>"), result.table());
+        assertTrue(result.table().contains("2024") && result.table().contains("Change"), result.table());
+    }
+
+    private static void addRow(StringBuilder tsv, int line, int top, String[] values) {
+        for (int i = 0; i < values.length; i++) {
+            tsv.append("1\t1\t1\t1\t").append(line).append("\t").append(i + 1)
+                    .append("\t").append(50 + i * 100).append("\t").append(top)
+                    .append("\t60\t12\t95\t").append(values[i]).append("\n");
+        }
+    }
+
 }
