@@ -244,6 +244,19 @@ class ChatServiceKnowledgeTest {
     }
 
     @Test
+    void graphExpansionIsDisabledWhenKnowledgeBaseNotExplicitlyEnabled() {
+        kb.setGraphEnabled(false);
+        stubHybrid(hit("仅向量结果", 0.8, 10L, 100L, 1));
+        List<Map<String, Object>> citations = new ArrayList<>();
+
+        String prompt = service.augmentWithKnowledge("系统指令", "问题",
+                List.of(binding(null)), citations, viewer);
+
+        assertTrue(prompt.contains("仅向量结果"));
+        verify(graphService, never()).expandChunks(anyLong(), anyString(), anyList(), anySet(), any());
+    }
+
+    @Test
     void emptySystemPromptStillGetsUntrustedRetrievalWrapper() {
         stubHybrid(hit("参考资料", 0.8, 10L, 100L, 0));
         List<Map<String, Object>> citations = new ArrayList<>();
