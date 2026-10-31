@@ -498,8 +498,13 @@ final class PdfTableExtractor {
         boolean any = false;
         for (String cell : row.values) {
             if (cell == null || cell.isBlank()) continue;
-            if (!cell.matches("(19|20)\\d{2}")) return false;
-            any = true;
+            String value = cell.trim();
+            if (value.matches("(19|20)\\d{2}")) {
+                any = true;
+                continue;
+            }
+            // 年份表头常混有 Change/Amount/% 等短标签；非年份数字才说明已进入数据行。
+            if (value.matches(".*\\d.*") || value.length() > 30) return false;
         }
         return any;
     }
