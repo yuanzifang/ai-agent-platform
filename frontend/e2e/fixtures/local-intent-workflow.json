@@ -4,27 +4,168 @@
   "definition": {
     "edges": [],
     "nodes": [
-      { "id": "start", "type": "START", "name": "开始", "next": "intent" },
-      { "id": "intent", "type": "LLM", "name": "意图识别", "modelName": "qwen2.5:7b", "next": "state_intent", "prompt": "你是客服意图识别器。把用户输入分类为：订单、售后退款、咨询、投诉、其他。只输出分类名称，不要解释。", "retryTimes": 0, "onError": "FAIL" },
-      { "id": "state_intent", "type": "STATE", "name": "保存意图", "stateKey": "intent", "valueTemplate": "{{last}}", "next": "order_check" },
-      { "id": "order_check", "type": "LLM", "name": "订单判断", "modelName": "qwen2.5:7b", "next": "order_cond", "prompt": "判断用户输入是否为订单问题（下单、物流、发货、订单状态）。只输出 YES 或 NO，不要解释。", "retryTimes": 0, "onError": "FAIL" },
-      { "id": "order_cond", "type": "CONDITION", "name": "是否订单", "conditionType": "contains", "conditionValue": "YES", "trueNext": "order_reply", "falseNext": "refund_check" },
-      { "id": "order_reply", "type": "LLM", "name": "订单回复", "modelName": "qwen2.5:7b", "next": "end", "prompt": "根据用户输入和共享状态，给出简洁的订单处理建议；不要编造订单信息。", "retryTimes": 0, "onError": "FAIL" },
-      { "id": "refund_check", "type": "LLM", "name": "售后退款判断", "modelName": "qwen2.5:7b", "next": "refund_cond", "prompt": "判断用户输入是否为售后退款问题（退款、退货、售后、退款进度）。只输出 YES 或 NO，不要解释。", "retryTimes": 0, "onError": "FAIL" },
-      { "id": "refund_cond", "type": "CONDITION", "name": "是否售后退款", "conditionType": "contains", "conditionValue": "YES", "trueNext": "refund_reply", "falseNext": "complaint_check" },
-      { "id": "refund_reply", "type": "LLM", "name": "退款安抚解释", "modelName": "qwen2.5:7b", "next": "refund_judge", "prompt": "用户正在售后退款场景。先安抚情绪，再解释退款处理流程和下一步；不要承诺未确认的到账时间。", "retryTimes": 0, "onError": "FAIL" },
-      { "id": "refund_judge", "type": "LLM", "name": "沟通是否不通过", "modelName": "qwen2.5:7b", "next": "refund_fail_cond", "prompt": "根据前序节点中的退款安抚解释和用户原始诉求判断：如果用户明显不满、认为退款太慢、要求投诉/差评/人工介入、拒绝接受解释，输出 FAIL；只有沟通可以继续才输出 PASS。只输出 PASS 或 FAIL，不要解释。", "retryTimes": 0, "onError": "FAIL" },
-      { "id": "refund_fail_cond", "type": "CONDITION", "name": "退款沟通失败", "conditionType": "contains", "conditionValue": "FAIL", "trueNext": "refund_approval", "falseNext": "refund_close" },
-      { "id": "refund_approval", "type": "APPROVAL", "name": "退款人工审核", "title": "售后退款沟通不通过，需人工审核", "requiredRole": "OWNER", "timeoutMinutes": 60, "next": "refund_close" },
-      { "id": "refund_close", "type": "LLM", "name": "退款最终回复", "modelName": "qwen2.5:7b", "next": "end", "prompt": "根据前序节点的退款安抚解释，生成给用户的最终回复；保持安抚、清晰、不过度承诺。", "retryTimes": 0, "onError": "FAIL" },
-      { "id": "complaint_check", "type": "LLM", "name": "投诉判断", "modelName": "qwen2.5:7b", "next": "complaint_cond", "prompt": "判断用户输入是否为投诉：用户表达不满、要求投诉、批评服务态度、使用强烈负面情绪。只输出 YES 或 NO，不要解释。", "retryTimes": 0, "onError": "FAIL" },
-      { "id": "complaint_cond", "type": "CONDITION", "name": "是否投诉", "conditionType": "contains", "conditionValue": "YES", "trueNext": "complaint_reply", "falseNext": "consult_check" },
-      { "id": "complaint_reply", "type": "LLM", "name": "投诉回复", "modelName": "qwen2.5:7b", "next": "end", "prompt": "先表达歉意并记录投诉诉求，给出升级处理建议；不要推诿。", "retryTimes": 0, "onError": "FAIL" },
-      { "id": "consult_check", "type": "LLM", "name": "咨询判断", "modelName": "qwen2.5:7b", "next": "consult_cond", "prompt": "判断用户输入是否为产品/使用咨询（功能、使用方法、政策说明），不包含投诉或退款诉求。只输出 YES 或 NO，不要解释。", "retryTimes": 0, "onError": "FAIL" },
-      { "id": "consult_cond", "type": "CONDITION", "name": "是否咨询", "conditionType": "contains", "conditionValue": "YES", "trueNext": "consult_reply", "falseNext": "other_reply" },
-      { "id": "consult_reply", "type": "LLM", "name": "咨询回复", "modelName": "qwen2.5:7b", "next": "end", "prompt": "根据用户输入给出简洁、准确的产品/使用咨询答复；不确定时说明需要进一步确认。", "retryTimes": 0, "onError": "FAIL" },
-      { "id": "other_reply", "type": "LLM", "name": "其他回复", "modelName": "qwen2.5:7b", "next": "end", "prompt": "识别为其他类型。礼貌说明可以协助的范围，并询问用户具体诉求。", "retryTimes": 0, "onError": "FAIL" },
-      { "id": "end", "type": "END", "name": "结束" }
+      {
+        "id": "start",
+        "type": "START",
+        "name": "开始",
+        "next": "intent"
+      },
+      {
+        "id": "intent",
+        "type": "LLM",
+        "name": "意图识别",
+        "modelName": "qwen2.5:7b",
+        "next": "state_intent",
+        "prompt": "你是客服意图识别器。把用户输入分类为且仅分类为以下之一：订单、售后退款、咨询、投诉、其他。只输出分类名称，不要输出解释、标点或额外文字。",
+        "retryTimes": 0,
+        "onError": "FAIL"
+      },
+      {
+        "id": "state_intent",
+        "type": "STATE",
+        "name": "保存意图",
+        "stateKey": "intent",
+        "valueTemplate": "{{last}}",
+        "next": "order_cond"
+      },
+      {
+        "id": "order_cond",
+        "type": "CONDITION",
+        "name": "是否订单",
+        "conditionType": "contains",
+        "conditionValue": "订单",
+        "conditionSource": "state",
+        "trueNext": "order_reply",
+        "falseNext": "refund_cond",
+        "conditionStateKey": "intent"
+      },
+      {
+        "id": "order_reply",
+        "type": "LLM",
+        "name": "订单回复",
+        "modelName": "qwen2.5:7b",
+        "next": "end",
+        "prompt": "根据用户输入和共享状态，给出简洁的订单处理建议；不要编造订单信息。",
+        "retryTimes": 0,
+        "onError": "FAIL"
+      },
+      {
+        "id": "refund_cond",
+        "type": "CONDITION",
+        "name": "是否售后退款",
+        "conditionType": "contains",
+        "conditionValue": "退款",
+        "conditionSource": "state",
+        "trueNext": "refund_reply",
+        "falseNext": "complaint_cond",
+        "conditionStateKey": "intent"
+      },
+      {
+        "id": "refund_reply",
+        "type": "LLM",
+        "name": "退款安抚解释",
+        "modelName": "qwen2.5:7b",
+        "next": "refund_judge",
+        "prompt": "用户正在售后退款场景。先安抚情绪，再解释退款处理流程和下一步；不要承诺未确认的到账时间。",
+        "retryTimes": 0,
+        "onError": "FAIL"
+      },
+      {
+        "id": "refund_judge",
+        "type": "LLM",
+        "name": "沟通是否不通过",
+        "modelName": "qwen2.5:7b",
+        "next": "refund_fail_cond",
+        "prompt": "根据前序节点中的退款安抚解释和用户原始诉求判断：如果用户明显不满、认为退款太慢、要求投诉/差评/人工介入、拒绝接受解释，输出 FAIL；只有沟通可以继续才输出 PASS。只输出 PASS 或 FAIL，不要解释。",
+        "retryTimes": 0,
+        "onError": "FAIL"
+      },
+      {
+        "id": "refund_fail_cond",
+        "type": "CONDITION",
+        "name": "退款沟通失败",
+        "conditionType": "contains",
+        "conditionValue": "FAIL",
+        "conditionSource": "last",
+        "trueNext": "refund_approval",
+        "falseNext": "refund_close"
+      },
+      {
+        "id": "refund_approval",
+        "type": "APPROVAL",
+        "name": "退款人工审核",
+        "title": "售后退款沟通不通过，需人工审核",
+        "requiredRole": "OWNER",
+        "timeoutMinutes": 60,
+        "next": "refund_close"
+      },
+      {
+        "id": "refund_close",
+        "type": "LLM",
+        "name": "退款最终回复",
+        "modelName": "qwen2.5:7b",
+        "next": "end",
+        "prompt": "根据前序节点的退款安抚解释，生成给用户的最终回复；保持安抚、清晰、不过度承诺。",
+        "retryTimes": 0,
+        "onError": "FAIL"
+      },
+      {
+        "id": "complaint_cond",
+        "type": "CONDITION",
+        "name": "是否投诉",
+        "conditionType": "contains",
+        "conditionValue": "投诉",
+        "conditionSource": "state",
+        "trueNext": "complaint_reply",
+        "falseNext": "consult_cond",
+        "conditionStateKey": "intent"
+      },
+      {
+        "id": "complaint_reply",
+        "type": "LLM",
+        "name": "投诉回复",
+        "modelName": "qwen2.5:7b",
+        "next": "end",
+        "prompt": "先表达歉意并记录投诉诉求，给出升级处理建议；不要推诿。",
+        "retryTimes": 0,
+        "onError": "FAIL"
+      },
+      {
+        "id": "consult_cond",
+        "type": "CONDITION",
+        "name": "是否咨询",
+        "conditionType": "contains",
+        "conditionValue": "咨询",
+        "conditionSource": "state",
+        "trueNext": "consult_reply",
+        "falseNext": "other_reply",
+        "conditionStateKey": "intent"
+      },
+      {
+        "id": "consult_reply",
+        "type": "LLM",
+        "name": "咨询回复",
+        "modelName": "qwen2.5:7b",
+        "next": "end",
+        "prompt": "根据用户输入给出简洁、准确的产品/使用咨询答复；不确定时说明需要进一步确认。",
+        "retryTimes": 0,
+        "onError": "FAIL"
+      },
+      {
+        "id": "other_reply",
+        "type": "LLM",
+        "name": "其他回复",
+        "modelName": "qwen2.5:7b",
+        "next": "end",
+        "prompt": "识别为其他类型。礼貌说明可以协助的范围，并询问用户具体诉求。",
+        "retryTimes": 0,
+        "onError": "FAIL"
+      },
+      {
+        "id": "end",
+        "type": "END",
+        "name": "结束"
+      }
     ]
   }
 }

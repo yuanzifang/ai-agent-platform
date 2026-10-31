@@ -2327,7 +2327,8 @@ async function openWorkflow() {
   workflowPublishedVersion.value = data?.publishedVersion || ''
   workflowHasUnpublishedChanges.value = !!data?.hasUnpublishedChanges
   workflowForm.nodes = (data?.definition?.nodes || []).map((n: any) => ({
-    ...n, ...(n.type === 'LOOP' ? { itemsText: JSON.stringify(n.items || []) } : {})
+    ...n, ...(n.type === 'CONDITION' ? { conditionSource: n.conditionSource || 'last' } : {}),
+    ...(n.type === 'LOOP' ? { itemsText: JSON.stringify(n.items || []) } : {})
   }))
   workflowForm.edges = (data?.definition?.edges || []).map((e: any) => ({ ...e }))
   ensureWorkflowPositions()
@@ -2898,7 +2899,8 @@ function applyWorkflowTemplate(t: any) {
   const nodes = def?.nodes || []
   if (!nodes.length) { ElMessage.warning(t('agentMsg.templateNoNodes')); return }
   workflowForm.nodes = nodes.map((n: any) => ({
-    ...n, ...(n.type === 'LOOP' ? { itemsText: JSON.stringify(n.items || []) } : {})
+    ...n, ...(n.type === 'CONDITION' ? { conditionSource: n.conditionSource || 'last' } : {}),
+    ...(n.type === 'LOOP' ? { itemsText: JSON.stringify(n.items || []) } : {})
   }))
   ensureWorkflowPositions()
   wfMode.value = 'list'
@@ -3045,6 +3047,7 @@ function compareVersion(row: any) {
   const curMap = new Map(current.map((n: any) => [n.id, n]))
   const fields = ['type', 'name', 'prompt', 'modelName', 'agentId', 'toolId', 'argsTemplate',
     'knowledgeBaseId', 'mode', 'topK', 'queryTemplate', 'conditionType', 'conditionValue',
+    'conditionSource', 'conditionStateKey',
     'trueNext', 'falseNext', 'next', 'title', 'requiredRole', 'timeoutMinutes', 'branches', 'joinNode', 'strategy']
   const rows: any[] = []
   for (const n of current) {
@@ -3095,6 +3098,8 @@ function buildWorkflowNode(type: string): any {
   if (type === 'CONDITION') {
     node.conditionType = 'contains'
     node.conditionValue = ''
+    node.conditionSource = 'last'
+    node.conditionStateKey = ''
     node.trueNext = 'end'
     node.falseNext = 'end'
   }
@@ -3257,7 +3262,9 @@ async function rollbackWorkflow(version: string) {
   const data = await http.get(`/agent/${agentId}/workflow`) as any
   workflowForm.name = data.name
   workflowForm.status = data.status
-  workflowForm.nodes = (data.definition?.nodes || []).map((n: any) => ({ ...n }))
+  workflowForm.nodes = (data.definition?.nodes || []).map((n: any) => ({
+    ...n, ...(n.type === 'CONDITION' ? { conditionSource: n.conditionSource || 'last' } : {})
+  }))
   ensureWorkflowPositions()
   workflowPublishedVersion.value = data.publishedVersion || ''
   workflowHasUnpublishedChanges.value = !!data.hasUnpublishedChanges
