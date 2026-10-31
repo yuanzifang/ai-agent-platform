@@ -242,7 +242,8 @@ final class OcrTableExtractor {
             for (int c = 0; c < values.length; c++) {
                 if (coveredByRowSpan(spans, r, c)) continue;
                 String value = values[c];
-                if (value == null || value.isBlank() || value.matches("[-+]?\\d+([.,]\\d+)?")) continue;
+                // 带数字的通常是 SRM/编号/年份，不应因下一行 OCR 漏识别就误判为 rowspan。
+                if (value == null || value.isBlank() || value.matches(".*\\d.*")) continue;
                 int span = 1;
                 while (span < 50 && r + span < lines.size()) {
                     String[] next = mapCells(lines.get(r + span), anchors);
