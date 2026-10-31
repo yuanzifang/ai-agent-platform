@@ -196,7 +196,8 @@ PDF_BENCH_DIR="$PWD/target/pdf-samples" mvn -Dtest=PdfBenchmarkTest test
 扫描表格页能识别出 `Copper-Base Alloys (Solid Form)`、元素列和数值。新增按行间距/列数
 逐级尝试、以最宽行作为列锚点的表块重建后，样例可生成含表头的 8 列左右 HTML 表；
 但 OCR/复杂版面噪声仍会造成空单元格、列错位和合并单元格偏差；解析产物中空单元格比例过高的表格
-会写入人工复核告警，不能把扫描表格当成与文本层 PDF 同等级的结构化结果。
+会写入人工复核告警；缺少表头的 HTML 表也会提示人工核对，不能把扫描表格当成与文本层 PDF
+同等级的结构化结果。
 
 复现：
 
