@@ -878,7 +878,9 @@ public class ChatStreamService {
     private void emitRagNotice(StreamSink out, com.platform.agent.service.ContextWindowService.Fitted fitted) {
         if (fitted.ragTruncated()) {
             out.event("notice", Map.of("code", "RAG_TRUNCATED",
-                    "message", "知识库检索结果超出上下文预算，已按完整片段截断；回答可能未覆盖全部资料。"));
+                    "message", "知识库检索结果超出上下文预算，仅保留 "
+                            + fitted.ragKeptFragments() + "/" + fitted.ragTotalFragments()
+                            + " 个完整片段；回答可能未覆盖全部资料。"));
         }
     }
 

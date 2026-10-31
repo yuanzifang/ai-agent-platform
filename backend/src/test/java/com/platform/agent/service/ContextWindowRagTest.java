@@ -30,6 +30,8 @@ class ContextWindowRagTest {
 
         assertTrue(fit.truncated());
         assertTrue(fit.ragTruncated());
+        assertTrue(fit.ragTotalFragments() == 20);
+        assertTrue(fit.ragKeptFragments() > 0 && fit.ragKeptFragments() < 20);
         assertTrue(fit.text().contains("<untrusted_retrieval>"));
         assertTrue(fit.text().contains("</untrusted_retrieval>"));
         assertTrue(fit.text().contains("完整片段"));
