@@ -37,6 +37,9 @@ class PdfBenchmarkTest {
         if (external) {
             try (var stream = Files.list(Path.of(dir))) {
                 files = stream.filter(path -> path.toString().toLowerCase(Locale.ROOT).endsWith(".pdf"))
+                        // 无文本层扫描件由 PdfScannedRealBenchmarkTest 单独走 OCR，避免把
+                        // “扫描页没有文本层”误判成文本 PDF 回归失败。
+                        .filter(path -> !path.getFileName().toString().startsWith("scanned-"))
                         .sorted(Comparator.comparing(path -> path.getFileName().toString()))
                         .toList();
             }
