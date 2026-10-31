@@ -87,6 +87,6 @@ location /v1/ {
 
 ## 未改动
 
-- 外部 k3d/UTM 集群原有 `aap-agent-gateway` Deployment/Service/Secret 已于 2026-10-31 手动删除；主机端口 `19001 -> 30090` 映射仍保留但已无后端，可按需再清理
+- 外部 k3d/UTM 集群旧 `aap-agent-gateway` 资源需与并行部署任务协调下线；仓库已不再部署，若旧 manifest 被重新 apply 会再次创建
 - 前端 nginx
 - `aap` release/namespace
