@@ -28,6 +28,73 @@ async function pageLogin(page: Page) {
     { timeout: 20_000 })
 }
 
+test('工作流节点失败分支：浏览器运行后命中 fallback', async ({ page, request }) => {
+  const token = await login(request)
+  const created = await request.post(`${P}/agent`, {
+    headers: auth(token),
+    data: {
+      name: `E2E失败分支-${Date.now()}`,
+      description: '工作流失败分支 UI E2E',
+      systemPrompt: '失败分支测试。',
+      modelConfig: { modelName: 'deepseek-flash' },
+      agentCapabilities: { functionCall: false },
+      tools: [],
+      visibility: 'PRIVATE'
+    }
+  })
+  const agentBody = await created.json()
+  expect(agentBody.code, JSON.stringify(agentBody)).toBe(0)
+  const agentId = agentBody.data.id as number
+  try {
+    const workflow = {
+      name: 'E2E 失败分支', status: 'ENABLED',
+      definition: {
+        nodes: [
+          { id: 'start', type: 'START', name: '开始', next: 'bad_tool' },
+          { id: 'bad_tool', type: 'TOOL', name: '会失败的节点', toolId: 999999,
+            retryTimes: 0, onError: 'BRANCH', errorNext: 'fallback', next: 'end' },
+          { id: 'fallback', type: 'STATE', name: '失败分支', stateKey: 'error_route',
+            valueTemplate: 'fallback-hit', next: 'end' },
+          { id: 'end', type: 'END', name: '结束' }
+        ], edges: []
+      }
+    }
+    expect((await (await request.put(`${P}/agent/${agentId}/workflow`, {
+      headers: auth(token), data: workflow
+    })).json()).code).toBe(0)
+
+    await pageLogin(page)
+    await page.goto(`/agent/edit/${agentId}`)
+    await page.waitForLoadState('networkidle')
+    const wfItem = page.locator('.el-collapse-item').filter({ hasText: '工作流' }).first()
+    await wfItem.locator('.el-collapse-item__header').click()
+    await wfItem.getByRole('button', { name: '编辑工作流' }).click()
+    const dialog = page.locator('.wf-dialog')
+    await expect(dialog).toBeVisible()
+    await dialog.getByPlaceholder('输入测试内容').fill('触发失败分支')
+    await dialog.getByRole('button', { name: '运行', exact: true }).click()
+    const result = dialog.locator('[data-testid="wf-run-result"]')
+    await expect(result).toContainText('SUCCESS', { timeout: 20_000 })
+    await expect(result).toContainText('失败分支')
+    await expect(result).toContainText('会失败的节点')
+    await expect(result).toContainText('FAILED')
+
+    const runs = await (await request.get(`${P}/agent/${agentId}/workflow/runs`, {
+      headers: auth(token), params: { page: 1, pageSize: 5 }
+    })).json()
+    const latest = (runs.data.list || [])[0]
+    expect(latest, '应生成工作流运行记录').toBeTruthy()
+    const detail = await (await request.get(`${P}/workflow/runs/${latest.id}`, {
+      headers: auth(token)
+    })).json()
+    expect(detail.data.status).toBe('SUCCESS')
+    expect(detail.data.state?.error_route).toBe('fallback-hit')
+    expect((detail.data.nodeRuns || []).some((x: any) => x.name === '失败分支')).toBe(true)
+  } finally {
+    await request.delete(`${P}/agent/${agentId}/workflow`, { headers: auth(token) })
+    await request.delete(`${P}/agent/${agentId}`, { headers: auth(token) })
+  }
+})
 test('工作流节点配置：LOOP 与失败重试策略 UI 回显保存', async ({ page, request }) => {
   const token = await login(request)
   const created = await request.post(`${P}/agent`, {
