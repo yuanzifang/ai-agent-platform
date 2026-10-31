@@ -181,11 +181,11 @@ PDF_BENCH_DIR="$PWD/target/pdf-samples" mvn -Dtest=PdfBenchmarkTest test
 | 样本 | 页数 | 类型 | 处理方式 | 结果 |
 | --- | ---: | --- | --- | --- |
 | scanned-nbs-chem-1972.pdf | 122 | 1972 年 NBS 电解质数据中心报告 | 自带部分 OCR 文本层，按页补 OCR | 1.1s；76,464 字符；正文可读，老式打字/公式噪声明显 |
-| scanned-nbs-catalog-table-pages.pdf | 3 | 1986 年 NBS 标准物质目录表格页 | 从目录 PDF 渲染为无文本层图片 PDF，150 DPI OCR | 2.7s；4,202 字符；标题和表格文字可识别 |
+| scanned-nbs-catalog-table-pages.pdf | 3 | 1986 年 NBS 标准物质目录表格页 | 从目录 PDF 渲染为无文本层图片 PDF，150 DPI OCR | 2.7s；4,202 字符；标题和表格文字可识别，已能重建 HTML 表块 |
 
-扫描表格页能识别出 `Copper-Base Alloys (Solid Form)`、元素列和数值，但当前
-`OcrTableExtractor` 未稳定重建出 HTML 表格结构，表格内容仍以文本行保留。
-这说明 OCR 正文链路可用，扫描表格结构仍是后续重点。
+扫描表格页能识别出 `Copper-Base Alloys (Solid Form)`、元素列和数值。新增按行间距/列数
+逐级尝试的表块重建后，能从扫描页生成 HTML 表块；但 OCR 噪声仍会造成少量空列和合并单元格偏差，
+需要人工复核，不能把扫描表格当成与文本层 PDF 同等级的结构化结果。
 
 复现：
 
