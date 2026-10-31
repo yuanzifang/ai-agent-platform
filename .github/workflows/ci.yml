@@ -133,6 +133,9 @@ jobs:
           docker build -t alert-relay:ci runtime/alert-relay
 
       - name: 容器冒烟（健康检查/鉴权/模型/统计/CORS）
+        env:
+          # 通过仓库 Variables 配置；未配置时用测试域名，不使用通配符。
+          CORS_ORIGIN: ${{ vars.CORS_ORIGIN || 'https://app.example' }}
         run: |
           set -euo pipefail
           docker run -d --name agent-gateway-ci \
@@ -142,7 +145,7 @@ jobs:
             -e AGENT_SLUG=ci-agent \
             -e RATE_LIMIT_PER_MIN=1000 \
             -e CALLER_QUOTA_DAILY=1 \
-            -e CORS_ORIGIN='https://app.example' \
+            -e CORS_ORIGIN="$CORS_ORIGIN" \
             -e REDIS_URL=redis://host.docker.internal:6379/0 \
             -p 18081:8080 agent-gateway:ci
           trap 'docker logs agent-gateway-ci || true; docker rm -f agent-gateway-ci || true' EXIT
@@ -162,7 +165,7 @@ jobs:
             -H 'Authorization: Bearer ci-stats' | grep -q '"requests":1'
           curl -fsS -D /tmp/gateway-cors.headers -o /dev/null -X OPTIONS \
             http://127.0.0.1:18081/v1/models
-          grep -qi 'access-control-allow-origin: https://app.example' /tmp/gateway-cors.headers
+          grep -Fqi "access-control-allow-origin: $CORS_ORIGIN" /tmp/gateway-cors.headers
           echo "gateway container smoke passed"
 
       - name: Alert-relay 容器冒烟
