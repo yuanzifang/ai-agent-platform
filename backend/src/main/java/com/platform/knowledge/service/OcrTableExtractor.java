@@ -592,12 +592,15 @@ final class OcrTableExtractor {
     }
 
     private static List<Float> anchors(List<Line> lines) {
+        // 以单元格最多的一行作为表头列锚点，避免正文行/OCR 抖动把列数撑大。
+        Line widest = lines.stream()
+                .max(Comparator.comparingInt(line -> line.cells.size()))
+                .orElse(null);
+        if (widest == null) return List.of();
         List<Float> anchors = new ArrayList<>();
-        for (Line line : lines) {
-            for (Cell cell : line.cells) {
-                if (anchors.stream().noneMatch(anchor -> Math.abs(anchor - cell.left) <= ANCHOR_TOLERANCE)) {
-                    anchors.add(cell.left);
-                }
+        for (Cell cell : widest.cells) {
+            if (anchors.stream().noneMatch(anchor -> Math.abs(anchor - cell.left) <= ANCHOR_TOLERANCE)) {
+                anchors.add(cell.left);
             }
         }
         anchors.sort(Float::compare);

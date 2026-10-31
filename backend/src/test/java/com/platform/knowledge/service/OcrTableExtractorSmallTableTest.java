@@ -49,4 +49,24 @@ class OcrTableExtractorSmallTableTest {
         assertTrue(!result.table().contains("Intro"), "正文行不应混入表格，实际=" + result.table());
     }
 
+    @Test
+    void usesWidestHeaderRowAsColumnAnchors() {
+        String tsv = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
+                + "1\t1\t1\t1\t1\t1\t50\t10\t60\t12\t95\tName\n"
+                + "1\t1\t1\t1\t1\t2\t220\t10\t60\t12\t95\tValue\n"
+                + "1\t1\t1\t1\t1\t3\t400\t10\t60\t12\t95\tUnit\n"
+                + "1\t1\t1\t1\t2\t1\t50\t40\t60\t12\t95\tA\n"
+                + "1\t1\t1\t1\t2\t2\t230\t40\t60\t12\t95\t1\n"
+                + "1\t1\t1\t1\t2\t3\t410\t40\t60\t12\t95\tkg\n"
+                + "1\t1\t1\t1\t3\t1\t50\t70\t60\t12\t95\tB\n"
+                + "1\t1\t1\t1\t3\t2\t230\t70\t60\t12\t95\t2\n"
+                + "1\t1\t1\t1\t3\t3\t410\t70\t60\t12\t95\tkg\n";
+
+        OcrTableExtractor.Result result = OcrTableExtractor.extract(tsv);
+
+        assertTrue(result.table().contains("<table"), result.table());
+        assertTrue(result.table().contains("Name") && result.table().contains("Unit"), result.table());
+        assertTrue(!result.table().contains("<td></td>"), "列锚点不应产生空列，实际=" + result.table());
+    }
+
 }
