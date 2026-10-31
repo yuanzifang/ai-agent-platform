@@ -142,7 +142,7 @@ jobs:
             -e AGENT_SLUG=ci-agent \
             -e RATE_LIMIT_PER_MIN=1000 \
             -e CALLER_QUOTA_DAILY=1 \
-            -e CORS_ORIGIN='*' \
+            -e CORS_ORIGIN='https://app.example' \
             -e REDIS_URL=redis://host.docker.internal:6379/0 \
             -p 18081:8080 agent-gateway:ci
           trap 'docker logs agent-gateway-ci || true; docker rm -f agent-gateway-ci || true' EXIT
@@ -162,7 +162,7 @@ jobs:
             -H 'Authorization: Bearer ci-stats' | grep -q '"requests":1'
           curl -fsS -D /tmp/gateway-cors.headers -o /dev/null -X OPTIONS \
             http://127.0.0.1:18081/v1/models
-          grep -qi 'access-control-allow-origin: \*' /tmp/gateway-cors.headers
+          grep -qi 'access-control-allow-origin: https://app.example' /tmp/gateway-cors.headers
           echo "gateway container smoke passed"
 
       - name: Alert-relay 容器冒烟
