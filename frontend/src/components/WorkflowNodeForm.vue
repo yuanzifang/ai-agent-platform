@@ -66,6 +66,16 @@
             </template>
             <template v-else-if="node.type === 'CONDITION'">
               <div class="wf-line">
+                <span class="hint">{{ t('wf.condSource') }}</span>
+                <el-select v-model="node.conditionSource" style="width: 140px">
+                  <el-option :label="t('wf.condSourceLast')" value="last" />
+                  <el-option :label="t('wf.condSourceState')" value="state" />
+                  <el-option :label="t('wf.condSourceInput')" value="input" />
+                </el-select>
+                <el-input v-if="node.conditionSource === 'state'" v-model="node.conditionStateKey"
+                          :placeholder="t('wf.condStateKeyPh')" style="width: 220px" />
+              </div>
+              <div class="wf-line mt8">
                 <el-select v-model="node.conditionType" style="width: 130px">
                   <el-option :label="t('wf.contains')" value="contains" />
                   <el-option :label="t('wf.notContains')" value="notContains" />

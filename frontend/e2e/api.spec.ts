@@ -287,6 +287,49 @@ test('工作流测试运行使用当前草稿，正式运行使用发布版', as
   }
 })
 
+test('工作流条件可读取共享状态', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E状态条件-${Date.now()}`)
+  try {
+    const workflow = {
+      name: 'E2E 状态条件', status: 'ENABLED',
+      definition: { nodes: [
+        { id: 'start', type: 'START', name: 'start', next: 'save' },
+        { id: 'save', type: 'STATE', name: '保存意图', stateKey: 'intent',
+          valueTemplate: '售后退款', next: 'cond' },
+        { id: 'cond', type: 'CONDITION', name: '读取共享状态', conditionSource: 'state',
+          conditionStateKey: 'intent', conditionType: 'contains', conditionValue: '退款',
+          trueNext: 'hit', falseNext: 'miss' },
+        { id: 'hit', type: 'STATE', name: '命中', stateKey: 'route',
+          valueTemplate: 'true', next: 'end' },
+        { id: 'miss', type: 'STATE', name: '未命中', stateKey: 'route',
+          valueTemplate: 'false', next: 'end' },
+        { id: 'end', type: 'END', name: 'end' }
+      ], edges: [] }
+    }
+    expect((await (await request.put(`${P}/agent/${agentId}/workflow`, {
+      headers: auth(token!), data: workflow
+    })).json()).code).toBe(0)
+    expect((await (await request.post(`${P}/agent/${agentId}/workflow/publish`, {
+      headers: auth(token!), data: {}
+    })).json()).code).toBe(0)
+    const run = await (await request.post(`${P}/agent/${agentId}/workflow/run`, {
+      headers: auth(token!), data: { input: 'should not be used' }
+    })).json()
+    expect(run.code, JSON.stringify(run)).toBe(0)
+    expect(run.data.status).toBe('SUCCESS')
+    expect(run.data.state?.route).toBe('true')
+    expect(run.data.state?.intent).toBe('售后退款')
+    const names = (run.data.nodeRuns || []).map((x: any) => x.name)
+    expect(names).toContain('命中')
+    expect(names).not.toContain('未命中')
+  } finally {
+    await request.delete(`${P}/agent/${agentId}/workflow`, { headers: auth(token!) })
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
 test('Prompt 模板 AI 优化', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()

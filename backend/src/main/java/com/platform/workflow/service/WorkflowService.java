@@ -635,7 +635,8 @@ public class WorkflowService {
                     output = lastOutput == null ? run.getInputText() : lastOutput;
                     next = str(node.get("next"));
                 } else if ("CONDITION".equals(type)) {
-                    boolean matched = evaluate(node, lastOutput == null ? run.getInputText() : lastOutput);
+                    boolean matched = evaluate(node, lastOutput == null ? run.getInputText() : lastOutput,
+                            state, run.getInputText());
                     // 保留前序输出，CONDITION 只负责路由；避免审批/结束节点展示 "true/false"。
                     output = lastOutput == null ? run.getInputText() : lastOutput;
                     next = matched ? str(node.get("trueNext")) : str(node.get("falseNext"));
@@ -1311,7 +1312,8 @@ public class WorkflowService {
                 output = value == null ? "" : value;
                 next = str(node.get("next"));
             } else if ("CONDITION".equals(type)) {
-                boolean matched = evaluate(node, lastOutput == null ? run.getInputText() : lastOutput);
+                boolean matched = evaluate(node, lastOutput == null ? run.getInputText() : lastOutput,
+                        state, run.getInputText());
                 output = lastOutput == null ? run.getInputText() : lastOutput;
                 next = matched ? str(node.get("trueNext")) : str(node.get("falseNext"));
             } else {
@@ -1643,6 +1645,14 @@ public class WorkflowService {
             if ("CONDITION".equals(type)) {
                 checkTarget(nodes, str(node.get("trueNext")), "条件节点 trueNext");
                 checkTarget(nodes, str(node.get("falseNext")), "条件节点 falseNext");
+                String source = str(node.getOrDefault("conditionSource", "last"));
+                if (!List.of("last", "state", "input").contains(source)) {
+                    throw new BusinessException(400, "条件判断来源仅支持 last/state/input");
+                }
+                if ("state".equals(source) && (node.get("conditionStateKey") == null
+                        || str(node.get("conditionStateKey")).isBlank())) {
+                    throw new BusinessException(400, "条件判断来源为共享状态时必须配置 conditionStateKey");
+                }
             } else if (!"PARALLEL".equals(type)) {
                 checkTarget(nodes, str(node.get("next")), "节点 next");
             }
@@ -1726,7 +1736,16 @@ public class WorkflowService {
         return nodes;
     }
 
-    private boolean evaluate(Map<String, Object> node, String value) {
+    private boolean evaluate(Map<String, Object> node, String value,
+                             Map<String, Object> state, String input) {
+        String source = str(node.getOrDefault("conditionSource", "last"));
+        if ("state".equalsIgnoreCase(source)) {
+            String key = str(node.get("conditionStateKey"));
+            value = key == null || key.isBlank() || state == null
+                    ? "" : String.valueOf(state.getOrDefault(key, ""));
+        } else if ("input".equalsIgnoreCase(source)) {
+            value = input == null ? "" : input;
+        }
         String type = str(node.getOrDefault("conditionType", "contains"));
         String expected = str(node.get("conditionValue"));
         if (value == null) value = "";
