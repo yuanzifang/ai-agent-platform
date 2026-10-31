@@ -65,7 +65,8 @@ class OcrTableExtractorSmallTableTest {
         OcrTableExtractor.Result result = OcrTableExtractor.extract(tsv);
 
         assertTrue(result.table().contains("<table"), result.table());
-        assertTrue(result.table().contains("Name") && result.table().contains("Unit"), result.table());
+        assertTrue(result.table().contains("<thead>") && result.table().contains("Name")
+                && result.table().contains("Unit"), "表头应保留，实际=" + result.table());
         assertTrue(!result.table().contains("<td></td>"), "列锚点不应产生空列，实际=" + result.table());
     }
 
