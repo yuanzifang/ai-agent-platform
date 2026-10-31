@@ -336,6 +336,36 @@ test('工作流条件可读取共享状态', async ({ request }) => {
   }
 })
 
+test('全局搜索支持名称和描述全文匹配', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const phrase = `海风退款${Date.now()}`
+  const created = await request.post(`${P}/agent`, {
+    headers: auth(token!),
+    data: {
+      name: `E2E搜索-${Date.now()}`,
+      description: `${phrase}政策说明`,
+      systemPrompt: '全局搜索测试。',
+      modelConfig: { modelName: 'deepseek-flash' },
+      visibility: 'PRIVATE'
+    }
+  })
+  const agentBody = await created.json()
+  expect(agentBody.code, JSON.stringify(agentBody)).toBe(0)
+  const agentId = agentBody.data.id as number
+  try {
+    const search = await request.get(`${P}/search`, {
+      headers: auth(token!), params: { q: phrase }
+    })
+    const body = await search.json()
+    expect(body.code, JSON.stringify(body)).toBe(0)
+    const hit = (body.data.list || []).find((x: any) => x.type === 'AGENT' && x.id === agentId)
+    expect(hit, '描述中的全文关键词应命中，而不是只搜名称').toBeTruthy()
+  } finally {
+    await deleteAgent(request, token!, agentId)
+  }
+})
+
 test('Prompt 模板 AI 优化', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()

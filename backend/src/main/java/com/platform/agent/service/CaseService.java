@@ -194,7 +194,8 @@ public class CaseService {
                 .eq(tier != null && !tier.isBlank(), TestCase::getDatasetTier, tier)
                 .eq(source != null && !source.isBlank(), TestCase::getSource, source)
                 .eq(agentId != null, TestCase::getAgentId, agentId)
-                .like(keyword != null && !keyword.isBlank(), TestCase::getQuestion, keyword)
+                .apply(keyword != null && !keyword.isBlank(),
+                        "MATCH(question, expected_answer) AGAINST({0} IN NATURAL LANGUAGE MODE)", keyword)
                 .orderByDesc(TestCase::getId)
                 .last("LIMIT 500"));
         List<Map<String, Object>> list = rows.stream().map(this::view).toList();

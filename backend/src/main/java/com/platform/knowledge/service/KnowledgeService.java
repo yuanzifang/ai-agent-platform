@@ -395,9 +395,8 @@ public class KnowledgeService {
         List<KnowledgeBase> all = kbMapper.selectList(new LambdaQueryWrapper<KnowledgeBase>()
                 .eq(visibility != null && !visibility.isBlank(), KnowledgeBase::getVisibility,
                         visibility == null ? null : visibility.trim().toUpperCase())
-                .and(keyword != null && !keyword.isBlank(), w -> w
-                        .like(KnowledgeBase::getName, keyword)
-                        .or().like(KnowledgeBase::getDescription, keyword))
+                .apply(keyword != null && !keyword.isBlank(),
+                        "MATCH(name, description) AGAINST({0} IN NATURAL LANGUAGE MODE)", keyword)
                 .orderByDesc(KnowledgeBase::getCreatedAt));
         List<KnowledgeBase> visible = all.stream().filter(kb -> permissionService.canView(kb, viewer)).toList();
         long total = visible.size();
