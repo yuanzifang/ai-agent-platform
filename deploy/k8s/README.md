@@ -172,7 +172,7 @@ k3d node create aap-k8s-agent-1 --cluster aap-k8s --role agent --wait
 导入应用镜像：
 
 ```bash
-k3d image import aap/backend:0.1.0 aap/frontend:0.1.0 aap/agent-gateway:1 -c aap-k8s
+k3d image import aap/backend:0.1.0 aap/frontend:0.1.0 -c aap-k8s
 ```
 
 如果新 agent 拉取 pause 失败，需要把 `rancher/mirrored-pause:3.6` 直接导入每个节点

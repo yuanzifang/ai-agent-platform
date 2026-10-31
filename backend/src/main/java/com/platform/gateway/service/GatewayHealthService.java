@@ -143,7 +143,7 @@ public class GatewayHealthService {
             networkPolicy.validateHttpUrl(url, "健康检查地址");
             HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                     .timeout(Duration.ofMillis(Math.max(timeoutMs, 500)))
-                    .header("User-Agent", "ai-agent-gateway-health/1.0")
+                    .header("User-Agent", "ai-agent-platform-gateway-health/1.0")
                     .GET().build();
             HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
             int code = response.statusCode();

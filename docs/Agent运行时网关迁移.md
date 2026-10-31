@@ -4,16 +4,18 @@
 
 ## 结论
 
-默认路径从 **Node `runtime/agent-gateway` 容器** 改为：
+运行时已收敛为单栈：
 
 ```text
 client
-  → 每 Agent 的 nginx 容器（只做入口/反代/CORS/healthz）
+  → 每 Agent 的 nginx 容器（入口/反代/CORS/healthz）
   → Spring 平台网关 /api/v1/gateway/agent-runtime/{agentId}/v1/*
   → 平台内部对话链路 /api/v1/open
 ```
 
-nginx 仍然保留：前端 nginx、每 Agent 运行时 nginx、多副本 LB nginx 都不删除。变化只是把 Bearer、调用方 Key、限流、日配额、用量统计从 Node 进程迁到 Spring。
+- 旧 Node `runtime/agent-gateway` 已删除，不再提供 `gateway` 运行时回滚。
+- 前端 nginx、每 Agent nginx、多副本 LB nginx 保留。
+- Bearer、调用方 Key、限流、日配额、用量统计全部在 Spring 执行。
 
 ## 端点
 
@@ -32,7 +34,7 @@ Authorization: Bearer sk-run-<调用方 Key>
 
 部署令牌来自 `agent_deployment.runtime_token`（AES 加密），调用方 Key 来自 `agent_runtime_key`（只存 SHA-256）。nginx 不接触两者明文，也不注入平台集成 API Key。
 
-## 迁移后的职责
+## 职责
 
 | 能力 | 平台网关 | nginx |
 | --- | --- | --- |
@@ -55,13 +57,13 @@ agent-runtime:streams:{agentId}:{yyyyMMdd}
 
 Redis 不可用时回退本机内存，单实例可用；多实例下统计/配额不共享。
 
-## 部署方式
+## 部署
 
 ```text
-AGENT_DEPLOY_RUNTIME=nginx       # 默认；平台网关
-AGENT_DEPLOY_RUNTIME=gateway     # 旧 Node 运行时，兼容回滚
-AGENT_DEPLOY_ENABLED=true        # 默认开启
+AGENT_DEPLOY_ENABLED=true
 ```
+
+不再有 `AGENT_DEPLOY_RUNTIME`、`gateway-image`、`caller-keys`、`redis-url` 这些旧配置。
 
 nginx 模板由 `AgentDeploymentService` 生成：
 
@@ -73,24 +75,17 @@ location /v1/ {
 }
 ```
 
-## 回滚
-
-- 已有部署：改 `AGENT_DEPLOY_RUNTIME=gateway` 后重新部署，回到 Node 运行时。
-- 代码层面：Node `runtime/agent-gateway`、K8s manifest 和测试全部保留，未删除。
-- 默认不再构建/导入 `aap/agent-gateway:1`；需要回滚时再构建。
-
 ## 验证
 
 - `AgentRuntimeGatewayServiceTest` 6 个用例：部署令牌、调用方 Key、缺失/非法令牌、停止部署、限流、日配额、内存统计
-- `AgentDeploymentServiceLifecycleTest` 12 个用例：nginx 模板不持有 Key/令牌、平台统计分支、启停/清理/资源限制
+- `AgentDeploymentServiceLifecycleTest` 11 个用例：nginx 模板不持有 Key/令牌、平台统计分支、启停/清理/资源限制
 - `ArchitectureTest` 3 个用例：gateway 薄层、deploy 依赖边界
-- 后端全量单测：566/566
+- 后端全量单测：560/560
 - 静态门禁：`scripts/check-mvp-freeze.py` 通过
-- **尚未完成**：真实 Docker + nginx 容器 + 平台网关 的全链路实测；外部 `aap` 集群未重建镜像
+- 待补：真实 Docker + nginx 容器 + 平台网关全链路实测；外部集群镜像重建
 
 ## 未改动
 
-- 外部 k3d/UTM 集群现有 `aap-agent-gateway` Pod
+- 外部 k3d/UTM 集群现有 `aap-agent-gateway` Pod 仍在运行；仓库已不再部署它，需单独下线
 - 前端 nginx
-- 旧 Node 镜像、K8s manifest、Node 测试
 - `aap` release/namespace

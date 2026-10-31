@@ -50,7 +50,7 @@ class DockerCliRuntimeTest {
         assertEquals("29.9.2", runtime.version());
 
         String id = runtime.create(new ContainerRuntime.CreateRequest(
-                "aap-test", "aap/agent-gateway:1", "127.0.0.1", 19099, 8080,
+                "aap-test", "aap/test-runtime:1", "127.0.0.1", 19099, 8080,
                 Map.of("TOKEN", "secret", "MODE", "test"),
                 Map.of("aap.agent", "1"),
                 List.of("/tmp/data:/data:ro"),
@@ -66,7 +66,7 @@ class DockerCliRuntimeTest {
         assertTrue(args.contains("-e TOKEN=secret"));
         assertTrue(args.contains("-e MODE=test"));
         assertTrue(args.contains("-v /tmp/data:/data:ro"));
-        assertTrue(args.contains("--network bridge aap/agent-gateway:1"));
+        assertTrue(args.contains("--network bridge aap/test-runtime:1"));
 
         runtime.start("aap-test");
         runtime.stop("aap-test");

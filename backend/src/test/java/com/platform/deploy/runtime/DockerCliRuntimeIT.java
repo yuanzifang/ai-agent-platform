@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 真实 Docker 冒烟：CI 的 gateway job 构建 agent-gateway:ci 后执行。
+ * 真实 Docker 冒烟：CI 的 gateway job 构建 alert-relay:ci 后执行。
  * 仅设置 DOCKER_IT=1 时运行；本地默认跳过，避免要求开发机安装 Docker。
  */
 @EnabledIfEnvironmentVariable(named = "DOCKER_IT", matches = "1")
@@ -28,13 +28,13 @@ class DockerCliRuntimeIT {
 
     @Test
     @Timeout(90)
-    void createsStartsInspectsAndRemovesGatewayContainer() throws Exception {
-        String image = System.getenv().getOrDefault("DOCKER_IT_IMAGE", "agent-gateway:ci");
+    void createsStartsInspectsAndRemovesRuntimeContainer() throws Exception {
+        String image = System.getenv().getOrDefault("DOCKER_IT_IMAGE", "alert-relay:ci");
         DockerCliRuntime runtime = new DockerCliRuntime();
         ReflectionTestUtils.setField(runtime, "dockerBin", "docker");
         assertTrue(runtime.available(), "Docker 不可用，DOCKER_IT=1 时 CI 必须提供 Docker");
 
-        String name = "aap-gateway-it-" + System.currentTimeMillis();
+        String name = "aap-runtime-it-" + System.currentTimeMillis();
         int port = freePort();
         try {
             try {
@@ -44,7 +44,7 @@ class DockerCliRuntimeIT {
             }
             String id = runtime.create(new ContainerRuntime.CreateRequest(
                     name, image, "127.0.0.1", port, 8080,
-                    Map.of(), Map.of("aap.test", "gateway"), List.of(), List.of()));
+                    Map.of(), Map.of("aap.test", "runtime"), List.of(), List.of()));
             assertNotNull(id);
             assertFalse(id.isBlank());
 
@@ -54,7 +54,7 @@ class DockerCliRuntimeIT {
             ContainerRuntime.Info running = runtime.inspect(name);
             assertTrue(running.running());
             assertEquals("running", running.status());
-            assertTrue(runtime.logs(name, 100).contains("agent-gateway started"));
+            assertTrue(runtime.logs(name, 100).contains("alert-relay started"));
 
             runtime.stop(name);
             ContainerRuntime.Info stopped = runtime.inspect(name);

@@ -15,7 +15,7 @@
 
 - `backend/` Spring Boot 单体（模块化包：auth / system / agent / knowledge / gateway / observability / deploy / ...）
 - `frontend/` Vue3 + TS + Vite + Element Plus
-- `runtime/` 独立 Node 服务：`alert-relay` 告警中继；`agent-gateway` 是**旧版运行时兼容/回滚**（默认已迁移到 Spring 平台网关 + nginx，见 `docs/Agent运行时网关迁移.md`）
+- `runtime/` 独立 Node 服务：`alert-relay` 告警中继；Agent 运行时由 Spring 平台网关 + nginx 提供，不再有独立 Node gateway
 - `deploy/` Docker Compose / Helm Chart / 可观测配置；`scripts/` 运维脚本；`docs/` 设计与验收文档
 
 ## 本机开发准备（macOS，无 Docker）
@@ -128,8 +128,8 @@ scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 
 - 后端单元测试：`cd backend && mvn test`（当前 370+，截至 2026-10-27）
 - E2E：Playwright 双浏览器（chromium + msedge），`cd frontend && npm run test:e2e`
-- CI（GitHub Actions，push/PR 常驻门禁）：gitleaks 秘密扫描 → trivy 依赖漏洞门禁（HIGH/CRITICAL）→ npm audit → 后端构建+前端类型检查+单测 → 旧 Node 运行时兼容冒烟/Node 单测 → 双浏览器 E2E
-- 安全与供应链：`security.yml`（gitleaks/trivy 观察/npm audit）、CodeQL、CycloneDX SBOM（backend/frontend/旧 agent-gateway/alert-relay）、Apache-2.0 许可证门禁
+- CI（GitHub Actions，push/PR 常驻门禁）：gitleaks 秘密扫描 → trivy 依赖漏洞门禁（HIGH/CRITICAL）→ npm audit → 后端构建+前端类型检查+单测 → Alert-relay Node 单测/镜像冒烟 → 双浏览器 E2E
+- 安全与供应链：`security.yml`（gitleaks/trivy 观察/npm audit）、CodeQL、CycloneDX SBOM（backend/frontend/alert-relay）、Apache-2.0 许可证门禁
 - 架构边界守卫：ArchUnit（`ArchitectureTest`）钉住网关薄层与模块可摘除性
 
 ## 备份与恢复
