@@ -1,4 +1,5 @@
 import http from 'node:http'
+import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { Readable } from 'node:stream'
 import { createRedis } from './redis.mjs'
@@ -13,9 +14,17 @@ import { createRedis } from './redis.mjs'
 
 const PORT = Number(process.env.PORT || 8080)
 const PLATFORM = (process.env.PLATFORM_BASE || 'http://host.docker.internal:8080').replace(/\/+$/, '')
-const API_KEY = process.env.API_KEY || ''
+function secret(name) {
+  const file = process.env[`${name}_FILE`]
+  if (file) {
+    try { return fs.readFileSync(file, 'utf8').trim() } catch { /* fall back to env */ }
+  }
+  return process.env[name] || ''
+}
+
+const API_KEY = secret('API_KEY')
 const AGENT_SLUG = process.env.AGENT_SLUG || 'agent'
-const RUNTIME_TOKEN = process.env.RUNTIME_TOKEN || ''
+const RUNTIME_TOKEN = secret('RUNTIME_TOKEN')
 const STATS_TOKEN = process.env.STATS_TOKEN || RUNTIME_TOKEN
 const CORS_ORIGIN = process.env.CORS_ORIGIN || ''
 const RATE_LIMIT_PER_MIN = Math.max(0, Number(process.env.RATE_LIMIT_PER_MIN || 60))
