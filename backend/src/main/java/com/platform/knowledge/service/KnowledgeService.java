@@ -481,7 +481,7 @@ public class KnowledgeService {
         m.put("queryCacheMaxEntries", kb.getQueryCacheMaxEntries() == null
                 ? 2000 : kb.getQueryCacheMaxEntries());
         m.put("indexVersion", kb.getIndexVersion());
-        m.put("graphEnabled", !Boolean.FALSE.equals(kb.getGraphEnabled()));
+        m.put("graphEnabled", Boolean.TRUE.equals(kb.getGraphEnabled()));
         m.put("createdAt", kb.getCreatedAt());
         m.put("documentCount", stat == null ? 0 : ((Number) stat.get("documentCount")).longValue());
         m.put("chunkCount", stat == null ? 0 : ((Number) stat.get("chunkCount")).longValue());

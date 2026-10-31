@@ -772,7 +772,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
     public List<Map<String, Object>> expandChunks(Long kbId, String query, List<String> hitContents,
                                                   Set<Long> existingChunkIds,
                                                   KnowledgePermissionService.Viewer viewer) {
-        if (!configBoolean("knowledge.graph.retrieval-enabled", true)) return List.of();
+        if (!configBoolean("knowledge.graph.retrieval-enabled", false)) return List.of();
         KnowledgeBase kb = kbMapper.selectById(kbId);
         if (kb == null) return List.of();
         if (!graphEnabled(kb)) return List.of();
@@ -967,7 +967,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
         try {
             KnowledgeBase kb = kbMapper.selectById(kbId);
             if (kb == null || !graphEnabled(kb)) return;
-            enabled = configBoolean("knowledge.graph.auto-extract", true);
+            enabled = configBoolean("knowledge.graph.auto-extract", false);
         } catch (Exception e) {
             log.warn("读取知识图谱自动抽取配置失败，跳过：{}", e.getMessage());
             return;
@@ -2040,9 +2040,9 @@ public class KnowledgeGraphService implements ApplicationRunner {
         return row;
     }
 
-    /** 历史数据 graph_enabled 为空时按开启处理；新库显式写入 false。 */
+    /** MVP 默认冻结知识图谱；只有显式开启的知识库才参与抽取和 GraphRAG。 */
     private boolean graphEnabled(KnowledgeBase kb) {
-        return kb == null || !Boolean.FALSE.equals(kb.getGraphEnabled());
+        return kb != null && Boolean.TRUE.equals(kb.getGraphEnabled());
     }
 
     private void ensureGraphEnabled(KnowledgeBase kb) {

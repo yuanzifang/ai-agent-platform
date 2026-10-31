@@ -70,7 +70,7 @@ services:
     command: ["-config.file=/etc/promtail/promtail.yml"]
     volumes:
       - ./promtail.native.yml:/etc/promtail/promtail.yml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${DOCKER_LOG_DIR:-/var/lib/docker/containers}:/var/lib/docker/containers:ro
       - ./../../logs:/var/log/aap:ro
       - mon-promtail-positions:/promtail
     depends_on:
