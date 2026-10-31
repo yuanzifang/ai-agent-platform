@@ -218,6 +218,7 @@ interface ChatMessage {
   id?: number; role: string; content: string; status?: string; feedback?: string | null
   citations?: any[]; tools?: any[]; streaming?: boolean; attachments?: any[]
   traceId?: string; notice?: string; ragTruncated?: boolean
+  ragKeptFragments?: number; ragTotalFragments?: number
 }
 interface Attachment { attachmentId: number; fileName: string; previewUrl?: string }
 
@@ -439,7 +440,14 @@ async function streamCall(url: string, body: any, pending: ChatMessage) {
       pending.content = data.answer || ''
       ;(pending.citations ||= []).push(...(data.citations || []))
       if (data.messageId) pending.id = data.messageId
-      if (data.ragTruncated) pending.ragTruncated = true
+      if (data.ragTruncated) {
+        pending.ragTruncated = true
+        if (data.ragKeptFragments != null && data.ragTotalFragments != null) {
+          pending.ragKeptFragments = data.ragKeptFragments
+          pending.ragTotalFragments = data.ragTotalFragments
+          pending.notice = `${t('chatPage.ragTruncated')} (${data.ragKeptFragments}/${data.ragTotalFragments})`
+        }
+      }
       return
     }
     const reader = resp.body.getReader()
@@ -502,7 +510,12 @@ function handleEvent(event: string, data: any, pending: ChatMessage) {
     // usage 汇总在 done 里，这里忽略
   } else if (event === 'done') {
     if (data.messageId) pending.id = data.messageId
-    if (data.ragTruncated) pending.ragTruncated = true
+    if (data.ragTruncated) {
+      pending.ragTruncated = true
+      if (!pending.notice && data.ragKeptFragments != null && data.ragTotalFragments != null) {
+        pending.notice = `${t('chatPage.ragTruncated')} (${data.ragKeptFragments}/${data.ragTotalFragments})`
+      }
+    }
     if (data.status === 'STOPPED' || data.status === 'BLOCKED') pending.status = data.status
     loadSessions()
   } else if (event === 'error') {

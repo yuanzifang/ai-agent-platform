@@ -522,7 +522,9 @@ public class ChatStreamService {
             out.event("done", Map.of("traceId", traceId, "messageId", ai.getId(),
                     "status", ai.getStatus(),
                     "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1]),
-                    "ragTruncated", fitted.ragTruncated()));
+                    "ragTruncated", fitted.ragTruncated(),
+                    "ragKeptFragments", fitted.ragKeptFragments(),
+                    "ragTotalFragments", fitted.ragTotalFragments()));
             out.complete();
         });
 
@@ -873,7 +875,9 @@ public class ChatStreamService {
 
         return Map.of("answer", ai.getContent(), "traceId", traceId, "messageId", ai.getId(),
                 "usage", Map.of("inputTokens", in, "outputTokens", out), "citations", citations,
-                "toolCalls", collector.events(), "ragTruncated", fitted.ragTruncated());
+                "toolCalls", collector.events(), "ragTruncated", fitted.ragTruncated(),
+                "ragKeptFragments", fitted.ragKeptFragments(),
+                "ragTotalFragments", fitted.ragTotalFragments());
     }
 
     /** 未进入提示的 RAG 片段不再作为“引用来源”展示，避免引用与实际上下文不一致。 */
