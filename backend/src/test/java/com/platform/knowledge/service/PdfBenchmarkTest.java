@@ -52,15 +52,17 @@ class PdfBenchmarkTest {
 
         DocumentParser parser = new DocumentParser();
         StringBuilder report = new StringBuilder("# PDF 解析基准报告\n\n");
-        report.append("| 文件 | 页数 | 大小 | 耗时 | 分段 | 字符 | 标题 | 表格 | 图片 | 页码覆盖 | 状态 |\n");
-        report.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |\n");
+        report.append("| 文件 | 页数 | 大小 | 耗时 | 分段 | 字符 | 标题 | 表格 | 表块 | 图片 | 页码覆盖 | 状态 |\n");
+        report.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |\n");
         List<String> samples = new ArrayList<>();
 
         for (Path file : files) {
             byte[] bytes = Files.readAllBytes(file);
             int pages = 0;
+            int tableBlocks = 0;
             try (PDDocument doc = Loader.loadPDF(bytes)) {
                 pages = doc.getNumberOfPages();
+                tableBlocks = PdfTableLayout.extract(doc).size();
             } catch (Exception ignored) {
                 // 页数读取失败时保留 0，解析结果会给出错误
             }
@@ -90,6 +92,7 @@ class PdfBenchmarkTest {
                     .append(" | ").append(text.length())
                     .append(" | ").append(headings)
                     .append(" | ").append(tables)
+                    .append(" | ").append(tableBlocks)
                     .append(" | ").append(images)
                     .append(" | 1-").append(maxPage)
                     .append(" | ").append(status).append(" |\n");
@@ -97,7 +100,7 @@ class PdfBenchmarkTest {
             assertTrue(!text.isBlank(), "PDF 基准正文为空：" + file.getFileName());
             assertTrue(maxPage >= pages, "PDF 页码覆盖不足：" + file.getFileName()
                     + "，期望至少 " + pages + " 页，实际 " + maxPage);
-            assertSampleThresholds(file.getFileName().toString(), headings, tables);
+            assertSampleThresholds(file.getFileName().toString(), headings, tables, tableBlocks);
             samples.add("\n## " + file.getFileName() + "\n\n```text\n"
                     + preview(text, 1200) + "\n```\n");
         }
@@ -108,30 +111,33 @@ class PdfBenchmarkTest {
     }
 
     /** 真实样本的结构退化门禁；阈值保持宽松，只拦截“标题/表格整体消失”这类回归。 */
-    private static void assertSampleThresholds(String name, int headings, int tables) {
+    private static void assertSampleThresholds(String name, int headings, int tables, int tableBlocks) {
         int minHeadings = 0;
         int minTables = 0;
+        int minTableBlocks = 0;
         if (name.startsWith("2023ar")) {
-            minHeadings = 3; minTables = 20;
+            minHeadings = 3; minTables = 20; minTableBlocks = 20;
         } else if (name.startsWith("apple-10k")) {
-            minHeadings = 10; minTables = 4;
+            minHeadings = 10; minTables = 4; minTableBlocks = 4;
         } else if (name.startsWith("jpm-")) {
-            minHeadings = 10; minTables = 1;
+            minHeadings = 10; minTables = 1; minTableBlocks = 1;
         } else if (name.startsWith("chem-2012.13202")) {
             minHeadings = 1;
         } else if (name.startsWith("chem-2610.") || name.startsWith("math-2012")) {
             minHeadings = 3;
         } else if (name.startsWith("nist-sp800")) {
-            minHeadings = 50; minTables = 10;
+            minHeadings = 50; minTables = 10; minTableBlocks = 5;
         } else if (name.startsWith("scanned-nbs-catalog")) {
-            minHeadings = 30; minTables = 5;
+            minHeadings = 30; minTables = 5; minTableBlocks = 5;
         } else if (name.startsWith("scanned-nbs-chem")) {
-            minHeadings = 10; minTables = 1;
+            minHeadings = 10; minTables = 1; minTableBlocks = 1;
         }
         assertTrue(headings >= minHeadings, name + " 标题数量退化：期望至少 " + minHeadings
                 + "，实际 " + headings);
         assertTrue(tables >= minTables, name + " 表格数量退化：期望至少 " + minTables
                 + "，实际 " + tables);
+        assertTrue(tableBlocks >= minTableBlocks, name + " 原始表块数量退化：期望至少 " + minTableBlocks
+                + "，实际 " + tableBlocks);
     }
 
     private static byte[] fixturePdf() throws Exception {
