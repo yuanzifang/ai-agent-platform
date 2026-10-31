@@ -20,6 +20,7 @@ import com.platform.knowledge.mapper.KnowledgeGraphJobMapper;
 import com.platform.knowledge.mapper.KnowledgeGraphMentionMapper;
 import com.platform.knowledge.mapper.KnowledgeGraphRelationMapper;
 import com.platform.model.service.ChatModelRouter;
+import com.platform.system.entity.SysConfig;
 import com.platform.system.mapper.SysConfigMapper;
 import com.platform.system.service.AuditService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -54,6 +55,7 @@ class KnowledgeGraphServiceAclTest {
     private KnowledgeChunkMapper chunkMapper;
     private KnowledgeBaseMapper kbMapper;
     private KnowledgePermissionService permissionService;
+    private SysConfigMapper sysConfigMapper;
     private KnowledgeGraphService service;
     private KnowledgeBase kb;
     private KnowledgePermissionService.Viewer viewer;
@@ -72,6 +74,7 @@ class KnowledgeGraphServiceAclTest {
         chunkMapper = mock(KnowledgeChunkMapper.class);
         kbMapper = mock(KnowledgeBaseMapper.class);
         permissionService = mock(KnowledgePermissionService.class);
+        sysConfigMapper = mock(SysConfigMapper.class);
         service = new KnowledgeGraphService(
                 entityMapper, relationMapper, mentionMapper,
                 mock(com.platform.knowledge.mapper.KnowledgeGraphCommunityMapper.class),
@@ -79,7 +82,7 @@ class KnowledgeGraphServiceAclTest {
                 mock(com.platform.knowledge.service.GraphVectorIndexService.class),
                 mock(KnowledgeGraphJobMapper.class),
                 kbMapper, mock(KnowledgeDocumentMapper.class), chunkMapper,
-                mock(SysConfigMapper.class), mock(BillingUsageMapper.class),
+                sysConfigMapper, mock(BillingUsageMapper.class),
                 mock(PricingService.class), permissionService, mock(AuditService.class),
                 mock(ChatModelRouter.class), new ObjectMapper());
 
@@ -88,6 +91,8 @@ class KnowledgeGraphServiceAclTest {
         kb.setTenantId(9L);
         kb.setCreatedBy(7L);
         kb.setVisibility("TENANT");
+        // 默认 GraphRAG 已冻结为关闭；需要图谱能力的用例显式开启，关闭用例会覆盖为 false。
+        kb.setGraphEnabled(true);
         viewer = new KnowledgePermissionService.Viewer(7L, List.of("MEMBER"));
         when(permissionService.requireView(1L, viewer)).thenReturn(kb);
         when(permissionService.aclOf(kb))
@@ -194,6 +199,9 @@ class KnowledgeGraphServiceAclTest {
     @Test
     void graphRagExpandsOneHopAndSkipsExistingChunks() {
         kb.setGraphEnabled(true);
+        SysConfig retrievalEnabled = new SysConfig();
+        retrievalEnabled.setConfigValue("true");
+        when(sysConfigMapper.selectOne(any())).thenReturn(retrievalEnabled);
         when(kbMapper.selectById(1L)).thenReturn(kb);
 
         KnowledgeGraphEntity matched = entity(10L, "退款", "概念", "AUTO");
