@@ -6,6 +6,8 @@
 
 目标：**发布 → 一键部署 → 容器里跑起来 → 直接调用**。
 
+> 外部 Docker（UTM/Docker Desktop）必须把 `AGENT_DEPLOY_WORKDIR` 配成宿主共享目录；后端容器写入的 `secrets/<container>/api-key`、`runtime-token` 只有被 Docker 守护进程看到，才能以只读文件挂载进 Agent 容器。若后端运行在平台容器内而 Docker 在宿主，需为该目录配置共享卷，不能使用容器内私有路径。
+
 ## 前提
 
 - 本机安装并启动 Docker（Docker Desktop / OrbStack / colima 均可），且命令行能执行：
@@ -113,7 +115,7 @@ client → container:8080 /v1/chat/completions
 | `rate-limit-burst` | `AGENT_DEPLOY_RATE_BURST` | 20 | 突发配额，超出返回 429 |
 | `cors-origins` | `AGENT_DEPLOY_CORS_ORIGINS` | `*` | 允许的跨域来源 |
 | `public-base` | `AGENT_DEPLOY_PUBLIC_BASE` | 空 | 对外地址前缀，空则自动取 Tailscale/内网 IP |
-| `workdir` | `AGENT_DEPLOY_WORKDIR` | `~/.aap-agent-runtime` | 模板目录（需能被 Docker 挂载；macOS 默认只共享 $HOME） |
+| `workdir` | `AGENT_DEPLOY_WORKDIR` | `~/.aap-agent-runtime` | 模板和只读 Secret 文件目录；必须位于 Docker 守护进程可见的共享路径（外部 UTM Docker 需要显式配置卷/共享目录） |
 | `docker-bin` | `AGENT_DEPLOY_DOCKER_BIN` | `docker` | Docker CLI 路径 |
 
 > `host.docker.internal` 在 Docker Desktop / colima 下可用；Linux 上已通过 `--add-host host.docker.internal:host-gateway` 兜底。若后端本身跑在 compose 里，请把 `platform-base-url` 改成平台在容器网络中的地址（如 `http://backend:8080`）。
