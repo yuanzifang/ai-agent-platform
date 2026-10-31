@@ -55,6 +55,16 @@ class FeishuDocumentServiceDepthTest {
     }
 
     @Test
+    void expandsReferenceSyncedBlocks() {
+        FeishuDocumentService.Collection result = service.collectDetailed(
+                "https://team.feishu.cn/docx/r1", "app", "secret");
+
+        assertEquals(1, result.documents().size());
+        assertTrue(new String(result.documents().get(0).content(), StandardCharsets.UTF_8)
+                .contains("referenced content"));
+    }
+
+    @Test
     void followsDocxMentionDocumentLinks() {
         FeishuDocumentService.Collection result = service.collectDetailed(
                 "https://team.feishu.cn/docx/m1", "app", "secret");
@@ -100,6 +110,9 @@ class FeishuDocumentServiceDepthTest {
                     yield "{\"code\":0,\"data\":{\"files\":[]}}";
                 }
             };
+        } else if (path.startsWith("/open-apis/docx/v1/documents/") && path.endsWith("/children")) {
+            body = blocks("{\"block_id\":\"ref-child\",\"block_type\":2,\"text\":{\"elements\":["
+                    + "{\"text_run\":{\"content\":\"referenced content\"}}]}}");
         } else if (path.startsWith("/open-apis/docx/v1/documents/") && path.endsWith("/blocks")) {
             String token = path.substring("/open-apis/docx/v1/documents/".length(),
                     path.length() - "/blocks".length());
@@ -110,6 +123,9 @@ class FeishuDocumentServiceDepthTest {
                 case "l2" -> blocks(link("l1"), link("l3"));
                 case "l3" -> blocks(link("l4"));
                 case "m1" -> blocks(mention("m2"));
+                case "r1" -> blocks("{\"block_id\":\"ref\",\"block_type\":50,"
+                        + "\"reference_synced\":{\"source_document_id\":\"srcdoc\","
+                        + "\"source_block_id\":\"srcblock\"}}");
                 default -> "{\"code\":0,\"data\":{\"items\":[],\"has_more\":false}}";
             };
         } else if (path.startsWith("/open-apis/docx/v1/documents/") && path.endsWith("/raw_content")) {

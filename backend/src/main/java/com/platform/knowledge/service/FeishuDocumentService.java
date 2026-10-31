@@ -334,6 +334,7 @@ public class FeishuDocumentService {
         }
         Document document = null;
         if (blocks != null) {
+            expandReferenceSynced(blocks, accessToken);
             String markdown = renderDocxMarkdown(blocks);
             if (!markdown.isBlank()) {
                 document = markdownDocument(fallbackName, markdown, sourceUrl);
@@ -398,6 +399,48 @@ public class FeishuDocumentService {
             } catch (Exception e) {
                 log.warn("飞书超链接文档读取失败 url={} err={}", link, root(e));
                 skip(skipped, "超链接文档导入失败：" + link);
+            }
+        }
+    }
+
+    /** 展开 reference_synced 引用块，把源文档块并入当前 blocks。 */
+    private void expandReferenceSynced(List<JsonNode> blocks, String accessToken) {
+        Set<String> seen = new HashSet<>();
+        for (int i = 0; i < blocks.size() && i < 80; i++) {
+            JsonNode block = blocks.get(i);
+            if (block.path("block_type").asInt() != 50) continue;
+            JsonNode ref = block.path("reference_synced");
+            String documentId = ref.path("source_document_id").asText("");
+            String blockId = ref.path("source_block_id").asText("");
+            if (documentId.isBlank() || blockId.isBlank() || !seen.add(documentId + ":" + blockId)) {
+                continue;
+            }
+            try {
+                List<String> childIds = new ArrayList<>();
+                String pageToken = null;
+                do {
+                    String path = "/open-apis/docx/v1/documents/" + encode(documentId)
+                            + "/blocks/" + encode(blockId) + "/children?with_descendants=true&page_size=500"
+                            + (pageToken == null ? "" : "&page_token=" + encode(pageToken));
+                    JsonNode data = requestJson(path, accessToken, "GET", null).path("data");
+                    for (JsonNode child : data.path("items")) {
+                        String childId = child.path("block_id").asText("");
+                        if (childId.isBlank()) continue;
+                        if (blocks.stream().noneMatch(b -> childId.equals(b.path("block_id").asText()))) {
+                            blocks.add(child);
+                        }
+                        childIds.add(childId);
+                    }
+                    pageToken = data.path("page_token").asText(null);
+                    if (!data.path("has_more").asBoolean(false)) pageToken = null;
+                } while (pageToken != null && !pageToken.isBlank() && !pageToken.equals("null"));
+                if (block instanceof com.fasterxml.jackson.databind.node.ObjectNode object) {
+                    var children = objectMapper.createArrayNode();
+                    childIds.forEach(children::add);
+                    object.set("children", children);
+                }
+            } catch (Exception e) {
+                log.debug("飞书引用同步块展开失败 doc={} block={} err={}", documentId, blockId, root(e));
             }
         }
     }
@@ -596,6 +639,10 @@ public class FeishuDocumentService {
             }
             case 22 -> out.append("---\n\n");
             case 31 -> renderTable(block, byId, out);
+            case 50 -> {
+                if (block.path("children").size() > 0) renderChildren(block, byId, out);
+                else out.append("[引用同步块]\n\n");
+            }
             case 18 -> out.append("[多维表格]\n\n");
             case 23 -> out.append("[附件]").append("\n\n");
             case 27 -> out.append("[图片]").append("\n\n");
