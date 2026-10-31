@@ -329,6 +329,11 @@ public class DocumentParser {
                 if (object instanceof PDImageXObject image) {
                     COSDictionary key = image.getCOSObject();
                     if (key != null && !seen.add(key)) continue;
+                    if (imageExceedsPixelLimit(image)) {
+                        log.warn("PDF 内嵌图片超过像素上限，跳过解码 {}x{}（上限 {} 像素）",
+                                image.getWidth(), image.getHeight(), maxPdfRenderPixels);
+                        continue;
+                    }
                     try {
                         ByteArrayOutputStream out = new ByteArrayOutputStream();
                         ImageIO.write(image.getImage(), "png", out);
@@ -1509,6 +1514,14 @@ public class DocumentParser {
         return scaled;
     }
 
+    /** 在解码前按声明的宽高判断，避免超大内嵌图先分配整张 ARGB 再缩放。 */
+    private boolean imageExceedsPixelLimit(PDImageXObject image) {
+        if (image == null) return false;
+        long width = image.getWidth();
+        long height = image.getHeight();
+        return width > 0 && height > 0 && width * height > maxPdfRenderPixels;
+    }
+
     /** 单页扫描件通常是一张整页图片，直接 OCR 原图可保留分辨率与方向信息。 */
     private BufferedImage singleLargePageImage(PDDocument doc, int pageIndex) {
         List<BufferedImage> images = new ArrayList<>();
@@ -1528,6 +1541,10 @@ public class DocumentParser {
                 if (object instanceof PDImageXObject image) {
                     COSDictionary key = image.getCOSObject();
                     if (key != null && !seen.add(key)) continue;
+                    if (imageExceedsPixelLimit(image)) {
+                        warn("PDF 内嵌图片超过像素上限，已跳过原图 OCR，改用整页降级渲染");
+                        continue;
+                    }
                     try {
                         images.add(image.getImage());
                     } catch (Exception ignored) {
