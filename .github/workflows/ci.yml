@@ -4,6 +4,13 @@ on:
   push:
     branches: [ main ]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      local_model:
+        description: '运行本地 Ollama 工作流 E2E（会拉取 qwen2.5:7b）'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -384,6 +391,30 @@ jobs:
         run: |
           npx playwright install --with-deps chrome
 
+      - name: 缓存 Ollama 模型（手动本地模型 E2E）
+        if: inputs.local_model == true
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-qwen25-7b-v1
+
+      - name: 安装并启动 Ollama（手动本地模型 E2E）
+        if: inputs.local_model == true
+        timeout-minutes: 20
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          if ! curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+            nohup ollama serve > /tmp/ollama.log 2>&1 &
+          fi
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+              echo "ollama ready"
+              break
+            fi
+            sleep 2
+          done
+          ollama pull qwen2.5:7b
+
       - name: 启动离线模型/嵌入/渠道 Mock
         working-directory: frontend
         run: |
@@ -443,6 +474,10 @@ jobs:
           docker exec ${{ job.services.mysql.id }} mysql -uroot -proot ai_agent_platform \
             -e "UPDATE provider SET base_url='http://127.0.0.1:18080' WHERE provider_type='DEEPSEEK';"
 
+      - name: 注册本地 Ollama 模型（手动本地模型 E2E）
+        if: inputs.local_model == true
+        run: python3 scripts/setup-local-ci-model.py --base-url http://127.0.0.1:8080
+
       - name: 放宽 E2E 租户限流
         run: |
           # E2E 批量轮询会集中打到同一分钟，限流本身另有“配额阻断”用例覆盖
@@ -471,6 +506,14 @@ jobs:
           E2E_BROWSER: ${{ matrix.browser }}
           E2E_OTEL: "1"
         run: npm run test:e2e -- --project=${{ matrix.browser }}
+
+      - name: 运行本地 Ollama 工作流 E2E（手动触发）
+        if: inputs.local_model == true
+        working-directory: frontend
+        env:
+          E2E_BASE_URL: http://127.0.0.1:5173
+          E2E_LOCAL_WORKFLOW: '1'
+        run: npx playwright test e2e/workflow-all-cases.spec.ts --project=${{ matrix.browser }}
 
       - name: 失败时输出后端/前端日志
         if: failure()
