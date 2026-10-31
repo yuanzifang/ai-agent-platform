@@ -86,6 +86,9 @@ python3 scripts/eval_chinese_retrieval.py \
 > 该脚本评估 embedding/向量召回本身；平台内的 `RETRIEVAL` 评测步骤还会叠加混合检索、
 > 权限过滤和 chunk 切分，两者应结合使用。
 
+`.github/workflows/retrieval-nightly.yml` 每周以 `bge-m3` 复跑固定黄金集，Recall@5/MRR
+低于 0.90 会阻断并上传结果 JSON；PR 只做黄金集结构校验，不拉取模型。
+
 
 ## 固定黄金集 v1 实测（2026-10-31）
 

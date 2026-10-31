@@ -1,0 +1,53 @@
+name: Chinese Retrieval
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 1'
+
+jobs:
+  chinese-retrieval:
+    name: 固定中文检索黄金集（bge-m3）
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 缓存 Ollama 模型
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-bge-m3-v1
+
+      - name: 安装并启动 Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          nohup ollama serve > /tmp/ollama.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+              echo "ollama ready"
+              break
+            fi
+            sleep 2
+          done
+          ollama pull bge-m3
+
+      - name: 运行中文检索评测与门禁
+        run: |
+          python3 scripts/eval_chinese_retrieval.py \
+            --endpoint http://127.0.0.1:11434/v1/embeddings \
+            --model bge-m3 \
+            --output chinese-retrieval-bge-m3.json \
+            --min-recall5 0.90 --min-mrr 0.90
+
+      - name: 上传评测结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chinese-retrieval-result
+          path: chinese-retrieval-bge-m3.json
+          if-no-files-found: warn
