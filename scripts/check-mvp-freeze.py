@@ -28,8 +28,8 @@ def main() -> int:
         return fail("可观测服务未设置 obs profile")
 
     app = read("backend/src/main/resources/application.yml")
-    if "enabled: ${AGENT_DEPLOY_ENABLED:false}" not in app:
-        return fail("Agent 部署没有默认关闭")
+    if "enabled: ${AGENT_DEPLOY_ENABLED:true}" not in app:
+        return fail("Agent 部署默认开关异常")
     if "bind: ${AGENT_DEPLOY_BIND:127.0.0.1}" not in app:
         return fail("Agent 部署默认绑定不是 127.0.0.1")
     if "cors-origins: ${AGENT_DEPLOY_CORS_ORIGINS:}" not in app:

@@ -176,7 +176,7 @@ class AgentDeploymentServiceLifecycleTest {
     }
 
     @Test
-    void deployIsDisabledByDefault() {
+    void deployCanBeDisabled() {
         ReflectionTestUtils.setField(service, "deployEnabled", false);
         BusinessException error = assertThrows(BusinessException.class,
                 () -> service.deploy(1L, principal));
