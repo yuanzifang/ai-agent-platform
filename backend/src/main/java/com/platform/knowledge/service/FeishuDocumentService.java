@@ -526,12 +526,27 @@ public class FeishuDocumentService {
 
     private void collectLinks(String text, Set<String> links) {
         if (text == null || text.isBlank()) return;
+        collectLinksFromText(text, links);
+        String decoded = decodeUrl(text);
+        if (!decoded.equals(text)) collectLinksFromText(decoded, links);
+    }
+
+    private void collectLinksFromText(String text, Set<String> links) {
         Matcher matcher = FEISHU_DOC_URL.matcher(text);
         while (matcher.find()) {
             String url = matcher.group();
             int end = url.length();
             while (end > 0 && ".,;:!?)]}，。；：！？）】".indexOf(url.charAt(end - 1)) >= 0) end--;
             if (end > 0) links.add(url.substring(0, end));
+        }
+    }
+
+    private String decodeUrl(String value) {
+        if (value == null || value.isBlank() || !value.contains("%")) return value == null ? "" : value;
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return value;
         }
     }
 
@@ -638,6 +653,14 @@ public class FeishuDocumentService {
                 appendText(out, (done ? "- [x] " : "- [ ] ") + elementsText(block.path("todo")), "\n");
             }
             case 22 -> out.append("---\n\n");
+            case 26 -> {
+                String url = decodeUrl(block.path("iframe").path("component").path("url").asText(""));
+                if (!url.isBlank()) out.append("[嵌入内容](").append(url).append(")\n\n");
+            }
+            case 48 -> {
+                String url = decodeUrl(block.path("link_preview").path("url").asText(""));
+                if (!url.isBlank()) out.append("[链接预览](").append(url).append(")\n\n");
+            }
             case 31 -> renderTable(block, byId, out);
             case 50 -> {
                 if (block.path("children").size() > 0) renderChildren(block, byId, out);
@@ -701,7 +724,7 @@ public class FeishuDocumentService {
                 if (style.path("inline_code").asBoolean(false)) content = "`" + content + "`";
                 if (style.path("bold").asBoolean(false)) content = "**" + content + "**";
                 if (style.path("italic").asBoolean(false)) content = "*" + content + "*";
-                String url = style.path("link").path("url").asText("");
+                String url = decodeUrl(style.path("link").path("url").asText(""));
                 if (!url.isBlank()) content = "[" + content + "](" + url + ")";
                 out.append(content);
             } else if (element.has("mention")) {
