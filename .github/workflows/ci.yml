@@ -270,6 +270,10 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: 前端 i18n key 一致性
+        working-directory: frontend
+        run: node scripts/check-i18n-keys.cjs
+
       - name: 前端类型检查
         working-directory: frontend
         run: npx vue-tsc --noEmit

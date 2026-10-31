@@ -1233,7 +1233,10 @@ const messages = {
       contentPh: 'e.g. preferred name, city, concise answers', category: 'Category',
       fact: 'Fact', preference: 'Preference', profile: 'Profile', other: 'Other', scope: 'Scope',
       cancel: 'Cancel', save: 'Save', contentRequired: 'Memory content is required', saved: 'Saved',
-      deleteConfirm: 'This memory will no longer be injected. Continue?', deleteTitle: 'Delete memory', deleted: 'Deleted'
+      deleteConfirm: 'This memory will no longer be injected. Continue?', deleteTitle: 'Delete memory', deleted: 'Deleted',
+      addProfileItem: '+ Add item', copied: 'Copied', copyFail: 'Copy failed', copyProfile: 'Copy JSON',
+      editProfile: 'Edit profile', editProfileHint: 'Edit grouped facts; Markdown is supported and the profile refreshes after saving.',
+      editProfileTitle: 'Edit user profile', markdownHint: 'Markdown supported', profileJson: 'Profile JSON'
     },
     userAdmin: {
       invite: 'Invite member', quota: 'Quota', quotaTitle: 'Member quota', dailyTokenLimit: 'Daily token limit', monthlyCostLimit: 'Monthly cost limit', quotaEnabled: 'Enable limits', quotaHint: '0 or empty means unlimited; tenant-level quota still applies.', quotaSaved: 'Member quota saved', members: 'Members (', username: 'Username', displayName: 'Display name', role: 'Role',
@@ -1826,6 +1829,7 @@ const messages = {
       nextStep: 'Next →', autoLayout: 'Auto layout', linkMode: 'Link mode', exitLink: 'Exit link mode',
       undo: 'Undo', redo: 'Redo', fit: 'Fit view', palette: 'Nodes', paletteHint: 'Drag to canvas or click to add',
       dragPortHint: 'Drag from the right dot to another node to connect', deleteEdgeSelected: 'Delete edge',
+      connectUnsupported: 'Configure branches or loop body in the node panel',
       derivedEdgeHint: 'This link is derived from node order/condition/branch; edit it in the node settings',
       listEdit: 'List editor',
       deleteSelected: 'Delete selected', multiNoneRemovable: 'Start/End nodes cannot be deleted',
@@ -2051,6 +2055,12 @@ const messages = {
       keyPrefixCol: 'Key prefix', keyStatus: 'Status', keyRateCol: 'Rate/min', keyCalls: 'Calls',
       keyLastUsed: 'Last used', keyCreate: 'Generate key', keyCreated: 'Key generated (shown once, save it now)',
       keyEnabled: 'Enabled', keyDisabled: 'Disabled', keyDeleted: 'Deleted', keyNameReq: 'Caller name is required',
+      editKey: 'Edit caller key', keyDailyQuota: 'Daily quota', keyExpires: 'Expires at',
+      keyIps: 'IP allowlist', keyIpsPh: 'e.g. 127.0.0.1,10.0.0.0/8; blank = all',
+      keyMaxBody: 'Request body limit (B)', keyMethods: 'Methods',
+      keyMethodsPh: 'Methods, e.g. GET,POST; blank = all',
+      keyPaths: 'Path prefixes', keyPathsPh: 'Path prefixes, e.g. /orders; blank = all',
+      keyUpdated: 'Caller key updated',
     },
     page: {
       agents: 'Agents', agentEdit: 'Edit Agent', chat: 'Chat', square: 'Agent Square',
