@@ -42,6 +42,30 @@ class PdfMarkdownConversionTest {
     }
 
     @Test
+    void mergesContinuationOfLongFirstPageTitle() throws Exception {
+        String first = "Chemical Reactivity Studies by Natural Orbital Functional Methods for";
+        String second = "Transition Metal Water Dehydrogenation";
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD), 17);
+                text(content, 50, 790, first);
+                text(content, 50, 762, second);
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 10);
+                text(content, 50, 700, "Abstract. This paper studies the reaction pathway.");
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+
+        String text = String.join("\n", parser.parse("paper.pdf", pdf));
+        assertTrue(text.contains("# " + first + " " + second),
+                "首页标题跨行应合并，实际=" + text);
+    }
+
+    @Test
     void convertsPdfToStructuredMarkdownWithInlineTableAndPages() throws Exception {
         byte[] pdf;
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
