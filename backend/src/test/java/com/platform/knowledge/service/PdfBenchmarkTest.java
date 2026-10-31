@@ -94,6 +94,7 @@ class PdfBenchmarkTest {
             assertTrue(!text.isBlank(), "PDF 基准正文为空：" + file.getFileName());
             assertTrue(maxPage >= pages, "PDF 页码覆盖不足：" + file.getFileName()
                     + "，期望至少 " + pages + " 页，实际 " + maxPage);
+            assertSampleThresholds(file.getFileName().toString(), headings, tables);
             samples.add("\n## " + file.getFileName() + "\n\n```text\n"
                     + preview(text, 1200) + "\n```\n");
         }
@@ -101,6 +102,33 @@ class PdfBenchmarkTest {
         Files.createDirectories(Path.of("target"));
         Files.writeString(Path.of("target/pdf-bench-report.md"), report.toString());
         System.out.println(report);
+    }
+
+    /** 真实样本的结构退化门禁；阈值保持宽松，只拦截“标题/表格整体消失”这类回归。 */
+    private static void assertSampleThresholds(String name, int headings, int tables) {
+        int minHeadings = 0;
+        int minTables = 0;
+        if (name.startsWith("2023ar")) {
+            minHeadings = 3; minTables = 20;
+        } else if (name.startsWith("apple-10k")) {
+            minHeadings = 10; minTables = 4;
+        } else if (name.startsWith("jpm-")) {
+            minHeadings = 10; minTables = 1;
+        } else if (name.startsWith("chem-2012.13202")) {
+            minHeadings = 1;
+        } else if (name.startsWith("chem-2610.") || name.startsWith("math-2012")) {
+            minHeadings = 3;
+        } else if (name.startsWith("nist-sp800")) {
+            minHeadings = 50; minTables = 10;
+        } else if (name.startsWith("scanned-nbs-catalog")) {
+            minHeadings = 30; minTables = 5;
+        } else if (name.startsWith("scanned-nbs-chem")) {
+            minHeadings = 10; minTables = 1;
+        }
+        assertTrue(headings >= minHeadings, name + " 标题数量退化：期望至少 " + minHeadings
+                + "，实际 " + headings);
+        assertTrue(tables >= minTables, name + " 表格数量退化：期望至少 " + minTables
+                + "，实际 " + tables);
     }
 
     private static byte[] fixturePdf() throws Exception {
