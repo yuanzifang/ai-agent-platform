@@ -1018,6 +1018,43 @@ public class KnowledgeGraphService implements ApplicationRunner {
         }
     }
 
+    /**
+     * 图谱变更后自动刷新社区摘要（异步）。
+     * 前置：commitPreview（批量抽取提交）或 deleteEntity 等图谱结构变更后调用。
+     */
+    public void autoRefreshCommunities(Long tenantId, Long kbId) {
+        boolean enabled;
+        try {
+            KnowledgeBase kb = kbMapper.selectById(kbId);
+            if (kb == null || !graphEnabled(kb)) return;
+            enabled = configBoolean("knowledge.graph.auto-refresh-communities", true);
+        } catch (Exception e) {
+            log.warn("读取社区自动刷新配置失败，跳过：{}", e.getMessage());
+            return;
+        }
+        if (!enabled) return;
+        Long effectiveTenant = tenantId == null ? TenantContext.getTenantId() : tenantId;
+        if (effectiveTenant == null) return;
+        try {
+            graphTaskExecutor.execute(() -> TenantContext.run(effectiveTenant, () -> {
+                try {
+                    KnowledgePermissionService.Viewer systemViewer =
+                            new KnowledgePermissionService.Viewer(null, List.of());
+                    String model = "deepseek-flash";
+                    summarizeCommunities(kbId, model, 50, systemViewer);
+                    long count = communityMapper.selectCount(
+                            new LambdaQueryWrapper<KnowledgeGraphCommunity>()
+                                    .eq(KnowledgeGraphCommunity::getKbId, kbId));
+                    log.info("社区摘要自动刷新完成：kb={} communities={}", kbId, count);
+                } catch (Exception e) {
+                    log.warn("社区摘要自动刷新失败：kb={} err={}", kbId, e.getMessage());
+                }
+            }));
+        } catch (Exception e) {
+            log.warn("社区摘要自动刷新任务提交失败：kb={} err={}", kbId, e.getMessage());
+        }
+    }
+
     /** 全库重建：删除 AUTO 数据，保留 MANUAL 实体/关系，异步逐文档抽取。 */
     public Map<String, Object> buildAll(Long kbId, KnowledgePermissionService.Viewer viewer) {
         KnowledgeBase kb = permissionService.requireEdit(kbId, viewer);
