@@ -83,6 +83,9 @@ class AgentRuntimeGatewayServiceTest {
                 () -> service.authenticate(1L, "Bearer wrong", true));
 
         deployment.setStatus("STOPPED");
+        BusinessException invalid = assertThrows(BusinessException.class,
+                () -> service.authenticate(1L, "Bearer wrong", true));
+        assertEquals(401, invalid.getCode());
         BusinessException stopped = assertThrows(BusinessException.class,
                 () -> service.authenticate(1L, "Bearer runtime-token", true));
         assertEquals(409, stopped.getCode());
