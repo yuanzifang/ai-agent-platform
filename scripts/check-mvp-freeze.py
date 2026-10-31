@@ -34,6 +34,8 @@ def main() -> int:
         return fail("Agent 部署默认绑定不是 127.0.0.1")
     if "cors-origins: ${AGENT_DEPLOY_CORS_ORIGINS:}" not in app:
         return fail("Agent 部署 CORS 默认没有收敛")
+    if "runtime: ${AGENT_DEPLOY_RUNTIME:nginx}" not in app:
+        return fail("Agent 默认运行时不是平台网关 nginx 入口")
 
     graph = read("backend/src/main/java/com/platform/knowledge/service/KnowledgeGraphService.java")
     if 'configBoolean("knowledge.graph.auto-extract", false)' not in graph:

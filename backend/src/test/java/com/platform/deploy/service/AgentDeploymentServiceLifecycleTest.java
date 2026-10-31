@@ -36,6 +36,7 @@ class AgentDeploymentServiceLifecycleTest {
 
     private AgentDeploymentMapper deploymentMapper;
     private AgentRuntimeKeyService runtimeKeyService;
+    private AgentRuntimeGatewayService runtimeGatewayService;
     private CryptoService cryptoService;
     private AgentDeploymentEventMapper eventMapper;
     private AgentRegistryMapper agentMapper;
@@ -53,6 +54,7 @@ class AgentDeploymentServiceLifecycleTest {
     void setUp() {
         deploymentMapper = mock(AgentDeploymentMapper.class);
         runtimeKeyService = mock(AgentRuntimeKeyService.class);
+        runtimeGatewayService = mock(AgentRuntimeGatewayService.class);
         cryptoService = mock(CryptoService.class);
         eventMapper = mock(AgentDeploymentEventMapper.class);
         agentMapper = mock(AgentRegistryMapper.class);
@@ -62,7 +64,8 @@ class AgentDeploymentServiceLifecycleTest {
         runtime = mock(ContainerRuntime.class);
         deployProfileService = mock(AgentDeployProfileService.class);
         meterRegistry = new SimpleMeterRegistry();
-        service = new AgentDeploymentService(deploymentMapper, runtimeKeyService, cryptoService, eventMapper,
+        service = new AgentDeploymentService(deploymentMapper, runtimeKeyService, runtimeGatewayService,
+                cryptoService, eventMapper,
                 agentMapper, versionMapper, apiKeyService, auditService, runtime,
                 deployProfileService, meterRegistry);
         ReflectionTestUtils.setField(service, "deployEnabled", true);
@@ -203,6 +206,29 @@ class AgentDeploymentServiceLifecycleTest {
     }
 
     @Test
+    void nginxTemplateDelegatesRuntimeAuthToPlatformGateway() {
+        String template = (String) ReflectionTestUtils.getField(AgentDeploymentService.class, "NGINX_TEMPLATE");
+
+        assertTrue(template.contains("/api/v1/gateway/agent-runtime/${AGENT_ID}/v1/"));
+        assertTrue(template.contains("proxy_set_header Authorization $http_authorization;"));
+        assertTrue(template.contains("location = /stats"));
+        assertTrue(!template.contains("X-Api-Key"));
+        assertTrue(!template.contains("RUNTIME_TOKEN"));
+        assertTrue(!template.contains("limit_req"));
+    }
+
+    @Test
+    void statsUsesPlatformGatewayForNginxRuntime() {
+        ReflectionTestUtils.setField(service, "deployRuntime", "nginx");
+        when(runtimeGatewayService.stats(1L)).thenReturn(Map.of("runtime", "platform", "callers", List.of()));
+
+        Map<String, Object> result = service.stats(1L);
+
+        assertEquals("platform", result.get("runtime"));
+        verify(runtimeGatewayService).stats(1L);
+    }
+
+    @Test
     void multiReplicaRequiresGatewayRedis() {
         when(runtime.available()).thenReturn(true);
         AgentRegistry agent = new AgentRegistry();
@@ -218,7 +244,7 @@ class AgentDeploymentServiceLifecycleTest {
                 () -> service.deploy(1L, 2, principal));
 
         assertEquals(400, error.getCode());
-        assertEquals("多副本部署需要 gateway 运行时并配置 agent.deploy.redis-url（共享限流/配额/用量）",
+        assertEquals("旧 gateway 运行时多副本需要配置 agent.deploy.redis-url（共享限流/配额/用量）",
                 error.getMessage());
         verify(runtime, never()).create(any());
     }

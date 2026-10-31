@@ -46,11 +46,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Agent 容器部署（MVP：本机 Docker）。
  *
- * 每个已发布的 Agent 部署一个轻量运行时容器（官方 nginx 镜像 + 模板化配置）：
- * 容器对外暴露 OpenAI 兼容的 /v1/chat/completions，内部转发到平台的 /api/v1/open/chat/completions，
- * 并自动注入该 Agent 的集成 API Key，所以调用方不需要再带密钥。
+ * 每个已发布的 Agent 默认部署一个轻量 nginx 容器：容器对外暴露 OpenAI 兼容的
+ * /v1/chat/completions，并透明反代到平台网关 /api/v1/gateway/agent-runtime/{agentId}/v1；
+ * Bearer/调用方 Key/限流/日配额/用量由 Spring 平台网关执行。旧 Node gateway 运行时保留为兼容回滚。
  *
- * 这是「发布 → 运行」闭环的第一版，镜像与端口范围都可配置；后续可替换成自研运行时镜像或 K8s 实现。
+ * 这是「发布 → 运行」闭环的第一版，镜像与端口范围都可配置；后续可替换成 K8s 实现。
  */
 @Slf4j
 @Service
@@ -59,6 +59,7 @@ public class AgentDeploymentService {
 
     private final AgentDeploymentMapper deploymentMapper;
     private final AgentRuntimeKeyService runtimeKeyService;
+    private final AgentRuntimeGatewayService runtimeGatewayService;
     private final CryptoService cryptoService;
     private final AgentDeploymentEventMapper eventMapper;
     private final AgentRegistryMapper agentMapper;
@@ -74,7 +75,7 @@ public class AgentDeploymentService {
     @Value("${agent.deploy.enabled:true}")
     private boolean deployEnabled;
 
-    @Value("${agent.deploy.runtime:gateway}")
+    @Value("${agent.deploy.runtime:nginx}")
     private String deployRuntime;
 
     @Value("${agent.deploy.image:nginx:alpine}")
@@ -143,14 +144,11 @@ public class AgentDeploymentService {
     private static final String LB_SUFFIX = "-lb";
 
     private static final String NGINX_TEMPLATE = """
-            limit_req_zone $binary_remote_addr zone=agent_gw:10m rate=${RATE_LIMIT}r/m;
-
             server {
                 listen 80;
                 server_name _;
                 default_type application/json;
-                limit_req zone=agent_gw burst=${RATE_BURST} nodelay;
-                limit_req_status 429;
+                client_max_body_size 2m;
 
                 add_header Access-Control-Allow-Origin "${CORS_ORIGIN}" always;
                 add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
@@ -167,28 +165,31 @@ public class AgentDeploymentService {
                     return 200 "ok";
                 }
 
-                location = /v1/models {
-                    if ($http_authorization != "Bearer ${RUNTIME_TOKEN}") {
-                        return 401 '{"error":{"message":"invalid or missing bearer token","type":"invalid_request_error"}}';
-                    }
-                    return 200 '{"object":"list","data":[{"id":"${AGENT_SLUG}","object":"model","owned_by":"ai-agent-platform"}]}';
-                }
-
+                # nginx 只做透明反代；Bearer/调用方 Key/限流/配额/用量全部在平台网关。
                 location /v1/ {
-                    if ($http_authorization != "Bearer ${RUNTIME_TOKEN}") {
-                        return 401 '{"error":{"message":"invalid or missing bearer token","type":"invalid_request_error"}}';
-                    }
-                    rewrite ^/v1/(.*)$ /api/v1/open/$1 break;
+                    proxy_pass ${PLATFORM_BASE}/api/v1/gateway/agent-runtime/${AGENT_ID}/v1/;
                     proxy_http_version 1.1;
                     proxy_set_header Host $host;
-                    proxy_set_header X-Api-Key "${API_KEY}";
+                    proxy_set_header Authorization $http_authorization;
                     proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Request-Id $request_id;
+                    proxy_set_header X-Gray-Tag $http_x_gray_tag;
                     proxy_set_header Connection "";
                     proxy_buffering off;
                     proxy_cache off;
                     proxy_read_timeout 300s;
                     proxy_send_timeout 300s;
-                    proxy_pass ${PLATFORM_BASE};
+                }
+
+                location = /stats {
+                    proxy_pass ${PLATFORM_BASE}/api/v1/gateway/agent-runtime/${AGENT_ID}/stats;
+                    proxy_http_version 1.1;
+                    proxy_set_header Host $host;
+                    proxy_set_header Authorization $http_authorization;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_buffering off;
                 }
             }
             """;
@@ -260,8 +261,8 @@ public class AgentDeploymentService {
         }
         replicas = Math.max(1, Math.min(maxReplicas, replicas));
         deployment.setDeployProfileId(deployProfile == null ? null : deployProfile.getId());
-        if (replicas > 1 && (!gatewayRuntime() || redisUrl == null || redisUrl.isBlank())) {
-            throw new BusinessException(400, "多副本部署需要 gateway 运行时并配置 agent.deploy.redis-url（共享限流/配额/用量）");
+        if (replicas > 1 && gatewayRuntime() && (redisUrl == null || redisUrl.isBlank())) {
+            throw new BusinessException(400, "旧 gateway 运行时多副本需要配置 agent.deploy.redis-url（共享限流/配额/用量）");
         }
 
         Integer previousLbPort = deployment.getLbHostPort();
@@ -304,15 +305,16 @@ public class AgentDeploymentService {
         try {
             Map<String, String> env = new LinkedHashMap<>();
             env.put("PLATFORM_BASE", platformBase.replaceAll("/+$", ""));
+            env.put("AGENT_ID", String.valueOf(agentId));
             env.put("AGENT_SLUG", slug);
             String runtimeToken = ensureRuntimeToken(deployment);
-            env.put("RATE_BURST", String.valueOf(Math.max(0, rateLimitBurst)));
             env.put("CORS_ORIGIN", corsOrigins == null ? "" : corsOrigins.trim());
             if (gateway && redisUrl != null && !redisUrl.isBlank()) env.put("REDIS_URL", redisUrl.trim());
             List<String> mounts;
             if (gateway) {
                 env.put("PORT", "8080");
                 env.put("RATE_LIMIT_PER_MIN", String.valueOf(Math.max(0, rateLimitPerMin)));
+                env.put("RATE_BURST", String.valueOf(Math.max(0, rateLimitBurst)));
                 env.put("CALLER_QUOTA_DAILY", String.valueOf(Math.max(0, callerQuotaDaily)));
                 List<Map<String, Object>> callerKeyPayload = new ArrayList<>();
                 for (AgentRuntimeKey key : runtimeKeyService.enabledKeys(agentId)) {
@@ -331,10 +333,7 @@ public class AgentDeploymentService {
                 env.put("RUNTIME_TOKEN_FILE", "/run/secrets/aap/runtime-token");
                 mounts = List.of(secretDir + ":/run/secrets/aap:ro");
             } else {
-                // 旧 nginx 模板仍依赖环境变量；默认已冻结且推荐 gateway runtime。
-                env.put("API_KEY", apiKey);
-                env.put("RUNTIME_TOKEN", runtimeToken);
-                env.put("RATE_LIMIT", String.valueOf(Math.max(1, rateLimitPerMin)));
+                // 平台网关运行时：nginx 不接触集成 Key/部署令牌，Bearer 原样转发。
                 env.put("NGINX_ENTRYPOINT_QUIET_LOGS", "1");
                 mounts = List.of(templateDir().toString() + ":/etc/nginx/templates:ro");
             }
@@ -513,6 +512,10 @@ public class AgentDeploymentService {
     /** 代理容器 /stats：当日按 Key 的请求数与流式数。 */
     public Map<String, Object> stats(Long agentId) {
         AgentDeployment deployment = requireDeployment(agentId);
+        if (!gatewayRuntime()) {
+            // 平台网关运行时：统计在 Spring/Redis，nginx 容器内不再维护用量。
+            return runtimeGatewayService.stats(agentId);
+        }
         String token = runtimeToken(agentId);
         java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
                 .connectTimeout(java.time.Duration.ofSeconds(2)).build();
