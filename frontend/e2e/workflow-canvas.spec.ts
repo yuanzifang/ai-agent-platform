@@ -190,6 +190,9 @@ test('工作流画布：拖入、单击配置、T/F 连线、删除边、草稿�
     await expect(templateDialog).toBeHidden()
     await expect(dialog.locator('.wf-node')).toHaveCount(17)
     await expect(page.getByText('模板已载入，请补充知识库/工具等配置后保存')).toBeVisible()
+    const orderCondition = dialog.locator('.wf-node').filter({ hasText: '#order_cond' }).first()
+    await expect(orderCondition.getByPlaceholder('状态键，如 intent')).toHaveValue('intent')
+    await expect(orderCondition.locator('.el-select').first()).toContainText('共享状态')
   } finally {
     await request.delete(`${P}/agent/${agentId}/workflow`, { headers: auth(token) })
     await request.delete(`${P}/agent/${agentId}`, { headers: auth(token) })
