@@ -58,11 +58,12 @@
           </template>
         </el-table-column>
         <el-table-column prop="status" :label="t('providerPage.status')" width="90" />
-        <el-table-column :label="t('providerPage.actions')" width="250">
+        <el-table-column :label="t('providerPage.actions')" width="330">
           <template #default="{ row }">
             <el-button size="small" @click="test(row)">{{ t('providerPage.test') }}</el-button>
             <el-button size="small" type="primary" plain @click="sync(row)">{{ t('providerPage.sync') }}</el-button>
             <el-button v-if="!row.preset" size="small" text type="primary" @click="openCredential(row)">{{ t('providerPage.credential') }}</el-button>
+            <el-button v-if="!row.preset" size="small" text type="danger" @click="removeProvider(row)">{{ t('providerPage.deleteProvider') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -90,9 +91,10 @@
             <el-switch :model-value="modelStatus(row)" @change="(v: any) => toggleModel(row, v)" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('providerPage.actions')" width="110">
+        <el-table-column :label="t('providerPage.actions')" width="170">
           <template #default="{ row }">
             <el-button size="small" text type="primary" @click="editPrice(row)">{{ t('providerPage.config') }}</el-button>
+            <el-button size="small" text type="danger" @click="removeModel(row)">{{ t('providerPage.deleteModel') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -222,7 +224,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 
 const { t } = useI18n()
@@ -394,6 +396,26 @@ function editPrice(row: any) {
     : ['low', 'medium', 'high']
   price.defaultReasoningEffort = String(parseJson(row.defaultParams).reasoningEffort || 'medium')
   priceVisible.value = true
+}
+
+async function removeProvider(row: any) {
+  try {
+    await ElMessageBox.confirm(t('providerPage.deleteProviderConfirm'), t('providerPage.deleteProvider'),
+      { type: 'warning', confirmButtonText: t('providerPage.deleteProvider'), cancelButtonText: t('providerPage.cancel') })
+  } catch { return }
+  await http.delete(`/provider/${row.id}`)
+  ElMessage.success(t('providerPage.providerDeleted'))
+  await load()
+}
+
+async function removeModel(row: any) {
+  try {
+    await ElMessageBox.confirm(t('providerPage.deleteModelConfirm'), t('providerPage.deleteModel'),
+      { type: 'warning', confirmButtonText: t('providerPage.deleteModel'), cancelButtonText: t('providerPage.cancel') })
+  } catch { return }
+  await http.delete(`/models/${row.modelId}`)
+  ElMessage.success(t('providerPage.modelDeleted'))
+  await load()
 }
 
 async function savePrice() {

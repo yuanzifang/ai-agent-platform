@@ -256,6 +256,10 @@ const messages = {
       reasoningParam: '思考参数', reasoningParamEffort: 'reasoning_effort（OpenAI 兼容）',
       reasoningParamBudget: 'budget_tokens（Anthropic 原生）', reasoningLevels: '可选思考级别',
       defaultReasoning: '默认级别', reasoningSaved: '思考能力已保存',
+      deleteProvider: '删除 Provider', deleteModel: '删除模型',
+      deleteProviderConfirm: '删除后不可恢复；请先删除其下模型。继续？',
+      deleteModelConfirm: '删除后不可恢复；被 Agent 引用时会被拒绝。继续？',
+      providerDeleted: 'Provider 已删除', modelDeleted: '模型已删除',
       reasoningLevelsMap: { minimal: '极低 minimal', low: '低 low', medium: '中 medium', high: '高 high' }
     },
     billingPage: {
@@ -1292,6 +1296,10 @@ const messages = {
       reasoningParam: 'Reasoning param', reasoningParamEffort: 'reasoning_effort (OpenAI compatible)',
       reasoningParamBudget: 'budget_tokens (Anthropic native)', reasoningLevels: 'Allowed levels',
       defaultReasoning: 'Default level', reasoningSaved: 'Reasoning capability saved',
+      deleteProvider: 'Delete Provider', deleteModel: 'Delete model',
+      deleteProviderConfirm: 'This cannot be undone; delete its models first. Continue?',
+      deleteModelConfirm: 'This cannot be undone; deletion is rejected if an Agent references it. Continue?',
+      providerDeleted: 'Provider deleted', modelDeleted: 'Model deleted',
       reasoningLevelsMap: { minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High' }
     },
     billingPage: {
