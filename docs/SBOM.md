@@ -10,8 +10,8 @@
 - 前端：`frontend-sbom.cdx.json`
   - Trivy 0.76.1，CycloneDX 1.7
   - 当前 88 个组件
-- 运行时镜像：`gateway-sbom.cdx.json` / `alert-relay-sbom.cdx.json`
-  - CI `gateway` job 对两个镜像执行 Trivy image 扫描
+- 运行时镜像：`alert-relay-sbom.cdx.json`
+  - CI `gateway` job 对告警中继镜像执行 Trivy image 扫描
   - 上传为 `runtime-image-sbom` artifact
 
 CI 的 `deps` job 生成并上传应用 SBOM；`gateway` job 生成运行时镜像 SBOM。
@@ -39,9 +39,9 @@ trivy fs --format cyclonedx --output ../frontend-sbom.cdx.json package-lock.json
 
 1. 按 Release tag checkout，构建并生成后端 CycloneDX BOM；
 2. 用 Trivy 对 `frontend/package-lock.json` 生成前端 CycloneDX BOM；
-3. 构建 `alert-relay` 运行时镜像；`agent-gateway` 仅在旧版兼容/回滚发布时构建，用 Trivy image 生成镜像 BOM；
-4. 用 `scripts/merge_cyclonedx_sbom.py` 合并四份组件（按 purl/bom-ref 去重，保留依赖与漏洞）；
-5. 校验五个文件的 `bomFormat=CycloneDX` 且 `components` 非空；
+3. 构建 `alert-relay` 运行时镜像，用 Trivy image 生成镜像 BOM；
+4. 用 `scripts/merge_cyclonedx_sbom.py` 合并三份组件（按 purl/bom-ref 去重，保留依赖与漏洞）；
+5. 校验四个文件的 `bomFormat=CycloneDX` 且 `components` 非空；
 6. 生成 `SHA256SUMS`；
 7. 安装 cosign，对全部 SBOM 和 `SHA256SUMS` 执行 keyless `cosign sign-blob`；
 8. 用 GitHub Actions OIDC 生成 build provenance attestation；
@@ -52,7 +52,6 @@ trivy fs --format cyclonedx --output ../frontend-sbom.cdx.json package-lock.json
 ```text
 backend-sbom-<tag>.cdx.json
 frontend-sbom-<tag>.cdx.json
-gateway-image-sbom-<tag>.cdx.json
 alert-relay-image-sbom-<tag>.cdx.json
 merged-sbom-<tag>.cdx.json
 SHA256SUMS

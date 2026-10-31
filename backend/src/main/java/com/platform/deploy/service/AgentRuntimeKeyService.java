@@ -25,7 +25,7 @@ import java.util.UUID;
 
 /**
  * Agent 运行时调用方 Key：按 Key 日配额、可停用/删除。
- * 默认 nginx 平台网关运行时由平台直接查询本表；只有旧 Node gateway 兼容路径才会注入哈希。
+ * 平台网关直接查询本表；明文只在创建时返回一次，库内只保存 SHA-256。
  */
 @Slf4j
 @Service

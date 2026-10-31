@@ -390,20 +390,14 @@ agent:
   deploy:
     # 默认开启；设为 false 可临时冻结部署入口
     enabled: ${AGENT_DEPLOY_ENABLED:true}
-    # nginx=平台网关运行时（推荐，nginx 只做入口/反代）；gateway=旧 Node 运行时镜像（兼容回滚）
-    runtime: ${AGENT_DEPLOY_RUNTIME:nginx}
+    # 平台运行时入口镜像（每 Agent 一个 nginx 容器，只做入口/反代）
     image: ${AGENT_DEPLOY_IMAGE:nginx:alpine}
-    gateway-image: ${AGENT_DEPLOY_GATEWAY_IMAGE:aap/agent-gateway:1}
-    # 主令牌的日调用配额，0=不限（nginx 运行时由平台网关执行）
+    # 主令牌的日配额，0=不限（平台网关执行）
     caller-quota-daily: ${AGENT_DEPLOY_CALLER_QUOTA_DAILY:0}
-    # 旧 Node 运行时的额外调用方 Key；平台网关运行时从 agent_runtime_key 读取
-    caller-keys: ${AGENT_DEPLOY_CALLER_KEYS:}
     port-start: ${AGENT_DEPLOY_PORT_START:19000}
     port-end: ${AGENT_DEPLOY_PORT_END:19999}
     # 默认副本数（1-5）；部署时可单独指定
     replicas: ${AGENT_DEPLOY_REPLICAS:1}
-    # 多副本共享限流/配额/用量需要 Redis（容器内访问宿主机；留空则单副本内存统计）
-    redis-url: ${AGENT_DEPLOY_REDIS_URL:redis://host.docker.internal:6379/0}
     # 容器端口绑定地址：0.0.0.0 允许局域网/Tailscale 访问，127.0.0.1 仅本机
     bind: ${AGENT_DEPLOY_BIND:127.0.0.1}
     # 运行时与 LB 容器的资源边界（Docker --cpus/--memory/--pids-limit）
@@ -419,7 +413,7 @@ agent:
     public-base: ${AGENT_DEPLOY_PUBLIC_BASE:}
     # 模板目录（留空用 ~/.aap-agent-runtime），需要能被 Docker 挂载
     workdir: ${AGENT_DEPLOY_WORKDIR:}
-    # 容器接口限流（每 IP，每分钟）与 CORS 允许来源
+    # 平台网关限流（每调用方令牌桶）与 CORS 允许来源
     rate-limit-per-min: ${AGENT_DEPLOY_RATE_LIMIT:60}
     rate-limit-burst: ${AGENT_DEPLOY_RATE_BURST:20}
     cors-origins: ${AGENT_DEPLOY_CORS_ORIGINS:}

@@ -35,7 +35,6 @@ import static org.mockito.Mockito.when;
 class AgentDeploymentServiceLifecycleTest {
 
     private AgentDeploymentMapper deploymentMapper;
-    private AgentRuntimeKeyService runtimeKeyService;
     private AgentRuntimeGatewayService runtimeGatewayService;
     private CryptoService cryptoService;
     private AgentDeploymentEventMapper eventMapper;
@@ -53,7 +52,6 @@ class AgentDeploymentServiceLifecycleTest {
     @BeforeEach
     void setUp() {
         deploymentMapper = mock(AgentDeploymentMapper.class);
-        runtimeKeyService = mock(AgentRuntimeKeyService.class);
         runtimeGatewayService = mock(AgentRuntimeGatewayService.class);
         cryptoService = mock(CryptoService.class);
         eventMapper = mock(AgentDeploymentEventMapper.class);
@@ -64,7 +62,7 @@ class AgentDeploymentServiceLifecycleTest {
         runtime = mock(ContainerRuntime.class);
         deployProfileService = mock(AgentDeployProfileService.class);
         meterRegistry = new SimpleMeterRegistry();
-        service = new AgentDeploymentService(deploymentMapper, runtimeKeyService, runtimeGatewayService,
+        service = new AgentDeploymentService(deploymentMapper, runtimeGatewayService,
                 cryptoService, eventMapper,
                 agentMapper, versionMapper, apiKeyService, auditService, runtime,
                 deployProfileService, meterRegistry);
@@ -219,34 +217,12 @@ class AgentDeploymentServiceLifecycleTest {
 
     @Test
     void statsUsesPlatformGatewayForNginxRuntime() {
-        ReflectionTestUtils.setField(service, "deployRuntime", "nginx");
         when(runtimeGatewayService.stats(1L)).thenReturn(Map.of("runtime", "platform", "callers", List.of()));
 
         Map<String, Object> result = service.stats(1L);
 
         assertEquals("platform", result.get("runtime"));
         verify(runtimeGatewayService).stats(1L);
-    }
-
-    @Test
-    void multiReplicaRequiresGatewayRedis() {
-        when(runtime.available()).thenReturn(true);
-        AgentRegistry agent = new AgentRegistry();
-        agent.setId(1L);
-        agent.setTenantId(1L);
-        agent.setStatus("PUBLISHED");
-        when(agentMapper.selectById(1L)).thenReturn(agent);
-        when(deploymentMapper.selectOne(any())).thenReturn(null);
-        ReflectionTestUtils.setField(service, "deployRuntime", "gateway");
-        ReflectionTestUtils.setField(service, "redisUrl", "");
-
-        BusinessException error = assertThrows(BusinessException.class,
-                () -> service.deploy(1L, 2, principal));
-
-        assertEquals(400, error.getCode());
-        assertEquals("旧 gateway 运行时多副本需要配置 agent.deploy.redis-url（共享限流/配额/用量）",
-                error.getMessage());
-        verify(runtime, never()).create(any());
     }
 
     @Test

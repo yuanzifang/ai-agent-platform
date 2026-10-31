@@ -10,7 +10,6 @@ import com.platform.common.context.TenantContext;
 import com.platform.common.security.CryptoService;
 import com.platform.common.exception.BusinessException;
 import com.platform.deploy.entity.AgentDeployment;
-import com.platform.deploy.entity.AgentRuntimeKey;
 import com.platform.deploy.entity.AgentDeploymentEvent;
 import com.platform.deploy.mapper.AgentDeploymentEventMapper;
 import com.platform.deploy.mapper.AgentDeploymentMapper;
@@ -46,9 +45,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Agent 容器部署（MVP：本机 Docker）。
  *
- * 每个已发布的 Agent 默认部署一个轻量 nginx 容器：容器对外暴露 OpenAI 兼容的
+ * 每个已发布的 Agent 部署一个轻量 nginx 容器：容器对外暴露 OpenAI 兼容的
  * /v1/chat/completions，并透明反代到平台网关 /api/v1/gateway/agent-runtime/{agentId}/v1；
- * Bearer/调用方 Key/限流/日配额/用量由 Spring 平台网关执行。旧 Node gateway 运行时保留为兼容回滚。
+ * Bearer/调用方 Key/限流/日配额/用量由 Spring 平台网关执行。
  *
  * 这是「发布 → 运行」闭环的第一版，镜像与端口范围都可配置；后续可替换成 K8s 实现。
  */
@@ -58,7 +57,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class AgentDeploymentService {
 
     private final AgentDeploymentMapper deploymentMapper;
-    private final AgentRuntimeKeyService runtimeKeyService;
     private final AgentRuntimeGatewayService runtimeGatewayService;
     private final CryptoService cryptoService;
     private final AgentDeploymentEventMapper eventMapper;
@@ -75,26 +73,11 @@ public class AgentDeploymentService {
     @Value("${agent.deploy.enabled:true}")
     private boolean deployEnabled;
 
-    @Value("${agent.deploy.runtime:nginx}")
-    private String deployRuntime;
-
     @Value("${agent.deploy.image:nginx:alpine}")
     private String nginxImage;
 
-    @Value("${agent.deploy.gateway-image:aap/agent-gateway:1}")
-    private String gatewayImage;
-
-    @Value("${agent.deploy.caller-quota-daily:0}")
-    private int callerQuotaDaily;
-
-    @Value("${agent.deploy.caller-keys:}")
-    private String callerKeys;
-
     @Value("${agent.deploy.replicas:1}")
     private int defaultReplicas;
-
-    @Value("${agent.deploy.redis-url:}")
-    private String redisUrl;
 
     private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
             new com.fasterxml.jackson.databind.ObjectMapper();
@@ -116,12 +99,6 @@ public class AgentDeploymentService {
 
     @Value("${agent.deploy.workdir:}")
     private String workdir;
-
-    @Value("${agent.deploy.rate-limit-per-min:60}")
-    private int rateLimitPerMin;
-
-    @Value("${agent.deploy.rate-limit-burst:20}")
-    private int rateLimitBurst;
 
     @Value("${agent.deploy.cors-origins:}")
     private String corsOrigins;
@@ -202,8 +179,8 @@ public class AgentDeploymentService {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("agentId", agentId);
         data.put("agentStatus", agent.getStatus());
-        data.put("runtime", gatewayRuntime() ? "gateway" : "nginx");
-        data.put("image", gatewayRuntime() ? gatewayImage : nginxImage);
+        data.put("runtime", "platform");
+        data.put("image", nginxImage);
         data.put("enabled", deployEnabled);
         data.put("dockerAvailable", runtime.available());
         data.put("dockerVersion", runtime.version());
@@ -261,9 +238,6 @@ public class AgentDeploymentService {
         }
         replicas = Math.max(1, Math.min(maxReplicas, replicas));
         deployment.setDeployProfileId(deployProfile == null ? null : deployProfile.getId());
-        if (replicas > 1 && gatewayRuntime() && (redisUrl == null || redisUrl.isBlank())) {
-            throw new BusinessException(400, "旧 gateway 运行时多副本需要配置 agent.deploy.redis-url（共享限流/配额/用量）");
-        }
 
         Integer previousLbPort = deployment.getLbHostPort();
         // host_port 在表结构中非空：首次部署先占一个候选端口，真正创建容器时会优先复用。
@@ -275,14 +249,11 @@ public class AgentDeploymentService {
         deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
 
         String baseName = "aap-agent-" + agentId;
-        String slug = "agent-" + agentId;
-        String apiKey;
         try {
             Map<String, Object> key = apiKeyService.create(agentId, Map.of(
                     "name", "container:" + baseName,
                     "channel", "api"), principal);
             deployment.setApiKeyId(((Number) key.get("id")).longValue());
-            apiKey = String.valueOf(key.get("apiKey"));
         } catch (BusinessException e) {
             deployment.setStatus("FAILED");
             deployment.setLastError("创建集成 API Key 失败：" + e.getMessage());
@@ -290,9 +261,8 @@ public class AgentDeploymentService {
             throw e;
         }
 
-        boolean gateway = gatewayRuntime();
-        String effectiveImage = gateway ? gatewayImage : nginxImage;
-        int containerPort = gateway ? 8080 : 80;
+        String effectiveImage = nginxImage;
+        int containerPort = 80;
         deployment.setImage(effectiveImage);
         deployment.setStatus("PENDING");
         deployment.setLastError(null);
@@ -306,37 +276,10 @@ public class AgentDeploymentService {
             Map<String, String> env = new LinkedHashMap<>();
             env.put("PLATFORM_BASE", platformBase.replaceAll("/+$", ""));
             env.put("AGENT_ID", String.valueOf(agentId));
-            env.put("AGENT_SLUG", slug);
-            String runtimeToken = ensureRuntimeToken(deployment);
+            ensureRuntimeToken(deployment);
             env.put("CORS_ORIGIN", corsOrigins == null ? "" : corsOrigins.trim());
-            if (gateway && redisUrl != null && !redisUrl.isBlank()) env.put("REDIS_URL", redisUrl.trim());
-            List<String> mounts;
-            if (gateway) {
-                env.put("PORT", "8080");
-                env.put("RATE_LIMIT_PER_MIN", String.valueOf(Math.max(0, rateLimitPerMin)));
-                env.put("RATE_BURST", String.valueOf(Math.max(0, rateLimitBurst)));
-                env.put("CALLER_QUOTA_DAILY", String.valueOf(Math.max(0, callerQuotaDaily)));
-                List<Map<String, Object>> callerKeyPayload = new ArrayList<>();
-                for (AgentRuntimeKey key : runtimeKeyService.enabledKeys(agentId)) {
-                    Map<String, Object> payload = new LinkedHashMap<>();
-                    payload.put("hash", key.getKeyHash());
-                    payload.put("quota", key.getDailyQuota() == null ? 0 : key.getDailyQuota());
-                    payload.put("name", key.getName());
-                    callerKeyPayload.add(payload);
-                }
-                if (!callerKeyPayload.isEmpty()) {
-                    env.put("CALLER_KEYS_JSON", JSON.writeValueAsString(callerKeyPayload));
-                }
-                if (callerKeys != null && !callerKeys.isBlank()) env.put("CALLER_KEYS", callerKeys.trim());
-                Path secretDir = writeRuntimeSecrets(baseName, apiKey, runtimeToken);
-                env.put("API_KEY_FILE", "/run/secrets/aap/api-key");
-                env.put("RUNTIME_TOKEN_FILE", "/run/secrets/aap/runtime-token");
-                mounts = List.of(secretDir + ":/run/secrets/aap:ro");
-            } else {
-                // 平台网关运行时：nginx 不接触集成 Key/部署令牌，Bearer 原样转发。
-                env.put("NGINX_ENTRYPOINT_QUIET_LOGS", "1");
-                mounts = List.of(templateDir().toString() + ":/etc/nginx/templates:ro");
-            }
+            env.put("NGINX_ENTRYPOINT_QUIET_LOGS", "1");
+            List<String> mounts = List.of(templateDir().toString() + ":/etc/nginx/templates:ro");
 
             List<String> limits = containerLimits(deployProfile);
             Set<Integer> reserved = new HashSet<>();
@@ -389,7 +332,6 @@ public class AgentDeploymentService {
                 removeContainerQuietly(String.valueOf(row.get("name")));
             }
             if (rows.isEmpty()) removeContainerQuietly(baseName);
-            deleteRuntimeSecrets(baseName);
             deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
             deployment.setStatus("FAILED");
             deployment.setLastError(message(e));
@@ -453,7 +395,6 @@ public class AgentDeploymentService {
             removeContainerQuietly(String.valueOf(row.get("name")));
         }
         removeContainerQuietly(deployment.getContainerName());
-        deleteRuntimeSecrets("aap-agent-" + agentId);
         deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
         recordEvent(deployment, "REMOVE", "SUCCESS", null, principal);
         clearDeploymentMetrics(deployment);
@@ -509,42 +450,10 @@ public class AgentDeploymentService {
         }
     }
 
-    /** 代理容器 /stats：当日按 Key 的请求数与流式数。 */
+    /** 平台运行时用量：按调用方统计当日请求数与流式数。 */
     public Map<String, Object> stats(Long agentId) {
-        AgentDeployment deployment = requireDeployment(agentId);
-        if (!gatewayRuntime()) {
-            // 平台网关运行时：统计在 Spring/Redis，nginx 容器内不再维护用量。
-            return runtimeGatewayService.stats(agentId);
-        }
-        String token = runtimeToken(agentId);
-        java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
-                .connectTimeout(java.time.Duration.ofSeconds(2)).build();
-        int port = replicaRows(deployment).stream()
-                .filter(row -> "RUNNING".equals(row.get("status")))
-                .map(row -> row.get("hostPort"))
-                .filter(Number.class::isInstance)
-                .map(value -> ((Number) value).intValue())
-                .findFirst()
-                .orElse(deployment.getHostPort());
-        java.net.http.HttpRequest request = java.net.http.HttpRequest
-                .newBuilder(java.net.URI.create("http://127.0.0.1:" + port + "/stats"))
-                .timeout(java.time.Duration.ofSeconds(5))
-                .header("Authorization", "Bearer " + token)
-                .GET().build();
-        try {
-            java.net.http.HttpResponse<String> response = client.send(request,
-                    java.net.http.HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) {
-                throw new BusinessException(409, "当前运行时不支持用量统计（请使用 gateway 运行时）");
-            }
-            Map<String, Object> result = JSON.readValue(response.body(), Map.class);
-            result.put("runtime", gatewayRuntime() ? "gateway" : "nginx");
-            return result;
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new BusinessException(409, "获取容器用量失败：" + e.getMessage());
-        }
+        requireDeployment(agentId);
+        return runtimeGatewayService.stats(agentId);
     }
 
     /** 当前部署的访问令牌（明文返回给有编辑权限的调用方，用于 curl）。 */
@@ -589,7 +498,6 @@ public class AgentDeploymentService {
             removeContainerQuietly(String.valueOf(row.get("name")));
         }
         removeContainerQuietly(deployment.getContainerName());
-        deleteRuntimeSecrets("aap-agent-" + agentId);
         deleteKeyQuietly(agentId, deployment.getApiKeyId(), principal);
         recordEvent(deployment, "REMOVE", "SUCCESS", "agent deleted", principal);
         clearDeploymentMetrics(deployment);
@@ -845,38 +753,6 @@ public class AgentDeploymentService {
         }
     }
 
-    private Path writeRuntimeSecrets(String baseName, String apiKey, String runtimeToken) {
-        try {
-            Path dir = runtimeBase().resolve("secrets").resolve(baseName);
-            Files.createDirectories(dir);
-            try {
-                Files.setPosixFilePermissions(dir, java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
-            } catch (UnsupportedOperationException ignored) { }
-            writeSecretFile(dir.resolve("api-key"), apiKey);
-            writeSecretFile(dir.resolve("runtime-token"), runtimeToken);
-            return dir;
-        } catch (IOException e) {
-            throw new BusinessException(500, "写入 Agent 运行时密钥失败：" + message(e));
-        }
-    }
-
-    private void writeSecretFile(Path path, String value) throws IOException {
-        Files.writeString(path, value == null ? "" : value, StandardCharsets.UTF_8,
-                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
-        try {
-            Files.setPosixFilePermissions(path, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
-        } catch (UnsupportedOperationException ignored) { }
-    }
-
-    private void deleteRuntimeSecrets(String baseName) {
-        try {
-            Path dir = runtimeBase().resolve("secrets").resolve(baseName);
-            Files.deleteIfExists(dir.resolve("api-key"));
-            Files.deleteIfExists(dir.resolve("runtime-token"));
-            Files.deleteIfExists(dir);
-        } catch (IOException ignored) { }
-    }
-
     private Path runtimeBase() {
         // 默认放用户目录下：macOS 上 Docker/colima 默认只共享 $HOME，
         // 系统临时目录（/var/folders/...）容器里挂载不到。
@@ -914,10 +790,6 @@ public class AgentDeploymentService {
     private String publicEndpoint(int port) {
         String host = (publicBase == null || publicBase.isBlank()) ? primaryHost() : publicBase.replaceAll("/+$", "");
         return host + ":" + port + "/v1";
-    }
-
-    private boolean gatewayRuntime() {
-        return !"nginx".equalsIgnoreCase(deployRuntime == null ? "" : deployRuntime.trim());
     }
 
     /** 选一个外部可访问的地址：优先 Tailscale 100.x，其次内网段，最后 localhost。 */

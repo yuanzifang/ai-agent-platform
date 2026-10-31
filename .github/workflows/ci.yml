@@ -96,28 +96,14 @@ jobs:
           if-no-files-found: error
 
   gateway:
-    name: 运行时网关/告警中继（Node 单测 + 镜像/容器冒烟）
+    name: 运行时/告警中继（Node 单测 + 镜像/容器冒烟）
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-
-      - name: Gateway Node 单测
-        working-directory: runtime/agent-gateway
-        run: npm test
 
       - name: Alert-relay 依赖安装（ioredis/nodemailer）
         working-directory: runtime/alert-relay
@@ -127,46 +113,8 @@ jobs:
         working-directory: runtime/alert-relay
         run: npm test
 
-      - name: 构建运行时镜像
-        run: |
-          docker build -t agent-gateway:ci runtime/agent-gateway
-          docker build -t alert-relay:ci runtime/alert-relay
-
-      - name: 容器冒烟（健康检查/鉴权/模型/统计/CORS）
-        env:
-          # 通过仓库 Variables 配置；未配置时用测试域名，不使用通配符。
-          CORS_ORIGIN: ${{ vars.CORS_ORIGIN || 'https://app.example' }}
-        run: |
-          set -euo pipefail
-          docker run -d --name agent-gateway-ci \
-            --add-host=host.docker.internal:host-gateway \
-            -e RUNTIME_TOKEN=ci-token \
-            -e STATS_TOKEN=ci-stats \
-            -e AGENT_SLUG=ci-agent \
-            -e RATE_LIMIT_PER_MIN=1000 \
-            -e CALLER_QUOTA_DAILY=1 \
-            -e CORS_ORIGIN="$CORS_ORIGIN" \
-            -e REDIS_URL=redis://host.docker.internal:6379/0 \
-            -p 18081:8080 agent-gateway:ci
-          trap 'docker logs agent-gateway-ci || true; docker rm -f agent-gateway-ci || true' EXIT
-
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:18081/healthz >/dev/null 2>&1; then break; fi
-            sleep 1
-          done
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/v1/models)" = "401"
-          curl -fsS http://127.0.0.1:18081/v1/models \
-            -H 'Authorization: Bearer ci-token' | grep -q '"id":"ci-agent"'
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/v1/models \
-            -H 'Authorization: Bearer ci-token')" = "429"
-          curl -fsS http://127.0.0.1:18081/stats \
-            -H 'Authorization: Bearer ci-stats' | grep -q '"store":"redis"'
-          curl -fsS http://127.0.0.1:18081/stats \
-            -H 'Authorization: Bearer ci-stats' | grep -q '"requests":1'
-          curl -fsS -D /tmp/gateway-cors.headers -o /dev/null -X OPTIONS \
-            http://127.0.0.1:18081/v1/models
-          grep -Fqi "access-control-allow-origin: $CORS_ORIGIN" /tmp/gateway-cors.headers
-          echo "gateway container smoke passed"
+      - name: 构建告警中继镜像
+        run: docker build -t alert-relay:ci runtime/alert-relay
 
       - name: Alert-relay 容器冒烟
         run: |
@@ -183,15 +131,6 @@ jobs:
             -d '{"alerts":[]}' | grep -q '"configured":false'
           echo "alert-relay container smoke passed"
 
-      - name: Gateway 镜像 SBOM（CycloneDX）
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: image
-          image-ref: agent-gateway:ci
-          format: cyclonedx
-          output: gateway-sbom.cdx.json
-          exit-code: '0'
-
       - name: Alert-relay 镜像 SBOM（CycloneDX）
         uses: aquasecurity/trivy-action@master
         with:
@@ -205,9 +144,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: runtime-image-sbom
-          path: |
-            gateway-sbom.cdx.json
-            alert-relay-sbom.cdx.json
+          path: alert-relay-sbom.cdx.json
           if-no-files-found: error
 
       - uses: actions/setup-java@v4
@@ -220,7 +157,7 @@ jobs:
         working-directory: backend
         env:
           DOCKER_IT: '1'
-          DOCKER_IT_IMAGE: agent-gateway:ci
+          DOCKER_IT_IMAGE: alert-relay:ci
         run: mvn -q -Dtest=DockerCliRuntimeIT test
 
   build:

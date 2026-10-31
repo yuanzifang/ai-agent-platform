@@ -72,43 +72,16 @@ kubectl -n aap-data get pods,pvc -o wide
 当前 UTM 的迁移过程保留了原 UTM Docker 栈作为回滚，不删除源数据。
 
 
-## 5. Agent Gateway（旧版兼容，可选）
-
-> 2026-10-31 起默认运行时是 **Spring 平台网关 + 每 Agent nginx 透明入口**，不需要单独部署 Node agent-gateway。本节只用于旧版兼容/回滚；外部已有 `aap-agent-gateway` Pod 不会被默认部署流程修改。
-
-统计/运行时网关是无状态服务，可单独部署到 K8s。创建 Secret：
-
-```bash
-kubectl -n aap create secret generic aap-agent-secrets \
-  --from-literal=API_KEY='***' \
-  --from-literal=RUNTIME_TOKEN='***' \
-  --from-literal=REDIS_URL='redis://:<redis-password>@redis.aap-data.svc.cluster.local:6379/0'
-
-kubectl apply -f deploy/k8s/infra/agent-gateway.yaml
-```
-
-`agent-gateway.yaml` 使用：
-
-- 后端：`aap-ai-agent-platform-backend.aap.svc.cluster.local:8080`
-- Redis：`redis.aap-data.svc.cluster.local:6379`
-- 对外 NodePort：`30090`
-
-UTM 单机 k3d 可将 NodePort 映射到原端口：
-
-```bash
-k3d cluster edit aap-k8s --port-add 0.0.0.0:19001:30090@server:0
-```
-
-## 6. 当前切换结果
+## 5. 当前切换结果
 
 UTM 当前已切到 K8s 主入口：
 
 - 应用：`http://192.168.64.2:18080`
-- Agent Gateway：`http://192.168.64.2:19001`
+- Agent 运行时由平台网关 + 每 Agent nginx 入口提供，不再单独部署 Node Gateway
 - Ollama：独立原生服务，`http://192.168.64.1:11434`
 - 旧 UTM Docker 栈已移除，旧数据卷已删除；迁移前备份仍保留在 Mac 的备份目录中。
 
-## 7. 应用到集群内依赖
+## 6. 应用到集群内依赖
 
 使用：
 
