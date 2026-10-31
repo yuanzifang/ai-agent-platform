@@ -142,6 +142,7 @@ jobs:
             -e AGENT_SLUG=ci-agent \
             -e RATE_LIMIT_PER_MIN=1000 \
             -e CALLER_QUOTA_DAILY=1 \
+            -e CORS_ORIGIN='*' \
             -e REDIS_URL=redis://host.docker.internal:6379/0 \
             -p 18081:8080 agent-gateway:ci
           trap 'docker logs agent-gateway-ci || true; docker rm -f agent-gateway-ci || true' EXIT
