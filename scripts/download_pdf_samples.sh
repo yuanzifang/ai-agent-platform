@@ -9,10 +9,22 @@ mkdir -p "$OUT"
 
 download() {
   local name="$1" url="$2"
+  local tmp="$OUT/$name.part"
   echo "GET $name"
-  curl -fL --retry 2 --connect-timeout 20 --max-time 300 \
-    -H "User-Agent: $UA" \
-    -o "$OUT/$name" "$url"
+  for attempt in 1 2 3; do
+    rm -f "$tmp"
+    if curl -fL --retry 2 --retry-all-errors --connect-timeout 20 --max-time 300 \
+      -H "User-Agent: $UA" -o "$tmp" "$url" \
+      && head -c 4 "$tmp" | grep -q '%PDF'; then
+      mv "$tmp" "$OUT/$name"
+      return 0
+    fi
+    echo "WARN: $name 第 $attempt 次下载不完整，重试" >&2
+    sleep 2
+  done
+  rm -f "$tmp"
+  echo "ERROR: 无法下载有效 PDF：$url" >&2
+  return 1
 }
 
 # 金融：Berkshire 年报、Apple 10-K、JPMorgan 年报（先下载完整版）
