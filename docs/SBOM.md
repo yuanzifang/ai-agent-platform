@@ -73,6 +73,16 @@ cosign verify-blob \
   merged-sbom-<tag>.cdx.json
 ```
 
+## v0.3.1 实际验证（2026-10-31）
+
+- Release：`v0.3.1`，workflow run `41201510699`，结论 `success`
+- 内容包含 `vue-i18n` / `follow-redirects` 安全版本升级
+- 5 份 CycloneDX SBOM + 5 份 Sigstore bundle + `SHA256SUMS` + 校验和签名，共 12 个文件
+- 组件数：backend 209、frontend 89、gateway image 219、alert-relay image 231、merged 516
+- `sha256sum -c SHA256SUMS`：5/5 OK
+- `cosign verify-blob`：`Verified OK`
+- `gh attestation verify backend-sbom-v0.3.1.cdx.json --repo yuanzifang/ai-agent-platform`：exit 0
+
 ## v0.3.0 实际验证（2026-10-31）
 
 - Release：`v0.3.0`，workflow run `41198858876`，结论 `success`
