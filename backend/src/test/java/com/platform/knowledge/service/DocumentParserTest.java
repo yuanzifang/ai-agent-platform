@@ -3356,4 +3356,25 @@ class DocumentParserTest {
         assertEquals(0.01d, ZipSecureFile.getMinInflateRatio(), 0.0001d);
     }
 
+    @Test
+    void skipsOversizedEmbeddedImageBeforeDecoding() throws Exception {
+        BufferedImage image = new BufferedImage(200, 200, BufferedImage.TYPE_INT_RGB);
+        byte[] pdf;
+        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            var pdImage = LosslessFactory.createFromImage(doc, image);
+            try (PDPageContentStream content = new PDPageContentStream(doc, page)) {
+                content.drawImage(pdImage, 50, 500, 200, 200);
+            }
+            doc.save(out);
+            pdf = out.toByteArray();
+        }
+        ReflectionTestUtils.setField(parser, "maxPdfRenderPixels", 1_000L);
+
+        List<DocumentParser.ExtractedImage> images = parser.extractImages("oversized.pdf", pdf);
+
+        assertTrue(images.isEmpty(), "超过像素上限的内嵌图应在解码前跳过，实际=" + images.size());
+    }
+
 }
