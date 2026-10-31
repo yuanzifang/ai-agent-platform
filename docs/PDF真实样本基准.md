@@ -181,6 +181,8 @@ PDF_BENCH_DIR="$PWD/target/pdf-samples" mvn -Dtest=PdfBenchmarkTest test
    过去不进入 `<thead>`，现在能识别为表头；数据行不会混入表头。
 6. **分组行误入表头**：`ASSETS:`、`Current assets:` 等分组行不再被吞进 Apple 资产负债表的
    `<thead>`，避免表头被撑成多行空列。
+7. **无表头表格补升表头**：首行/前两行是纯标签、后续行才开始出现数字时，提升为 `<thead>`；
+   Apple 10-K 第 59 页的 Exhibit 索引因此恢复表头语义。
 
 > 表格块数是 `PdfTableLayout` 输出的原始表块数；“表格”分段数还会因 1500 字符切分和重复表头而变大，
 > 所以基准报告中 BRK 的表格数会明显高于表格块数。
