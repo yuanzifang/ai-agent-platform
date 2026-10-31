@@ -39,7 +39,7 @@ trivy fs --format cyclonedx --output ../frontend-sbom.cdx.json package-lock.json
 
 1. 按 Release tag checkout，构建并生成后端 CycloneDX BOM；
 2. 用 Trivy 对 `frontend/package-lock.json` 生成前端 CycloneDX BOM；
-3. 构建 `agent-gateway` / `alert-relay` 运行时镜像，用 Trivy image 生成两个镜像 BOM；
+3. 构建 `alert-relay` 运行时镜像；`agent-gateway` 仅在旧版兼容/回滚发布时构建，用 Trivy image 生成镜像 BOM；
 4. 用 `scripts/merge_cyclonedx_sbom.py` 合并四份组件（按 purl/bom-ref 去重，保留依赖与漏洞）；
 5. 校验五个文件的 `bomFormat=CycloneDX` 且 `components` 非空；
 6. 生成 `SHA256SUMS`；
