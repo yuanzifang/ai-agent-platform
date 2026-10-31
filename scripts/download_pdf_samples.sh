@@ -30,6 +30,7 @@ download "nist-sp800-53r5.pdf" "https://nvlpubs.nist.gov/nistpubs/SpecialPublica
 # 扫描/老式印刷样本（部分页面自带 OCR 文本层；可再用 PyMuPDF 转成纯图片页压测 OCR）
 download "scanned-nbs-chem-1972.pdf" "https://nvlpubs.nist.gov/nistpubs/Legacy/RPT/nbsreport10907.pdf"
 download "scanned-nbs-catalog-1986.pdf" "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nbsspecialpublication260e1986.pdf"
+download "scanned-epa-letter-2015.pdf" "https://19january2021snapshot.epa.gov/sites/static/files/2016-02/documents/epa_sample_letter_sent_to_commissioners_dated_february_29_2015.pdf"
 
 # JPM 完整年报约 34MB，超过平台 20MB 上传上限；截取前 120 页做解析压测。
 if python3 -c 'import pymupdf' >/dev/null 2>&1; then

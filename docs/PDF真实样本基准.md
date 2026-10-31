@@ -188,6 +188,7 @@ PDF_BENCH_DIR="$PWD/target/pdf-samples" mvn -Dtest=PdfBenchmarkTest test
 | --- | ---: | --- | --- | --- |
 | scanned-nbs-chem-1972.pdf | 122 | 1972 年 NBS 电解质数据中心报告 | 自带部分 OCR 文本层，按页补 OCR | 1.1s；76,464 字符；正文可读，老式打字/公式噪声明显 |
 | scanned-nbs-catalog-table-pages.pdf | 3 | 1986 年 NBS 标准物质目录表格页 | 从目录 PDF 渲染为无文本层图片 PDF，150 DPI OCR | 2.7s；4,202 字符；标题和表格文字可识别，已能重建 HTML 表块 |
+| scanned-epa-letter-2015.pdf | 3 | 2015 年 EPA 饮用水政策扫描函件 | 无文本层，150 DPI OCR | 2.3s；10,952 字符；标题、正文和 3 个表块可读 |
 
 扫描表格页能识别出 `Copper-Base Alloys (Solid Form)`、元素列和数值。新增按行间距/列数
 逐级尝试、以最宽行作为列锚点的表块重建后，样例可生成含表头的 8 列左右 HTML 表；
