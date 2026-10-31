@@ -251,6 +251,9 @@ jobs:
       - name: 后端 i18n key 一致性
         run: python3 scripts/check-backend-i18n.py
 
+      - name: MVP 安全/冻结默认值检查
+        run: python3 scripts/check-mvp-freeze.py
+
       - name: PDF 解析快照回归（标题/表格/页码覆盖阈值）
         working-directory: backend
         run: mvn -q -Dtest=PdfSnapshotTest test
