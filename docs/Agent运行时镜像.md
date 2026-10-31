@@ -34,11 +34,11 @@ client → container:8080 /v1/chat/completions
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `PLATFORM_BASE` | `http://host.docker.internal:8080` | 平台地址（容器内可访问） |
-| `API_KEY` | 必填 | 该 Agent 的集成 API Key（平台注入） |
+| `API_KEY` / `API_KEY_FILE` | 必填 | 该 Agent 的集成 API Key；`API_KEY_FILE` 优先，平台默认写只读文件 |
 | `AGENT_SLUG` | `agent` | `/v1/models` 返回的模型 ID |
-| `RUNTIME_TOKEN` | 空 | 主访问令牌；平台部署时自动生成 |
+| `RUNTIME_TOKEN` / `RUNTIME_TOKEN_FILE` | 空 | 主访问令牌；`RUNTIME_TOKEN_FILE` 优先，平台部署时写只读文件 |
 | `PORT` | `8080` | 监听端口 |
-| `CORS_ORIGIN` | `*` | 允许的跨域来源 |
+| `CORS_ORIGIN` | 空 | 允许的跨域来源；空=不返回 CORS 头，必须显式配置 |
 | `RATE_LIMIT_PER_MIN` | `60` | 每 Key 每分钟令牌回填速率，0=不限 |
 | `RATE_BURST` | `20` | 突发额度（令牌桶容量 = burst + 1） |
 | `CALLER_QUOTA_DAILY` | `0` | 主令牌日调用配额，0=不限 |
@@ -104,7 +104,7 @@ RATE_LIMIT_PER_MIN / RATE_BURST / CORS_ORIGIN / CALLER_QUOTA_DAILY
 
 ## 自动化验证（2026-10-26）
 
-- `cd runtime/agent-gateway && npm test`：5 个 `node:test` 用例，覆盖健康检查/CORS、Bearer 与调用方 Key 鉴权、日配额、分钟级限流、模型列表、JSON/SSE 透传、上游 `X-Api-Key`/`X-Request-Id`、2MB 请求体限制
+- `cd runtime/agent-gateway && npm test`：8 个 `node:test` 用例，覆盖健康检查/CORS、Bearer 与调用方 Key 鉴权、日配额、分钟级限流、模型列表、JSON/SSE 透传、上游 `X-Api-Key`/`X-Request-Id`、2MB 请求体限制、文件令牌
 - CI `gateway` job：`docker build` 运行时镜像 + 启动 Redis service + 容器冒烟，验证 401/200、配额 429、`/stats` 返回 `store:"redis"` 与请求计数、CORS 预检
 - 本地已验证：镜像构建成功，Redis 容器冒烟 `store:"redis"`、首请求 200、超日配额 429
 
