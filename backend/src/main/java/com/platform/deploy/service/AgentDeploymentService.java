@@ -71,7 +71,7 @@ public class AgentDeploymentService {
 
     private final Map<String, AtomicInteger> deploymentGauges = new ConcurrentHashMap<>();
 
-    @Value("${agent.deploy.enabled:false}")
+    @Value("${agent.deploy.enabled:true}")
     private boolean deployEnabled;
 
     @Value("${agent.deploy.runtime:gateway}")

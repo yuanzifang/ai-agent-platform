@@ -388,8 +388,8 @@ billing:
 agent:
   # Agent 容器部署（MVP：本机 Docker；发布后可把 Agent 跑成独立容器）
   deploy:
-    # MVP 冻结：默认关闭容器部署入口；需要时显式设置 AGENT_DEPLOY_ENABLED=true
-    enabled: ${AGENT_DEPLOY_ENABLED:false}
+    # 默认开启；设为 false 可临时冻结部署入口
+    enabled: ${AGENT_DEPLOY_ENABLED:true}
     # gateway=自研运行时镜像（推荐）；nginx=旧的 nginx 模板方案（保留兼容）
     runtime: ${AGENT_DEPLOY_RUNTIME:gateway}
     image: ${AGENT_DEPLOY_IMAGE:nginx:alpine}
