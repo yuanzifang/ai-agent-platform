@@ -1,26 +1,50 @@
 #!/usr/bin/env python3
 """清理 E2E 残留数据（默认 dry-run）。
 
-只清理名称明确属于 E2E/本地 smoke 的 Agent：
-  E2E...
-  LOCAL-SMOKE-...
-  LOCAL-REWRITE-...
+默认只列出，不删除：
+  Agent: E2E... / LOCAL-SMOKE-... / LOCAL-REWRITE-...
+  Provider: E2E ...
+  临时模型: broken-model-* / claude-mock
 
-默认只列出，不删除。确认后加 --apply 才删除 Agent（先删工作流，再删 Agent）。
-Provider / 模型没有暴露删除接口，当前只报告残留，不做破坏性操作。
+确认后：
+  --apply                 删除 E2E Agent（先删工作流，再删 Agent）
+  --apply --apply-providers
+                          同时用 mysql 清理 E2E Provider/临时模型
+                          mysql 连接参数可用 MYSQL_* 环境变量覆盖；
+                          密码只从 MYSQL_PASSWORD 读取，不写入命令行参数。
 
 用法：
   python3 scripts/cleanup-e2e-data.py
   python3 scripts/cleanup-e2e-data.py --apply
+  MYSQL_PASSWORD=*** python3 scripts/cleanup-e2e-data.py --apply --apply-providers
 """
 import argparse
 import json
 import os
+import shutil
+import subprocess
 import sys
 import urllib.error
 import urllib.request
 
 PREFIXES = ("E2E", "LOCAL-SMOKE-", "LOCAL-REWRITE-")
+
+
+def mysql_exec(sql: str, host: str, port: str, user: str, database: str) -> str:
+    mysql = shutil.which("mysql")
+    if not mysql:
+        raise RuntimeError("未找到 mysql 客户端；Provider/模型清理需要本机 mysql 命令")
+    env = os.environ.copy()
+    password = os.getenv("MYSQL_PASSWORD", "")
+    if password:
+        env["MYSQL_PWD"] = password
+    proc = subprocess.run(
+        [mysql, "-h", host, "-P", str(port), "-u", user, "-N", "-B", database],
+        input=sql, text=True, capture_output=True, env=env
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"mysql 执行失败：{proc.stderr.strip()[:500]}")
+    return proc.stdout.strip()
 
 
 def call(method: str, url: str, token: str | None = None, body: dict | None = None):
@@ -53,7 +77,15 @@ def main() -> int:
     parser.add_argument("--password", default=os.getenv("PLATFORM_PASSWORD", "Dev@123456"))
     parser.add_argument("--apply", action="store_true",
                         help="实际删除 E2E Agent；默认只 dry-run")
+    parser.add_argument("--apply-providers", action="store_true",
+                        help="同时用 mysql 清理 E2E Provider/临时模型；必须与 --apply 同用")
+    parser.add_argument("--mysql-host", default=os.getenv("MYSQL_HOST", "127.0.0.1"))
+    parser.add_argument("--mysql-port", default=os.getenv("MYSQL_PORT", "3306"))
+    parser.add_argument("--mysql-user", default=os.getenv("MYSQL_USERNAME", "root"))
+    parser.add_argument("--mysql-database", default=os.getenv("MYSQL_DATABASE", "ai_agent_platform"))
     args = parser.parse_args()
+    if args.apply_providers and not args.apply:
+        parser.error("--apply-providers 必须与 --apply 一起使用")
     base = args.base_url.rstrip("/") + "/api/v1"
 
     login = call("POST", base + "/auth/login", body={
@@ -115,7 +147,47 @@ def main() -> int:
         except Exception as e:
             print(f"  删除失败 id={agent_id}: {e}", file=sys.stderr)
     print(f"\n已删除 E2E Agent: {deleted}/{len(candidates)}")
-    print("Provider/模型仍保留，请通过模型接入页面或数据库脚本单独清理。")
+
+    if not args.apply_providers:
+        print("Provider/模型仍保留；确认后追加 --apply-providers 清理测试 Provider/模型。")
+        return 0
+
+    # 先确认没有未删除 Agent 引用测试模型，避免误删仍在使用的测试数据。
+    ref_sql = """
+SELECT COUNT(*) FROM agent_registry
+WHERE status <> 'DELETED' AND (
+  JSON_UNQUOTE(JSON_EXTRACT(model_config, '$.modelName')) LIKE 'broken-model-%'
+  OR JSON_UNQUOTE(JSON_EXTRACT(model_config, '$.fallbackModelName')) LIKE 'broken-model-%'
+  OR JSON_UNQUOTE(JSON_EXTRACT(model_config, '$.modelName')) = 'claude-mock'
+  OR JSON_UNQUOTE(JSON_EXTRACT(model_config, '$.fallbackModelName')) = 'claude-mock'
+);
+""".strip()
+    refs = int(mysql_exec(ref_sql, args.mysql_host, args.mysql_port,
+                           args.mysql_user, args.mysql_database) or "0")
+    if refs > 0:
+        raise RuntimeError(f"仍有 {refs} 个未删除 Agent 引用临时模型，已中止 Provider 清理")
+
+    cleanup_sql = """
+START TRANSACTION;
+DELETE FROM model
+WHERE model_name LIKE 'broken-model-%' OR model_name = 'claude-mock';
+DELETE FROM model
+WHERE provider_id IN (SELECT id FROM provider WHERE name LIKE 'E2E %');
+DELETE FROM provider_credential
+WHERE provider_id IN (SELECT id FROM provider WHERE name LIKE 'E2E %');
+DELETE FROM provider
+WHERE name LIKE 'E2E %';
+COMMIT;
+""".strip()
+    mysql_exec(cleanup_sql, args.mysql_host, args.mysql_port,
+               args.mysql_user, args.mysql_database)
+    remaining_providers = mysql_exec(
+        "SELECT COUNT(*) FROM provider WHERE name LIKE 'E2E %';",
+        args.mysql_host, args.mysql_port, args.mysql_user, args.mysql_database)
+    remaining_models = mysql_exec(
+        "SELECT COUNT(*) FROM model WHERE model_name LIKE 'broken-model-%' OR model_name = 'claude-mock';",
+        args.mysql_host, args.mysql_port, args.mysql_user, args.mysql_database)
+    print(f"已清理 E2E Provider，剩余={remaining_providers}；临时模型剩余={remaining_models}")
     return 0
 
 
