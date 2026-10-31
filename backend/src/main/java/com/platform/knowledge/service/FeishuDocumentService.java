@@ -37,8 +37,6 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class FeishuDocumentService {
 
-    private static final int MAX_FILES = 100;
-    private static final long MAX_BYTES = 50L * 1024 * 1024;
     private static final int PAGE_SIZE = 50;
     private static final int MAX_RETRIES = 3;
     private static final long MIN_API_INTERVAL_MS = 220;
@@ -65,6 +63,10 @@ public class FeishuDocumentService {
     private boolean includeComments;
     @Value("${knowledge.feishu.api-base:https://open.feishu.cn}")
     private String apiBase = "https://open.feishu.cn";
+    @Value("${knowledge.feishu.max-files:100}")
+    private int maxFiles = 100;
+    @Value("${knowledge.feishu.max-bytes:52428800}")
+    private long maxBytes = 50L * 1024 * 1024;
     private long lastApiRequestAt;
 
     public record Document(String name, byte[] content, String contentType, String sourceUrl) {
@@ -318,7 +320,7 @@ public class FeishuDocumentService {
     }
 
     private void skip(List<String> skipped, String message) {
-        if (skipped.size() < MAX_FILES) skipped.add(message);
+        if (skipped.size() < maxFiles) skipped.add(message);
     }
 
     /** 导入 docx，并继续解析正文中的飞书文档超链接；超链接文档各自独立入库。 */
@@ -1181,9 +1183,11 @@ public class FeishuDocumentService {
     }
 
     private void add(List<Document> out, Document doc) {
-        if (out.size() >= MAX_FILES) throw new BusinessException(413, "单次最多导入 " + MAX_FILES + " 个飞书文件");
+        if (out.size() >= maxFiles) throw new BusinessException(413, "单次最多导入 " + maxFiles + " 个飞书文件");
         long total = out.stream().mapToLong(d -> d.content().length).sum() + doc.content().length;
-        if (total > MAX_BYTES) throw new BusinessException(413, "飞书导入总大小超过 50MB");
+        if (total > maxBytes) {
+            throw new BusinessException(413, "飞书导入总大小超过 " + (maxBytes / 1024 / 1024) + "MB");
+        }
         out.add(doc);
     }
 

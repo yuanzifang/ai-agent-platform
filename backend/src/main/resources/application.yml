@@ -167,6 +167,9 @@ knowledge:
     image-vision-model: ${FEISHU_IMAGE_VISION_MODEL:qwen3-vl:32b}
     # docx 评论/回复追加到文档末尾；无评论权限时静默跳过
     include-comments: ${FEISHU_INCLUDE_COMMENTS:true}
+    # 单次导入上限；大文件夹建议配合异步任务和更高配置
+    max-files: ${FEISHU_MAX_FILES:100}
+    max-bytes: ${FEISHU_MAX_BYTES:52428800}
   parse:
     # 解析失败手动重试上限（需求 3.6.3(2)，默认 3 次，超限需人工介入）
     max-retries: ${KNOWLEDGE_PARSE_MAX_RETRIES:3}
