@@ -366,6 +366,46 @@ test('全局搜索支持名称和描述全文匹配', async ({ request }) => {
   }
 })
 
+test('全局搜索知识库和工具描述全文匹配', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const phrase = `星河退款${Date.now()}`
+  let kbId: number | null = null
+  let toolId: number | null = null
+  try {
+    const kb = await (await request.post(`${P}/knowledge-base`, {
+      headers: auth(token!),
+      data: { name: `E2E搜索KB-${Date.now()}`, description: `${phrase}知识库说明`, visibility: 'TENANT' }
+    })).json()
+    expect(kb.code, JSON.stringify(kb)).toBe(0)
+    kbId = kb.data.id
+
+    const tool = await (await request.post(`${P}/tools`, {
+      headers: auth(token!),
+      data: {
+        name: `E2E搜索工具-${Date.now()}`, description: `${phrase}工具说明`,
+        toolType: 'API', apiConfig: { url: 'http://127.0.0.1:18092/echo', method: 'POST' },
+        timeoutMs: 5000, retryTimes: 0
+      }
+    })).json()
+    expect(tool.code, JSON.stringify(tool)).toBe(0)
+    toolId = tool.data.id
+
+    const search = await (await request.get(`${P}/search`, {
+      headers: auth(token!), params: { q: phrase }
+    })).json()
+    expect(search.code, JSON.stringify(search)).toBe(0)
+    const list = search.data.list || []
+    expect(list.some((x: any) => x.type === 'KB' && x.id === kbId),
+      '知识库描述全文命中').toBeTruthy()
+    expect(list.some((x: any) => x.type === 'TOOL' && x.id === toolId),
+      '工具描述全文命中').toBeTruthy()
+  } finally {
+    if (toolId) await request.delete(`${P}/tools/${toolId}`, { headers: auth(token!) })
+    if (kbId) await request.delete(`${P}/knowledge-base/${kbId}?force=true`, { headers: auth(token!) })
+  }
+})
+
 test('Prompt 模板 AI 优化', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()
