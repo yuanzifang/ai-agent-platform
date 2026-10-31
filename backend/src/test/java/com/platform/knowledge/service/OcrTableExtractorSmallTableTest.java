@@ -97,4 +97,20 @@ class OcrTableExtractorSmallTableTest {
         }
     }
 
+    @Test
+    void doesNotMergeNumericIdentifierRows() {
+        String tsv = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
+                + "1\t1\t1\t1\t1\t1\t50\t10\t60\t12\t95\tC1106\n"
+                + "1\t1\t1\t1\t1\t2\t220\t10\t60\t12\t95\t10\n"
+                + "1\t1\t1\t1\t2\t1\t50\t40\t60\t12\t95\tC1107\n"
+                + "1\t1\t1\t1\t2\t2\t220\t40\t60\t12\t95\t20\n"
+                + "1\t1\t1\t1\t3\t1\t50\t70\t60\t12\t95\tC1108\n"
+                + "1\t1\t1\t1\t3\t2\t220\t70\t60\t12\t95\t30\n";
+
+        OcrTableExtractor.Result result = OcrTableExtractor.extract(tsv);
+
+        assertTrue(result.table().contains("<table"), result.table());
+        assertTrue(!result.table().contains("rowspan="), "编号行不应被误合并，实际=" + result.table());
+    }
+
 }
