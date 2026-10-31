@@ -420,7 +420,7 @@ agent:
     # 容器接口限流（每 IP，每分钟）与 CORS 允许来源
     rate-limit-per-min: ${AGENT_DEPLOY_RATE_LIMIT:60}
     rate-limit-burst: ${AGENT_DEPLOY_RATE_BURST:20}
-    cors-origins: ${AGENT_DEPLOY_CORS_ORIGINS:*}
+    cors-origins: ${AGENT_DEPLOY_CORS_ORIGINS:}
     docker-bin: ${AGENT_DEPLOY_DOCKER_BIN:docker}
 
 app:
