@@ -2,6 +2,7 @@ package com.platform.knowledge.service;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -75,6 +76,10 @@ class PdfTableLayoutQualityTest {
         assertTrue(promoted.html().contains("<thead>"), promoted.html());
         assertTrue(promoted.html().contains("<th>Exhibit</th>"), promoted.html());
         assertTrue(promoted.html().contains("<th>Number</th>"), promoted.html());
+        var metrics = TableStructureMetrics.fromText(promoted.html());
+        assertEquals(2, metrics.headerRows(), "两行标签都应进入表头");
+        assertTrue(metrics.columns() >= 5, "表头列数不应丢失，实际=" + metrics);
+        assertTrue(metrics.nonEmptyCells() >= 7, "表格数据不应丢失，实际=" + metrics);
     }
 
 }
