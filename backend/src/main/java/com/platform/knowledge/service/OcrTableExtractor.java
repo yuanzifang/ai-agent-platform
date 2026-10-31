@@ -546,10 +546,18 @@ final class OcrTableExtractor {
                 value = true;
                 if (cell.text.matches("[-+]?\\d+([.,]\\d+)?")) numeric = true;
             }
-            if (!value || (numeric && !yearLabels(line))) break;
+            if (!value || (numeric && !yearLabels(line)) || isSectionLine(line)) break;
             count++;
         }
         return count >= lines.size() ? 0 : count;
+    }
+
+    private static boolean isSectionLine(Line line) {
+        if (yearLabels(line)) return false;
+        for (Cell cell : line.cells) {
+            if (!cell.text.isBlank() && cell.text.trim().endsWith(":")) return true;
+        }
+        return false;
     }
 
     private static boolean yearLabels(Line line) {
