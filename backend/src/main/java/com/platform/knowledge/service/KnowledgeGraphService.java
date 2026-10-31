@@ -954,6 +954,31 @@ public class KnowledgeGraphService implements ApplicationRunner {
                 if (extras.size() >= 5) break;
             }
         }
+        // 社区摘要补召回：实体扩展不足 2 条时，用社区摘要补充全局上下文（Microsoft GraphRAG global search 模式）
+        if (extras.size() < 2 && query != null && !query.isBlank()) {
+            try {
+                var commResult = searchCommunities(kbId, query, 2, viewer);
+                if (commResult.get("hits") instanceof List<?> commHits) {
+                    for (Object raw : commHits) {
+                        if (!(raw instanceof Map<?, ?> hit)) continue;
+                        String summary = str(hit.get("summary"));
+                        if (summary == null || summary.isBlank()) continue;
+                        Map<String, Object> extra = new LinkedHashMap<>();
+                        extra.put("content", "【社区摘要】" + hit.get("name") + "\n" + summary);
+                        extra.put("parentContent", null);
+                        extra.put("parentIndex", null);
+                        extra.put("score", 0.50);
+                        extra.put("metadata", objectMapper.writeValueAsString(Map.of(
+                                "graph", true, "source", "community_summary",
+                                "community_name", str(hit.get("name")))));
+                        extras.add(extra);
+                        if (extras.size() >= 5) break;
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("社区摘要补召回跳过：{}", e.getMessage());
+            }
+        }
         return extras;
     }
 
