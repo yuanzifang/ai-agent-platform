@@ -84,19 +84,17 @@ public class AgentRuntimeGatewayService {
 
     public record Caller(String id, String name, int dailyQuota, Long tenantId) { }
 
-    /** 鉴权入口；requireRunning=true 时只允许运行中的部署。 */
+    /** 鉴权入口；先验证令牌，再判断运行状态，避免未认证请求探测部署状态。 */
     public Caller authenticate(Long agentId, String authorization, boolean requireRunning) {
         AgentDeployment deployment = deploymentMapper.findByAgentIdIgnore(agentId);
         if (deployment == null) throw new BusinessException(404, "该 Agent 尚未部署");
-        if (requireRunning && !"RUNNING".equalsIgnoreCase(deployment.getStatus())) {
-            throw new BusinessException(409, "Agent 运行时未运行");
-        }
         String raw = bearer(authorization);
         if (raw == null) throw new BusinessException(401, "缺少 Bearer 令牌");
 
         String runtimeToken = cryptoService.decrypt(deployment.getRuntimeToken());
         if (runtimeToken != null && !runtimeToken.isBlank() && safeEqual(raw, runtimeToken)) {
-            return new Caller("default", "deployment token", nonNegative(callerQuotaDaily), deployment.getTenantId());
+            return checkedCaller(new Caller("default", "deployment token",
+                    nonNegative(callerQuotaDaily), deployment.getTenantId()), deployment, requireRunning);
         }
         String hash = sha256(raw);
         List<AgentRuntimeKey> keys = TenantContext.runWith(deployment.getTenantId(),
@@ -105,12 +103,19 @@ public class AgentRuntimeGatewayService {
             String expected = key.getKeyHash();
             if (expected != null && safeEqual(hash, expected.toLowerCase())) {
                 String callerId = expected.length() >= 12 ? expected.substring(0, 12) : expected;
-                return new Caller(callerId, key.getName(),
+                return checkedCaller(new Caller(callerId, key.getName(),
                         key.getDailyQuota() == null ? 0 : Math.max(0, key.getDailyQuota()),
-                        deployment.getTenantId());
+                        deployment.getTenantId()), deployment, requireRunning);
             }
         }
         throw new BusinessException(401, "无效的 Bearer 令牌");
+    }
+
+    private Caller checkedCaller(Caller caller, AgentDeployment deployment, boolean requireRunning) {
+        if (requireRunning && !"RUNNING".equalsIgnoreCase(deployment.getStatus())) {
+            throw new BusinessException(409, "Agent 运行时未运行");
+        }
+        return caller;
     }
 
     public AgentRegistry agent(Long agentId) {
