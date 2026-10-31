@@ -448,6 +448,7 @@ final class PdfMarkdownConverter {
         Line lastListLine = null;
         int tableIndex = 0;
         boolean firstPageTitleFound = false;
+        boolean firstPageTitleContinuation = false;
         while (tableIndex < tables.size()
                 && (lines.isEmpty() || tables.get(tableIndex).top() <= lines.get(0).y)) {
             flushParagraph(out, paragraph);
@@ -466,6 +467,20 @@ final class PdfMarkdownConverter {
             }
             int level = headingLevel(line, bodySize);
             // 首页长标题（化学/物理论文常见 80 字符以上）单独放宽，但不放宽正文段落。
+            if (firstPageTitleContinuation && page.index() == 0
+                    && lastHeadingLine != null && headingText.length() > 0
+                    && line.y - lastHeadingLine.y <= Math.max(bodySize, line.height) * 3.0f
+                    && Math.abs(line.fontSize - lastHeadingLine.fontSize) <= 1.5f
+                    && line.text.trim().length() >= 5 && line.text.trim().length() <= 120
+                    && !line.text.contains(",") && !line.text.trim().endsWith(".")
+                    && !line.text.trim().startsWith("Abstract")
+                    && !line.text.trim().startsWith("摘要")) {
+                headingText.append(' ').append(line.text.trim());
+                lastHeadingLine = line;
+                firstPageTitleContinuation = false;
+                previous = null;
+                continue;
+            }
             if (level == 0 && !firstPageTitleFound && page.index() == 0
                     && line.y < page.height() * 0.22f
                     && line.text.trim().length() >= 20 && line.text.trim().length() <= 220
@@ -474,8 +489,16 @@ final class PdfMarkdownConverter {
                     && line.text.trim().split("\\s+").length >= 4) {
                 level = 1;
                 firstPageTitleFound = true;
+                firstPageTitleContinuation = true;
             }
             if (level > 0) {
+                if (page.index() == 0 && line.y < page.height() * 0.22f
+                        && !firstPageTitleFound
+                        && line.text.trim().length() >= 20
+                        && !line.text.toLowerCase(Locale.ROOT).startsWith("arxiv:")) {
+                    firstPageTitleFound = true;
+                    firstPageTitleContinuation = true;
+                }
                 if (page.index() == 0 && line.y < page.height() * 0.3f
                         && (line.latexBold || line.fontSize >= bodySize * 1.5f)) {
                     level = 1;
