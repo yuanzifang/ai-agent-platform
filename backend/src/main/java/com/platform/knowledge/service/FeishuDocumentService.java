@@ -725,7 +725,7 @@ public class FeishuDocumentService {
                 for (JsonNode comment : data.path("items")) {
                     String quote = comment.path("quote").asText("");
                     boolean solved = comment.path("is_solved").asBoolean(false);
-                    String replies = commentRepliesText(comment);
+                    String replies = commentRepliesText(comment, documentToken, accessToken);
                     if (replies.isBlank()) continue;
                     if (out.length() == 0) out.append("## 评论\n");
                     out.append("\n- ");
@@ -742,9 +742,31 @@ public class FeishuDocumentService {
         }
     }
 
-    private String commentRepliesText(JsonNode comment) {
-        JsonNode replies = comment.path("reply_list").path("replies");
+    private String commentRepliesText(JsonNode comment, String documentToken, String accessToken) {
         StringBuilder out = new StringBuilder();
+        appendReplyText(out, comment.path("reply_list").path("replies"));
+        JsonNode replyList = comment.path("reply_list");
+        boolean hasMore = comment.path("has_more").asBoolean(false)
+                || replyList.path("has_more").asBoolean(false);
+        String pageToken = comment.path("page_token").asText(replyList.path("page_token").asText(""));
+        while (hasMore && !pageToken.isBlank()) {
+            try {
+                JsonNode pathData = requestJson("/open-apis/drive/v1/files/" + encode(documentToken)
+                                + "/comments/" + encode(comment.path("comment_id").asText())
+                                + "/replies?file_type=docx&page_size=100&page_token=" + encode(pageToken),
+                        accessToken, "GET", null).path("data");
+                appendReplyText(out, pathData.path("items"));
+                hasMore = pathData.path("has_more").asBoolean(false);
+                pageToken = pathData.path("page_token").asText("");
+            } catch (Exception e) {
+                log.debug("飞书评论回复分页读取跳过 err={}", root(e));
+                break;
+            }
+        }
+        return out.toString();
+    }
+
+    private void appendReplyText(StringBuilder out, JsonNode replies) {
         for (JsonNode reply : replies) {
             JsonNode elements = reply.path("content").path("elements");
             StringBuilder text = new StringBuilder();
@@ -762,7 +784,6 @@ public class FeishuDocumentService {
                 out.append(text);
             }
         }
-        return out.toString();
     }
 
     private String stripTableSuffix(String token) {
