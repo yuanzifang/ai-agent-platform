@@ -235,6 +235,12 @@ vector:
     collection-prefix: ${QDRANT_COLLECTION_PREFIX:aap}
 
 search:
+  weights:
+    # 全局搜索跨模块相关度权重；调整后无需重启前端
+    agent: ${SEARCH_WEIGHT_AGENT:1.10}
+    kb: ${SEARCH_WEIGHT_KB:1.05}
+    case: ${SEARCH_WEIGHT_CASE:1.00}
+    tool: ${SEARCH_WEIGHT_TOOL:0.95}
   keyword:
     # 新知识库默认关键字后端：mysql / es
     provider: ${KEYWORD_SEARCH_PROVIDER:mysql}
@@ -474,11 +480,3 @@ metrics:
     # 可选：/actuator/prometheus 抓取 token；空=兼容旧部署，生产建议设置
     token: ${METRICS_SCRAPE_TOKEN:}
 
-
-search:
-  weights:
-    # 全局搜索跨模块相关度权重；调整后无需重启前端
-    agent: ${SEARCH_WEIGHT_AGENT:1.10}
-    kb: ${SEARCH_WEIGHT_KB:1.05}
-    case: ${SEARCH_WEIGHT_CASE:1.00}
-    tool: ${SEARCH_WEIGHT_TOOL:0.95}
