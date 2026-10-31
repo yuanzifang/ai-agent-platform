@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-ha-0
+  namespace: aap-ha
+spec:
+  selector:
+    statefulset.kubernetes.io/pod-name: mysql-ha-0
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-ha-1
+  namespace: aap-ha
+spec:
+  selector:
+    statefulset.kubernetes.io/pod-name: mysql-ha-1
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-ha-2
+  namespace: aap-ha
+spec:
+  selector:
+    statefulset.kubernetes.io/pod-name: mysql-ha-2
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
