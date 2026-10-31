@@ -449,7 +449,8 @@ final class PdfTableExtractor {
             for (int c = 0; c < rows.get(r).values.length; c++) {
                 if (coveredByRowSpan(spans, r, c)) continue;
                 String value = rows.get(r).values[c];
-                if (value == null || value.isBlank() || value.matches("[-+]?\\d+([.,]\\d+)?%?")) continue;
+                // 编号/年份等含数字的单元格不应因下一行缺失就自动推断为 rowspan。
+                if (value == null || value.isBlank() || value.matches(".*\\d.*")) continue;
                 int span = 1;
                 while (span < maxSpan && r + span < rows.size()) {
                     LogicalRow next = rows.get(r + span);
