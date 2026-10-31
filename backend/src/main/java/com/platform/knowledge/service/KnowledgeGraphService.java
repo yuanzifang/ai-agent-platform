@@ -954,6 +954,31 @@ public class KnowledgeGraphService implements ApplicationRunner {
                 if (extras.size() >= 5) break;
             }
         }
+        // 社区摘要补召回：实体扩展不足 2 条时，用社区摘要补充全局上下文（Microsoft GraphRAG global search 模式）
+        if (extras.size() < 2 && query != null && !query.isBlank()) {
+            try {
+                var commResult = searchCommunities(kbId, query, 2, viewer);
+                if (commResult.get("hits") instanceof List<?> commHits) {
+                    for (Object raw : commHits) {
+                        if (!(raw instanceof Map<?, ?> hit)) continue;
+                        String summary = str(hit.get("summary"));
+                        if (summary == null || summary.isBlank()) continue;
+                        Map<String, Object> extra = new LinkedHashMap<>();
+                        extra.put("content", "【社区摘要】" + hit.get("name") + "\n" + summary);
+                        extra.put("parentContent", null);
+                        extra.put("parentIndex", null);
+                        extra.put("score", 0.50);
+                        extra.put("metadata", objectMapper.writeValueAsString(Map.of(
+                                "graph", true, "source", "community_summary",
+                                "community_name", str(hit.get("name")))));
+                        extras.add(extra);
+                        if (extras.size() >= 5) break;
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("社区摘要补召回跳过：{}", e.getMessage());
+            }
+        }
         return extras;
     }
 
@@ -990,6 +1015,43 @@ public class KnowledgeGraphService implements ApplicationRunner {
             }));
         } catch (Exception e) {
             log.warn("知识图谱自动抽取任务提交失败：kb={} doc={} err={}", kbId, documentId, e.getMessage());
+        }
+    }
+
+    /**
+     * 图谱变更后自动刷新社区摘要（异步）。
+     * 前置：commitPreview（批量抽取提交）或 deleteEntity 等图谱结构变更后调用。
+     */
+    public void autoRefreshCommunities(Long tenantId, Long kbId) {
+        boolean enabled;
+        try {
+            KnowledgeBase kb = kbMapper.selectById(kbId);
+            if (kb == null || !graphEnabled(kb)) return;
+            enabled = configBoolean("knowledge.graph.auto-refresh-communities", true);
+        } catch (Exception e) {
+            log.warn("读取社区自动刷新配置失败，跳过：{}", e.getMessage());
+            return;
+        }
+        if (!enabled) return;
+        Long effectiveTenant = tenantId == null ? TenantContext.getTenantId() : tenantId;
+        if (effectiveTenant == null) return;
+        try {
+            graphTaskExecutor.execute(() -> TenantContext.run(effectiveTenant, () -> {
+                try {
+                    KnowledgePermissionService.Viewer systemViewer =
+                            new KnowledgePermissionService.Viewer(null, List.of());
+                    String model = "deepseek-flash";
+                    summarizeCommunities(kbId, model, 50, systemViewer);
+                    long count = communityMapper.selectCount(
+                            new LambdaQueryWrapper<KnowledgeGraphCommunity>()
+                                    .eq(KnowledgeGraphCommunity::getKbId, kbId));
+                    log.info("社区摘要自动刷新完成：kb={} communities={}", kbId, count);
+                } catch (Exception e) {
+                    log.warn("社区摘要自动刷新失败：kb={} err={}", kbId, e.getMessage());
+                }
+            }));
+        } catch (Exception e) {
+            log.warn("社区摘要自动刷新任务提交失败：kb={} err={}", kbId, e.getMessage());
         }
     }
 
