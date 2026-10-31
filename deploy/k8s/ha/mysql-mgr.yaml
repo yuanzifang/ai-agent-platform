@@ -1,0 +1,132 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aap-ha
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-headless
+  namespace: aap-ha
+  labels:
+    app.kubernetes.io/name: mysql-mgr
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: mysql-mgr
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+    - name: gr
+      port: 33061
+      targetPort: gr
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql-ha
+  namespace: aap-ha
+  labels:
+    app.kubernetes.io/name: mysql-mgr
+spec:
+  serviceName: mysql-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mysql-mgr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mysql-mgr
+        app.kubernetes.io/part-of: aap-ha
+    spec:
+      terminationGracePeriodSeconds: 60
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: mysql-mgr
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: mysql
+          image: mysql:8.4
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              ordinal="${HOSTNAME##*-}"
+              server_id=$((ordinal + 1))
+              seeds="mysql-ha-0.mysql-headless.aap-ha.svc.cluster.local:33061,mysql-ha-1.mysql-headless.aap-ha.svc.cluster.local:33061,mysql-ha-2.mysql-headless.aap-ha.svc.cluster.local:33061"
+              exec /usr/local/bin/docker-entrypoint.sh mysqld \
+                --server-id="${server_id}" \
+                --gtid-mode=ON \
+                --enforce-gtid-consistency=ON \
+                --binlog-format=ROW \
+                --log-bin=mysql-bin \
+                --log-replica-updates=ON \
+                --binlog-checksum=NONE \
+                --plugin-load-add=group_replication.so \
+                --character-set-server=utf8mb4 \
+                --collation-server=utf8mb4_unicode_ci \
+                --default-time-zone=+08:00
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aap-ha-secrets
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              value: ai_agent_platform
+            - name: MYSQL_REPL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aap-ha-secrets
+                  key: MYSQL_REPL_PASSWORD
+            - name: TZ
+              value: Asia/Shanghai
+          ports:
+            - name: mysql
+              containerPort: 3306
+            - name: gr
+              containerPort: 33061
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 20Gi
