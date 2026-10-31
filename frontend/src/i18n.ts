@@ -377,7 +377,8 @@ const messages = {
       requests: '请求数', errorRate: '错误率', avgLatency: '平均延迟 (ms)', avgTokens: '平均 Tokens', totalCost: '总成本', errors: '错误数',
       byModel: '按模型轨迹分析', evalCompare: '评测得分对比',
       evals: '评测数', avgScore: '平均得分', passRate: '通过率',
-      emptyHint: '输入灰度标记后点击刷新开始对比'
+      emptyHint: '输入灰度标记后点击刷新开始对比',
+      evalDetail: '黄金数据集逐数据集对比', items: '评测题数',
     },
     sysConfig: {
       header: '全局配置项（sys_config，实时生效于新请求）', key: '配置项', value: '值', desc: '说明',
@@ -1419,7 +1420,8 @@ const messages = {
       requests: 'Requests', errorRate: 'Error rate', avgLatency: 'Avg latency (ms)', avgTokens: 'Avg tokens', totalCost: 'Total cost', errors: 'Errors',
       byModel: 'Trace analysis by model', evalCompare: 'Eval score comparison',
       evals: 'Evals', avgScore: 'Avg score', passRate: 'Pass rate',
-      emptyHint: 'Enter a gray tag and refresh to compare'
+      emptyHint: 'Enter a gray tag and refresh to compare',
+      evalDetail: 'Per-dataset eval comparison', items: 'Eval items',
     },
     sysConfig: {
       header: 'Global config (sys_config, applies to new requests immediately)', key: 'Key', value: 'Value', desc: 'Description',
