@@ -19,7 +19,7 @@ async function login(page: Page) {
 
 test('真实模型/真实裁判门禁：ANSWER 走 Agent 模型，门禁裁判走本地 qwen', async ({ page, request }) => {
   test.setTimeout(300_000)
-  test.skip(!process.env.E2E_REAL_MODEL, '设置 E2E_REAL_MODEL=1 后运行真实模型链路')
+  test.skip(!process.env.E2E_REAL_GATE_FIXED, '设置 E2E_REAL_GATE_FIXED=1 后运行固定 Agent/数据集门禁；默认 CI 用自包含测试')
   await login(page)
   const token = await page.evaluate(() => localStorage.getItem('accessToken'))
   const headers = { Authorization: `Bearer ${token}` }

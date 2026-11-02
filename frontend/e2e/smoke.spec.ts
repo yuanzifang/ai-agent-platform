@@ -438,3 +438,9 @@ test('监控页空数据展示', async ({ page, request }) => {
     await deleteAgent(request, token!, agentId)
   }
 })
+
+test('模型数据政策页租户可见', async ({ page }) => {
+  await page.goto('/data-policy')
+  await expect(page.getByRole('heading', { name: /模型数据留存与训练政策|Model Data Retention/ })).toBeVisible()
+  await expect(page.getByText('外部供应商的留存期限').or(page.getByText('external provider'))).toBeVisible()
+})

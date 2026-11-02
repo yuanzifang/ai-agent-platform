@@ -39,6 +39,8 @@ def main() -> int:
     parser.add_argument("--username", default=os.getenv("PLATFORM_USER", "dev"))
     parser.add_argument("--password", default=os.getenv("PLATFORM_PASSWORD", "Dev@123456"))
     parser.add_argument("--model", default=os.getenv("LOCAL_CI_MODEL", "qwen2.5:7b"))
+    parser.add_argument("--purpose", default=os.getenv("LOCAL_CI_PURPOSE", "PLATFORM"),
+                        choices=["CHAT", "EMBEDDING", "PLATFORM"])
     parser.add_argument("--context-window", type=int, default=32768)
     args = parser.parse_args()
     base = args.base_url.rstrip("/") + "/api/v1"
@@ -77,7 +79,7 @@ def main() -> int:
         created = call("POST", base + f"/provider/{provider['id']}/models", token, {
             "modelName": args.model,
             "displayName": f"{args.model} 本地工作流 E2E",
-            "purpose": "PLATFORM",
+            "purpose": args.purpose,
             "contextWindow": args.context_window,
             "inputPrice": 0,
             "outputPrice": 0,
