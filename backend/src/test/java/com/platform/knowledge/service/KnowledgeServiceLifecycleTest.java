@@ -739,4 +739,28 @@ class KnowledgeServiceLifecycleTest {
         verify(docMapper, never()).insert(any(KnowledgeDocument.class));
     }
 
+    @Test
+    void documentImagesReturnsMetadataAndPresignedUrl() {
+        KnowledgeDocument doc = new KnowledgeDocument();
+        doc.setId(55L);
+        doc.setKnowledgeBaseId(1L);
+        doc.setTenantId(9L);
+        when(docMapper.selectById(55L)).thenReturn(doc);
+        KnowledgeDocumentImage image = new KnowledgeDocumentImage();
+        image.setId(77L);
+        image.setFileName("chart.png");
+        image.setMimeType("image/png");
+        image.setSizeBytes(123L);
+        image.setObjectName("9/knowledge/1/55/chart.png");
+        when(imageMapper.selectList(any())).thenReturn(List.of(image));
+        when(storage.presignGet("9/knowledge/1/55/chart.png")).thenReturn("https://minio/presigned");
+
+        List<Map<String, Object>> images = service.documentImages(1L, 55L, viewer);
+
+        assertEquals(1, images.size());
+        assertEquals("chart.png", images.get(0).get("fileName"));
+        assertEquals("image/png", images.get(0).get("mimeType"));
+        assertEquals("https://minio/presigned", images.get(0).get("url"));
+    }
+
 }
