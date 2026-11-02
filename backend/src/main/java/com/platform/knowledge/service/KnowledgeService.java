@@ -14,7 +14,6 @@ import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.common.context.TenantContext;
 import com.platform.common.security.CryptoService;
 import com.platform.common.exception.BusinessException;
-import com.platform.common.security.NetworkPolicyService;
 import com.platform.knowledge.entity.KnowledgeBase;
 import com.platform.knowledge.entity.KnowledgeChunk;
 import com.platform.knowledge.entity.KnowledgeDocumentImage;
@@ -36,29 +35,15 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
-import okhttp3.Dns;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.ResponseBody;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.net.URI;
-import java.net.UnknownHostException;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -105,8 +90,15 @@ public class KnowledgeService {
     private final AgentKnowledgeBaseMapper agentKbMapper;
     private final AgentRegistryMapper agentRegistryMapper;
     private final AuditService auditService;
-    private final NetworkPolicyService networkPolicy;
     private final CryptoService cryptoService;
+
+    private final KnowledgeUrlFetcher urlFetcher;
+    private final KnowledgeChartChunkBuilder chartChunkBuilder;
+    private final KnowledgeDocumentMediaStore mediaStore;
+    private final KnowledgeEmbeddingCache embeddingCache;
+    private final KnowledgeChunkStore chunkStore;
+    private final KnowledgeDocumentMaintenanceService maintenanceService;
+    private final KnowledgeSourceHashService sourceHashService;
 
     /** MySQL 主库 JdbcTemplate；测试环境未注入时回退逐条 MyBatis insert。 */
     @Autowired(required = false)
@@ -117,9 +109,6 @@ public class KnowledgeService {
     @Autowired(required = false)
     private KnowledgeParentMapper parentMapper;
 
-    /** MySQL 本地事务：父块/分段/批量回退同成同败；PgVector 写入仍由 cleanupPartial 补偿。 */
-    @Autowired(required = false)
-    private PlatformTransactionManager transactionManager;
     @Autowired(required = false)
     private KnowledgeVectorOutboxMapper vectorOutboxMapper;
 
@@ -138,14 +127,6 @@ public class KnowledgeService {
     /** 文档解析专用线程池（架构 2.3）；队列满时 CallerRuns 保证不丢任务。 */
     @Resource(name = "documentParseExecutor")
     private ThreadPoolTaskExecutor documentParseExecutor;
-
-    /** embedding 缓存保留天数；每小时最多清理一次，避免每次解析都扫表。 */
-    @Value("${embedding.cache-ttl-days:30}")
-    private int embeddingCacheTtlDays = 30;
-    @Value("${embedding.cache-max-entries:100000}")
-    private int embeddingCacheMaxEntries = 100000;
-    private final java.util.concurrent.atomic.AtomicLong lastCacheCleanupAt =
-            new java.util.concurrent.atomic.AtomicLong(0);
 
     public Map<String, Object> create(String name, String description, String visibility,
                                       String embeddingModel, Boolean graphEnabled, Long userId) {
@@ -543,7 +524,7 @@ public class KnowledgeService {
         for (KnowledgeDocument doc : docs) {
             deleteVectorsQuietly(tenantId, doc.getId());
             storage.remove(doc.getObjectName());
-            deleteDocumentImages(doc);
+            mediaStore.delete(doc);
         }
         try {
             vectorRepository.deleteByKnowledgeBase(tenantId, id);
@@ -573,8 +554,12 @@ public class KnowledgeService {
         }
         deleteVectorsQuietly(kb.getTenantId(), docId);
         storage.remove(doc.getObjectName());
-        deleteDocumentImages(doc);
-        graphService.deleteByDocument(kbId, docId);
+        mediaStore.delete(doc);
+        try {
+            graphService.deleteByDocument(kbId, docId);
+        } catch (Exception e) {
+            log.warn("重试前清理文档图谱失败（继续重试）doc={} err={}", docId, e.getMessage());
+        }
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getDocumentId, docId));
         deleteParentsQuietly(docId);
@@ -611,11 +596,16 @@ public class KnowledgeService {
         if (updated == 0) {
             throw new BusinessException(409, "文档状态已变化，请刷新后重试");
         }
+        try {
+            graphService.deleteByDocument(kbId, docId);
+        } catch (Exception e) {
+            log.warn("重试前清理文档图谱失败（继续重试）doc={} err={}", docId, e.getMessage());
+        }
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getDocumentId, docId));
         deleteParentsQuietly(docId);
         deleteVectorsQuietly(kb.getTenantId(), docId);
-        deleteDocumentImages(doc);
+        mediaStore.delete(doc);
         triggerParse(kb.getTenantId(), docId);
         auditService.record(viewer.userId(), "kb.document.retry", "knowledge_document",
                 String.valueOf(docId), "SUCCESS", Map.of("kbId", kbId, "retryTimes", used + 1));
@@ -742,7 +732,7 @@ public class KnowledgeService {
                 throw new BusinessException(409, "文档解析中，暂不能覆盖上传");
             }
             cleanupPartial(doc);
-            deleteDocumentImages(doc);
+            mediaStore.delete(doc);
             String oldObject = doc.getObjectName();
             doc.setFileName(fileName);
             doc.setObjectName(objectName);
@@ -823,143 +813,31 @@ public class KnowledgeService {
         permissionService.requireEdit(kbId, viewer);
         if (rawUrl == null || rawUrl.isBlank()) throw new BusinessException(400, "URL 不能为空");
         String url = rawUrl.trim();
-        networkPolicy.validatePublicHttpUrl(url, "URL");
-        Fetched fetched;
+        KnowledgeUrlFetcher.Fetched fetched;
         try {
-            fetched = fetch(url, 0);
+            fetched = urlFetcher.fetch(url, importMaxBytes);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new BusinessException(502, "URL 抓取失败：" + rootMessage(e));
+            throw new BusinessException(502, "URL 抓取失败：" + urlFetcher.rootMessage(e));
         }
-        if (fetched.bytes.length > importMaxBytes) {
+        if (fetched.bytes().length > importMaxBytes) {
             throw new BusinessException(413, "URL 内容超过 " + (importMaxBytes / 1024 / 1024) + "MB 限制");
         }
-        quotaService.checkStorage(fetched.bytes.length);
+        quotaService.checkStorage(fetched.bytes().length);
         Long tenantId = TenantContext.getTenantId();
-        String fileName = fileNameFor(fetched.finalUrl, fetched.contentType);
+        String fileName = urlFetcher.fileNameFor(fetched.finalUrl(), fetched.contentType());
         String objectName = tenantId + "/knowledge/" + kbId + "/"
                 + UUID.randomUUID().toString().replace("-", "").substring(0, 12) + "/" + fileName;
-        storage.put(objectName, fetched.bytes, fetched.contentType);
+        storage.put(objectName, fetched.bytes(), fetched.contentType());
         Map<String, Object> result = new LinkedHashMap<>(callback(kbId, objectName, null, null,
                 effectiveFrom, effectiveTo, viewer));
-        result.put("sourceUrl", fetched.finalUrl);
+        result.put("sourceUrl", fetched.finalUrl());
         result.put("fileName", fileName);
         auditService.record(viewer.userId(), "kb.document.url_import", "knowledge_document",
                 String.valueOf(result.get("documentId")), "SUCCESS",
-                Map.of("kbId", kbId, "url", fetched.finalUrl, "fileName", fileName));
+                Map.of("kbId", kbId, "url", fetched.finalUrl(), "fileName", fileName));
         return result;
-    }
-
-    private record Fetched(byte[] bytes, String contentType, String finalUrl) {
-    }
-
-    private Fetched fetch(String url, int depth) throws Exception {
-        if (depth > 3) throw new BusinessException(400, "URL 重定向次数过多");
-        networkPolicy.validatePublicHttpUrl(url, "URL");
-        OkHttpClient client = new OkHttpClient.Builder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .readTimeout(Duration.ofSeconds(20))
-                .callTimeout(Duration.ofSeconds(20))
-                // 禁止代理绕过 Dns 校验（需要代理时另行做受控出口）
-                .proxy(java.net.Proxy.NO_PROXY)
-                .followRedirects(false)
-                .followSslRedirects(false)
-                // 关键：DNS 在真正建连前再校验一次，阻断校验后 DNS 改指向内网的 rebinding。
-                .dns(hostname -> {
-                    try {
-                        return networkPolicy.resolvePublicHost(hostname);
-                    } catch (BusinessException e) {
-                        throw new UnknownHostException(e.getMessage());
-                    }
-                })
-                .build();
-        Request request = new Request.Builder().url(url)
-                .header("User-Agent", "AI-Agent-Platform/1.0")
-                .header("Accept", "text/html,text/plain,application/pdf,application/json,text/csv;q=0.9,*/*;q=0.1")
-                .get().build();
-        // 流式读取，避免检查大小前把超大文件完整读入内存。
-        try (Response response = client.newCall(request).execute()) {
-            int status = response.code();
-            if (status >= 300 && status < 400) {
-                String location = response.header("Location");
-                if (location == null || location.isBlank()) {
-                    throw new BusinessException(502, "URL 返回重定向但缺少 Location");
-                }
-                String next = URI.create(url).resolve(location).toString();
-                return fetch(next, depth + 1);
-            }
-            if (status < 200 || status >= 300) {
-                throw new BusinessException(502, "URL 抓取失败：HTTP " + status);
-            }
-            ResponseBody responseBody = response.body();
-            long contentLength = responseBody == null ? -1 : responseBody.contentLength();
-            if (contentLength > importMaxBytes) throw tooLarge();
-            String contentType = response.header("Content-Type", "text/html")
-                    .toLowerCase().split(";")[0].trim();
-            if (!(contentType.startsWith("text/") || contentType.equals("application/pdf")
-                    || contentType.equals("application/json")
-                    || contentType.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document"))) {
-                throw new BusinessException(400, "URL 内容类型不支持：" + contentType);
-            }
-            if (responseBody == null) throw new BusinessException(502, "URL 响应体为空");
-            try (InputStream body = responseBody.byteStream()) {
-                return new Fetched(readBounded(body), contentType, url);
-            }
-        }
-    }
-
-    /** 最多读取 importMaxBytes + 1 字节：超过上限立即中止，不把剩余响应体载入内存。 */
-    private byte[] readBounded(InputStream body) throws Exception {
-        int limit = Math.max(1, importMaxBytes);
-        ByteArrayOutputStream out = new ByteArrayOutputStream(Math.min(limit, 8192));
-        byte[] buffer = new byte[8192];
-        int total = 0;
-        int read;
-        while ((read = body.read(buffer)) != -1) {
-            total += read;
-            if (total > limit) throw tooLarge();
-            out.write(buffer, 0, read);
-        }
-        return out.toByteArray();
-    }
-
-    private BusinessException tooLarge() {
-        return new BusinessException(413,
-                "URL 内容超过 " + (importMaxBytes / 1024 / 1024) + "MB 限制");
-    }
-
-    private String fileNameFor(String url, String contentType) {
-        String name = "url-import";
-        try {
-            String path = URI.create(url).getPath();
-            if (path != null && !path.isBlank()) {
-                String last = path.substring(path.lastIndexOf('/') + 1);
-                if (!last.isBlank()) name = last;
-            }
-        } catch (Exception e) {
-            log.debug("URL 文件名解析失败：{}", e.getMessage());
-        }
-        name = name.replaceAll("[^a-zA-Z0-9._-]", "_");
-        if (name.length() > 80) name = name.substring(name.length() - 80);
-        String lower = name.toLowerCase();
-        boolean hasKnownExt = lower.matches(".*\\.(html?|pdf|txt|md|csv|json|docx)$");
-        if (hasKnownExt) return name;
-        String ext = switch (contentType) {
-            case "application/pdf" -> ".pdf";
-            case "application/json" -> ".json";
-            case "text/csv" -> ".csv";
-            case "text/markdown" -> ".md";
-            case "text/html" -> ".html";
-            default -> ".txt";
-        };
-        return name + ext;
-    }
-
-    private String rootMessage(Throwable e) {
-        Throwable t = e;
-        while (t.getCause() != null) t = t.getCause();
-        return t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
     }
 
     /** 异步触发解析（专用线程池 + 还原租户上下文）。 */
@@ -1089,7 +967,7 @@ public class KnowledgeService {
                 ? embeddingService.model() : kb.getEmbeddingModel();
         int embeddingDimensions = embeddingService.dimension(embeddingModel);
         List<String> parseWarnings = new ArrayList<>();
-        String sourceSha = sha256(bytes);
+        String sourceSha = KnowledgeSourceHashService.sha256(bytes);
         // 四级解析配置：env → 平台 → 租户 → 知识库 → 文档（上传时选择）
         ParseOptions parseOptions = parseConfigResolver.resolve(kb, doc.getParseConfig());
         String parseFingerprint = parseFingerprint(parseOptions);
@@ -1143,7 +1021,7 @@ public class KnowledgeService {
                             cross.missingPoints().forEach(missingPoints::add);
                             enriched.set("validationMissingPoints", missingPoints);
                             if ("conflict".equals(cross.status())) enriched.put("confidence", "low");
-                            String chartText = buildChartChunk(enriched, parseWarnings);
+                            String chartText = chartChunkBuilder.build(enriched, parseWarnings);
                             String chartError = ChartDataValidator.validate(chartText);
                             if (chartError == null) {
                                 chunks.add(new DocumentParser.ParsedChunk(chartText, chunks.size(), chartText));
@@ -1163,7 +1041,7 @@ public class KnowledgeService {
             if (described > 0) log.info("文档图片多模态分段：doc={} images={}", doc.getId(), described);
         }
         PdfManualReviewInspector.inspect(chunks, parseWarnings);
-        float[][] vectors = embedChunksWithCache(chunks, embeddingModel);
+        float[][] vectors = embeddingCache.embedWithCache(chunks, embeddingModel);
         // 业务有效期优先；未配置时回退文档入库时间，而不是向量写入时间。
         LocalDateTime effectiveFrom = doc.getEffectiveFrom() != null
                 ? doc.getEffectiveFrom() : doc.getCreatedAt();
@@ -1202,7 +1080,7 @@ public class KnowledgeService {
             chunk.setCreatedAt(LocalDateTime.now());
             chunkRows.add(chunk);
         }
-        Map<Integer, Long> chunkIds = persistChunks(doc, chunkRows, parseWarnings);
+        Map<Integer, Long> chunkIds = chunkStore.persist(doc, chunkRows, parseWarnings);
 
         List<Map<String, Object>> rows = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
@@ -1254,7 +1132,7 @@ public class KnowledgeService {
                         + " actual=" + vectorCount);
             }
         }
-        storeDocumentImages(doc, bytes);
+        mediaStore.store(doc, bytes);
         recordParserVersion(doc);
         recordEmbeddingInfo(doc, embeddingModel, embeddingDimensions);
         updateStatus(doc, "DONE", chunks.size(), null);
@@ -1411,7 +1289,7 @@ public class KnowledgeService {
 
     private void performReparse(KnowledgeDocument doc) {
         cleanupPartial(doc);
-        deleteDocumentImages(doc);
+        mediaStore.delete(doc);
         KnowledgeDocument patch = new KnowledgeDocument();
         patch.setId(doc.getId());
         patch.setStatus("PENDING");
@@ -1458,89 +1336,19 @@ public class KnowledgeService {
         return result;
     }
 
-    /** 人工确认 PDF 解析告警已核对。 */
     public Map<String, Object> resolveManualReview(Long kbId, Long documentId, String note,
                                                    KnowledgePermissionService.Viewer viewer) {
-        permissionService.requireEdit(kbId, viewer);
-        KnowledgeDocument doc = docMapper.selectById(documentId);
-        if (doc == null || !Objects.equals(doc.getKnowledgeBaseId(), kbId)) {
-            throw new BusinessException(404, "文档不存在");
-        }
-        String reviewNote = note == null ? null : note.substring(0, Math.min(500, note.length()));
-        docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
-                .eq(KnowledgeDocument::getId, documentId)
-                .set(KnowledgeDocument::getManualReviewStatus, "RESOLVED")
-                .set(KnowledgeDocument::getManualReviewedAt, LocalDateTime.now())
-                .set(KnowledgeDocument::getManualReviewedBy, viewer.userId())
-                .set(KnowledgeDocument::getManualReviewNote, reviewNote));
-        auditService.record(viewer.userId(), "knowledge.document.manual_review", "knowledge_document",
-                String.valueOf(documentId), "SUCCESS", Map.of("kbId", kbId, "note", reviewNote == null ? "" : reviewNote));
-        return Map.of("documentId", documentId, "manualReviewStatus", "RESOLVED");
+        return maintenanceService.resolveManualReview(kbId, documentId, note, viewer);
     }
 
-    /** 编辑文档内容有效期；同步更新向量表有效期，避免要求重新解析。 */
     public Map<String, Object> updateDocumentValidity(Long kbId, Long documentId,
                                                        Instant effectiveFrom, Instant effectiveTo,
                                                        KnowledgePermissionService.Viewer viewer) {
-        permissionService.requireEdit(kbId, viewer);
-        KnowledgeDocument doc = docMapper.selectById(documentId);
-        if (doc == null || !Objects.equals(doc.getKnowledgeBaseId(), kbId)) {
-            throw new BusinessException(404, "文档不存在");
-        }
-        if (effectiveFrom != null && effectiveTo != null && effectiveFrom.isAfter(effectiveTo)) {
-            throw new BusinessException(400, "生效开始时间不能晚于生效结束时间");
-        }
-        LocalDateTime requestedFrom = effectiveFrom == null ? null : toLocalDateTime(effectiveFrom);
-        LocalDateTime requestedTo = effectiveTo == null ? null : toLocalDateTime(effectiveTo);
-        LocalDateTime actualFrom = requestedFrom != null ? requestedFrom : doc.getCreatedAt();
-        if (actualFrom == null) actualFrom = LocalDateTime.now();
-        if (requestedTo != null && actualFrom.isAfter(requestedTo)) {
-            throw new BusinessException(400, "生效开始时间不能晚于生效结束时间");
-        }
-        LocalDateTime finalFrom = actualFrom;
-        LocalDateTime finalTo = requestedTo;
-        docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
-                .eq(KnowledgeDocument::getId, documentId)
-                .set(KnowledgeDocument::getEffectiveFrom, requestedFrom)
-                .set(KnowledgeDocument::getEffectiveTo, requestedTo));
-        try {
-            vectorRepository.updateValidityForDocument(doc.getTenantId(), kbId, documentId,
-                    java.sql.Timestamp.valueOf(finalFrom),
-                    finalTo == null ? null : java.sql.Timestamp.valueOf(finalTo));
-        } catch (Exception e) {
-            log.warn("文档有效期向量同步失败（MySQL 已更新）doc={} err={}", documentId, e.getMessage());
-            throw new BusinessException(500, "文档有效期已保存，但向量有效期同步失败，请重新解析文档");
-        }
-        auditService.record(viewer.userId(), "kb.document.validity", "knowledge_document",
-                String.valueOf(documentId), "SUCCESS",
-                Map.of("kbId", kbId, "effectiveFrom", finalFrom.toString(),
-                        "effectiveTo", finalTo == null ? "" : finalTo.toString()));
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("documentId", documentId);
-        result.put("effectiveFrom", finalFrom);
-        result.put("effectiveTo", finalTo);
-        return result;
+        return maintenanceService.updateDocumentValidity(kbId, documentId, effectiveFrom, effectiveTo, viewer);
     }
 
-    /** 按文档当前有效期/入库时间重建该知识库所有向量有效期（修复历史向量回填值）。 */
     public Map<String, Object> rebuildValidity(Long kbId, KnowledgePermissionService.Viewer viewer) {
-        permissionService.requireEdit(kbId, viewer);
-        List<KnowledgeDocument> docs = docMapper.selectList(
-                new LambdaQueryWrapper<KnowledgeDocument>()
-                        .eq(KnowledgeDocument::getKnowledgeBaseId, kbId));
-        int updated = 0;
-        for (KnowledgeDocument doc : docs) {
-            LocalDateTime from = doc.getEffectiveFrom() != null
-                    ? doc.getEffectiveFrom() : doc.getCreatedAt();
-            if (from == null) continue;
-            vectorRepository.updateValidityForDocument(doc.getTenantId(), kbId, doc.getId(),
-                    java.sql.Timestamp.valueOf(from),
-                    doc.getEffectiveTo() == null ? null : java.sql.Timestamp.valueOf(doc.getEffectiveTo()));
-            updated++;
-        }
-        auditService.record(viewer.userId(), "kb.validity.rebuild", "knowledge",
-                String.valueOf(kbId), "SUCCESS", Map.of("documents", updated));
-        return Map.of("documents", updated);
+        return maintenanceService.rebuildValidity(kbId, viewer);
     }
 
     /** 为加密 PDF 设置/更新密码后重解析；密码加密保存，不接受非 PDF 或解析中文档。 */
@@ -1719,7 +1527,7 @@ public class KnowledgeService {
             m.put("allowedUsers", parseJson(c.getAllowedUsers()));
             m.put("tenantVisible", c.getTenantVisible() == null || c.getTenantVisible() == 1);
             m.put("reviewStatus", c.getReviewStatus());
-            m.put("reviewRequired", isChartChunk(c.getContent())
+            m.put("reviewRequired", chartChunkBuilder.isChartChunk(c.getContent())
                     && !"REVIEWED".equals(c.getReviewStatus()));
             m.put("reviewedAt", c.getReviewedAt());
             m.put("reviewedBy", c.getReviewedBy());
@@ -1768,14 +1576,14 @@ public class KnowledgeService {
         if (chunk == null || !Objects.equals(chunk.getKnowledgeBaseId(), kbId)) {
             throw new BusinessException(404, "分段不存在");
         }
-        if (!isChartChunk(chunk.getContent())) {
+        if (!chartChunkBuilder.isChartChunk(chunk.getContent())) {
             throw new BusinessException(400, "仅图表数据分段支持人工复核");
         }
         String updatedContent = chunk.getContent();
         boolean contentChanged = content != null && !content.isBlank()
                 && !content.equals(chunk.getContent());
         if (contentChanged) {
-            if (!isChartChunk(content)) {
+            if (!chartChunkBuilder.isChartChunk(content)) {
                 throw new BusinessException(400, "图表内容必须保留【图表数据】标记");
             }
             if (content.length() > 4000) {
@@ -1825,110 +1633,6 @@ public class KnowledgeService {
         return result;
     }
 
-    /**
-     * 图表 JSON 不做字符截断。超长时按“系列/数据点/长字符串”压缩，保证仍是合法 JSON；
-     * 极端情况下退化为合法摘要并记录 warning，而不是静默丢弃。
-     */
-    private String buildChartChunk(ObjectNode chart, List<String> warnings) throws Exception {
-        String originalJson = objectMapper.writeValueAsString(chart);
-        if (CHART_CHUNK_PREFIX.length() + originalJson.length() <= CHART_CHUNK_MAX) {
-            return CHART_CHUNK_PREFIX + originalJson;
-        }
-        ObjectNode compact = chart.deepCopy();
-        int[] pointLimits = {60, 40, 20, 10};
-        int[] seriesLimits = {20, 12, 8, 4};
-        for (int i = 0; i < pointLimits.length; i++) {
-            truncateSeriesPoints(compact, pointLimits[i]);
-            truncateTopLevelPoints(compact, pointLimits[i]);
-            truncateSeries(compact, seriesLimits[i]);
-            trimStrings(compact, 300);
-            String json = objectMapper.writeValueAsString(compact);
-            if (CHART_CHUNK_PREFIX.length() + json.length() <= CHART_CHUNK_MAX) {
-                if (i > 0) {
-                    warnings.add("图表数据过长，已压缩为每个系列前 " + pointLimits[i]
-                            + " 个数据点/最多 " + seriesLimits[i] + " 个系列；完整数据请查看原图");
-                }
-                return CHART_CHUNK_PREFIX + json;
-            }
-        }
-        ObjectNode summary = objectMapper.createObjectNode();
-        summary.put("isChart", compact.path("isChart").asBoolean(true));
-        summary.put("title", compact.path("title").asText(""));
-        summary.put("compacted", true);
-        summary.put("note", "图表数据过长，已压缩为摘要；完整数据请查看原图");
-        if (compact.get("data") instanceof ArrayNode data) summary.put("dataPointCount", data.size());
-        if (compact.get("points") instanceof ArrayNode points) summary.put("pointCount", points.size());
-        JsonNode series = compact.get("series");
-        if (series instanceof ArrayNode array) {
-            ArrayNode names = summary.putArray("series");
-            for (JsonNode item : array) {
-                ObjectNode shortSeries = names.addObject();
-                shortSeries.put("name", item.path("name").asText(""));
-                JsonNode points = item.has("points") ? item.get("points")
-                        : item.has("data") ? item.get("data") : item.get("values");
-                shortSeries.put("pointCount", points != null && points.isArray() ? points.size() : 0);
-            }
-        }
-        warnings.add("图表数据过长，已压缩为摘要；完整数据请查看原图");
-        return CHART_CHUNK_PREFIX + objectMapper.writeValueAsString(summary);
-    }
-
-    private void truncateTopLevelPoints(ObjectNode chart, int limit) {
-        for (String key : new String[]{"data", "points"}) {
-            JsonNode value = chart.get(key);
-            if (!(value instanceof ArrayNode points) || points.size() <= limit) continue;
-            int original = points.size();
-            while (points.size() > limit) points.remove(points.size() - 1);
-            chart.put("originalPointCount", original);
-            chart.put("truncatedPoints", original - limit);
-        }
-    }
-
-    private void truncateSeriesPoints(ObjectNode chart, int limit) {
-        JsonNode series = chart.get("series");
-        if (!(series instanceof ArrayNode array)) return;
-        for (JsonNode item : array) {
-            if (!(item instanceof ObjectNode object)) continue;
-            for (String key : new String[]{"points", "data", "values"}) {
-                JsonNode value = object.get(key);
-                if (!(value instanceof ArrayNode points) || points.size() <= limit) continue;
-                int original = points.size();
-                while (points.size() > limit) points.remove(points.size() - 1);
-                object.put("originalPointCount", original);
-                object.put("truncatedPoints", original - limit);
-            }
-        }
-    }
-
-    private void truncateSeries(ObjectNode chart, int limit) {        JsonNode series = chart.get("series");
-        if (!(series instanceof ArrayNode array) || array.size() <= limit) return;
-        int original = array.size();
-        while (array.size() > limit) array.remove(array.size() - 1);
-        chart.put("originalSeriesCount", original);
-        chart.put("omittedSeries", original - limit);
-    }
-
-    private void trimStrings(JsonNode node, int maxLength) {
-        if (node instanceof ObjectNode object) {
-            var fields = object.fields();
-            while (fields.hasNext()) {
-                var entry = fields.next();
-                JsonNode value = entry.getValue();
-                if (value.isTextual() && value.asText().length() > maxLength) {
-                    object.put(entry.getKey(), value.asText().substring(0, maxLength) + "…");
-                } else {
-                    trimStrings(value, maxLength);
-                }
-            }
-        } else if (node instanceof ArrayNode array) {
-            for (JsonNode item : array) trimStrings(item, maxLength);
-        }
-    }
-
-    private static boolean isChartChunk(String content) {
-        return content != null && content.startsWith(CHART_CHUNK_MARKER);
-    }
-
     public List<KnowledgeDocument> documents(Long kbId, KnowledgePermissionService.Viewer viewer) {
         permissionService.requireView(kbId, viewer);
         List<KnowledgeDocument> docs = docMapper.selectList(new LambdaQueryWrapper<KnowledgeDocument>()
@@ -1945,52 +1649,13 @@ public class KnowledgeService {
         return docs;
     }
 
-    /** 存量文档回填文件 SHA256；每次限量，避免一次读大量 MinIO 对象。 */
     public Map<String, Object> backfillSourceHashes(Long kbId, int limit,
                                                     KnowledgePermissionService.Viewer viewer) {
-        permissionService.requireEdit(kbId, viewer);
-        int max = Math.max(1, Math.min(limit, 100));
-        List<KnowledgeDocument> docs = docMapper.selectList(
-                new LambdaQueryWrapper<KnowledgeDocument>()
-                        .eq(KnowledgeDocument::getKnowledgeBaseId, kbId)
-                        .eq(KnowledgeDocument::getStatus, "DONE")
-                        .isNull(KnowledgeDocument::getSourceSha256)
-                        .last("LIMIT " + max));
-        return backfillSourceHashRows(docs);
+        return sourceHashService.backfill(kbId, limit, viewer);
     }
 
-    /** 定时回填调用：当前租户下所有知识库中缺失 SHA256 的 DONE 文档。 */
     public Map<String, Object> backfillSourceHashesForTenant(int limit) {
-        int max = Math.max(1, Math.min(limit, 100));
-        List<KnowledgeDocument> docs = docMapper.selectList(
-                new LambdaQueryWrapper<KnowledgeDocument>()
-                        .eq(KnowledgeDocument::getStatus, "DONE")
-                        .isNull(KnowledgeDocument::getSourceSha256)
-                        .orderByAsc(KnowledgeDocument::getId)
-                        .last("LIMIT " + max));
-        return backfillSourceHashRows(docs);
-    }
-
-    private Map<String, Object> backfillSourceHashRows(List<KnowledgeDocument> docs) {
-        int updated = 0;
-        int failed = 0;
-        for (KnowledgeDocument doc : docs) {
-            try {
-                String sha = sha256(storage.get(doc.getObjectName()));
-                if (sha == null) {
-                    failed++;
-                    continue;
-                }
-                docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
-                        .eq(KnowledgeDocument::getId, doc.getId())
-                        .set(KnowledgeDocument::getSourceSha256, sha));
-                updated++;
-            } catch (Exception e) {
-                failed++;
-                log.warn("回填 source_sha256 失败 doc={} err={}", doc.getId(), e.getMessage());
-            }
-        }
-        return Map.of("scanned", docs.size(), "updated", updated, "failed", failed);
+        return sourceHashService.backfillForTenant(limit);
     }
 
     private void deleteVectorsQuietly(Long tenantId, Long documentId) {
@@ -2022,47 +1687,6 @@ public class KnowledgeService {
         // MySQL JSON_CONTAINS 与 PgVector jsonb_array_elements_text 都按字符串匹配 userId
         return users.stream().map(String::valueOf).map(id -> "\"" + id + "\"")
                 .collect(java.util.stream.Collectors.joining(",", "[", "]"));
-    }
-
-    private void storeDocumentImages(KnowledgeDocument doc, byte[] bytes) {
-        try {
-            deleteDocumentImages(doc);
-            List<DocumentParser.ExtractedImage> images = parser.extractImages(doc.getFileName(), bytes);
-            int index = 1;
-            for (DocumentParser.ExtractedImage image : images) {
-                String ext = image.extension() == null || image.extension().isBlank()
-                        ? "png" : image.extension().toLowerCase(Locale.ROOT);
-                if (ext.startsWith(".")) ext = ext.substring(1);
-                String objectName = doc.getTenantId() + "/knowledge/" + doc.getKnowledgeBaseId() + "/"
-                        + doc.getId() + "/images/" + UUID.randomUUID().toString().replace("-", "")
-                        .substring(0, 12) + "." + ext;
-                String mime = "image/" + ("jpg".equals(ext) ? "jpeg" : ext);
-                storage.put(objectName, image.data(), mime);
-                KnowledgeDocumentImage row = new KnowledgeDocumentImage();
-                row.setTenantId(doc.getTenantId());
-                row.setDocumentId(doc.getId());
-                row.setObjectName(objectName);
-                row.setFileName("image-" + index++ + "." + ext);
-                row.setMimeType(mime);
-                row.setSizeBytes((long) image.data().length);
-                row.setCreatedAt(LocalDateTime.now());
-                documentImageMapper.insert(row);
-            }
-        } catch (Exception e) {
-            log.warn("文档图片保存失败（不影响正文）doc={}：{}", doc.getId(), e.getMessage());
-        }
-    }
-
-    private void deleteDocumentImages(KnowledgeDocument doc) {
-        if (doc == null || doc.getId() == null) return;
-        List<KnowledgeDocumentImage> rows = documentImageMapper.selectList(
-                new LambdaQueryWrapper<KnowledgeDocumentImage>()
-                        .eq(KnowledgeDocumentImage::getDocumentId, doc.getId()));
-        for (KnowledgeDocumentImage row : rows) {
-            storage.remove(row.getObjectName());
-        }
-        documentImageMapper.delete(new LambdaQueryWrapper<KnowledgeDocumentImage>()
-                .eq(KnowledgeDocumentImage::getDocumentId, doc.getId()));
     }
 
     /** 文档图片列表（预签名 URL；需知识库可见权限）。 */
@@ -2128,7 +1752,7 @@ public class KnowledgeService {
     private String parseFingerprint(ParseOptions options) {
         if (options == null) return null;
         try {
-            return sha256(objectMapper.writeValueAsBytes(options));
+            return KnowledgeSourceHashService.sha256(objectMapper.writeValueAsBytes(options));
         } catch (Exception e) {
             log.debug("解析配置指纹生成失败（忽略）：{}", e.getMessage());
             return null;
@@ -2223,7 +1847,7 @@ public class KnowledgeService {
                 chunk.setCreatedAt(LocalDateTime.now());
                 newChunks.add(chunk);
             }
-            Map<Integer, Long> chunkIds = persistChunks(doc, newChunks, warnings);
+            Map<Integer, Long> chunkIds = chunkStore.persist(doc, newChunks, warnings);
             if (chunkIds.size() != newChunks.size()) {
                 cleanupPartial(doc);
                 return false;
@@ -2259,7 +1883,7 @@ public class KnowledgeService {
                 }
             }
             try {
-                storeDocumentImages(doc, bytes);
+                mediaStore.store(doc, bytes);
             } catch (Exception e) {
                 log.warn("复用文档图片存储失败（忽略）doc={} err={}", doc.getId(), e.getMessage());
             }
@@ -2290,24 +1914,6 @@ public class KnowledgeService {
         }
     }
 
-    /** 文件 SHA256：用于重复上传提示；不阻断解析。 */
-    private String sha256(byte[] bytes) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private String contentHash(String text) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(text.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception e) {
-            return Integer.toHexString(String.valueOf(text).hashCode());
-        }
-    }
-
     private void recordSourceHash(KnowledgeDocument doc, String sha256, List<String> warnings) {
         if (sha256 == null) return;
         try {
@@ -2329,258 +1935,6 @@ public class KnowledgeService {
         } catch (Exception e) {
             log.debug("文件哈希记录失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
         }
-    }
-
-    /**
-     * 嵌入缓存：按 embedding_model + SHA256(embeddingText) 复用向量。
-     * 缓存不可用时自动回退全量嵌入；缓存写入失败不影响本次解析。
-     */
-    private float[][] embedChunksWithCache(List<DocumentParser.ParsedChunk> chunks, String model) {
-        cleanupEmbeddingCacheIfNeeded();
-        List<String> texts = chunks.stream()
-                .map(DocumentParser.ParsedChunk::embeddingContent).toList();
-        if (mysqlJdbcTemplate == null || texts.isEmpty()) {
-            return embeddingService.embedBatch(texts, model);
-        }
-        LinkedHashMap<String, Integer> unique = new LinkedHashMap<>();
-        for (int i = 0; i < texts.size(); i++) unique.putIfAbsent(texts.get(i), i);
-        Map<String, float[]> cached = loadEmbeddingCache(model, unique.keySet());
-        List<String> missing = unique.keySet().stream()
-                .filter(text -> !cached.containsKey(text)).toList();
-        if (!missing.isEmpty()) {
-            float[][] generated = embeddingService.embedBatch(missing, model);
-            for (int i = 0; i < missing.size(); i++) {
-                cached.put(missing.get(i), generated[i]);
-            }
-            storeEmbeddingCache(model, missing, generated);
-        }
-        float[][] vectors = new float[texts.size()][];
-        for (int i = 0; i < texts.size(); i++) {
-            vectors[i] = cached.get(texts.get(i));
-        }
-        return vectors;
-    }
-
-    private void cleanupEmbeddingCacheIfNeeded() {
-        if (mysqlJdbcTemplate == null) return;
-        long now = System.currentTimeMillis();
-        long last = lastCacheCleanupAt.get();
-        if (now - last < 3_600_000L || !lastCacheCleanupAt.compareAndSet(last, now)) return;
-        try {
-            int days = Math.max(1, embeddingCacheTtlDays);
-            mysqlJdbcTemplate.update("DELETE FROM knowledge_embedding_cache WHERE created_at < " +
-                    "DATE_SUB(NOW(), INTERVAL " + days + " DAY) LIMIT 10000");
-            int maxEntries = Math.max(1000, embeddingCacheMaxEntries);
-            mysqlJdbcTemplate.update("DELETE FROM knowledge_embedding_cache WHERE id IN (" +
-                    "SELECT id FROM (SELECT id FROM knowledge_embedding_cache " +
-                    "ORDER BY created_at DESC LIMIT " + maxEntries + ", 10000) t)");
-        } catch (Exception e) {
-            log.debug("embedding 缓存清理失败（忽略）：{}", e.getMessage());
-        }
-    }
-
-    private Map<String, float[]> loadEmbeddingCache(String model, java.util.Collection<String> texts) {
-        Map<String, float[]> cached = new HashMap<>();
-        if (texts == null || texts.isEmpty()) return cached;
-        try {
-            List<String> hashes = texts.stream().map(this::contentHash).toList();
-            for (int start = 0; start < hashes.size(); start += 500) {
-                List<String> batch = hashes.subList(start, Math.min(hashes.size(), start + 500));
-                String placeholders = String.join(",", java.util.Collections.nCopies(batch.size(), "?"));
-                List<Object> args = new ArrayList<>();
-                args.add(model);
-                args.addAll(batch);
-                List<Map<String, Object>> rows = mysqlJdbcTemplate.queryForList(
-                        "SELECT content_hash, embedding FROM knowledge_embedding_cache " +
-                                "WHERE embedding_model = ? AND content_hash IN (" + placeholders + ")",
-                        args.toArray());
-                for (Map<String, Object> row : rows) {
-                    Object hash = row.get("content_hash");
-                    Object embedding = row.get("embedding");
-                    if (hash == null || embedding == null) continue;
-                    try {
-                        cached.put(String.valueOf(hash),
-                                objectMapper.readValue(String.valueOf(embedding), float[].class));
-                    } catch (Exception ignored) {
-                        // 缓存损坏时按 miss 处理
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.warn("embedding 缓存读取失败，回退全量嵌入：{}", e.getMessage());
-        }
-        return cached;
-    }
-
-    private void storeEmbeddingCache(String model, List<String> texts, float[][] vectors) {
-        if (texts.isEmpty()) return;
-        try {
-            String sql = "INSERT INTO knowledge_embedding_cache " +
-                    "(embedding_model, content_hash, dimensions, embedding) VALUES (?, ?, ?, ?) " +
-                    "ON DUPLICATE KEY UPDATE dimensions = VALUES(dimensions), embedding = VALUES(embedding)";
-            List<Object[]> batch = new ArrayList<>(texts.size());
-            for (int i = 0; i < texts.size(); i++) {
-                batch.add(new Object[]{model, contentHash(texts.get(i)), vectors[i].length,
-                        objectMapper.writeValueAsString(vectors[i])});
-            }
-            for (int start = 0; start < batch.size(); start += 500) {
-                mysqlJdbcTemplate.batchUpdate(sql,
-                        batch.subList(start, Math.min(batch.size(), start + 500)));
-            }
-        } catch (Exception e) {
-            log.warn("embedding 缓存写入失败（不影响解析）：{}", e.getMessage());
-        }
-    }
-
-    /**
-     * 父块/分段写入放在同一 MySQL 事务里；批量失败回退逐条也在事务内。
-     * PgVector 不在同一事务，后续失败由 cleanupPartial 删除补偿。
-     */
-    private Map<Integer, Long> persistChunks(KnowledgeDocument doc, List<KnowledgeChunk> chunks,
-                                             List<String> warnings) {
-        if (transactionManager == null) {
-            return persistChunksInTransaction(doc, chunks, warnings);
-        }
-        TransactionTemplate template = new TransactionTemplate(transactionManager);
-        return template.execute(status -> {
-            Map<Integer, Long> ids = persistChunksInTransaction(doc, chunks, warnings);
-            if (ids.size() != chunks.size()) {
-                throw new IllegalStateException("分段写入数量不匹配：expected=" + chunks.size()
-                        + " actual=" + ids.size());
-            }
-            return ids;
-        });
-    }
-
-    private Map<Integer, Long> persistChunksInTransaction(KnowledgeDocument doc,
-                                                          List<KnowledgeChunk> chunks,
-                                                          List<String> warnings) {
-        if (storeParents(doc, chunks, warnings)) {
-            for (KnowledgeChunk chunk : chunks) chunk.setParentContent(null);
-        }
-        return insertChunks(doc, chunks);
-    }
-
-    /** 父块只存一份；失败时保留 chunk.parent_content 回退，不影响正文。 */
-    private boolean storeParents(KnowledgeDocument doc, List<KnowledgeChunk> chunks,
-                                 List<String> warnings) {
-        if (parentMapper == null) return false;
-        Map<Integer, KnowledgeChunk> parents = new LinkedHashMap<>();
-        for (KnowledgeChunk chunk : chunks) {
-            if (chunk.getParentIndex() == null || chunk.getParentContent() == null
-                    || chunk.getParentContent().isBlank()) continue;
-            parents.putIfAbsent(chunk.getParentIndex(), chunk);
-        }
-        if (parents.isEmpty()) return false;
-        try {
-            if (mysqlJdbcTemplate != null) {
-                mysqlJdbcTemplate.update("DELETE FROM knowledge_parent WHERE document_id = ?", doc.getId());
-                String sql = "INSERT INTO knowledge_parent " +
-                        "(document_id, knowledge_base_id, parent_index, content, document_type, " +
-                        "section_type, chunk_level, domain_keywords, relevance_score, " +
-                        "regulatory_category, tenant_id, created_at) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-                List<Object[]> batch = new ArrayList<>(parents.size());
-                LocalDateTime now = LocalDateTime.now();
-                for (var entry : parents.entrySet()) {
-                    KnowledgeChunk chunk = entry.getValue();
-                    batch.add(new Object[]{doc.getId(), doc.getKnowledgeBaseId(), entry.getKey(),
-                            chunk.getParentContent(), chunk.getDocumentType(), chunk.getSectionType(),
-                            chunk.getChunkLevel(), chunk.getDomainKeywords(), chunk.getRelevanceScore(),
-                            chunk.getRegulatoryCategory(), doc.getTenantId(),
-                            java.sql.Timestamp.valueOf(now)});
-                }
-                for (int start = 0; start < batch.size(); start += 500) {
-                    mysqlJdbcTemplate.batchUpdate(sql,
-                            batch.subList(start, Math.min(batch.size(), start + 500)));
-                }
-                return true;
-            }
-            parentMapper.delete(new LambdaQueryWrapper<KnowledgeParent>()
-                    .eq(KnowledgeParent::getDocumentId, doc.getId()));
-            for (var entry : parents.entrySet()) {
-                KnowledgeChunk chunk = entry.getValue();
-                KnowledgeParent parent = new KnowledgeParent();
-                parent.setDocumentId(doc.getId());
-                parent.setKnowledgeBaseId(doc.getKnowledgeBaseId());
-                parent.setParentIndex(entry.getKey());
-                parent.setContent(chunk.getParentContent());
-                parent.setDocumentType(chunk.getDocumentType());
-                parent.setSectionType(chunk.getSectionType());
-                parent.setChunkLevel(chunk.getChunkLevel());
-                parent.setDomainKeywords(chunk.getDomainKeywords());
-                parent.setRelevanceScore(chunk.getRelevanceScore());
-                parent.setRegulatoryCategory(chunk.getRegulatoryCategory());
-                parent.setTenantId(doc.getTenantId());
-                parent.setCreatedAt(LocalDateTime.now());
-                parentMapper.insert(parent);
-            }
-            return true;
-        } catch (Exception e) {
-            log.warn("父块独立存储失败，回退 chunk.parent_content doc={} err={}",
-                    doc.getId(), e.getMessage());
-            warnings.add("父块独立存储失败，已回退重复存储：" + e.getMessage());
-            return false;
-        }
-    }
-
-    /** MySQL 分段批量写入；批量失败时清理并回退逐条插入，保证不产生半批数据。 */
-    private Map<Integer, Long> insertChunks(KnowledgeDocument doc, List<KnowledgeChunk> chunks) {
-        Map<Integer, Long> ids = new HashMap<>();
-        if (mysqlJdbcTemplate != null && chunks.size() > 1) {
-            try {
-                String sql = """
-                        INSERT INTO knowledge_chunk
-                        (document_id, knowledge_base_id, chunk_index, parent_index, parent_content,
-                         page_from, page_to, content, document_type, section_type, chunk_level,
-                         parent_key, domain_keywords, relevance_score, regulatory_category,
-                         allowed_users, tenant_visible, tenant_id, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """;
-                List<Object[]> batch = new ArrayList<>(chunks.size());
-                for (KnowledgeChunk chunk : chunks) {
-                    batch.add(new Object[]{chunk.getDocumentId(), chunk.getKnowledgeBaseId(),
-                            chunk.getChunkIndex(), chunk.getParentIndex(), chunk.getParentContent(),
-                            chunk.getPageFrom(), chunk.getPageTo(), chunk.getContent(),
-                            chunk.getDocumentType(), chunk.getSectionType(), chunk.getChunkLevel(),
-                            chunk.getParentKey(), chunk.getDomainKeywords(), chunk.getRelevanceScore(),
-                            chunk.getRegulatoryCategory(),
-                            chunk.getAllowedUsers(), chunk.getTenantVisible(), chunk.getTenantId(),
-                            java.sql.Timestamp.valueOf(chunk.getCreatedAt())});
-                }
-                for (int start = 0; start < batch.size(); start += 500) {
-                    mysqlJdbcTemplate.batchUpdate(sql,
-                            batch.subList(start, Math.min(batch.size(), start + 500)));
-                }
-                for (Map<String, Object> row : mysqlJdbcTemplate.queryForList(
-                        "SELECT id, chunk_index FROM knowledge_chunk WHERE document_id = ?",
-                        doc.getId())) {
-                    Object index = row.get("chunk_index");
-                    Object id = row.get("id");
-                    if (index instanceof Number i && id instanceof Number value) {
-                        ids.put(i.intValue(), value.longValue());
-                    }
-                }
-                if (ids.size() == chunks.size()) return ids;
-                log.warn("MySQL 批量插入后分段数不匹配，回退逐条写入 doc={} expected={} actual={}",
-                        doc.getId(), chunks.size(), ids.size());
-                mysqlJdbcTemplate.update("DELETE FROM knowledge_chunk WHERE document_id = ?", doc.getId());
-                ids.clear();
-            } catch (Exception e) {
-                log.warn("MySQL 批量插入失败，回退逐条写入 doc={} err={}", doc.getId(), e.getMessage());
-                try {
-                    mysqlJdbcTemplate.update("DELETE FROM knowledge_chunk WHERE document_id = ?", doc.getId());
-                } catch (Exception ignored) {
-                    // 清理失败时由 doParse 的 cleanupPartial 兜底
-                }
-                ids.clear();
-            }
-        }
-        for (KnowledgeChunk chunk : chunks) {
-            chunkMapper.insert(chunk);
-            ids.put(chunk.getChunkIndex(), chunk.getId());
-        }
-        return ids;
     }
 
     /** 图片说明按句末截断，避免切在句子中间。 */

@@ -15,6 +15,7 @@ import com.platform.knowledge.entity.KnowledgeGraphEntity;
 import com.platform.knowledge.entity.KnowledgeGraphJob;
 import com.platform.knowledge.entity.KnowledgeGraphMention;
 import com.platform.knowledge.entity.KnowledgeGraphRelation;
+
 import com.platform.knowledge.entity.KnowledgeParent;
 import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.knowledge.mapper.KnowledgeChunkMapper;
@@ -46,8 +47,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -61,6 +60,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import static com.platform.knowledge.service.KnowledgeGraphSupport.*;
 
 /**
  * 知识图谱：解析后自动抽取、来源/证据追踪、可视化数据、手工维护与 GraphRAG。
@@ -96,6 +97,8 @@ public class KnowledgeGraphService implements ApplicationRunner {
     private final AuditService auditService;
     private final ChatModelRouter modelRouter;
     private final ObjectMapper objectMapper;
+    private final KnowledgeGraphCommunityService communityService;
+    private final KnowledgeGraphDraftValidator draftValidator;
 
     @Autowired(required = false)
     private KnowledgeParentMapper parentMapper;
@@ -157,179 +160,33 @@ public class KnowledgeGraphService implements ApplicationRunner {
     }
 
     /** 社区聚类：按无向关系做连通分量，返回可直接展示/后续摘要的社区。 */
-    @SuppressWarnings("unchecked")
     public Map<String, Object> communities(Long kbId, KnowledgePermissionService.Viewer viewer) {
-        Map<String, Object> data = graph(kbId, viewer);
-        List<KnowledgeGraphEntity> entities = (List<KnowledgeGraphEntity>) data.get("entities");
-        List<KnowledgeGraphRelation> relations = (List<KnowledgeGraphRelation>) data.get("relations");
-        Map<Long, KnowledgeGraphEntity> byId = entities.stream()
-                .collect(Collectors.toMap(KnowledgeGraphEntity::getId, e -> e));
-        Map<Long, Set<Long>> adjacency = new HashMap<>();
-        for (KnowledgeGraphEntity entity : entities) adjacency.put(entity.getId(), new LinkedHashSet<>());
-        for (KnowledgeGraphRelation relation : relations) {
-            if (!adjacency.containsKey(relation.getFromId()) || !adjacency.containsKey(relation.getToId())) continue;
-            adjacency.get(relation.getFromId()).add(relation.getToId());
-            adjacency.get(relation.getToId()).add(relation.getFromId());
-        }
-        Set<Long> seen = new HashSet<>();
-        List<Map<String, Object>> communities = new ArrayList<>();
-        for (Long start : adjacency.keySet()) {
-            if (!seen.add(start)) continue;
-            List<Long> ids = new ArrayList<>();
-            java.util.ArrayDeque<Long> queue = new java.util.ArrayDeque<>();
-            queue.add(start);
-            while (!queue.isEmpty()) {
-                Long current = queue.removeFirst();
-                ids.add(current);
-                for (Long next : adjacency.getOrDefault(current, Set.of())) {
-                    if (seen.add(next)) queue.addLast(next);
-                }
-            }
-            List<Map<String, Object>> members = new ArrayList<>();
-            Set<String> types = new LinkedHashSet<>();
-            List<String> names = new ArrayList<>();
-            for (Long id : ids) {
-                KnowledgeGraphEntity entity = byId.get(id);
-                if (entity == null) continue;
-                Map<String, Object> member = new LinkedHashMap<>();
-                member.put("id", entity.getId());
-                member.put("name", entity.getName());
-                member.put("type", entity.getEntityType());
-                members.add(member);
-                if (entity.getEntityType() != null) types.add(entity.getEntityType());
-                if (entity.getName() != null) names.add(entity.getName());
-            }
-            if (members.isEmpty()) continue;
-            Map<String, Object> community = new LinkedHashMap<>();
-            community.put("id", start);
-            community.put("name", names.size() <= 3 ? String.join(" / ", names)
-                    : String.join(" / ", names.subList(0, 3)) + " …");
-            community.put("entityCount", members.size());
-            community.put("types", types);
-            community.put("members", members);
-            communities.add(community);
-        }
-        communities.sort((a, b) -> Integer.compare(
-                (Integer) b.get("entityCount"), (Integer) a.get("entityCount")));
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("communityCount", communities.size());
-        out.put("communities", communities);
-        return out;
+        KnowledgeBase kb = permissionService.requireView(kbId, viewer);
+        ensureGraphEnabled(kb);
+        return communityService.communities(graph(kbId, viewer));
     }
 
     /** 为社区生成短摘要；不持久化，供前端展示或后续写入社区索引。 */
-    @SuppressWarnings("unchecked")
     public Map<String, Object> summarizeCommunities(Long kbId, String modelName, int limit,
                                                     KnowledgePermissionService.Viewer viewer) {
-        Map<String, Object> data = communities(kbId, viewer);
-        List<Map<String, Object>> communities = (List<Map<String, Object>>) data.get("communities");
-        int size = Math.max(1, Math.min(limit, 10));
-        List<Map<String, Object>> result = new ArrayList<>();
-        String model = modelName == null || modelName.isBlank() ? "deepseek-flash" : modelName;
-        for (Map<String, Object> community : communities.stream().limit(size).toList()) {
-            Map<String, Object> row = new LinkedHashMap<>(community);
-            List<Map<String, Object>> members = (List<Map<String, Object>>) community.get("members");
-            String names = members.stream().map(m -> String.valueOf(m.get("name")))
-                    .limit(20).collect(Collectors.joining("、"));
-            try {
-                ChatResponse response = ChatClient.create(modelRouter.resolve(model)).prompt()
-                        .system("你是知识图谱编辑，只输出一句不超过80字的中文社区摘要，不要解释。")
-                        .user("社区实体：" + names)
-                        .call().chatResponse();
-                row.put("summary", response.getResult() == null ? ""
-                        : response.getResult().getOutput().getText());
-            } catch (Exception e) {
-                log.warn("社区摘要生成失败 kb={} community={}: {}", kbId, community.get("id"), e.getMessage());
-                row.put("summary", community.get("name"));
-            }
-            result.add(row);
-        }
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("model", model);
-        out.put("communityCount", communities.size());
-        out.put("communities", result);
-        return out;
-    }
-
-    /** 重新生成并持久化社区摘要。 */
-    @Transactional
-    @SuppressWarnings("unchecked")
-    public Map<String, Object> rebuildCommunities(Long kbId, String modelName, int limit,
-                                                  KnowledgePermissionService.Viewer viewer) {
         KnowledgeBase kb = permissionService.requireView(kbId, viewer);
         ensureGraphEnabled(kb);
-        Map<String, Object> generated = summarizeCommunities(kbId, modelName, limit, viewer);
-        List<Map<String, Object>> communities = (List<Map<String, Object>>) generated.get("communities");
-        int saved = 0;
-        for (Map<String, Object> community : communities) {
-            List<Map<String, Object>> members = (List<Map<String, Object>>) community.get("members");
-            List<Long> ids = members.stream().map(m -> ((Number) m.get("id")).longValue())
-                    .sorted().toList();
-            String key = ids.stream().map(String::valueOf).collect(Collectors.joining("-"));
-            KnowledgeGraphCommunity row = communityMapper.selectOne(
-                    new LambdaQueryWrapper<KnowledgeGraphCommunity>()
-                            .eq(KnowledgeGraphCommunity::getKbId, kbId)
-                            .eq(KnowledgeGraphCommunity::getCommunityKey, key)
-                            .last("LIMIT 1"));
-            if (row == null) {
-                row = new KnowledgeGraphCommunity();
-                row.setTenantId(kb.getTenantId());
-                row.setKbId(kbId);
-                row.setCommunityKey(key);
-                row.setCreatedAt(LocalDateTime.now());
-            }
-            row.setName(str(community.get("name")));
-            row.setSummary(str(community.getOrDefault("summary", community.get("name"))));
-            if (row.getSummary() != null && !row.getSummary().isBlank()) {
-                try {
-                    float[] vector = embeddingService.embedOne(row.getSummary());
-                    row.setEmbedding(objectMapper.writeValueAsString(vector));
-                    row.setEmbeddingModel("default");
-                    row.setDimensions(vector.length);
-                } catch (Exception e) {
-                    log.warn("社区摘要向量化失败 kb={} community={}: {}", kbId, key, e.getMessage());
-                    row.setEmbedding(null);
-                    row.setEmbeddingModel(null);
-                    row.setDimensions(null);
-                }
-            }
-            row.setEntityIds(ids.stream().map(String::valueOf).collect(Collectors.joining(",")));
-            row.setEntityCount(ids.size());
-            row.setTypes(((java.util.Collection<?>) community.getOrDefault("types", List.of()))
-                    .stream().map(String::valueOf).collect(Collectors.joining(",")));
-            row.setUpdatedAt(LocalDateTime.now());
-            if (row.getId() == null) communityMapper.insert(row);
-            else communityMapper.updateById(row);
-            if (row.getEmbedding() != null) {
-                try {
-                    float[] vector = objectMapper.readValue(row.getEmbedding(), float[].class);
-                    graphVectorIndexService.upsert(kb.getTenantId(), kbId, "COMMUNITY",
-                            row.getId(), vector, row.getEmbeddingModel());
-                } catch (Exception ignored) {
-                    // MySQL summary remains available if the dedicated index is unavailable
-                }
-            }
-            saved++;
-        }
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("saved", saved);
-        out.put("model", generated.get("model"));
-        return out;
+        return communityService.summarize(communities(kbId, viewer), modelName, limit);
+    }
+
+    /** 重新生成并持久化社区摘要；写操作必须要求编辑权限。 */
+    public Map<String, Object> rebuildCommunities(Long kbId, String modelName, int limit,
+                                                  KnowledgePermissionService.Viewer viewer) {
+        KnowledgeBase kb = permissionService.requireEdit(kbId, viewer);
+        ensureGraphEnabled(kb);
+        return communityService.rebuild(kb, communities(kbId, viewer), modelName, limit);
     }
 
     /** 已保存的社区摘要。 */
     public Map<String, Object> savedCommunities(Long kbId, KnowledgePermissionService.Viewer viewer) {
         KnowledgeBase kb = permissionService.requireView(kbId, viewer);
         ensureGraphEnabled(kb);
-        List<KnowledgeGraphCommunity> rows = communityMapper.selectList(
-                new LambdaQueryWrapper<KnowledgeGraphCommunity>()
-                        .eq(KnowledgeGraphCommunity::getKbId, kbId)
-                        .orderByDesc(KnowledgeGraphCommunity::getEntityCount)
-                        .last("LIMIT 200"));
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("communityCount", rows.size());
-        out.put("communities", rows);
-        return out;
+        return communityService.saved(kb);
     }
 
     /** 社区摘要向量检索。 */
@@ -337,73 +194,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
                                                  KnowledgePermissionService.Viewer viewer) {
         KnowledgeBase kb = permissionService.requireView(kbId, viewer);
         ensureGraphEnabled(kb);
-        if (query == null || query.isBlank()) throw new BusinessException(400, "查询内容不能为空");
-        float[] q = embeddingService.embedOne(query);
-        List<Map<String, Object>> indexed = graphVectorIndexService.search(
-                kb.getTenantId(), kbId, "COMMUNITY", q, topK);
-        if (!indexed.isEmpty()) {
-            List<Long> indexedIds = indexed.stream()
-                    .map(hit -> ((Number) hit.get("objectId")).longValue()).toList();
-            Map<Long, KnowledgeGraphCommunity> byId = communityMapper.selectBatchIds(indexedIds).stream()
-                    .collect(Collectors.toMap(KnowledgeGraphCommunity::getId, c -> c));
-            List<Map<String, Object>> indexedHits = new ArrayList<>();
-            for (Map<String, Object> hit : indexed) {
-                KnowledgeGraphCommunity row = byId.get(((Number) hit.get("objectId")).longValue());
-                if (row == null) continue;
-                Map<String, Object> item = new LinkedHashMap<>();
-                item.put("id", row.getId());
-                item.put("name", row.getName());
-                item.put("summary", row.getSummary());
-                item.put("entityCount", row.getEntityCount());
-                item.put("score", hit.get("score"));
-                indexedHits.add(item);
-            }
-            if (!indexedHits.isEmpty()) {
-                Map<String, Object> out = new LinkedHashMap<>();
-                out.put("query", query);
-                out.put("total", indexedHits.size());
-                out.put("hits", indexedHits.stream().limit(Math.max(1, Math.min(topK, 50))).toList());
-                out.put("index", "pgvector");
-                return out;
-            }
-        }
-        List<KnowledgeGraphCommunity> rows = communityMapper.selectList(
-                new LambdaQueryWrapper<KnowledgeGraphCommunity>()
-                        .eq(KnowledgeGraphCommunity::getKbId, kbId)
-                        .isNotNull(KnowledgeGraphCommunity::getEmbedding)
-                        .last("LIMIT 500"));
-        List<Map<String, Object>> hits = new ArrayList<>();
-        for (KnowledgeGraphCommunity row : rows) {
-            try {
-                float[] vector = objectMapper.readValue(row.getEmbedding(), float[].class);
-                if (vector.length != q.length) continue;
-                double dot = 0;
-                double normA = 0;
-                double normB = 0;
-                for (int i = 0; i < q.length; i++) {
-                    dot += q[i] * vector[i];
-                    normA += q[i] * q[i];
-                    normB += vector[i] * vector[i];
-                }
-                if (normA == 0 || normB == 0) continue;
-                Map<String, Object> hit = new LinkedHashMap<>();
-                hit.put("id", row.getId());
-                hit.put("name", row.getName());
-                hit.put("summary", row.getSummary());
-                hit.put("entityCount", row.getEntityCount());
-                hit.put("score", dot / (Math.sqrt(normA) * Math.sqrt(normB)));
-                hits.add(hit);
-            } catch (Exception ignored) {
-                // 单条损坏向量不影响其他社区
-            }
-        }
-        hits.sort((a, b) -> Double.compare((Double) b.get("score"), (Double) a.get("score")));
-        int size = Math.max(1, Math.min(topK, 50));
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("query", query);
-        out.put("total", hits.size());
-        out.put("hits", hits.stream().limit(size).toList());
-        return out;
+        return communityService.search(kb, query, topK);
     }
 
     /** 重建实体向量（名称 + 描述）。 */
@@ -1024,8 +815,9 @@ public class KnowledgeGraphService implements ApplicationRunner {
      */
     public void autoRefreshCommunities(Long tenantId, Long kbId) {
         boolean enabled;
+        KnowledgeBase kb;
         try {
-            KnowledgeBase kb = kbMapper.selectById(kbId);
+            kb = kbMapper.selectById(kbId);
             if (kb == null || !graphEnabled(kb)) return;
             enabled = configBoolean("knowledge.graph.auto-refresh-communities", true);
         } catch (Exception e) {
@@ -1035,13 +827,22 @@ public class KnowledgeGraphService implements ApplicationRunner {
         if (!enabled) return;
         Long effectiveTenant = tenantId == null ? TenantContext.getTenantId() : tenantId;
         if (effectiveTenant == null) return;
+        Long creatorId = kb.getCreatedBy();
+        if (creatorId == null) {
+            log.warn("社区摘要自动刷新跳过：知识库无创建者 kb={}", kbId);
+            return;
+        }
+        KnowledgeBase kbForRefresh = kb;
         try {
             graphTaskExecutor.execute(() -> TenantContext.run(effectiveTenant, () -> {
                 try {
                     KnowledgePermissionService.Viewer systemViewer =
-                            new KnowledgePermissionService.Viewer(null, List.of());
-                    String model = "deepseek-flash";
-                    summarizeCommunities(kbId, model, 50, systemViewer);
+                            new KnowledgePermissionService.Viewer(creatorId, List.of("OWNER"));
+                    Map<String, Object> data = communities(kbId, systemViewer);
+                    String model = modelRouter.defaultModelName();
+                    if (model == null || model.isBlank()) model = "deepseek-flash";
+                    // 必须调用持久化刷新，而不是只生成内存摘要，否则社区索引不会更新。
+                    communityService.rebuild(kbForRefresh, data, model, 10);
                     long count = communityMapper.selectCount(
                             new LambdaQueryWrapper<KnowledgeGraphCommunity>()
                                     .eq(KnowledgeGraphCommunity::getKbId, kbId));
@@ -1405,7 +1206,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
             documentId = selectedChunk.getDocumentId();
         }
         if (documentId != null) {
-            validateKnownRefs(kbId, Set.of(documentId), Set.of());
+            draftValidator.validateKnownRefs(kbId, Set.of(documentId), Set.of());
         }
 
         List<KnowledgeChunk> chunks;
@@ -1472,7 +1273,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
         if (entities.isEmpty() && relations.isEmpty()) {
             throw new BusinessException(400, "没有待提交的实体/关系");
         }
-        validateDraftRefs(kbId, entities, relations, documentId, chunkId);
+        draftValidator.validateDraftRefs(kbId, entities, relations, documentId, chunkId);
         CommitStats stats = commitDrafts(kb, entities, relations, documentId, chunkId, viewer.userId());
         auditService.record(viewer.userId(), "knowledge.graph.commit", "knowledge_base",
                 String.valueOf(kbId), "SUCCESS",
@@ -1716,7 +1517,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
         }
         Long documentId = number(req.get("documentId"));
         Long chunkId = number(req.get("chunkId"));
-        Map<Long, Long> chunkDocuments = validateKnownRefs(kbId,
+        Map<Long, Long> chunkDocuments = draftValidator.validateKnownRefs(kbId,
                 documentId == null ? Set.of() : Set.of(documentId),
                 chunkId == null ? Set.of() : Set.of(chunkId));
         if (documentId != null && chunkId != null && chunkDocuments.get(chunkId) != null
@@ -1833,7 +1634,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
         if (duplicate != null && duplicate > 0) throw new BusinessException(409, "关系已存在");
         Long documentId = number(req.get("documentId"));
         Long chunkId = number(req.get("chunkId"));
-        Map<Long, Long> chunkDocuments = validateKnownRefs(kbId,
+        Map<Long, Long> chunkDocuments = draftValidator.validateKnownRefs(kbId,
                 documentId == null ? Set.of() : Set.of(documentId),
                 chunkId == null ? Set.of() : Set.of(chunkId));
         if (documentId != null && chunkId != null && chunkDocuments.get(chunkId) != null
@@ -2136,164 +1937,6 @@ public class KnowledgeGraphService implements ApplicationRunner {
             }
         }
         return Math.max(min, Math.min(max, value));
-    }
-
-    private void validateDraftRefs(Long kbId, List<Map<String, Object>> entities,
-                                   List<Map<String, Object>> relations,
-                                   Long documentId, Long chunkId) {
-        Set<Long> documentIds = new HashSet<>();
-        Set<Long> chunkIds = new HashSet<>();
-        if (documentId != null) documentIds.add(documentId);
-        if (chunkId != null) chunkIds.add(chunkId);
-        for (List<Map<String, Object>> drafts : List.of(entities, relations)) {
-            for (Map<String, Object> draft : drafts) {
-                Long doc = number(draft.get("documentId"));
-                Long chunk = number(draft.get("chunkId"));
-                if (doc != null) documentIds.add(doc);
-                if (chunk != null) chunkIds.add(chunk);
-            }
-        }
-        Map<Long, Long> chunkDocuments = validateKnownRefs(kbId, documentIds, chunkIds);
-        if (documentId != null && chunkId != null) {
-            Long actual = chunkDocuments.get(chunkId);
-            if (actual != null && !Objects.equals(actual, documentId)) {
-                throw new BusinessException(400, "分段与文档不匹配");
-            }
-        }
-        for (List<Map<String, Object>> drafts : List.of(entities, relations)) {
-            for (Map<String, Object> draft : drafts) {
-                Long doc = number(draft.get("documentId"));
-                Long chunk = number(draft.get("chunkId"));
-                if (doc == null || chunk == null) continue;
-                Long actual = chunkDocuments.get(chunk);
-                if (actual != null && !Objects.equals(actual, doc)) {
-                    throw new BusinessException(400, "分段与文档不匹配");
-                }
-            }
-        }
-    }
-
-    /** 校验前端可回传的 documentId/chunkId，避免把其他知识库的证据绑定到当前图谱。 */
-    private Map<Long, Long> validateKnownRefs(Long kbId, Set<Long> documentIds, Set<Long> chunkIds) {
-        Map<Long, Long> chunkDocuments = new HashMap<>();
-        if (!documentIds.isEmpty()) {
-            List<KnowledgeDocument> docs = documentMapper.selectBatchIds(documentIds);
-            if (docs.size() != documentIds.size()) throw new BusinessException(400, "文档不存在");
-            for (KnowledgeDocument doc : docs) {
-                if (!Objects.equals(doc.getKnowledgeBaseId(), kbId)) {
-                    throw new BusinessException(400, "文档不属于当前知识库");
-                }
-            }
-        }
-        if (!chunkIds.isEmpty()) {
-            List<KnowledgeChunk> chunks = chunkMapper.selectBatchIds(chunkIds);
-            if (chunks.size() != chunkIds.size()) throw new BusinessException(400, "分段不存在");
-            for (KnowledgeChunk chunk : chunks) {
-                if (!Objects.equals(chunk.getKnowledgeBaseId(), kbId)) {
-                    throw new BusinessException(400, "分段不属于当前知识库");
-                }
-                if (!documentIds.isEmpty() && chunk.getDocumentId() != null
-                        && !documentIds.contains(chunk.getDocumentId())) {
-                    throw new BusinessException(400, "分段与文档不匹配");
-                }
-                if (chunk.getDocumentId() != null) chunkDocuments.put(chunk.getId(), chunk.getDocumentId());
-            }
-        }
-        return chunkDocuments;
-    }
-
-    private Map<String, Object> jobMap(KnowledgeGraphJob job) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("id", job.getId());
-        map.put("kbId", job.getKbId());
-        map.put("status", job.getStatus());
-        map.put("totalDocuments", job.getTotalDocuments());
-        map.put("processedDocuments", job.getProcessedDocuments());
-        map.put("totalChunks", job.getTotalChunks());
-        map.put("processedChunks", job.getProcessedChunks());
-        map.put("entityCount", job.getEntityCount());
-        map.put("relationCount", job.getRelationCount());
-        map.put("message", job.getMessage());
-        map.put("error", job.getError());
-        map.put("createdAt", job.getCreatedAt());
-        map.put("startedAt", job.getStartedAt());
-        map.put("finishedAt", job.getFinishedAt());
-        return map;
-    }
-
-    private String str(Object value) {
-        return value == null ? "" : String.valueOf(value);
-    }
-
-    private String stripFence(String raw) {
-        String text = raw == null ? "" : raw.trim();
-        if (text.startsWith("```")) {
-            int first = text.indexOf('\n');
-            int last = text.lastIndexOf("```");
-            if (first >= 0 && last > first) text = text.substring(first + 1, last).trim();
-        }
-        int start = text.indexOf('{');
-        int end = text.lastIndexOf('}');
-        return start >= 0 && end > start ? text.substring(start, end + 1) : text;
-    }
-
-    private String normalizeName(String name) {
-        if (name == null) return "";
-        String normalized = Normalizer.normalize(name, Normalizer.Form.NFKC)
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[\\p{P}\\p{S}\\s]", "");
-        if (normalized.isBlank()) normalized = name.trim().toLowerCase(Locale.ROOT);
-        return normalized.length() > 128 ? normalized.substring(0, 128) : normalized;
-    }
-
-    private String normalizeType(String type) {
-        String value = type == null ? "" : type.trim();
-        return value.isEmpty() ? "其他" : value;
-    }
-
-    private BigDecimal confidence(Object raw) {
-        double value = 0.8;
-        if (raw instanceof Number n) {
-            value = n.doubleValue();
-        } else if (raw != null && !String.valueOf(raw).isBlank()) {
-            try {
-                value = Double.parseDouble(String.valueOf(raw));
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        if (!Double.isFinite(value)) value = 0.8;
-        value = Math.max(0.0, Math.min(1.0, value));
-        return BigDecimal.valueOf(value).setScale(3, RoundingMode.HALF_UP);
-    }
-
-    private String text(Object raw, int max) {
-        if (raw == null) return null;
-        String value = String.valueOf(raw).trim();
-        if (value.isEmpty()) return null;
-        return value.length() > max ? value.substring(0, max) : value;
-    }
-
-    private String limit(String value, int max) {
-        if (value == null) return null;
-        return value.length() > max ? value.substring(0, max) : value;
-    }
-
-    private Long number(Object raw) {
-        if (raw == null || String.valueOf(raw).isBlank()) return null;
-        try {
-            return Long.valueOf(String.valueOf(raw));
-        } catch (NumberFormatException e) {
-            throw new BusinessException(400, "ID 格式错误");
-        }
-    }
-
-    private BigDecimal decimal(Object raw) {
-        if (raw == null || String.valueOf(raw).isBlank()) return null;
-        try {
-            return new BigDecimal(String.valueOf(raw));
-        } catch (NumberFormatException e) {
-            throw new BusinessException(400, "权重格式错误");
-        }
     }
 
     private record ExtractionBatch(List<Map<String, Object>> entityDrafts,
