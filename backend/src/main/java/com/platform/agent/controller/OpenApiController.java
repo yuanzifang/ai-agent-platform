@@ -143,14 +143,16 @@ public class OpenApiController {
         if (audio.getSize() > MAX_AUDIO_BYTES) {
             throw new BusinessException(400, "音频超过 10MB 限制");
         }
-        String contentType = audio.getContentType() == null ? "" : audio.getContentType().toLowerCase(Locale.ROOT);
+        String rawContentType = audio.getContentType() == null ? "" : audio.getContentType();
+        // 浏览器 MediaRecorder 会带 codecs 参数：audio/webm;codecs=opus
+        String contentType = rawContentType.split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
         if (!ALLOWED_AUDIO_TYPES.contains(contentType)) {
-            throw new BusinessException(400, "不支持的音频格式：" + audio.getContentType());
+            throw new BusinessException(400, "不支持的音频格式：" + rawContentType);
         }
         try {
             String text = asrService.transcribe(audio.getBytes(),
                     audio.getOriginalFilename() == null ? "audio.webm" : audio.getOriginalFilename(),
-                    audio.getContentType());
+                    contentType);
             return com.platform.common.response.ApiResponse.ok(Map.of("text", text));
         } catch (IOException e) {
             throw new BusinessException(400, "音频读取失败");

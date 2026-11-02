@@ -1163,7 +1163,7 @@
         <template v-if="testWidgetUrl">
           <el-descriptions :column="1" border size="small">
             <el-descriptions-item :label="t('deploy.testLink')">
-              <el-input :model-value="testWidgetUrl" readonly>
+              <el-input :model-value="testWidgetUrl" readonly @focus="selectAllText">
                 <template #append>
                   <el-button @click="copyText(testWidgetUrl)">{{ t('deploy.copy') }}</el-button>
                 </template>
@@ -2098,6 +2098,11 @@ function legacyCopy(text: string): boolean {
   } finally {
     document.body.removeChild(area)
   }
+}
+
+function selectAllText(event: FocusEvent) {
+  const el = event.target as HTMLInputElement | null
+  if (el?.select) el.select()
 }
 
 async function copyText(text: string) {
