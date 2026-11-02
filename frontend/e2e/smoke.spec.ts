@@ -418,6 +418,6 @@ test('可观测 Trace：筛选、列配置与 Span 图例', async ({ page }) => 
   await advanced.getByRole('button', { name: '应用' }).click()
   await expect.poll(() => traceRequests.some(u => u.includes('status=SUCCESS'))).toBe(true)
 
-  await page.locator('.el-pagination .el-pager li', { hasText: '2' }).click()
+  await page.locator('.el-pagination .el-pager li.number', { hasText: /^2$/ }).click()
   await expect.poll(() => traceRequests.some(u => u.includes('page=2'))).toBe(true)
 })
