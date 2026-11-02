@@ -1,5 +1,6 @@
 #!/bin/bash
 # M6 安全合规验收：越权访问矩阵 + 限流 + 审计（需求 3.22）
+# 前置：测试租户的 maxApiCallsPerMin 应为 60；若被调大，限流项会失败而不是代码回归。
 BASE=http://localhost:8080/api/v1
 # 清理上一轮限流计数，保证可重复执行
 redis-cli --scan --pattern 'ratelimit:*' 2>/dev/null | xargs -r redis-cli DEL >/dev/null 2>&1
