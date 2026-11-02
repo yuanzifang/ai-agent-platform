@@ -1,0 +1,68 @@
+{
+  "checkedAt": "2026-11-02",
+  "knowledgeBase": {
+    "id": 913,
+    "documents": 157,
+    "chunks": 1643,
+    "status": "DONE",
+    "retrievalCases": 36,
+    "retrievalPassed": 36,
+    "retrievalPassRate": 1.0
+  },
+  "answerCases": [
+    {
+      "query": "冬小麦还没返青，叶片发黄、长势弱，可能是什么原因，怎么处理？",
+      "latencySeconds": 18.88,
+      "inputTokens": 11038,
+      "outputTokens": 421,
+      "citations": [
+        "2024年全国冬小麦春季田间管理技术意见",
+        "冬小麦应对雨雪冰冻天气防冻害技术意见",
+        "冬小麦苗情好于去年 冬前重点抓好抗旱防寒"
+      ],
+      "verdict": "PASS",
+      "note": "方向正确，但问题较宽泛，答案偏通用"
+    },
+    {
+      "query": "水稻纹枯病怎么防治？",
+      "latencySeconds": 31.44,
+      "inputTokens": 18412,
+      "outputTokens": 433,
+      "citations": [
+        "2025年粮食作物重大病虫害防控技术方案",
+        "2024年水稻重大病虫害防控技术方案"
+      ],
+      "verdict": "PASS",
+      "note": "PASS_WITH_CAVEAT"
+    },
+    {
+      "query": "玉米南方锈病怎么防治？",
+      "latencySeconds": 45.51,
+      "inputTokens": 25087,
+      "outputTokens": 484,
+      "citations": [
+        "“七下八上”玉米重大病虫害发生动态及趋势预测",
+        "2024年玉米重大病虫害防控技术方案",
+        "玉米重大病虫害近期发生动态和下阶段发生趋势",
+        "玉米重大病虫害发生动态和下阶段趋势",
+        "2025年粮食作物重大病虫害防控技术方案"
+      ],
+      "verdict": "PASS",
+      "note": "PASS_WITH_CAVEAT"
+    }
+  ],
+  "caveats": [
+    "水稻纹枯病答案的化学防治正确，但“生物防治/苏云金杆菌”段落混入了虫害内容，属于轻微串段。",
+    "玉米南方锈病答案总体方向正确，但部分“种子处理/井冈霉素A”描述混入了其他玉米病害措施，细粒度可靠性不足。",
+    "这是 qwen2.5:7b-chat 对相邻 RAG 片段的拼接问题，不是知识库没有对应资料。"
+  ],
+  "checks": {
+    "frontendTypecheck": "PASS",
+    "i18nParity": "PASS 2989/2989",
+    "backendTests": "PASS 721/721",
+    "testPageCopy": "PASS",
+    "manualCopyFallback": "PASS",
+    "voice": "PASS (ASR endpoint)",
+    "image": "PASS (earlier UI regression)"
+  }
+}

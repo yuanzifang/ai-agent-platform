@@ -367,6 +367,10 @@ public class EmbeddingService {
         long chars = texts.stream().mapToLong(t -> t == null ? 0 : t.length()).sum();
         quotaService.checkTokensToday(Math.max(50, chars / 2));
         int batchSize = Math.max(1, Math.min(properties.getBatchSize(), 128));
+        if (texts.size() > 200) {
+            log.info("embedding 批次：model={} texts={} batchSize={} concurrency={}",
+                    effectiveModel, texts.size(), batchSize, batchConcurrency);
+        }
         if (texts.size() <= batchSize) return requestBatch(texts, effectiveModel);
         float[][] result = new float[texts.size()][];
         List<Integer> starts = new ArrayList<>();

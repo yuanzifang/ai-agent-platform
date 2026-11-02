@@ -55,6 +55,10 @@ public class KnowledgeEmbeddingCache {
         List<String> missing = uniqueByHash.entrySet().stream()
                 .filter(entry -> !cached.containsKey(entry.getKey()))
                 .map(Map.Entry::getValue).toList();
+        if (texts.size() > 200) {
+            log.info("embedding 缓存：chunks={} unique={} hits={} missing={}",
+                    texts.size(), uniqueByHash.size(), cached.size(), missing.size());
+        }
         if (!missing.isEmpty()) {
             float[][] generated = embeddingService.embedBatch(missing, model);
             for (int i = 0; i < missing.size(); i++) {

@@ -973,6 +973,7 @@ public class KnowledgeService {
 
     /** 单次解析：上传对象 → 分段 → 嵌入 → 向量落库。失败时由 doParse 清理残留并重试。 */
     private void parseOnce(KnowledgeDocument doc) throws Exception {
+        long parseStartedAt = System.currentTimeMillis();
         byte[] bytes = storage.get(doc.getObjectName());
         KnowledgeBase kb = kbMapper.selectById(doc.getKnowledgeBaseId());
         KnowledgePermissionService.Acl acl = kb == null
@@ -999,6 +1000,8 @@ public class KnowledgeService {
         List<DocumentParser.ParsedChunk> chunks = new ArrayList<>(outcome == null
                 ? parser.parseWithParents(parseName, bytes, parseOptions) : outcome.chunks());
         parseWarnings.addAll(outcome == null ? List.of() : outcome.warnings());
+        log.info("文档解析阶段：doc={} phase=parse chunks={} ms={}",
+                doc.getId(), chunks.size(), System.currentTimeMillis() - parseStartedAt);
         String chartEvidence = chunks.stream()
                 .map(DocumentParser.ParsedChunk::content)
                 .filter(java.util.Objects::nonNull)
@@ -1061,7 +1064,10 @@ public class KnowledgeService {
         if (parseName.toLowerCase(Locale.ROOT).endsWith(".pdf")) {
             PdfManualReviewInspector.inspect(chunks, parseWarnings);
         }
+        long embeddingStartedAt = System.currentTimeMillis();
         float[][] vectors = embeddingCache.embedWithCache(chunks, embeddingModel);
+        log.info("文档解析阶段：doc={} phase=embedding chunks={} ms={}",
+                doc.getId(), chunks.size(), System.currentTimeMillis() - embeddingStartedAt);
         // 业务有效期优先；未配置时回退文档入库时间，而不是向量写入时间。
         LocalDateTime effectiveFrom = doc.getEffectiveFrom() != null
                 ? doc.getEffectiveFrom() : doc.getCreatedAt();
@@ -1100,7 +1106,12 @@ public class KnowledgeService {
             chunk.setCreatedAt(LocalDateTime.now());
             chunkRows.add(chunk);
         }
+        long mysqlStartedAt = System.currentTimeMillis();
         Map<Integer, Long> chunkIds = chunkStore.persist(doc, chunkRows, parseWarnings);
+        log.info("文档解析阶段：doc={} phase=mysql chunks={} parents={} ms={}",
+                doc.getId(), chunkRows.size(), chunkRows.stream()
+                        .map(KnowledgeChunk::getParentIndex).filter(java.util.Objects::nonNull).distinct().count(),
+                System.currentTimeMillis() - mysqlStartedAt);
 
         List<Map<String, Object>> rows = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
@@ -1143,6 +1154,7 @@ public class KnowledgeService {
             rows.add(row);
         }
         storeOutboxPayload(doc, rows, embeddingDimensions, embeddingModel);
+        long vectorStartedAt = System.currentTimeMillis();
         vectorRepository.saveBatch(doc.getTenantId(), rows, embeddingDimensions);
         if (mysqlJdbcTemplate != null) {
             long vectorCount = vectorRepository.countByDocument(doc.getTenantId(), doc.getId(),
@@ -1152,6 +1164,8 @@ public class KnowledgeService {
                         + " actual=" + vectorCount);
             }
         }
+        log.info("文档解析阶段：doc={} phase=vector rows={} ms={}",
+                doc.getId(), rows.size(), System.currentTimeMillis() - vectorStartedAt);
         mediaStore.store(doc, bytes);
         recordParserVersion(doc);
         recordEmbeddingInfo(doc, embeddingModel, embeddingDimensions);
@@ -1161,7 +1175,8 @@ public class KnowledgeService {
         recordEmbeddingUsage(doc, chunks.size(), embeddingModel);
         // 解析完成后自动生成知识图谱（异步，失败不影响文档状态；可在系统配置关闭）
         graphService.autoExtractAfterParse(doc.getTenantId(), doc.getKnowledgeBaseId(), doc.getId());
-        log.info("文档解析完成：doc={} chunks={}", doc.getId(), chunks.size());
+        log.info("文档解析完成：doc={} chunks={} totalMs={}",
+                doc.getId(), chunks.size(), System.currentTimeMillis() - parseStartedAt);
     }
 
     /** 重新解析（评审设计 5）：DONE/FAILED 可重解析；清理旧分段/向量/图片后重新触发（沿用文档级解析配置）。 */
