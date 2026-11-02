@@ -2981,3 +2981,56 @@ test('对话用例库：反馈沉淀与模型回归', async ({ request }) => {
     await deleteAgent(request, token!, agentId)
   }
 })
+
+test('Agent 发布版本快照与回滚', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+  const originalName = `E2E版本回滚-${Date.now()}`
+  const agentId = await createAgent(request, token!, originalName)
+  try {
+    await publishAgent(request, token!, agentId)
+    const first = await (await request.get(`${P}/agent/${agentId}/versions`, {
+      headers: auth(token!)
+    })).json()
+    expect(first.code, JSON.stringify(first)).toBe(0)
+    expect(first.data.map((v: any) => v.version)).toContain('V1')
+
+    const updatedName = `${originalName}-v2`
+    const update = await (await request.put(`${P}/agent/${agentId}`, {
+      headers: auth(token!),
+      data: { name: updatedName, systemPrompt: '第二版提示词' }
+    })).json()
+    expect(update.code, JSON.stringify(update)).toBe(0)
+    await publishAgent(request, token!, agentId)
+
+    const second = await (await request.get(`${P}/agent/${agentId}/versions`, {
+      headers: auth(token!)
+    })).json()
+    expect(second.data.map((v: any) => v.version)).toEqual(expect.arrayContaining(['V1', 'V2']))
+    const secondDetail = await (await request.get(`${P}/agent/${agentId}`, {
+      headers: auth(token!)
+    })).json()
+    expect(secondDetail.data.name).toBe(updatedName)
+    expect(secondDetail.data.systemPrompt).toBe('第二版提示词')
+
+    const rollback = await (await request.post(`${P}/agent/${agentId}/versions/V1/rollback`, {
+      headers: auth(token!), data: {}
+    })).json()
+    expect(rollback.code, JSON.stringify(rollback)).toBe(0)
+    expect(rollback.data.rolledBackFrom).toBe('V1')
+    expect(rollback.data.version).toBe('V3')
+
+    const restored = await (await request.get(`${P}/agent/${agentId}`, {
+      headers: auth(token!)
+    })).json()
+    expect(restored.data.name).toBe(originalName)
+    expect(restored.data.systemPrompt).toBe('你是测试助手，简洁回答。')
+
+    const versions = await (await request.get(`${P}/agent/${agentId}/versions`, {
+      headers: auth(token!)
+    })).json()
+    expect(versions.data.map((v: any) => v.version)).toEqual(expect.arrayContaining(['V1', 'V2', 'V3']))
+  } finally {
+    await deleteAgent(request, token!, agentId)
+  }
+})
