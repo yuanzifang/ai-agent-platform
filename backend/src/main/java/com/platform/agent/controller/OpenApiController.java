@@ -8,23 +8,30 @@ import com.platform.agent.mapper.AgentRegistryMapper;
 import com.platform.agent.service.ApiKeyService;
 import com.platform.common.context.TenantContext;
 import com.platform.common.exception.BusinessException;
+import com.platform.asr.service.AsrService;
 import com.platform.conversation.entity.Conversation;
 import com.platform.conversation.mapper.ConversationMapper;
 import com.platform.conversation.service.ChatStreamService;
+import com.platform.conversation.service.ConversationService;
 import com.platform.security.JwtPrincipal;
 import com.platform.system.service.AuditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -45,8 +52,15 @@ public class OpenApiController {
     private final AgentRegistryMapper agentMapper;
     private final ConversationMapper conversationMapper;
     private final ChatStreamService chatStreamService;
+    private final ConversationService conversationService;
+    private final ObjectProvider<AsrService> asrServiceProvider;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
+
+    private static final long MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+    private static final Set<String> ALLOWED_AUDIO_TYPES = Set.of(
+            "audio/webm", "audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp3",
+            "audio/mp4", "audio/x-m4a");
 
     /** 网页挂件初始化：返回 Agent 展示信息（API Key 鉴权）。 */
     @io.swagger.v3.oas.annotations.Operation(summary = "挂件初始化", description = "返回 Agent 名称/描述/欢迎语等展示信息")
@@ -68,6 +82,80 @@ public class OpenApiController {
         info.put("avatarUrl", agent.getAvatarUrl());
         info.put("category", agent.getCategory());
         return com.platform.common.response.ApiResponse.ok(info);
+    }
+
+    /**
+     * 网页挂件图片上传：仍使用 WIDGET/API Key 鉴权，附件落到所属会话，
+     * 后续由 /chat/completions 的 attachmentIds 触发视觉识别。
+     */
+    @io.swagger.v3.oas.annotations.Operation(summary = "挂件附件上传",
+            description = "使用 X-Api-Key 上传图片/文档；返回 attachmentId，随 chat/completions 的 attachmentIds 传入")
+    @PostMapping(value = "/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public com.platform.common.response.ApiResponse<Map<String, Object>> uploadAttachment(
+            @RequestHeader(value = "X-Api-Key", required = false) String xApiKey,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestParam(value = "session_id", required = false) String sessionId,
+            @RequestParam(value = "endUserId", required = false) String endUserId,
+            @RequestPart("file") MultipartFile file) {
+        IntegrationApiKey key = apiKeyService.authenticate(extractKey(xApiKey, authorization));
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(400, "附件不能为空");
+        }
+        try {
+            AgentRegistry agent = TenantContext.runWith(key.getTenantId(),
+                    () -> agentMapper.selectById(key.getAgentId()));
+            if (agent == null || !"PUBLISHED".equals(agent.getStatus())) {
+                throw new BusinessException(403, "Agent 未发布，无法上传附件");
+            }
+            Conversation conversation = resolveConversation(key, agent, sessionId, endUserId);
+            JwtPrincipal principal = new JwtPrincipal(key.getServiceUserId(), key.getTenantId(), false,
+                    List.of(), List.of());
+            ConversationService.MultipartFilePart part = new ConversationService.MultipartFilePart(
+                    file.getOriginalFilename(), file.getContentType(), file.getBytes());
+            Map<String, Object> saved = TenantContext.runWith(key.getTenantId(),
+                    () -> conversationService.saveAttachment(conversation.getId(), part, principal));
+            return com.platform.common.response.ApiResponse.ok(saved);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new BusinessException(400, "附件读取失败");
+        }
+    }
+
+    /**
+     * 网页挂件语音转写：通过 API Key 鉴权转发到平台 ASR，避免把内部 /api/v1/asr
+     * 的 JWT 依赖暴露给公开测试页。
+     */
+    @io.swagger.v3.oas.annotations.Operation(summary = "挂件语音转写",
+            description = "使用 X-Api-Key 上传音频，返回 text；仅作为挂件输入辅助")
+    @PostMapping(value = "/asr/transcribe", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public com.platform.common.response.ApiResponse<Map<String, Object>> transcribe(
+            @RequestHeader(value = "X-Api-Key", required = false) String xApiKey,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestPart("audio") MultipartFile audio) {
+        apiKeyService.authenticate(extractKey(xApiKey, authorization));
+        AsrService asrService = asrServiceProvider.getIfAvailable();
+        if (asrService == null) {
+            throw new BusinessException(503, "语音转写服务未启用");
+        }
+        if (audio == null || audio.isEmpty()) {
+            throw new BusinessException(400, "音频文件不能为空");
+        }
+        if (audio.getSize() > MAX_AUDIO_BYTES) {
+            throw new BusinessException(400, "音频超过 10MB 限制");
+        }
+        String contentType = audio.getContentType() == null ? "" : audio.getContentType().toLowerCase(Locale.ROOT);
+        if (!ALLOWED_AUDIO_TYPES.contains(contentType)) {
+            throw new BusinessException(400, "不支持的音频格式：" + audio.getContentType());
+        }
+        try {
+            String text = asrService.transcribe(audio.getBytes(),
+                    audio.getOriginalFilename() == null ? "audio.webm" : audio.getOriginalFilename(),
+                    audio.getContentType());
+            return com.platform.common.response.ApiResponse.ok(Map.of("text", text));
+        } catch (IOException e) {
+            throw new BusinessException(400, "音频读取失败");
+        }
     }
 
     @io.swagger.v3.oas.annotations.Operation(summary = "对话补全（OpenAI 兼容）",
@@ -118,6 +206,7 @@ public class OpenApiController {
         String endUserId = str(body.get("endUserId"));
         if (endUserId == null) endUserId = str(body.get("end_user_id"));
         boolean stream = Boolean.TRUE.equals(body.get("stream")) || "true".equals(str(body.get("stream")));
+        List<Long> attachmentIds = parseAttachmentIds(body.get("attachmentIds"));
 
         Conversation conversation = resolveConversation(key, agent, sessionId, endUserId);
         JwtPrincipal principal = new JwtPrincipal(key.getServiceUserId(), key.getTenantId(), false,
@@ -133,7 +222,7 @@ public class OpenApiController {
             OpenAiSseSink sink = new OpenAiSseSink(completionId, created, model,
                     conversation.getSessionId(), objectMapper);
             chatStreamService.sendStreaming(conversation.getId(),
-                    new ChatStreamService.SendRequest(message, true, Map.of(), null, null, grayTag),
+                    new ChatStreamService.SendRequest(message, true, Map.of(), attachmentIds, null, grayTag),
                     principal, "api", sink);
             auditService.record(key.getServiceUserId(), "api_key.chat", "agent",
                     String.valueOf(agent.getId()), "SUCCESS",
@@ -144,7 +233,7 @@ public class OpenApiController {
         }
 
         Object result = chatStreamService.sendWithSource(conversation.getId(),
-                new ChatStreamService.SendRequest(message, false, Map.of(), null, null, grayTag),
+                new ChatStreamService.SendRequest(message, false, Map.of(), attachmentIds, null, grayTag),
                 principal, "api");
         if (!(result instanceof Map<?, ?> map)) {
             throw new BusinessException(500, "对话执行失败");
@@ -214,6 +303,24 @@ public class OpenApiController {
         c.setCreatedAt(LocalDateTime.now());
         conversationMapper.insert(c);
         return c;
+    }
+
+    /** 兼容数字/字符串 ID；非法项忽略，空列表回落 null（不传附件）。 */
+    private List<Long> parseAttachmentIds(Object raw) {
+        if (!(raw instanceof List<?> list) || list.isEmpty()) return null;
+        List<Long> ids = new java.util.ArrayList<>();
+        for (Object item : list) {
+            try {
+                if (item instanceof Number number) {
+                    ids.add(number.longValue());
+                } else if (item != null && !String.valueOf(item).isBlank()) {
+                    ids.add(Long.parseLong(String.valueOf(item).trim()));
+                }
+            } catch (NumberFormatException ignored) {
+                // 非法附件 ID 由下游按“附件不存在”统一处理；这里忽略格式噪音
+            }
+        }
+        return ids.isEmpty() ? null : ids;
     }
 
     private String extractUserMessage(Object messages) {
