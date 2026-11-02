@@ -444,3 +444,25 @@ test('模型数据政策页租户可见', async ({ page }) => {
   await expect(page.getByRole('heading', { name: /模型数据留存与训练政策|Model Data Retention/ })).toBeVisible()
   await expect(page.getByText('外部供应商的留存期限').or(page.getByText('external provider'))).toBeVisible()
 })
+
+test('监控指标缺失时显示 — 兜底', async ({ page, request }) => {
+  await login(page)
+  const token = await tokenOf(page)
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E指标兜底-${Date.now()}`)
+  await page.route('**/api/v1/metrics/agent/**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ code: 0, message: 'success', data: {
+      metrics: {},
+      trends: { bucket: 'hour', buckets: [], activeUsers: [], calls: [], errors: [] }
+    } })
+  }))
+  try {
+    await page.goto(`/metrics/${agentId}`)
+    await expect(page.locator('.metric-card .ratio').first()).toHaveText('—')
+  } finally {
+    await page.unroute('**/api/v1/metrics/agent/**')
+    await deleteAgent(request, token!, agentId)
+  }
+})
