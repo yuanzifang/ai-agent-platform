@@ -17,15 +17,25 @@ import java.util.List;
 
 /**
  * JWT 签发与解析（架构 9.1）：访问令牌短期有效；刷新令牌为随机串，哈希后存 user_session。
+ * 生产 profile 禁止使用内置默认密钥（该密钥在公开仓库里可见，等于认证旁路）。
  */
 @Component
 public class JwtService {
+
+    static final String BUILTIN_DEFAULT_SECRET = "dev-only-secret-change-me-0123456789abcdef";
 
     private final SecretKey key;
     private final long expirySeconds;
 
     public JwtService(@Value("${security.jwt.secret}") String secret,
-                      @Value("${security.jwt.expiry-seconds:7200}") long expirySeconds) {
+                      @Value("${security.jwt.expiry-seconds:7200}") long expirySeconds,
+                      org.springframework.core.env.Environment environment) {
+        String trimmed = secret == null ? "" : secret.trim();
+        if (environment != null && java.util.Arrays.asList(environment.getActiveProfiles()).contains("prod")
+                && (trimmed.isEmpty() || BUILTIN_DEFAULT_SECRET.equals(trimmed))) {
+            throw new IllegalStateException(
+                    "生产环境必须配置独立的 security.jwt.secret（≥32 字符），禁止为空或使用内置默认值");
+        }
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expirySeconds = expirySeconds;
     }

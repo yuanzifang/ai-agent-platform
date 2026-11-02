@@ -50,4 +50,26 @@ class SecretRedactionHookTest {
         String output = "secret-123 normal";
         assertEquals("[REDACTED] normal", hook.afterTool(context, output, "SUCCESS"));
     }
+
+    @Test
+    void catastrophicBacktrackingPatternIsSkippedNotHanging() {
+        AgentHook.ToolContext context = new AgentHook.ToolContext(
+                "t", "T", "API", "{}", new ToolCallCollector(),
+                java.util.Map.of("redactPatterns", java.util.List.of("(a+)+$")));
+        // 无匹配的灾难性回溯输入：限时跳过而不是拖死请求线程
+        String output = "a".repeat(20000) + "X";
+        long start = System.currentTimeMillis();
+        String redacted = hook.afterTool(context, output, "SUCCESS");
+        assertTrue(System.currentTimeMillis() - start < 5000,
+                "灾难性回溯正则必须在限时内返回");
+        assertEquals(output, redacted);
+    }
+
+    @Test
+    void customPatternStillRedactsNormalCases() {
+        AgentHook.ToolContext context = new AgentHook.ToolContext(
+                "t", "T", "API", "{}", new ToolCallCollector(),
+                java.util.Map.of("redactPatterns", java.util.List.of("内部密钥-[a-z]+")));
+        assertEquals("值=[REDACTED] 结束", hook.afterTool(context, "值=内部密钥-abc 结束", "SUCCESS"));
+    }
 }

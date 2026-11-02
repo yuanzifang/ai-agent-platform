@@ -47,7 +47,9 @@ public class SecretRedactionHook implements AgentHook {
                 String expression = String.valueOf(raw);
                 if (expression.length() > 200) continue;
                 try {
-                    redacted = Pattern.compile(expression).matcher(redacted).replaceAll("[REDACTED]");
+                    // 用户自定义正则 + 不可控长度的工具输出：限时执行，防灾难性回溯拖死请求
+                    redacted = BoundedRegex.replaceAll(redacted, Pattern.compile(expression),
+                            "[REDACTED]", 500);
                 } catch (Exception ignored) {
                     // 非法自定义规则跳过，不影响其他规则
                 }
