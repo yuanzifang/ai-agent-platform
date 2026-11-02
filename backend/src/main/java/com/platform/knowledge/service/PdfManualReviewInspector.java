@@ -12,7 +12,9 @@ import java.util.regex.Pattern;
 /** 识别 PDF 解析结果中无法自动确认的复杂场景，写入人工复核告警。 */
 final class PdfManualReviewInspector {
 
-    private static final Pattern TABLE_CAPTION = Pattern.compile("(?i)(?:\\btable\\s+\\d+|表\\s*\\d+)");
+    // “地表5厘米”“代表5家”等不是表格标题；要求“表”前不是常见构词前缀。
+    private static final Pattern TABLE_CAPTION = Pattern.compile(
+            "(?i)(?:\\btable\\s+\\d+|(?<![地代外发表图列填测手钟仪报])表\\s*\\d+)");
     private static final String PREFIX = "人工复核：";
 
     private PdfManualReviewInspector() { }

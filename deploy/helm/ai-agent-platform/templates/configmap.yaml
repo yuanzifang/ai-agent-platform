@@ -21,6 +21,10 @@ data:
   KNOWLEDGE_VISION_ENDPOINT: {{ .Values.config.visionEndpoint | quote }}
   KNOWLEDGE_VISION_MODEL: {{ .Values.config.visionModel | quote }}
   KNOWLEDGE_VISION_TIMEOUT_SECONDS: {{ .Values.config.visionTimeoutSeconds | quote }}
+  KNOWLEDGE_OCR_ENABLED: {{ .Values.config.ocrEnabled | quote }}
+  KNOWLEDGE_OCR_COMMAND: {{ .Values.config.ocrCommand | quote }}
+  KNOWLEDGE_OCR_LANGUAGES: {{ .Values.config.ocrLanguages | quote }}
+  KNOWLEDGE_OCR_MAX_PAGES: {{ .Values.config.ocrMaxPages | quote }}
   EMBEDDING_PROVIDER: {{ .Values.config.embeddingProvider | quote }}
   EMBEDDING_ENDPOINT: {{ .Values.config.embeddingEndpoint | quote }}
   DEEPSEEK_BASE_URL: {{ .Values.config.deepseekBaseUrl | quote }}
