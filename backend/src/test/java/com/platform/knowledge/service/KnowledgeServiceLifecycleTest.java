@@ -119,14 +119,21 @@ class KnowledgeServiceLifecycleTest {
         KnowledgeParseConfigResolver resolver = mock(KnowledgeParseConfigResolver.class);
         when(resolver.resolve(any(), any())).thenReturn(ParseOptions.defaults(
                 false, "tesseract", "chi_sim+eng", 150, 20, false, "", "", 3));
+        ObjectMapper objectMapper = new ObjectMapper();
 
         service = new KnowledgeService(kbMapper, docMapper, chunkMapper, imageMapper,
                 mock(BillingUsageMapper.class), mock(PricingService.class), mock(QuotaService.class),
                 storage, embeddingService, vectorRepository, mock(HybridRetrievalService.class),
                 parser, resolver, mock(ImageUnderstandingService.class),
-                graphService, new ObjectMapper(), permissionService, userMapper,
-                agentKbMapper, agentRegistryMapper, auditService, networkPolicy,
-                cryptoService);
+                graphService, objectMapper, permissionService, userMapper,
+                agentKbMapper, agentRegistryMapper, auditService, cryptoService,
+                new KnowledgeUrlFetcher(networkPolicy),
+                new KnowledgeChartChunkBuilder(objectMapper),
+                new KnowledgeDocumentMediaStore(imageMapper, storage, parser),
+                new KnowledgeEmbeddingCache(embeddingService, objectMapper),
+                new KnowledgeChunkStore(chunkMapper),
+                new KnowledgeDocumentMaintenanceService(docMapper, vectorRepository, auditService, permissionService),
+                new KnowledgeSourceHashService(docMapper, storage, permissionService));
 
         TenantContext.setTenantId(9L);
         kb = new KnowledgeBase();
@@ -267,7 +274,7 @@ class KnowledgeServiceLifecycleTest {
             }
         }
         java.util.List<String> warnings = new java.util.ArrayList<>();
-        String text = ReflectionTestUtils.invokeMethod(service, "buildChartChunk", chart, warnings);
+        String text = new KnowledgeChartChunkBuilder(mapper).build(chart, warnings);
         assertTrue(text.length() <= 4000, "图表块应受长度约束，实际=" + text.length());
         assertEquals(null, ChartDataValidator.validate(text), "压缩后仍必须是合法图表 JSON");
         assertFalse(text.contains("..."), "不应使用字符截断破坏 JSON");

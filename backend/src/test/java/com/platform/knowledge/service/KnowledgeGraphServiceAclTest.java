@@ -84,7 +84,8 @@ class KnowledgeGraphServiceAclTest {
                 kbMapper, mock(KnowledgeDocumentMapper.class), chunkMapper,
                 sysConfigMapper, mock(BillingUsageMapper.class),
                 mock(PricingService.class), permissionService, mock(AuditService.class),
-                mock(ChatModelRouter.class), new ObjectMapper());
+                mock(ChatModelRouter.class), new ObjectMapper(), mock(KnowledgeGraphCommunityService.class),
+                mock(KnowledgeGraphDraftValidator.class));
 
         kb = new KnowledgeBase();
         kb.setId(1L);
@@ -233,7 +234,7 @@ class KnowledgeGraphServiceAclTest {
 
     @Test
     void nonFiniteConfidenceFallsBackToDefault() {
-        BigDecimal value = ReflectionTestUtils.invokeMethod(service, "confidence", Double.NaN);
+        BigDecimal value = KnowledgeGraphSupport.confidence(Double.NaN);
         assertEquals(0.8, value.doubleValue(), 0.0001);
     }
 

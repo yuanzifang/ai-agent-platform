@@ -120,7 +120,17 @@ class KnowledgeUpdateParseConfigTest {
                 billingMapper, pricingService, quotaService, storage, embeddingService,
                 vectorRepository, hybridRetrieval, parser, parseConfigResolver, imageUnderstanding,
                 graphService, objectMapper, permissionService, userMapper, agentKbMapper,
-                agentRegistryMapper, auditService, networkPolicy, cryptoService);
+                agentRegistryMapper, auditService, cryptoService,
+                new com.platform.knowledge.service.KnowledgeUrlFetcher(networkPolicy),
+                new com.platform.knowledge.service.KnowledgeChartChunkBuilder(objectMapper),
+                new com.platform.knowledge.service.KnowledgeDocumentMediaStore(
+                        documentImageMapper, storage, parser),
+                new com.platform.knowledge.service.KnowledgeEmbeddingCache(embeddingService, objectMapper),
+                new com.platform.knowledge.service.KnowledgeChunkStore(chunkMapper),
+                new com.platform.knowledge.service.KnowledgeDocumentMaintenanceService(
+                        docMapper, vectorRepository, auditService, permissionService),
+                new com.platform.knowledge.service.KnowledgeSourceHashService(
+                        docMapper, storage, permissionService));
 
         kb = new KnowledgeBase();
         kb.setId(161L);

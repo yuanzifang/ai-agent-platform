@@ -27,6 +27,8 @@ import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -36,8 +38,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -60,6 +66,7 @@ class KnowledgeGraphServiceCrudTest {
     private ChatModelRouter modelRouter;
     private AuditService auditService;
     private KnowledgeGraphService service;
+    private KnowledgeGraphCommunityService communityService;
     private KnowledgeBase kb;
     private final KnowledgePermissionService.Viewer viewer =
             new KnowledgePermissionService.Viewer(7L, List.of("OWNER"));
@@ -81,6 +88,7 @@ class KnowledgeGraphServiceCrudTest {
         permissionService = mock(KnowledgePermissionService.class);
         modelRouter = mock(ChatModelRouter.class);
         auditService = mock(AuditService.class);
+        communityService = mock(KnowledgeGraphCommunityService.class);
         service = new KnowledgeGraphService(entityMapper, relationMapper, mentionMapper,
                 mock(KnowledgeGraphCommunityMapper.class),
                 mock(com.platform.knowledge.service.EmbeddingService.class),
@@ -88,7 +96,8 @@ class KnowledgeGraphServiceCrudTest {
                 kbMapper, documentMapper, mock(KnowledgeChunkMapper.class),
                 mock(SysConfigMapper.class), mock(BillingUsageMapper.class),
                 mock(PricingService.class), permissionService, auditService, modelRouter,
-                new ObjectMapper());
+                new ObjectMapper(), communityService,
+                mock(KnowledgeGraphDraftValidator.class));
 
         kb = new KnowledgeBase();
         kb.setId(1L);
@@ -280,4 +289,49 @@ class KnowledgeGraphServiceCrudTest {
         entity.setSource("MANUAL");
         return entity;
     }
+    @Test
+    void autoRefreshPersistsCommunitiesWithCreatorViewer() {
+        when(kbMapper.selectById(1L)).thenReturn(kb);
+        when(permissionService.requireView(eq(1L), any())).thenReturn(kb);
+        when(entityMapper.selectList(any())).thenReturn(List.of());
+        when(relationMapper.selectList(any())).thenReturn(List.of());
+        Map<String, Object> communityData = Map.of("communityCount", 0, "communities", List.of());
+        when(communityService.communities(anyMap())).thenReturn(communityData);
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.initialize();
+        ReflectionTestUtils.setField(service, "graphTaskExecutor", executor);
+
+        com.platform.common.context.TenantContext.setTenantId(9L);
+        try {
+            service.autoRefreshCommunities(null, 1L);
+        } finally {
+            com.platform.common.context.TenantContext.clear();
+            executor.shutdown();
+            try {
+                executor.getThreadPoolExecutor().awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        verify(permissionService, atLeastOnce()).requireView(eq(1L), argThat(v -> Long.valueOf(7L).equals(v.userId())
+                && v.roles().contains("OWNER")));
+        verify(communityService).rebuild(eq(kb), eq(communityData), eq("deepseek-flash"), eq(10));
+    }
+
+    @Test
+    void rebuildCommunitiesRequiresEditPermission() {
+        when(permissionService.requireView(1L, viewer)).thenReturn(kb);
+        when(permissionService.requireEdit(1L, viewer))
+                .thenThrow(new BusinessException(403, "无权编辑该知识库"));
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.rebuildCommunities(1L, "mock", 5, viewer));
+
+        assertEquals(403, error.getCode());
+        verify(communityService, never()).rebuild(any(), anyMap(), anyString(), any(Integer.class));
+    }
+
 }
