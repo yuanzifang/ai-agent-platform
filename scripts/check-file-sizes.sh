@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# 文件行数守卫：生产代码、测试与前端组件单文件上限 2000 行。
-# 超限先抽取/拆分，避免单体文件继续膨胀。
+# 文件行数守卫：新文件/继续增长的生产代码、测试与前端组件单文件上限 1500 行。
+# 存量超限文件冻结在 scripts/file-size-baseline.txt，只允许缩小；拆分后删除基线行。
 
 cd "$(dirname "$0")/.."
+
+LIMIT="${FILE_SIZE_LIMIT:-1500}"
+BASELINE="${FILE_SIZE_BASELINE:-scripts/file-size-baseline.txt}"
+baseline_count() {
+  [[ -f "$BASELINE" ]] || return 0
+  awk -v file="$1" '$2 == file { print $1; exit }' "$BASELINE"
+}
 
 files=()
 while IFS= read -r -d '' file; do
@@ -20,10 +27,23 @@ if [ "${#files[@]}" -eq 0 ]; then
   exit 1
 fi
 
-echo "checking ${#files[@]} source files for >2000 lines"
-if wc -l "${files[@]}" | awk '$2 != "total" && $1 > 2000 { print; bad=1 } END { exit bad }'; then
-  echo "file size guard OK (limit: 2000 lines)"
-else
-  echo "file size guard FAILED: split files above 2000 lines" >&2
+echo "checking ${#files[@]} source files; limit=${LIMIT}; baseline=${BASELINE}"
+bad=0
+for file in "${files[@]}"; do
+  lines=$(wc -l < "$file" | tr -d ' ')
+  if [ "$lines" -le "$LIMIT" ]; then
+    continue
+  fi
+  allowed="$(baseline_count "$file")"
+  if [ -n "$allowed" ] && [ "$lines" -le "$allowed" ]; then
+    echo "GRANDFATHERED | $file | $lines <= baseline $allowed"
+  else
+    echo "FAIL | $file | $lines > ${allowed:-$LIMIT} (new/grown file)" >&2
+    bad=1
+  fi
+done
+if [ "$bad" -ne 0 ]; then
+  echo "file size guard FAILED: split above-limit files or lower them; do not grow baseline files" >&2
   exit 1
 fi
+echo "file size guard OK (hard limit ${LIMIT}; baseline only shrinks)"
