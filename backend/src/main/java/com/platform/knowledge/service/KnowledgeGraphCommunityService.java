@@ -146,19 +146,22 @@ public class KnowledgeGraphCommunityService {
         return out;
     }
 
-    public Map<String, Object> saved(KnowledgeBase kb) {
+    public Map<String, Object> saved(KnowledgeBase kb, Set<Long> visibleEntityIds) {
         List<KnowledgeGraphCommunity> rows = communityMapper.selectList(
                 new LambdaQueryWrapper<KnowledgeGraphCommunity>()
                         .eq(KnowledgeGraphCommunity::getKbId, kb.getId())
                         .orderByDesc(KnowledgeGraphCommunity::getEntityCount)
                         .last("LIMIT 200"));
+        List<KnowledgeGraphCommunity> visible = rows.stream()
+                .filter(row -> fullyVisible(row.getEntityIds(), visibleEntityIds)).toList();
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("communityCount", rows.size());
-        out.put("communities", rows);
+        out.put("communityCount", visible.size());
+        out.put("communities", visible);
         return out;
     }
 
-    public Map<String, Object> search(KnowledgeBase kb, String query, int topK) {
+    public Map<String, Object> search(KnowledgeBase kb, String query, int topK,
+                                      Set<Long> visibleEntityIds) {
         if (query == null || query.isBlank()) throw new BusinessException(400, "查询内容不能为空");
         float[] q = embeddingService.embedOne(query);
         List<Map<String, Object>> indexed = graphVectorIndexService.search(
@@ -171,7 +174,7 @@ public class KnowledgeGraphCommunityService {
             List<Map<String, Object>> indexedHits = new ArrayList<>();
             for (Map<String, Object> hit : indexed) {
                 KnowledgeGraphCommunity row = byId.get(((Number) hit.get("objectId")).longValue());
-                if (row == null) continue;
+                if (row == null || !fullyVisible(row.getEntityIds(), visibleEntityIds)) continue;
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("id", row.getId());
                 item.put("name", row.getName());
@@ -196,6 +199,7 @@ public class KnowledgeGraphCommunityService {
                         .last("LIMIT 500"));
         List<Map<String, Object>> hits = new ArrayList<>();
         for (KnowledgeGraphCommunity row : rows) {
+            if (!fullyVisible(row.getEntityIds(), visibleEntityIds)) continue;
             try {
                 float[] vector = objectMapper.readValue(row.getEmbedding(), float[].class);
                 if (vector.length != q.length) continue;
@@ -284,6 +288,34 @@ public class KnowledgeGraphCommunityService {
         out.put("communityCount", communities.size());
         out.put("communities", communities);
         return out;
+    }
+
+    /** 删除知识库的社区摘要及对应图向量；文档/知识库删除或重新解析后调用。 */
+    public void deleteForKnowledgeBase(Long kbId) {
+        if (kbId == null) return;
+        List<KnowledgeGraphCommunity> rows = communityMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeGraphCommunity>()
+                        .eq(KnowledgeGraphCommunity::getKbId, kbId));
+        for (KnowledgeGraphCommunity row : rows) {
+            if (row.getId() != null && row.getDimensions() != null) {
+                graphVectorIndexService.delete(row.getTenantId(), kbId, "COMMUNITY",
+                        row.getId(), row.getDimensions());
+            }
+        }
+        communityMapper.delete(new LambdaQueryWrapper<KnowledgeGraphCommunity>()
+                .eq(KnowledgeGraphCommunity::getKbId, kbId));
+    }
+
+    private boolean fullyVisible(String entityIds, Set<Long> visibleEntityIds) {
+        if (entityIds == null || entityIds.isBlank() || visibleEntityIds == null) return false;
+        for (String id : entityIds.split(",")) {
+            try {
+                if (!visibleEntityIds.contains(Long.parseLong(id.trim()))) return false;
+            } catch (NumberFormatException e) {
+                return false;
+            }
+        }
+        return true;
     }
 
 }

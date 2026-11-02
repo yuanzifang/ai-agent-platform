@@ -778,25 +778,27 @@ public class ChatStreamService {
         org.springframework.ai.chat.model.ChatResponse resp;
         concurrencyGuard.acquire();
         try {
-            resp = buildSpec(usedModel, systemPrompt, history, userMsgWithAttachments,
-                    runtime.callbacks(), temperature, thinking, reasoningEffort).call().chatResponse();
-        } catch (Exception e) {
-            concurrencyGuard.release();           // 主调用失败，先还名额
-            chatModelRouter.recordModelFailure(usedModel);
-            if (fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(usedModel)
-                    || !chatModelRouter.isFallbackable(e)) {
-                throw e;
+            try {
+                resp = buildSpec(usedModel, systemPrompt, history, userMsgWithAttachments,
+                        runtime.callbacks(), temperature, thinking, reasoningEffort).call().chatResponse();
+            } catch (Exception e) {
+                chatModelRouter.recordModelFailure(usedModel);
+                if (fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(usedModel)
+                        || !chatModelRouter.isFallbackable(e)) {
+                    throw e;
+                }
+                log.warn("模型失败，切换备用模型 {} -> {}：{}", modelName, fallbackModel, e.getMessage());
+                steps.add("chain", "model-fallback", "SUCCESS", System.currentTimeMillis(), System.currentTimeMillis(),
+                        java.util.Map.of("from", modelName, "to", fallbackModel,
+                                "error", e.getMessage() == null ? "" : e.getMessage()));
+                usedModel = fallbackModel;
+                // 主调用和备用调用共用同一个并发名额，finally 只释放一次；备用失败不会泄漏。
+                resp = buildSpec(fallbackModel, systemPrompt, history, userMsgWithAttachments,
+                        runtime.callbacks(), temperature, thinking, reasoningEffort).call().chatResponse();
             }
-            log.warn("模型失败，切换备用模型 {} -> {}：{}", modelName, fallbackModel, e.getMessage());
-            steps.add("chain", "model-fallback", "SUCCESS", System.currentTimeMillis(), System.currentTimeMillis(),
-                    java.util.Map.of("from", modelName, "to", fallbackModel,
-                            "error", e.getMessage() == null ? "" : e.getMessage()));
-            usedModel = fallbackModel;
-            concurrencyGuard.acquire();           // 备用重试重新占用一个名额（精确对称，防超发）
-            resp = buildSpec(fallbackModel, systemPrompt, history, userMsgWithAttachments,
-                    runtime.callbacks(), temperature, thinking, reasoningEffort).call().chatResponse();
+        } finally {
+            concurrencyGuard.release();
         }
-        concurrencyGuard.release();
         chatModelRouter.recordModelSuccess(usedModel);
         String answer = resp.getResult().getOutput().getText();
         var usage = resp.getMetadata().getUsage();
@@ -938,7 +940,7 @@ public class ChatStreamService {
      */
     public Map<String, Object> continueFromCheckpoint(Long conversationId, JwtPrincipal principal) {
         Conversation conv = conversationService.owned(conversationId, principal);
-        ChatCheckpoint checkpoint = checkpointService.get(conversationId);
+        ChatCheckpoint checkpoint = checkpointService.get(principal.tenantId(), conversationId);
         if (checkpoint == null || checkpoint.getContent() == null || checkpoint.getContent().isBlank()) {
             throw new BusinessException(404, "没有可继续的对话 checkpoint");
         }
@@ -1016,7 +1018,7 @@ public class ChatStreamService {
                     ChatLiveStateService.LiveState state = liveState.get(conversationId);
                     if (state == null) {
                         com.platform.conversation.entity.ChatCheckpoint checkpoint =
-                                checkpointService.get(conversationId);
+                                checkpointService.get(principal.tenantId(), conversationId);
                         if (checkpoint != null) {
                             String content = checkpoint.getContent() == null ? "" : checkpoint.getContent();
                             int safeCursor = Math.min(cursor, content.length());

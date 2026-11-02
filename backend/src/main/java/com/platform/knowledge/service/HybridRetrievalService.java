@@ -91,8 +91,9 @@ public class HybridRetrievalService {
                          Map<String, Object> retrievalConfig, Long userId, boolean tenantWide,
                          Instant effectiveAfter, Instant effectiveBefore) {
         Map<String, Object> config = retrievalConfig == null ? Map.of() : retrievalConfig;
-        int limit = Math.max(1, Math.min(topK, 20));
-        int candidates = Math.max(10, Math.min(limit * 3, 30));
+        // 与知识库 maxTopK 上限保持一致，避免配置 50 却静默截断到 20。
+        int limit = Math.max(1, Math.min(topK, 50));
+        int candidates = Math.max(10, Math.min(limit * 3, 150));
         String mode = str(config.get("mode"));
         if (mode == null || mode.isBlank()) mode = hybridEnabled ? "hybrid" : "vector";
         mode = mode.toLowerCase();

@@ -34,13 +34,21 @@ public class ChatCheckpointService {
                      Long messageId, long inputTokens, long outputTokens,
                      List<Map<String, Object>> citations) {
         if (conversationId == null || tenantId == null) return;
+        // Reactor/异步线程可能没有 TenantContext；MyBatis 租户拦截器需要显式恢复。
+        TenantContext.run(tenantId, () -> saveInternal(conversationId, traceId, status, content,
+                messageId, inputTokens, outputTokens, citations));
+    }
+
+    private void saveInternal(Long conversationId, String traceId, String status, String content,
+                              Long messageId, long inputTokens, long outputTokens,
+                              List<Map<String, Object>> citations) {
         try {
             ChatCheckpoint row = mapper.selectOne(new LambdaQueryWrapper<ChatCheckpoint>()
                     .eq(ChatCheckpoint::getConversationId, conversationId).last("LIMIT 1"));
             if (row == null) {
                 row = new ChatCheckpoint();
                 row.setConversationId(conversationId);
-                row.setTenantId(tenantId);
+                row.setTenantId(TenantContext.getTenantId());
                 row.setCreatedAt(LocalDateTime.now());
             }
             row.setTraceId(traceId);
@@ -56,6 +64,11 @@ public class ChatCheckpointService {
         } catch (Exception e) {
             log.debug("对话 checkpoint 写入失败 conversation={}：{}", conversationId, e.getMessage());
         }
+    }
+
+    public ChatCheckpoint get(Long tenantId, Long conversationId) {
+        if (tenantId == null) return get(conversationId);
+        return TenantContext.runWith(tenantId, () -> get(conversationId));
     }
 
     public ChatCheckpoint get(Long conversationId) {

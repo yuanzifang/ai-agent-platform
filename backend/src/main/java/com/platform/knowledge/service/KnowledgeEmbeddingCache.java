@@ -48,21 +48,23 @@ public class KnowledgeEmbeddingCache {
         if (mysqlJdbcTemplate == null || texts.isEmpty()) {
             return embeddingService.embedBatch(texts, model);
         }
-        LinkedHashMap<String, Integer> unique = new LinkedHashMap<>();
-        for (int i = 0; i < texts.size(); i++) unique.putIfAbsent(texts.get(i), i);
-        Map<String, float[]> cached = load(model, unique.keySet());
-        List<String> missing = unique.keySet().stream()
-                .filter(text -> !cached.containsKey(text)).toList();
+        // 缓存键始终使用 contentHash；不能把原始文本当作 hash 查缓存，否则永远 miss。
+        LinkedHashMap<String, String> uniqueByHash = new LinkedHashMap<>();
+        for (String text : texts) uniqueByHash.putIfAbsent(contentHash(text), text);
+        Map<String, float[]> cached = load(model, uniqueByHash.keySet());
+        List<String> missing = uniqueByHash.entrySet().stream()
+                .filter(entry -> !cached.containsKey(entry.getKey()))
+                .map(Map.Entry::getValue).toList();
         if (!missing.isEmpty()) {
             float[][] generated = embeddingService.embedBatch(missing, model);
             for (int i = 0; i < missing.size(); i++) {
-                cached.put(missing.get(i), generated[i]);
+                cached.put(contentHash(missing.get(i)), generated[i]);
             }
             store(model, missing, generated);
         }
         float[][] vectors = new float[texts.size()][];
         for (int i = 0; i < texts.size(); i++) {
-            vectors[i] = cached.get(texts.get(i));
+            vectors[i] = cached.get(contentHash(texts.get(i)));
         }
         return vectors;
     }
@@ -85,13 +87,13 @@ public class KnowledgeEmbeddingCache {
         }
     }
 
-    private Map<String, float[]> load(String model, Collection<String> texts) {
+    private Map<String, float[]> load(String model, Collection<String> hashes) {
         Map<String, float[]> cached = new HashMap<>();
-        if (texts == null || texts.isEmpty()) return cached;
+        if (hashes == null || hashes.isEmpty()) return cached;
         try {
-            List<String> hashes = texts.stream().map(this::contentHash).toList();
-            for (int start = 0; start < hashes.size(); start += 500) {
-                List<String> batch = hashes.subList(start, Math.min(hashes.size(), start + 500));
+            List<String> hashList = new ArrayList<>(hashes);
+            for (int start = 0; start < hashList.size(); start += 500) {
+                List<String> batch = hashList.subList(start, Math.min(hashList.size(), start + 500));
                 String placeholders = String.join(",", java.util.Collections.nCopies(batch.size(), "?"));
                 List<Object> args = new ArrayList<>();
                 args.add(model);
