@@ -34,6 +34,25 @@ public class KnowledgeUploadPolicy {
         }
     }
 
+    /** 展示文件名可能被改成中文标题；解析器需要保留对象存储中的原始扩展名。 */
+    public String parserFileName(String displayName, String objectName) {
+        if (hasParserExtension(displayName)) return displayName;
+        if (hasParserExtension(objectName)) return objectName;
+        return displayName;
+    }
+
+    private boolean hasParserExtension(String name) {
+        if (name == null) return false;
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".pdf") || lower.endsWith(".doc") || lower.endsWith(".docx")
+                || lower.endsWith(".ppt") || lower.endsWith(".pptx") || lower.endsWith(".xls")
+                || lower.endsWith(".xlsx") || lower.endsWith(".epub") || lower.endsWith(".html")
+                || lower.endsWith(".htm") || lower.endsWith(".md") || lower.endsWith(".markdown")
+                || lower.endsWith(".txt") || lower.endsWith(".csv") || lower.endsWith(".json")
+                || lower.endsWith(".log") || lower.endsWith(".png") || lower.endsWith(".jpg")
+                || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".webp");
+    }
+
     public String safeFileName(String fileName) {
         String name = fileName == null ? "file" : fileName.trim();
         name = name.replaceAll("[\\\\/\r\n]", "_");

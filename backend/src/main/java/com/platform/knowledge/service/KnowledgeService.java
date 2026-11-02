@@ -971,27 +971,6 @@ public class KnowledgeService {
         return code >= 500 || code == 429;
     }
 
-    /** 展示文件名可能被改成中文标题；解析格式以对象存储的原始扩展名为准。 */
-    private String parserFileName(KnowledgeDocument doc) {
-        String name = doc.getFileName();
-        if (hasParserExtension(name)) return name;
-        String objectName = doc.getObjectName();
-        if (hasParserExtension(objectName)) return objectName;
-        return name;
-    }
-
-    private boolean hasParserExtension(String name) {
-        if (name == null) return false;
-        String lower = name.toLowerCase(Locale.ROOT);
-        return lower.endsWith(".pdf") || lower.endsWith(".doc") || lower.endsWith(".docx")
-                || lower.endsWith(".ppt") || lower.endsWith(".pptx") || lower.endsWith(".xls")
-                || lower.endsWith(".xlsx") || lower.endsWith(".epub") || lower.endsWith(".html")
-                || lower.endsWith(".htm") || lower.endsWith(".md") || lower.endsWith(".markdown")
-                || lower.endsWith(".txt") || lower.endsWith(".csv") || lower.endsWith(".json")
-                || lower.endsWith(".log") || lower.endsWith(".png") || lower.endsWith(".jpg")
-                || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".webp");
-    }
-
     /** 单次解析：上传对象 → 分段 → 嵌入 → 向量落库。失败时由 doParse 清理残留并重试。 */
     private void parseOnce(KnowledgeDocument doc) throws Exception {
         byte[] bytes = storage.get(doc.getObjectName());
@@ -1014,7 +993,7 @@ public class KnowledgeService {
                 embeddingDimensions, parseWarnings)) {
             return;
         }
-        String parseName = parserFileName(doc);
+        String parseName = uploadPolicy.parserFileName(doc.getFileName(), doc.getObjectName());
         DocumentParser.ParseOutcome outcome = parser.parseWithParentsAndWarnings(
                 parseName, bytes, parseOptions);
         List<DocumentParser.ParsedChunk> chunks = new ArrayList<>(outcome == null
