@@ -168,7 +168,7 @@ async function toggleRecord() {
     recorder.onstop = () => {
       mediaStream?.getTracks().forEach(track => track.stop())
       mediaStream = null
-      if (audioChunks.length) void transcribe(new Blob(audioChunks, { type: recorder?.mimeType || 'audio/webm' }))
+      if (audioChunks.length) void transcribe(new Blob(audioChunks, { type: 'audio/webm' }))
     }
     recorder.start()
     recording.value = true

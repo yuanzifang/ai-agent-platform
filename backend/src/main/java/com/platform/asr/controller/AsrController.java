@@ -40,13 +40,14 @@ public class AsrController {
             throw new BusinessException(400, "音频超过 10MB 限制");
         }
         String contentType = audio.getContentType();
-        if (contentType == null || !ALLOWED_TYPES.contains(contentType.toLowerCase())) {
+        String baseType = contentType == null ? "" : contentType.split(";", 2)[0].trim().toLowerCase();
+        if (!ALLOWED_TYPES.contains(baseType)) {
             throw new BusinessException(400, "不支持的音频格式：" + contentType);
         }
         try {
             String text = asrService.transcribe(audio.getBytes(),
                     audio.getOriginalFilename() == null ? "audio.webm" : audio.getOriginalFilename(),
-                    contentType);
+                    baseType);
             return ApiResponse.ok(Map.of("text", text));
         } catch (java.io.IOException e) {
             throw new BusinessException(400, "音频读取失败");
