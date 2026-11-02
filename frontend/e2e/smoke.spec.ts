@@ -356,7 +356,7 @@ test('可观测 Trace：筛选、列配置与 Span 图例', async ({ page }) => 
               status: 'SUCCESS', startTime: '2026-11-02T09:00:00', latencyMs: 12,
               totalTokens: 34, score: null
             }],
-            total: 1, page: 1, pageSize: 20
+            total: 25, page: 1, pageSize: 20
           }
         })
       })
@@ -406,4 +406,15 @@ test('可观测 Trace：筛选、列配置与 Span 图例', async ({ page }) => 
   await expect(page.locator('.legend')).toContainText('chain')
   await expect(page.locator('.legend')).toContainText('llm')
   await expect(page.locator('.legend')).toContainText('tool')
+
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: '高级筛选' }).click()
+  const advanced = page.locator('.adv-form')
+  await advanced.locator('.el-select').first().click()
+  await page.locator('.el-select-dropdown__item:visible', { hasText: 'SUCCESS' }).click()
+  await advanced.getByRole('button', { name: '应用' }).click()
+  await expect.poll(() => traceRequests.some(u => u.includes('status=SUCCESS'))).toBe(true)
+
+  await page.locator('.el-pagination .el-pager li', { hasText: '2' }).click()
+  await expect.poll(() => traceRequests.some(u => u.includes('page=2'))).toBe(true)
 })
