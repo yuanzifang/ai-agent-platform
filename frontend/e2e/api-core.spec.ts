@@ -638,3 +638,59 @@ test('Agent 调试：未保存配置生效、debug 计费、不写正式 Trace',
   expect(tracesAfter.data.total, '调试不应写正式 Trace').toBe(tracesBefore.data.total)
 })
 
+
+test('Agent 必填校验与配置重新读取', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+
+  const blank = await (await request.post(`${P}/agent`, {
+    headers: auth(token!),
+    data: {
+      name: '   ',
+      systemPrompt: '有效提示词',
+      modelConfig: { modelName: 'deepseek-flash' }
+    }
+  })).json()
+  expect(blank.code, JSON.stringify(blank)).toBe(400)
+  expect(blank.message).toContain('名称不能为空')
+
+  const agentId = await createAgent(request, token!, `E2E配置回显-${Date.now()}`)
+  try {
+    const first = await (await request.get(`${P}/agent/${agentId}`, {
+      headers: auth(token!)
+    })).json()
+    expect(first.code, JSON.stringify(first)).toBe(0)
+    expect(first.data.description).toBe('E2E API 集成测试')
+    expect(first.data.systemPrompt).toBe('你是测试助手，简洁回答。')
+    expect(first.data.modelConfig.modelName).toBe('deepseek-flash')
+    expect(first.data.modelConfig.temperature).toBe(0.2)
+    expect(first.data.agentCapabilities.functionCall).toBe(true)
+    expect(first.data.tools.length).toBeGreaterThan(0)
+
+    const updatedName = `E2E配置回显更新-${Date.now()}`
+    const update = await (await request.put(`${P}/agent/${agentId}`, {
+      headers: auth(token!),
+      data: {
+        name: updatedName,
+        description: '更新后的描述',
+        systemPrompt: '更新后的系统提示词',
+        modelConfig: { modelName: 'deepseek-flash', temperature: 0.5 }
+      }
+    })).json()
+    expect(update.code, JSON.stringify(update)).toBe(0)
+
+    const second = await (await request.get(`${P}/agent/${agentId}`, {
+      headers: auth(token!)
+    })).json()
+    expect(second.code, JSON.stringify(second)).toBe(0)
+    expect(second.data.name).toBe(updatedName)
+    expect(second.data.description).toBe('更新后的描述')
+    expect(second.data.systemPrompt).toBe('更新后的系统提示词')
+    expect(second.data.modelConfig.modelName).toBe('deepseek-flash')
+    expect(second.data.modelConfig.temperature).toBe(0.5)
+    expect(second.data.agentCapabilities.functionCall).toBe(true)
+    expect(second.data.tools.length).toBeGreaterThan(0)
+  } finally {
+    await deleteAgent(request, token!, agentId)
+  }
+})
