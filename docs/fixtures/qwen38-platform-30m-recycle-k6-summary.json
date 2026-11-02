@@ -1,0 +1,277 @@
+{
+  "options": {
+    "summaryTimeUnit": "",
+    "noColor": false,
+    "summaryTrendStats": [
+      "avg",
+      "min",
+      "med",
+      "max",
+      "p(90)",
+      "p(95)"
+    ]
+  },
+  "state": {
+    "isStdOutTTY": false,
+    "isStdErrTTY": false,
+    "testRunDurationMs": 1800663.443
+  },
+  "metrics": {
+    "http_req_tls_handshaking": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 0,
+        "min": 0,
+        "med": 0,
+        "max": 0,
+        "p(90)": 0,
+        "p(95)": 0
+      }
+    },
+    "vus_max": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "min": 1,
+        "max": 1,
+        "value": 1
+      }
+    },
+    "chat_total_ms": {
+      "values": {
+        "med": 1550.8490000000002,
+        "max": 21223.712,
+        "p(90)": 3031.1125,
+        "p(95)": 3620.9549999999995,
+        "avg": 2068.484977815699,
+        "min": 621.51
+      },
+      "type": "trend",
+      "contains": "time"
+    },
+    "iteration_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 2551.9954165,
+        "max": 22224.1065,
+        "p(90)": 4033.203084,
+        "p(95)": 4622.00491675,
+        "avg": 3072.2911088993137,
+        "min": 1622.945167
+      }
+    },
+    "http_req_sending": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(90)": 0.064,
+        "p(95)": 0.076,
+        "avg": 0.04252012882447669,
+        "min": 0.012,
+        "med": 0.039,
+        "max": 0.19
+      }
+    },
+    "http_req_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 1471.657,
+        "max": 21223.712,
+        "p(90)": 3018.726,
+        "p(95)": 3523.196,
+        "avg": 1954.2841095008046,
+        "min": 14.584
+      }
+    },
+    "checks": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "passes": 1758,
+        "fails": 0,
+        "rate": 1
+      }
+    },
+    "http_req_connecting": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(90)": 0,
+        "p(95)": 0,
+        "avg": 0.0014444444444444444,
+        "min": 0,
+        "med": 0,
+        "max": 0.542
+      }
+    },
+    "http_req_receiving": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 1409.432,
+        "max": 21169.754,
+        "p(90)": 2958.18,
+        "p(95)": 3444.256,
+        "avg": 1891.955180354268,
+        "min": 0.114
+      }
+    },
+    "data_sent": {
+      "contains": "data",
+      "values": {
+        "count": 524022,
+        "rate": 291.01607079163654
+      },
+      "type": "counter"
+    },
+    "http_req_duration{expected_response:true}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 1471.657,
+        "max": 21223.712,
+        "p(90)": 3018.726,
+        "p(95)": 3523.196,
+        "avg": 1954.2841095008046,
+        "min": 14.584
+      }
+    },
+    "chat_ok": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "fails": 0,
+        "rate": 1,
+        "passes": 586
+      }
+    },
+    "data_received": {
+      "type": "counter",
+      "contains": "data",
+      "values": {
+        "count": 612831,
+        "rate": 340.33622572966294
+      }
+    },
+    "http_req_duration{endpoint:chat_stream}": {
+      "values": {
+        "avg": 2068.484977815699,
+        "min": 621.51,
+        "med": 1550.8490000000002,
+        "max": 21223.712,
+        "p(90)": 3031.1125,
+        "p(95)": 3620.9549999999995
+      },
+      "type": "trend",
+      "contains": "time"
+    },
+    "http_reqs": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 621,
+        "rate": 0.3448728869429266
+      }
+    },
+    "http_req_waiting": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 63.532,
+        "max": 332.424,
+        "p(90)": 75.192,
+        "p(95)": 81.194,
+        "avg": 62.28640901771335,
+        "min": 14.415
+      }
+    },
+    "vus": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "value": 1,
+        "min": 1,
+        "max": 1
+      }
+    },
+    "http_req_failed": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0,
+        "passes": 0,
+        "fails": 621
+      }
+    },
+    "http_req_blocked": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "min": 0.002,
+        "med": 0.008,
+        "max": 0.598,
+        "p(90)": 0.012,
+        "p(95)": 0.015,
+        "avg": 0.009780998389694002
+      }
+    },
+    "chat_ttfb_ms": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 63.51991467576785,
+        "min": 30.852,
+        "med": 64.4685,
+        "max": 332.424,
+        "p(90)": 75.1765,
+        "p(95)": 80.89399999999999
+      }
+    },
+    "iterations": {
+      "values": {
+        "rate": 0.32543560668044286,
+        "count": 586
+      },
+      "type": "counter",
+      "contains": "default"
+    }
+  },
+  "setup_data": {
+    "name": "PERF K6 1793621485639",
+    "token": "eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIyIiwidGVuYW50SWQiOjEsInBsYXRmb3JtQWRtaW4iOmZhbHNlLCJyb2xlcyI6WyJPV05FUiJdLCJwZXJtaXNzaW9ucyI6WyJhZ2VudDpjcmVhdGUiLCJhZ2VudDplZGl0IiwiYWdlbnQ6ZGVsZXRlIiwiYWdlbnQ6cHVibGlzaCIsImtiOmNyZWF0ZSIsImtiOmVkaXQiLCJrYjpkZWxldGUiLCJtb2RlbDptYW5hZ2UiLCJldmFsOm1hbmFnZSIsImJpbGxpbmc6cmVhZCIsImF1ZGl0OnJlYWQiLCJ0ZW5hbnQ6bWFuYWdlIiwidXNlcjptYW5hZ2UiLCJwcm9tcHQ6bWFuYWdlIiwidG9vbDptYW5hZ2UiLCJza2lsbDptYW5hZ2UiXSwiaWF0IjoxNzkzNjIxNDg1LCJleHAiOjE3OTM2MjMyODV9.nBXCYaaTZA8FCGSpyW39RRiJGgULGgMNkz43H2fO_uIA1qEB5aSxEikvXtESpH2fppYVuWG0TPiQDDe7FNj14w",
+    "agentId": 5440,
+    "lastLogin": 1793621485705
+  },
+  "root_group": {
+    "groups": [],
+    "checks": [
+        {
+          "fails": 0,
+          "name": "chat status 200",
+          "path": "::chat status 200",
+          "id": "d10a12090eb913ffb630cda429098d06",
+          "passes": 586
+        },
+        {
+          "id": "dc4a6ef5b1a97a1774b821b62f97c87b",
+          "passes": 586,
+          "fails": 0,
+          "name": "chat done event",
+          "path": "::chat done event"
+        },
+        {
+          "name": "chat content-type sse",
+          "path": "::chat content-type sse",
+          "id": "8c3d356fdd91b5e3e7b17a16e5681b00",
+          "passes": 586,
+          "fails": 0
+        }
+      ],
+    "name": "",
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e"
+  }
+}
