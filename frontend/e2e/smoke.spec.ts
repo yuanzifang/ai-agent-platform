@@ -1,4 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test'
+import { createAgent, deleteAgent } from './api-helpers'
 
 const USER = process.env.E2E_USER || 'dev'
 const PASSWORD = process.env.E2E_PASSWORD || 'Dev@123456'
@@ -420,4 +421,20 @@ test('可观测 Trace：筛选、列配置与 Span 图例', async ({ page }) => 
 
   await page.locator('.el-pagination:visible .el-pager li.number', { hasText: /^2$/ }).first().click()
   await expect.poll(() => traceRequests.some(u => u.includes('page=2'))).toBe(true)
+})
+
+
+test('监控页空数据展示', async ({ page, request }) => {
+  await login(page)
+  const token = await tokenOf(page)
+  expect(token).toBeTruthy()
+  const agentId = await createAgent(request, token!, `E2E指标空-${Date.now()}`)
+  try {
+    await page.goto(`/metrics/${agentId}`)
+    await expect(page.locator('.metric-card').first()).toBeVisible()
+    await expect(page.locator('.charts .el-empty').first()).toContainText('暂无数据')
+    await expect(page.locator('.metric-card').first().locator('.v')).toContainText('¥0')
+  } finally {
+    await deleteAgent(request, token!, agentId)
+  }
 })
