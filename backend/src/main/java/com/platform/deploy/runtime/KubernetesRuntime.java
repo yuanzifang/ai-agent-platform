@@ -288,23 +288,46 @@ public class KubernetesRuntime implements ContainerRuntime {
     }
 
     private void scale(String resource, int replicas) {
-        try {
-            Deployment deployment = client().apps().deployments()
-                    .inNamespace(namespace()).withName(resource).get();
-            if (deployment == null) throw new BusinessException(404, "Agent 运行时 Deployment 不存在");
-            deployment.getSpec().setReplicas(Math.max(0, replicas));
-            if (replicas > 0) {
-                if (deployment.getMetadata().getAnnotations() == null) {
-                    deployment.getMetadata().setAnnotations(new LinkedHashMap<>());
+        Exception last = null;
+        // Deployment 创建后控制器会立即更新 status/resourceVersion；此处必须重新读取并重试 409。
+        for (int attempt = 0; attempt < 5; attempt++) {
+            try {
+                Deployment deployment = client().apps().deployments()
+                        .inNamespace(namespace()).withName(resource).get();
+                if (deployment == null) throw new BusinessException(404, "Agent 运行时 Deployment 不存在");
+                deployment.getSpec().setReplicas(Math.max(0, replicas));
+                if (replicas > 0) {
+                    if (deployment.getMetadata().getAnnotations() == null) {
+                        deployment.getMetadata().setAnnotations(new LinkedHashMap<>());
+                    }
+                    deployment.getMetadata().getAnnotations().put(REPLICAS_ANNOTATION, String.valueOf(replicas));
                 }
-                deployment.getMetadata().getAnnotations().put(REPLICAS_ANNOTATION, String.valueOf(replicas));
+                client().apps().deployments().inNamespace(namespace()).resource(deployment).update();
+                return;
+            } catch (BusinessException e) {
+                throw e;
+            } catch (Exception e) {
+                last = e;
+                if (!isConflict(e) || attempt == 4) {
+                    throw new BusinessException(502, "调整 Agent 运行时副本失败：" + message(e));
+                }
+                try {
+                    Thread.sleep(100L * (attempt + 1));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new BusinessException(500, "调整 Agent 运行时副本被中断");
+                }
             }
-            client().apps().deployments().inNamespace(namespace()).resource(deployment).update();
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new BusinessException(502, "调整 Agent 运行时副本失败：" + message(e));
         }
+        throw new BusinessException(502, "调整 Agent 运行时副本失败：" + message(last));
+    }
+
+    private boolean isConflict(Exception e) {
+        if (e instanceof io.fabric8.kubernetes.client.KubernetesClientException kce) {
+            return kce.getCode() == 409;
+        }
+        String msg = e.getMessage();
+        return msg != null && msg.contains("409") && msg.toLowerCase().contains("conflict");
     }
 
     private int desiredReplicas(String resource) {
