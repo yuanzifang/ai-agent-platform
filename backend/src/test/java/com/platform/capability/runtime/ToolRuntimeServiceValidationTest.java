@@ -36,6 +36,12 @@ class ToolRuntimeServiceValidationTest {
         ReflectionTestUtils.setField(service, "inputValidator", new ToolInputValidator(new ObjectMapper()));
         ReflectionTestUtils.setField(service, "maxInputValidationAttempts", 2);
         ReflectionTestUtils.setField(service, "idempotencyKey", new ThreadLocal<String>());
+        // 出站地址连接时校验：本测试面向本地 mock URL，放行内网
+        com.platform.common.security.NetworkPolicyService networkPolicy =
+                new com.platform.common.security.NetworkPolicyService();
+        ReflectionTestUtils.setField(networkPolicy, "allowPrivate", true);
+        ReflectionTestUtils.setField(networkPolicy, "allowedHosts", "");
+        ReflectionTestUtils.setField(service, "networkPolicy", networkPolicy);
         return service;
     }
 

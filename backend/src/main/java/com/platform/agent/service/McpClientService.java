@@ -88,6 +88,8 @@ public class McpClientService {
             .build();
     private final McpOAuthService oauthService;
     private final McpServerMapper serverMapper;
+    /** 连接时二次校验出站地址（注册时已校验过，防 DNS rebinding 窗口）。 */
+    private final com.platform.common.security.NetworkPolicyService networkPolicy;
 
     /** 单次 resources/read 返回的总字节上限，防止恶意/异常大资源耗尽内存。 */
     @Value("${mcp.resource.max-bytes:1048576}")
@@ -1026,6 +1028,8 @@ public class McpClientService {
     }
 
     private HttpRequest.Builder requestBuilder(McpServer server, URI uri) {
+        // 连接时二次校验（注册时已校验过），防注册后 DNS rebinding
+        networkPolicy.validateHttpUrl(uri.toString(), "Server 地址");
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri).timeout(TIMEOUT);
         for (Map.Entry<String, Object> h : headersOf(server).entrySet()) {
             builder.header(h.getKey(), String.valueOf(h.getValue()));
