@@ -35,3 +35,20 @@
   1. 向量库使用**专用非超级用户**（如 Compose 的 `aiagent`），并按 `tenant_*` Schema 模式做 GRANT 收敛（`GRANT USAGE ON SCHEMA tenant_*` + 表级 DML 权限），使运维误操作/其他应用连接也摸不到全量向量；
   2. pgvector/PG 版本升级时回归 `VectorIsolationIT`；
   3. 若未来架构改回单表多租户混居（如做全局检索），**届时**再评估 RLS（该模型下 RLS 才有附着点）。
+
+## 六、生产 GRANT 收敛脚本
+
+`scripts/vector-grants.sh` 默认 dry-run，只生成 SQL；确认后加 `--apply`。脚本：
+
+- 扫描 `tenant_*` Schema
+- 授予专用应用角色 `USAGE` / `SELECT, INSERT, UPDATE, DELETE`
+- 授予序列 `USAGE, SELECT`
+- 配置默认权限，覆盖后续新建的向量表/序列
+- 不直接修改当前运行账号，需生产维护窗口执行
+
+示例：
+
+```bash
+PGHOST=pgvector PGPORT=5432 PGDATABASE=vector PGUSER=postgres \
+APP_DB_ROLE=aap_vector_app scripts/vector-grants.sh
+```
