@@ -339,7 +339,8 @@ public class ChatStreamService {
             out.event("tool_start", Map.of("name", "知识库检索", "toolName", "knowledge_retrieval",
                     "toolType", "RAG", "status", "RUNNING"));
             long kbStart = System.currentTimeMillis();
-            systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings,
+            systemPrompt = chatService.augmentWithKnowledge(systemPrompt,
+                    retrievalQuery(userMsg.getContent(), userMsgWithAttachments), kbBindings,
                     citations, viewer, steps);
             Map<String, Object> kbEvent = new LinkedHashMap<>();
             kbEvent.put("name", "知识库检索");
@@ -740,7 +741,8 @@ public class ChatStreamService {
             kbBindings.add(Map.of("knowledgeBaseId", kbId, "enabled", true));
         }
         if (!kbBindings.isEmpty()) {
-            systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings,
+            systemPrompt = chatService.augmentWithKnowledge(systemPrompt,
+                    retrievalQuery(userMsg.getContent(), userMsgWithAttachments), kbBindings,
                     citations, viewer, steps);
         }
         String longTermMemory = userMemoryService.contextFor(principal.userId(), conv.getAgentId(), tenantId);
@@ -1361,6 +1363,32 @@ public class ChatStreamService {
         } catch (Exception e) {
             return Map.of();
         }
+    }
+
+    /**
+     * RAG 检索词：文字问题 + 图片识别结果。文档附件正文不参与检索，避免整篇文档污染 query；
+     * 图片识别出的作物/病虫害关键词正是检索最需要的信号。
+     */
+    private String retrievalQuery(String message, String withAttachments) {
+        if (message == null) message = "";
+        if (withAttachments == null || withAttachments.isBlank() || withAttachments.equals(message)) {
+            return message;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("<untrusted_image(?:\\s[^>]*)?>([\\s\\S]*?)</untrusted_image>")
+                .matcher(withAttachments);
+        StringBuilder images = new StringBuilder();
+        while (matcher.find() && images.length() < 2000) {
+            if (images.length() > 0) images.append('\n');
+            images.append(matcher.group(1).trim());
+        }
+        if (images.length() == 0) return message;
+        String suffix = "\n\n[图片识别结果，用于知识检索]\n" + images;
+        int max = 4000;
+        if (message.length() + suffix.length() > max) {
+            suffix = suffix.substring(0, Math.max(0, max - message.length()));
+        }
+        return message + suffix;
     }
 
     /**
