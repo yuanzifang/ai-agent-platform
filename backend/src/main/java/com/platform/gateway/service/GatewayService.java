@@ -871,6 +871,8 @@ public class GatewayService {
     private StreamingResponseBody error(HttpServletResponse servletResponse, HttpStatus status, String message) {
         servletResponse.setStatus(status.value());
         servletResponse.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        // 错误响应避免复用上游调用留下的 keep-alive 连接，防止客户端解析到半包响应头。
+        servletResponse.setHeader("Connection", "close");
         byte[] body = ("{\"code\":" + status.value() + ",\"message\":\"" + message.replace("\"", "'") + "\"}")
                 .getBytes(StandardCharsets.UTF_8);
         servletResponse.setContentLength(body.length);
