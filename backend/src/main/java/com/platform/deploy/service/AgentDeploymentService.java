@@ -269,7 +269,7 @@ public class AgentDeploymentService {
         int containerPort = 80;
         deployment.setImage(effectiveImage);
         deployment.setStatus("PENDING");
-        deployment.setLastError(null);
+        deployment.setLastError("");
         deployment.setDeployedBy(principal.userId());
         deployment.setVersion(latestVersion(agentId));
         deployment.setReplicaCount(replicas);
@@ -386,7 +386,7 @@ public class AgentDeploymentService {
         applyReplicaRows(deployment, rows);
         if (runtime.kubernetes()) deployment.setReplicaCount(desired);
         deployment.setStatus("RUNNING");
-        deployment.setLastError(null);
+        deployment.setLastError("");
         publishDeploymentMetrics(deployment);
         save(deployment, true);
         recordEvent(deployment, "START", "SUCCESS", null, principal);
@@ -661,10 +661,13 @@ public class AgentDeploymentService {
             aggregate = anyFailed ? "FAILED" : "STOPPED";
         }
         boolean errorChanged = firstError != null && !firstError.equals(deployment.getLastError());
-        if (changed || !aggregate.equals(deployment.getStatus()) || errorChanged) {
+        boolean staleErrorCleared = firstError == null
+                && deployment.getLastError() != null && !deployment.getLastError().isBlank();
+        if (changed || !aggregate.equals(deployment.getStatus()) || errorChanged || staleErrorCleared) {
             applyReplicaRows(deployment, rows);
             deployment.setStatus(aggregate);
             if (firstError != null) deployment.setLastError(firstError);
+            else deployment.setLastError("");
             publishDeploymentMetrics(deployment);
             save(deployment, true);
         }
