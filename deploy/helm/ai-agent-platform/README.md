@@ -69,7 +69,7 @@ helm upgrade --install ai-agent deploy/helm/ai-agent-platform \
 
 Secret key 名称固定为：
 
-`MYSQL_PASSWORD`、`REDIS_PASSWORD`、`PG_PASSWORD`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、
+首次部署前先在向量库执行 `scripts/vector-role.sh` / `scripts/vector-grants.sh` 创建专用账号；密钥仍使用 `MYSQL_PASSWORD`、`REDIS_PASSWORD`、`PG_PASSWORD`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、
 `JWT_SECRET`、`AES_KEY`、`DEEPSEEK_API_KEY`、`PLATFORM_ADMIN_PASSWORD`、`SMTP_USERNAME`、`SMTP_PASSWORD`。
 
 ### 平台基础设施配置

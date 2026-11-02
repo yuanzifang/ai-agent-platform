@@ -30,7 +30,7 @@ config:
   redisHost: redis.aap-data.svc.cluster.local
   redisPort: "6379"
   pgUrl: jdbc:postgresql://pgvector.aap-data.svc.cluster.local:5432/vector
-  pgUsername: aiagent
+  pgUsername: aap_vector_app
   minioEndpoint: http://minio.aap-data.svc.cluster.local:9000
   ollamaEndpoint: http://192.168.64.1:11434
   embeddingProvider: ollama
