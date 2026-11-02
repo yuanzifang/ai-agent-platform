@@ -301,7 +301,10 @@ public class ChatService {
                             injectionHits.stream().map(ModerationService.Hit::ruleId).toList());
                     continue;
                 }
+                String sourceName = docId == null || docs.get(docId) == null
+                        ? "" : String.valueOf(docs.get(docId).getFileName());
                 context.append("\n").append(RAG_FRAGMENT_SEPARATOR).append("\n")
+                        .append(sourceName.isBlank() ? "" : "[来源文件: " + sourceName + "]\n")
                         .append(neutralizeRetrievalBoundary(String.valueOf(contextText)));
                 Map<String, Object> citation = new LinkedHashMap<>();
                 citation.put("content", hit.get("content"));
