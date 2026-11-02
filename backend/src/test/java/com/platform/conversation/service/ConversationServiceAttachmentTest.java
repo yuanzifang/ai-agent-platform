@@ -48,6 +48,16 @@ class ConversationServiceAttachmentTest {
     }
 
     @Test
+    void rejectsExecutableEvenWhenMimeIsSpoofedAsPdf() {
+        Fixture f = fixture();
+        ConversationService.MultipartFilePart file = new ConversationService.MultipartFilePart(
+                "payload.exe", "application/pdf", new byte[]{1, 2, 3});
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> f.service.saveAttachment(1L, file, principal()));
+        assertEquals(415, error.getCode());
+    }
+
+    @Test
     void allowsKnownFileEvenWhenMimeIsOctetStream() {
         Fixture f = fixture();
         ConversationService.MultipartFilePart file = new ConversationService.MultipartFilePart(
