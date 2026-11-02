@@ -131,7 +131,9 @@ class KnowledgeUpdateParseConfigTest {
                         docMapper, vectorRepository, auditService, permissionService),
                 new com.platform.knowledge.service.KnowledgeSourceHashService(
                         docMapper, storage, permissionService),
-                new com.platform.knowledge.service.KnowledgeUploadPolicy());
+                new com.platform.knowledge.service.KnowledgeUploadPolicy(),
+                new com.platform.knowledge.service.KnowledgeChunkAclService(
+                        chunkMapper, vectorRepository, permissionService, auditService, objectMapper));
 
         kb = new KnowledgeBase();
         kb.setId(161L);

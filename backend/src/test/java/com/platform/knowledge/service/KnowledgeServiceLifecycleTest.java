@@ -134,7 +134,9 @@ class KnowledgeServiceLifecycleTest {
                 new KnowledgeChunkStore(chunkMapper),
                 new KnowledgeDocumentMaintenanceService(docMapper, vectorRepository, auditService, permissionService),
                 new KnowledgeSourceHashService(docMapper, storage, permissionService),
-                new KnowledgeUploadPolicy());
+                new KnowledgeUploadPolicy(),
+                new KnowledgeChunkAclService(chunkMapper, vectorRepository, permissionService,
+                        auditService, objectMapper));
 
         TenantContext.setTenantId(9L);
         kb = new KnowledgeBase();
