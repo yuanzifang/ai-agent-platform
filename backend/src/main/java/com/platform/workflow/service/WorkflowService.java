@@ -1450,7 +1450,8 @@ public class WorkflowService {
         Map<String, Object> definition = parse(run.getDefinition());
         Map<String, Object> node = findNode(definition, run.getCurrentNode());
         String nodeType = node == null ? "" : str(node.getOrDefault("type", "LLM")).toUpperCase();
-        if (!allowSideEffects && Set.of("TOOL", "HANDOFF", "AGENT").contains(nodeType)) {
+        if (!allowSideEffects && (Set.of("TOOL", "HANDOFF", "AGENT").contains(nodeType)
+                || WorkflowSideEffectInspector.nestedMayHaveSideEffects(definition, node))) {
             throw new BusinessException(409, "当前节点可能产生外部副作用，请确认后显式允许恢复");
         }
         int claimed = runMapper.update(null, new LambdaUpdateWrapper<WorkflowRun>()

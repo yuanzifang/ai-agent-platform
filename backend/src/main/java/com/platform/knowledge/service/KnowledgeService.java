@@ -525,16 +525,6 @@ public class KnowledgeService {
         Long tenantId = kb.getTenantId();
         List<KnowledgeDocument> docs = docMapper.selectList(new LambdaQueryWrapper<KnowledgeDocument>()
                 .eq(KnowledgeDocument::getKnowledgeBaseId, id));
-        for (KnowledgeDocument doc : docs) {
-            deleteVectorsQuietly(tenantId, doc.getId());
-            storage.remove(doc.getObjectName());
-            mediaStore.delete(doc);
-        }
-        try {
-            vectorRepository.deleteByKnowledgeBase(tenantId, id);
-        } catch (Exception e) {
-            log.warn("删除知识库向量失败 kb={} err={}（数据库记录继续清理）", id, e.getMessage());
-        }
         graphService.deleteByKnowledgeBase(id);
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getKnowledgeBaseId, id));
@@ -543,6 +533,23 @@ public class KnowledgeService {
                 .eq(KnowledgeDocument::getKnowledgeBaseId, id));
         permissionService.deleteAll(id);
         kbMapper.deleteById(id);
+        // 外部对象/向量不可回滚，必须等 MySQL 事务提交后再删，避免回滚后文档仍在但文件已丢。
+        KnowledgeCleanupSupport.afterCommit(() -> {
+            for (KnowledgeDocument doc : docs) {
+                deleteVectorsQuietly(tenantId, doc.getId());
+                KnowledgeCleanupSupport.removeObjectQuietly(storage, doc.getObjectName());
+                try {
+                    mediaStore.delete(doc);
+                } catch (Exception e) {
+                    log.warn("删除知识库图片失败 doc={} err={}", doc.getId(), e.getMessage());
+                }
+            }
+            try {
+                vectorRepository.deleteByKnowledgeBase(tenantId, id);
+            } catch (Exception e) {
+                log.warn("删除知识库向量失败 kb={} err={}", id, e.getMessage());
+            }
+        });
         auditService.record(viewer.userId(), "kb.delete", "knowledge", String.valueOf(id), "SUCCESS",
                 Map.of("name", kb.getName(), "documents", docs.size(), "forced", force));
         log.info("知识库已删除：id={} docs={} forced={}", id, docs.size(), force);
@@ -556,18 +563,20 @@ public class KnowledgeService {
         if (doc == null || !Objects.equals(doc.getKnowledgeBaseId(), kbId)) {
             throw new BusinessException(404, "文档不存在");
         }
-        deleteVectorsQuietly(kb.getTenantId(), docId);
-        storage.remove(doc.getObjectName());
-        mediaStore.delete(doc);
-        try {
-            graphService.deleteByDocument(kbId, docId);
-        } catch (Exception e) {
-            log.warn("重试前清理文档图谱失败（继续重试）doc={} err={}", docId, e.getMessage());
-        }
+        graphService.deleteByDocument(kbId, docId);
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getDocumentId, docId));
         deleteParentsQuietly(docId);
         docMapper.deleteById(docId);
+        KnowledgeCleanupSupport.afterCommit(() -> {
+            deleteVectorsQuietly(kb.getTenantId(), docId);
+            KnowledgeCleanupSupport.removeObjectQuietly(storage, doc.getObjectName());
+            try {
+                mediaStore.delete(doc);
+            } catch (Exception e) {
+                log.warn("删除文档图片失败 doc={} err={}", docId, e.getMessage());
+            }
+        });
         auditService.record(viewer.userId(), "kb.document.delete", "knowledge_document",
                 String.valueOf(docId), "SUCCESS", Map.of("kbId", kbId, "fileName", doc.getFileName()));
         log.info("文档已删除：kb={} doc={} file={}", kbId, docId, doc.getFileName());
