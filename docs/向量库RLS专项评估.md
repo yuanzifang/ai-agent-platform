@@ -32,7 +32,7 @@
 
 - **观察项（低风险，不改）**：`SET hnsw.iterative_scan` 为会话级设置、连接池复用时残留——该 GUC 无租户维度、幂等重设，良性。
 - **生产部署 checklist（非 RLS）**：
-  1. 向量库使用**专用非超级用户**（如 Compose 的 `aiagent`），并按 `tenant_*` Schema 模式做 GRANT 收敛（`GRANT USAGE ON SCHEMA tenant_*` + 表级 DML 权限），使运维误操作/其他应用连接也摸不到全量向量；
+  1. 向量库使用**专用非超级用户**（当前已落地 `aap_vector_app`），并按 `tenant_*` Schema 模式做 GRANT 收敛（`GRANT USAGE ON SCHEMA tenant_*` + 表级 DML 权限），使运维误操作/其他应用连接也摸不到全量向量；
   2. pgvector/PG 版本升级时回归 `VectorIsolationIT`；
   3. 若未来架构改回单表多租户混居（如做全局检索），**届时**再评估 RLS（该模型下 RLS 才有附着点）。
 
@@ -52,3 +52,18 @@
 PGHOST=pgvector PGPORT=5432 PGDATABASE=vector PGUSER=postgres \
 APP_DB_ROLE=aap_vector_app scripts/vector-grants.sh
 ```
+
+
+## 七、生产专用账号执行结果（2026-11-02）
+
+- 角色：`aap_vector_app`，`NOSUPERUSER / NOCREATEDB / NOCREATEROLE / NOBYPASSRLS`，拥有 `vector` 库 CONNECT/CREATE。
+- `tenant_1` Schema、表、序列所有权已转交 `aap_vector_app`，并完成 USAGE/CREATE 和 DML GRANT。
+- 应用 `PG_USERNAME` 已切换到 `aap_vector_app`，通过知识库上传→解析→向量写入→检索 E2E。
+- 新租户 Schema 的 CREATE TABLE / CREATE INDEX / DROP 已验证。
+- 重复执行入口：
+  ```bash
+  APP_DB_ROLE=aap_vector_app scripts/vector-role.sh
+  APP_DB_ROLE=aap_vector_app scripts/vector-grants.sh
+  # 确认后分别加 --apply
+  ```
+- RLS 仍不启用：当前 schema-per-tenant 没有附着点，且表 owner 会绕过 RLS；专用账号 + Schema/对象权限是实际有效的收敛手段。

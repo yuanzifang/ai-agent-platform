@@ -122,7 +122,8 @@ config:
   redisHost: redis
   redisPort: "6379"
   pgUrl: jdbc:postgresql://pgvector:5432/vector
-  pgUsername: aiagent
+  # 生产需先执行 scripts/vector-role.sh 创建专用角色
+  pgUsername: aap_vector_app
   minioEndpoint: http://minio:9000
   ollamaEndpoint: http://ollama:11434
   # 聊天图片识别：使用 Ollama 视觉模型；生产可指向独立视觉服务
