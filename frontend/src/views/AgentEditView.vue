@@ -1188,6 +1188,16 @@
       </template>
     </el-dialog>
 
+    <!-- 复制失败兜底：自动选中文本，用户可 Ctrl/Cmd+C，避免只能看到“复制失败”提示 -->
+    <el-dialog v-model="manualCopyVisible" :title="t('agentDlg.manualCopyTitle')" width="560px"
+               class="manual-copy-dialog" append-to-body>
+      <div class="hint mb8">{{ t('agentDlg.manualCopyHint') }}</div>
+      <el-input ref="manualCopyInput" v-model="manualCopyText" type="textarea" :rows="4" readonly />
+      <template #footer>
+        <el-button type="primary" @click="manualCopyVisible = false">{{ t('deploy.close') }}</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 容器部署 -->
     <el-dialog v-model="deployVisible" :title="t('deploy.title')" width="760px">
       <el-alert v-if="form.status !== 'PUBLISHED'" type="warning" :closable="false"
@@ -1406,6 +1416,9 @@ const publishInfoLoading = ref(false)
 const testLinkCreating = ref(false)
 const testWidgetUrl = ref('')
 const testWidgetIframe = ref('')
+const manualCopyVisible = ref(false)
+const manualCopyText = ref('')
+const manualCopyInput = ref<any>(null)
 const isClusterEndpoint = computed(() => String(deployment.value?.endpoint || '').includes('.svc.cluster.local'))
 const deploying = ref(false)
 const deployLogsVisible = ref(false)
@@ -2035,13 +2048,38 @@ async function createWidgetKey() {
       name: t('agentMsg.widgetName'), channel: 'WIDGET', dailyLimit: 0, minuteLimit: 60
     }) as any
     widgetKey.value = res.apiKey
-    const src = `${location.origin}/widget?key=${encodeURIComponent(res.apiKey)}`
+    const src = `${secureWidgetOrigin()}/widget?key=${encodeURIComponent(res.apiKey)}`
     widgetSnippet.value = `<iframe src="${src}" :title="t('widget.defaultName')" style="width:100%;height:640px;border:0;border-radius:12px"></iframe>`
     ElMessage.success(t('agentDlg.widgetGenerated'))
     await loadApiKeys()
   } finally {
     widgetCreating.value = false
   }
+}
+
+/**
+ * 内网 HTTP 页面不是 secure context，麦克风会被浏览器拒绝。
+ * 本地 UTM 部署使用 app.<ip-with-dashes>.sslip.io 的 HTTPS 别名；
+ * 生产域名/已 HTTPS 页面保持当前 origin。
+ */
+function secureWidgetOrigin(): string {
+  if (window.isSecureContext) return window.location.origin
+  const host = window.location.hostname
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+    return `https://aap.${host.replace(/\./g, '-')}.sslip.io`
+  }
+  return window.location.origin
+}
+
+function openManualCopy(text: string) {
+  manualCopyText.value = text
+  manualCopyVisible.value = true
+  nextTick(() => {
+    const el = (manualCopyInput.value?.textarea
+      || document.querySelector('.manual-copy-dialog textarea')) as HTMLTextAreaElement | null
+    el?.focus()
+    el?.select()
+  })
 }
 
 function legacyCopy(text: string): boolean {
@@ -2082,6 +2120,7 @@ async function copyText(text: string) {
       // fall through
     }
     ElMessage.warning(t('agentDlg.copyFailManual'))
+    openManualCopy(text)
   }
 }
 
@@ -2129,7 +2168,7 @@ async function createTestLink() {
       dailyLimit: 0,
       minuteLimit: 60
     }) as any
-    const url = `${location.origin}/widget?key=${encodeURIComponent(res.apiKey)}`
+    const url = `${secureWidgetOrigin()}/widget?key=${encodeURIComponent(res.apiKey)}`
     testWidgetUrl.value = url
     testWidgetIframe.value = `<iframe src="${url}" style="width:100%;height:640px;border:0;border-radius:12px" title="Agent test"></iframe>`
     await loadApiKeys()
@@ -2351,25 +2390,17 @@ async function rotateDeployToken() {
 }
 
 async function copyWidget() {
-  try {
-    await navigator.clipboard.writeText(widgetSnippet.value)
-    ElMessage.success(t('agentDlg.copiedSnippet'))
-  } catch {
-    ElMessage.warning(t('agentDlg.copyFailManual'))
-  }
+  await copyText(widgetSnippet.value)
 }
 
 function previewWidget() {
-  if (widgetKey.value) window.open(`/widget?key=${encodeURIComponent(widgetKey.value)}`, '_blank')
+  if (widgetKey.value) {
+    window.open(`${secureWidgetOrigin()}/widget?key=${encodeURIComponent(widgetKey.value)}`, '_blank')
+  }
 }
 
 async function copyKey() {
-  try {
-    await navigator.clipboard.writeText(createdKey.value)
-    ElMessage.success(t('agentDlg.copied'))
-  } catch {
-    ElMessage.warning(t('agentDlg.copyFailManual'))
-  }
+  await copyText(createdKey.value)
 }
 
 async function toggleKey(row: any) {

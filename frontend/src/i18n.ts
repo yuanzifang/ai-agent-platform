@@ -583,7 +583,12 @@ const messages = {
       send: '发送', missingKey: '缺少挂件 Key，请在 Agent 集成中生成网页挂件链接。', loadFail: '加载失败',
       greetingPrefix: '你好，我是', greetingSuffix: '，有什么可以帮你？', invalidConfig: '挂件配置无效',
       requestFail: '请求失败（HTTP ', generateFail: '生成失败', replyFailPrefix: '抱歉，暂时无法回复：',
-      serviceError: '服务异常'
+      serviceError: '服务异常', attach: '上传图片', voice: '语音输入', stopRecord: '停止录音',
+      recording: '正在录音…', transcribing: '正在转写…', micSecure: '语音需要 HTTPS 安全页面；请使用 HTTPS 测试地址',
+      micUnsupported: '当前浏览器不支持录音', micDenied: '无法访问麦克风，请检查浏览器权限',
+      speechDone: '语音已转文字', speechEmpty: '没有识别到语音内容',
+      voiceFail: '语音转写失败：', uploadFail: '图片上传失败：', attachmentUploaded: '附件已上传',
+      attachmentTooLarge: '附件不能超过 12MB', remove: '移除', imagePrompt: '请识别并分析这张图片。'
     },
     sharePage: {
       agent: 'Agent：', readonly: ' · 只读分享 · 失效时间 ', aiGenerated: 'AI 生成', noMessages: '会话暂无消息',
@@ -891,7 +896,8 @@ const messages = {
       keyNameLabel: '名称', keyChannelLabel: '调用渠道', widgetChannel: '网页挂件', thirdParty: '第三方集成',
       dailyLimit: '日调用上限', minuteLimit: '分钟上限', zeroUnlimited: '0 = 不限制',
       keyNameRequired: '名称必填', widgetName: '网页挂件', widgetGenerated: '网页挂件已生成，请复制嵌入代码',
-      copied: '已复制', copyFailManual: '复制失败，请手动选择', copiedSnippet: '已复制嵌入代码',
+      copied: '已复制', copyFailManual: '复制失败，已打开手动复制窗口', copiedSnippet: '已复制嵌入代码',
+      manualCopyTitle: '手动复制', manualCopyHint: '内容已自动选中；请按 Ctrl/Cmd+C 复制，或右键选择“复制”。',
       copiedKey: '已复制', deleteKeyPrefix: '删除 API Key「', deleteKeyMid: '」？删除后使用该 Key 的调用将立即失败。',
       deleteKeyTitle: '删除 API Key',
       optimizeTitle: 'AI 优化提示词', optimizeHint: '保留双花括号变量与业务意图；优化结果需手动应用，不会自动保存。',
@@ -1645,7 +1651,12 @@ const messages = {
       send: 'Send', missingKey: 'Missing widget key; generate a web widget link in Agent integrations.', loadFail: 'Failed to load',
       greetingPrefix: "Hi, I'm ", greetingSuffix: '. How can I help?', invalidConfig: 'Invalid widget configuration',
       requestFail: 'Request failed (HTTP ', generateFail: 'Generation failed', replyFailPrefix: 'Sorry, unable to reply: ',
-      serviceError: 'Service error'
+      serviceError: 'Service error', attach: 'Upload image', voice: 'Voice input', stopRecord: 'Stop recording',
+      recording: 'Recording…', transcribing: 'Transcribing…', micSecure: 'Voice requires an HTTPS page; use the HTTPS test URL',
+      micUnsupported: 'This browser does not support recording', micDenied: 'Cannot access the microphone; check browser permissions',
+      speechDone: 'Speech transcribed', speechEmpty: 'No speech recognized',
+      voiceFail: 'Speech transcription failed: ', uploadFail: 'Image upload failed: ', attachmentUploaded: 'Attachment uploaded',
+      attachmentTooLarge: 'Attachment must be 12MB or less', remove: 'Remove', imagePrompt: 'Identify and analyze this image.'
     },
     sharePage: {
       agent: 'Agent: ', readonly: ' · Read-only share · Expires ', aiGenerated: 'AI generated', noMessages: 'No messages in this conversation',
@@ -1955,7 +1966,8 @@ const messages = {
       keyNameLabel: 'Name', keyChannelLabel: 'Channel', widgetChannel: 'Web widget', thirdParty: 'Third-party',
       dailyLimit: 'Daily limit', minuteLimit: 'Minute limit', zeroUnlimited: '0 = unlimited',
       keyNameRequired: 'Name is required', widgetName: 'Web widget', widgetGenerated: 'Widget created; copy the embed code',
-      copied: 'Copied', copyFailManual: 'Copy failed; select manually', copiedSnippet: 'Embed code copied',
+      copied: 'Copied', copyFailManual: 'Copy failed; manual copy window opened', copiedSnippet: 'Embed code copied',
+      manualCopyTitle: 'Manual copy', manualCopyHint: 'The text is selected automatically. Press Ctrl/Cmd+C, or right-click and choose Copy.',
       copiedKey: 'Copied', deleteKeyPrefix: 'Delete API Key "', deleteKeyMid: '"? Calls using it will fail immediately.',
       deleteKeyTitle: 'Delete API Key',
       optimizeTitle: 'AI optimize prompt', optimizeHint: 'Keeps variables and intent; apply manually, not saved automatically.',

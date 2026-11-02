@@ -19,18 +19,44 @@
       </div>
     </main>
 
-    <footer class="w-foot">
-      <textarea v-model="input" rows="1" :placeholder="t('widget.inputPh')"
-                :disabled="!!fatal" @keydown.enter.exact.prevent="send" />
-      <el-button type="primary" :loading="sending" :disabled="!!fatal || !input.trim()" @click="send">{{ t('widget.send') }}</el-button>
+    <footer class="w-foot-wrap">
+      <div v-if="attachments.length" class="w-attachments">
+        <span v-for="(a, i) in attachments" :key="a.attachmentId" class="w-attach">
+          <img v-if="a.previewUrl" :src="a.previewUrl" alt="" />
+          <span>{{ a.fileName }}</span>
+          <button type="button" class="w-remove" :title="t('widget.remove')" @click="removeAttachment(i)">×</button>
+        </span>
+      </div>
+      <div v-if="recording || transcribing" class="w-recording">
+        <span class="w-pulse" />
+        {{ transcribing ? t('widget.transcribing') : t('widget.recording') }}
+      </div>
+      <div v-if="notice" class="w-notice">{{ notice }}</div>
+      <div class="w-foot">
+        <button type="button" class="w-tool" :class="{ danger: recording }"
+                :title="recording ? t('widget.stopRecord') : t('widget.voice')"
+                :disabled="!!fatal || sending || transcribing" @click="toggleRecord">
+          <el-icon><Microphone /></el-icon>
+        </button>
+        <label class="w-tool" :title="t('widget.attach')">
+          <el-icon><Paperclip /></el-icon>
+          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden
+                 :disabled="!!fatal || sending || uploading" @change="uploadFile" />
+        </label>
+        <textarea v-model="input" rows="1" :placeholder="t('widget.inputPh')"
+                  :disabled="!!fatal" @keydown.enter.exact.prevent="send" />
+        <el-button type="primary" :loading="sending" :disabled="!!fatal || (!input.trim() && !attachments.length)"
+                   @click="send">{{ t('widget.send') }}</el-button>
+      </div>
     </footer>
   </div>
 </template>
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { nextTick, onMounted, reactive, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { Microphone, Paperclip } from '@element-plus/icons-vue'
 
 const { t } = useI18n()
 
@@ -43,6 +69,21 @@ const sending = ref(false)
 const fatal = ref('')
 const listEl = ref<HTMLElement>()
 const sessionId = ref('')
+const attachments = ref<{ attachmentId: number; fileName: string; previewUrl?: string }[]>([])
+const uploading = ref(false)
+const recording = ref(false)
+const transcribing = ref(false)
+const notice = ref('')
+let recorder: MediaRecorder | null = null
+let audioChunks: Blob[] = []
+let mediaStream: MediaStream | null = null
+let noticeTimer: ReturnType<typeof setTimeout> | null = null
+
+function flash(message: string) {
+  notice.value = message
+  if (noticeTimer) clearTimeout(noticeTimer)
+  noticeTimer = setTimeout(() => { notice.value = '' }, 5000)
+}
 
 function newSession() {
   const id = (crypto as any).randomUUID
@@ -65,10 +106,116 @@ async function loadInfo() {
   }
 }
 
+async function uploadFile(event: Event) {
+  const inputEl = event.target as HTMLInputElement
+  const file = inputEl.files?.[0]
+  inputEl.value = ''
+  if (!file) return
+  if (file.size > 12 * 1024 * 1024) {
+    flash(t('widget.attachmentTooLarge'))
+    return
+  }
+  uploading.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('session_id', sessionId.value)
+    const res = await fetch('/api/v1/open/attachments', {
+      method: 'POST', headers: { 'X-Api-Key': key }, body: fd
+    })
+    const body = await res.json()
+    if (!res.ok || body.code !== 0) throw new Error(body.message || t('widget.uploadFail'))
+    const data = body.data || {}
+    attachments.value.push({
+      attachmentId: data.attachmentId,
+      fileName: data.fileName || file.name,
+      previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined
+    })
+    flash(t('widget.attachmentUploaded'))
+  } catch (e: any) {
+    flash(`${t('widget.uploadFail')}${e.message || ''}`)
+  } finally {
+    uploading.value = false
+  }
+}
+
+function removeAttachment(index: number) {
+  const item = attachments.value[index]
+  if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl)
+  attachments.value.splice(index, 1)
+}
+
+async function toggleRecord() {
+  if (transcribing.value || sending.value) return
+  if (recording.value) {
+    stopRecording()
+    return
+  }
+  if (!window.isSecureContext) {
+    flash(t('widget.micSecure'))
+    return
+  }
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    flash(t('widget.micUnsupported'))
+    return
+  }
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : ''
+    recorder = mime ? new MediaRecorder(mediaStream, { mimeType: mime }) : new MediaRecorder(mediaStream)
+    audioChunks = []
+    recorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data) }
+    recorder.onstop = () => {
+      mediaStream?.getTracks().forEach(track => track.stop())
+      mediaStream = null
+      if (audioChunks.length) void transcribe(new Blob(audioChunks, { type: recorder?.mimeType || 'audio/webm' }))
+    }
+    recorder.start()
+    recording.value = true
+  } catch {
+    mediaStream?.getTracks().forEach(track => track.stop())
+    mediaStream = null
+    flash(t('widget.micDenied'))
+  }
+}
+
+function stopRecording() {
+  if (!recording.value) return
+  recording.value = false
+  try { recorder?.stop() } catch { /* ignore */ }
+}
+
+async function transcribe(blob: Blob) {
+  if (!blob.size) return
+  transcribing.value = true
+  try {
+    const fd = new FormData()
+    fd.append('audio', blob, 'speech.webm')
+    const res = await fetch('/api/v1/open/asr/transcribe', {
+      method: 'POST', headers: { 'X-Api-Key': key }, body: fd
+    })
+    const body = await res.json()
+    if (!res.ok || body.code !== 0) throw new Error(body.message || t('widget.voiceFail'))
+    const text = String(body.data?.text || '').trim()
+    if (text) {
+      input.value = (input.value ? input.value + ' ' : '') + text
+      flash(t('widget.speechDone'))
+    } else {
+      flash(t('widget.speechEmpty'))
+    }
+  } catch (e: any) {
+    flash(`${t('widget.voiceFail')}${e.message || ''}`)
+  } finally {
+    transcribing.value = false
+  }
+}
+
 async function send() {
-  const text = input.value.trim()
+  const text = input.value.trim() || (attachments.value.length ? t('widget.imagePrompt') : '')
   if (!text || sending.value || fatal.value) return
+  const attachmentIds = attachments.value.map(a => a.attachmentId)
   input.value = ''
+  attachments.value = []
   messages.value.push({ role: 'user', content: text })
   const index = messages.value.length
   messages.value.push({ role: 'assistant', content: '' })
@@ -81,6 +228,7 @@ async function send() {
       body: JSON.stringify({
         stream: true,
         session_id: sessionId.value,
+        attachmentIds,
         messages: [{ role: 'user', content: text }]
       })
     })
@@ -126,6 +274,9 @@ async function scrollBottom() {
 }
 
 function reset() {
+  stopRecording()
+  attachments.value.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
+  attachments.value = []
   newSession()
   messages.value = [{ role: 'assistant', content: info.openingStatement || `${t('widget.greetingPrefix')}${info.name || t('widget.defaultName')}${t('widget.greetingSuffix')}` }]
   input.value = ''
@@ -135,7 +286,14 @@ onMounted(() => {
   const saved = localStorage.getItem(`widget_session_${key.slice(-12)}`)
   if (saved) sessionId.value = saved
   else newSession()
-  loadInfo()
+  void loadInfo()
+})
+
+onBeforeUnmount(() => {
+  stopRecording()
+  mediaStream?.getTracks().forEach(track => track.stop())
+  attachments.value.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
+  if (noticeTimer) clearTimeout(noticeTimer)
 })
 </script>
 
@@ -156,8 +314,28 @@ onMounted(() => {
 .w-row.assistant .w-bubble { border-bottom-left-radius: 3px; }
 .cursor { color: #2563eb; animation: blink 1s infinite; }
 @keyframes blink { 50% { opacity: 0; } }
-.w-foot { display: flex; gap: 8px; padding: 10px; background: #fff; border-top: 1px solid #e5e7eb; align-items: flex-end; }
+.w-foot-wrap { background: #fff; border-top: 1px solid #e5e7eb; }
+.w-attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 0; }
+.w-attach { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; padding: 3px 6px; border: 1px solid #dbeafe; border-radius: 6px; color: #1d4ed8; font-size: 12px; overflow: hidden; }
+.w-attach img { width: 24px; height: 24px; border-radius: 4px; object-fit: cover; }
+.w-attach span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.w-remove { border: 0; background: transparent; color: #6b7280; cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; }
+.w-recording { display: flex; align-items: center; gap: 7px; padding: 7px 12px 0; color: #dc2626; font-size: 12px; }
+.w-pulse { width: 7px; height: 7px; border-radius: 50%; background: #ef4444; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+.w-notice { padding: 6px 12px 0; color: #b45309; font-size: 12px; }
+.w-foot { display: flex; gap: 8px; padding: 10px; align-items: flex-end; }
+.w-tool { width: 34px; height: 34px; flex: 0 0 34px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; color: #4b5563; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.w-tool:hover { border-color: #2563eb; color: #2563eb; }
+.w-tool.danger { border-color: #ef4444; color: #ef4444; }
+.w-tool:disabled { opacity: .45; cursor: not-allowed; }
 .w-foot textarea { flex: 1; resize: none; border: 1px solid #d1d5db; border-radius: 8px; padding: 9px 10px; font-size: 14px; line-height: 1.4; max-height: 110px; outline: none; }
 .w-foot textarea:focus { border-color: #2563eb; }
 .w-error { margin: 20px; padding: 12px; border-radius: 8px; background: #fef2f2; color: #b91c1c; font-size: 13px; }
+@media (max-width: 480px) {
+  .w-head { padding: 9px 10px; }
+  .w-body { padding: 12px 10px; }
+  .w-foot { gap: 5px; padding: 8px; }
+  .w-tool { width: 31px; height: 31px; flex-basis: 31px; }
+}
 </style>
