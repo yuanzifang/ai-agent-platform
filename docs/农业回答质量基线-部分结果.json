@@ -1,0 +1,130 @@
+{
+  "dataset": "农业回答质量金标准-60题",
+  "datasetId": 93,
+  "baselineTask": 1463,
+  "completed": 19,
+  "total": 60,
+  "avgScore": 0.6842,
+  "passRateAt0.6": 1.0,
+  "status": "PARTIAL_INTERRUPTED_BY_DEPLOY",
+  "observations": [
+    "多数样本在0.6阈值下通过，但裁判理由指出过于详细、未先追问、跨病害信息等问题。",
+    "阈值0.6偏低，建议正式基线提高到0.75并人工校准裁判。"
+  ],
+  "results": [
+    {
+      "question": "水稻纹枯病怎么防治？",
+      "score": 0.7,
+      "passed": true,
+      "judgeReason": "回答包含了关键防治期和登记药剂，但内容较为详细，偏离期望简洁明了的答案"
+    },
+    {
+      "question": "水稻稻瘟病怎么防治？",
+      "score": 0.6,
+      "passed": true,
+      "judgeReason": "回答内容详细但未明确指出关键期使用登记药剂，且涉及纹枯病等其他病害的措施。"
+    },
+    {
+      "question": "水稻稻飞虱怎么防治？",
+      "score": 0.7,
+      "passed": true,
+      "judgeReason": "回答内容覆盖了防治建议，但部分信息与评分标准不符，如种子处理和拌种并非防治稻飞虱的方法。"
+    },
+    {
+      "question": "水稻叶片发黄是什么原因？",
+      "score": 0.8,
+      "passed": true,
+      "judgeReason": "回答详细列出了多种可能原因，但未先要求补充分布/部位/根系等信息。"
+    },
+    {
+      "question": "水稻高温热害怎么防范？",
+      "score": 0.6,
+      "passed": true,
+      "judgeReason": "提及抽穗扬花期和灌水、叶面肥，但内容过于详细，未完全紧扣评分标准。"
+    },
+    {
+      "question": "水稻洪涝后怎么恢复？",
+      "score": 0.8,
+      "passed": true,
+      "judgeReason": "回答完整包含了排水、复壮、补施肥料和病虫害防控四项重点。"
+    },
+    {
+      "question": "水稻纹枯病和稻瘟病怎么区分？",
+      "score": 0.7,
+      "passed": true,
+      "judgeReason": "基本区分了两种病害的症状和防治要点，但未明确指出病斑部位和形态差异。"
+    },
+    {
+      "question": "水稻科学施肥要点是什么？",
+      "score": 0.6,
+      "passed": true,
+      "judgeReason": "包含合理施用有机肥与化肥和调整氮磷钾比例，但与期望答案不符。"
+    },
+    {
+      "question": "小麦条锈病怎么防治？",
+      "score": 0.6,
+      "passed": true,
+      "judgeReason": "回答未完全点明“发现一点防治一片”，提及了赤霉病信息，具体农药剂量不准确。"
+    },
+    {
+      "question": "小麦赤霉病怎么防治？",
+      "score": 0.6,
+      "passed": true,
+      "judgeReason": "提及抽穗扬花期预防，但信息过多未紧扣关键点，且有额外农业措施外延。"
+    },
+    {
+      "question": "小麦蚜虫怎么防治？",
+      "score": 0.7,
+      "passed": true,
+      "judgeReason": "回答提到了生物和化学防治方法，且正确推荐了吡虫啉，但未明确指出需轮换和安全间隔期，信息不够全面。"
+    },
+    {
+      "question": "小麦叶片发黄、长势弱怎么办？",
+      "score": 0.6,
+      "passed": true,
+      "judgeReason": "部分采纳但未强调查分布和根系，未并列缺氮/渍害/冻害/根病/药害。"
+    },
+    {
+      "question": "小麦冬前管理要点有哪些？",
+      "score": 0.7,
+      "passed": true,
+      "judgeReason": "基本涵盖了查苗补种、镇压、浇水、防冻以及病虫害防控，但部分措辞不够直接。"
+    },
+    {
+      "question": "小麦倒伏后怎么处理？",
+      "score": 0.7,
+      "passed": true,
+      "judgeReason": "回答中提到了不盲目扶麦，叶面喷磷酸二氢钾，以及防病措施，但额外加入了其他详细内容，导致与期望答案略有偏离。"
+    },
+    {
+      "question": "小麦赤霉病和条锈病怎么区分？",
+      "score": 0.8,
+      "passed": true,
+      "judgeReason": "能区分穗部症状和叶片条状孢子堆，但防治建议略冗余"
+    },
+    {
+      "question": "小麦除草剂药害怎么办？",
+      "score": 0.8,
+      "passed": true,
+      "judgeReason": "答案包含清除杂草、灌溉、叶面肥和管理建议，但未完全符合停用除草剂和评估补种要求。"
+    },
+    {
+      "question": "玉米南方锈病怎么防治？",
+      "score": 0.6,
+      "passed": true,
+      "judgeReason": "部分提到登记杀菌剂但未明确具体名称，缺少轮换使用建议"
+    },
+    {
+      "question": "玉米草地贪夜蛾怎么防治？",
+      "score": 0.7,
+      "passed": true,
+      "judgeReason": "回答提到低龄幼虫和防治时间，但未强调心叶施药，推荐了杀菌剂。"
+    },
+    {
+      "question": "玉米螟怎么防治？",
+      "score": 0.7,
+      "passed": true,
+      "judgeReason": "包含农业/物理/生物防治，但缺少心叶期化学防治具体药剂推荐。"
+    }
+  ]
+}
