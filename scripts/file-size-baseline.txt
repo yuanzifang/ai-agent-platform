@@ -1,0 +1,10 @@
+# 现有超过 1500 行的文件冻结基线；只允许缩小，不允许继续增长。
+# 拆分到 <=1500 行后请从本文件删除对应行。
+1997 backend/src/main/java/com/platform/knowledge/service/KnowledgeService.java
+1988 backend/src/main/java/com/platform/workflow/service/WorkflowService.java
+1964 backend/src/main/java/com/platform/knowledge/service/DocumentParser.java
+1964 backend/src/main/java/com/platform/knowledge/service/KnowledgeGraphService.java
+1924 backend/src/test/java/com/platform/knowledge/service/DocumentParserPdfOcrTest.java
+1636 frontend/src/views/AgentEditView.vue
+1581 frontend/src/views/KnowledgeDetailView.vue
+1578 backend/src/main/java/com/platform/capability/runtime/ToolRuntimeService.java
