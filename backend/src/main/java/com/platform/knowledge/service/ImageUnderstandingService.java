@@ -127,15 +127,33 @@ public class ImageUnderstandingService {
         boolean effEnabled = overrides != null ? overrides.visionEnabled() : enabled;
         String effModel = overrides != null && overrides.visionModel() != null && !overrides.visionModel().isBlank()
                 ? overrides.visionModel() : model;
-        if (!effEnabled || data == null || data.length == 0) return "";
+        if (!effEnabled) return "";
+        return describeInternal(data, effModel, "请先判断图片类型：只有明显存在坐标轴、图例或数据系列时才归为图表；"
+                + "风景、人物、物体、纯图形归为照片/插图；以文字/表格为主的页面归为扫描文档。"
+                + "图表：提取标题、坐标轴、图例、系列、数据点或趋势；"
+                + "照片/插图：描述场景、主要对象、人物/物体和可见文字；"
+                + "扫描文档：提取标题、表格和关键字段。用中文回答，不超过300字。");
+    }
+
+    /**
+     * 聊天图片识别：面向农业咨询，识别作物/器官、病虫害症状、杂草或农资包装，
+     * 输出可供文本模型参考的描述。未启用或失败时返回空串，不阻断对话。
+     */
+    public String describeForChat(byte[] data, String extension) {
+        if (!enabled) return "";
+        return describeInternal(data, model, "你是农业植物保护与作物栽培专家。请识别图片中的作物或器官，"
+                + "描述可见的病斑、害虫、杂草、农资包装或田间场景；判断最可能的病虫害/问题"
+                + "（最多3个，并区分较确定与推测），说明判断依据。若图片是农资包装，请读出名称、"
+                + "有效成分和登记作物（看不清就说明看不清）。用中文回答，不超过600字，"
+                + "不要编造图片中不可见的信息，也不要给出具体农药用量。");
+    }
+
+    private String describeInternal(byte[] data, String effModel, String prompt) {
+        if (data == null || data.length == 0) return "";
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("model", effModel);
-            body.put("prompt", "请先判断图片类型：只有明显存在坐标轴、图例或数据系列时才归为图表；"
-                    + "风景、人物、物体、纯图形归为照片/插图；以文字/表格为主的页面归为扫描文档。"
-                    + "图表：提取标题、坐标轴、图例、系列、数据点或趋势；"
-                    + "照片/插图：描述场景、主要对象、人物/物体和可见文字；"
-                    + "扫描文档：提取标题、表格和关键字段。用中文回答，不超过300字。");
+            body.put("prompt", prompt);
             body.put("images", List.of(Base64.getEncoder().encodeToString(data)));
             body.put("stream", false);
             body.put("options", Map.of("temperature", 0.1));
@@ -156,7 +174,7 @@ public class ImageUnderstandingService {
             JsonNode node = objectMapper.readTree(response.body());
             String text = node.path("response").asText("").trim();
             if (text.length() > 800) text = text.substring(0, 800);
-            log.info("图片多模态理解完成：model={} bytes={} descLength={}", model, data.length, text.length());
+            log.info("图片多模态理解完成：model={} bytes={} descLength={}", effModel, data.length, text.length());
             return text;
         } catch (Exception e) {
             log.warn("图片多模态理解异常（忽略）：{}", e.getMessage());
