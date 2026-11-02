@@ -694,3 +694,39 @@ test('Agent 必填校验与配置重新读取', async ({ request }) => {
     await deleteAgent(request, token!, agentId)
   }
 })
+
+test('私有 Agent 授权与撤销实时生效', async ({ request }) => {
+  const owner = await login(request, 'dev', 'Dev@123456', 'dev')
+  const memberLogin = await (await request.post(`${P}/auth/login`, {
+    data: { username: 'zhangsan', password: 'Member@123', tenantKey: 'dev' }
+  })).json()
+  expect(memberLogin.code, JSON.stringify(memberLogin)).toBe(0)
+  const member = memberLogin.data.accessToken as string
+  const memberId = Number(memberLogin.data.user.id)
+  const name = `E2E权限实时-${Date.now()}`
+  const agentId = await createAgent(request, owner!, name)
+  const visibleToMember = async () => {
+    const list = await (await request.get(`${P}/agent`, {
+      headers: auth(member), params: { keyword: name, pageSize: 50 }
+    })).json()
+    expect(list.code, JSON.stringify(list)).toBe(0)
+    return (list.data.list || []).some((row: any) => Number(row.id) === agentId)
+  }
+  try {
+    expect(await visibleToMember(), '未授权时私有 Agent 不应出现').toBe(false)
+
+    const grant = await (await request.put(`${P}/agent/${agentId}/grants`, {
+      headers: auth(owner!), data: { userIds: [memberId] }
+    })).json()
+    expect(grant.code, JSON.stringify(grant)).toBe(0)
+    expect(await visibleToMember(), '授权后应立即可见').toBe(true)
+
+    const revoke = await (await request.put(`${P}/agent/${agentId}/grants`, {
+      headers: auth(owner!), data: { userIds: [] }
+    })).json()
+    expect(revoke.code, JSON.stringify(revoke)).toBe(0)
+    expect(await visibleToMember(), '撤销后应立即不可见').toBe(false)
+  } finally {
+    await deleteAgent(request, owner!, agentId)
+  }
+})
