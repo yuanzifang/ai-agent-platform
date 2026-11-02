@@ -3,7 +3,6 @@ import { test, expect, type Page } from '@playwright/test'
 const USER = process.env.E2E_USER || 'dev'
 const PASSWORD = process.env.E2E_PASSWORD || 'Dev@123456'
 const AGENT_ID = 1
-const GATE_UI_QUARANTINED = process.env.E2E_GATE_QUARANTINE === '1'
 
 async function login(page: Page) {
   await page.goto('/login')
@@ -16,8 +15,17 @@ async function login(page: Page) {
     { timeout: 20_000 })
 }
 
+async function continuePublishChecklist(page: Page) {
+  const checklist = page.getByRole('dialog', { name: '发布前配置检查' })
+  try {
+    await checklist.waitFor({ state: 'visible', timeout: 1_500 })
+    await checklist.getByRole('button', { name: '仍要发布' }).click()
+  } catch {
+    // 配置完整时不会出现检查弹窗
+  }
+}
+
 test('发布弹窗：门禁失败直接展示失败步骤与样本明细', async ({ page }) => {
-  test.skip(GATE_UI_QUARANTINED, '网关门禁 UI 用例已隔离，由独立任务修复')
   await login(page)
   await page.route(`**/api/v1/agent/${AGENT_ID}**`, async (route) => {
     const path = new URL(route.request().url()).pathname
@@ -63,12 +71,8 @@ test('发布弹窗：门禁失败直接展示失败步骤与样本明细', async
   await page.goto(`/agent/edit/${AGENT_ID}`)
   await expect(page.locator('.topbar')).toContainText('Agent')
 
-  // 发布前配置检查可能弹出；有则确认继续。
   await page.locator('.topbar .actions').getByRole('button', { name: '发布', exact: true }).click()
-  const checklist = page.getByRole('dialog', { name: '发布前配置检查' })
-  if (await checklist.isVisible().catch(() => false)) {
-    await checklist.getByRole('button', { name: '仍要发布' }).click()
-  }
+  await continuePublishChecklist(page)
 
   const gateDialog = page.getByRole('dialog', { name: '预发布门禁未通过' })
   await expect(gateDialog).toBeVisible()
@@ -80,7 +84,6 @@ test('发布弹窗：门禁失败直接展示失败步骤与样本明细', async
 })
 
 test('写工具策略变更：普通发布阻断后可强制发布', async ({ page }) => {
-  test.skip(GATE_UI_QUARANTINED, '网关门禁 UI 用例已隔离，由独立任务修复')
   await login(page)
   let forceRequested = false
   await page.route(`**/api/v1/agent/${AGENT_ID}**`, async (route) => {
@@ -121,10 +124,7 @@ test('写工具策略变更：普通发布阻断后可强制发布', async ({ pa
 
   await page.goto(`/agent/edit/${AGENT_ID}`)
   await page.locator('.topbar .actions').getByRole('button', { name: '发布', exact: true }).click()
-  const checklist = page.getByRole('dialog', { name: '发布前配置检查' })
-  if (await checklist.isVisible().catch(() => false)) {
-    await checklist.getByRole('button', { name: '仍要发布' }).click()
-  }
+  await continuePublishChecklist(page)
 
   const dialog = page.getByRole('dialog', { name: '写工具策略变更需确认' })
   await expect(dialog).toBeVisible()
