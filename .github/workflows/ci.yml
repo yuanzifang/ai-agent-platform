@@ -221,6 +221,9 @@ jobs:
         working-directory: frontend
         run: node scripts/check-i18n-keys.cjs
 
+      - name: 文件行数守卫（单文件 <= 2000）
+        run: bash scripts/check-file-sizes.sh
+
       - name: 前端类型检查
         working-directory: frontend
         run: npx vue-tsc --noEmit
