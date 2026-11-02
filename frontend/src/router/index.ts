@@ -9,6 +9,7 @@ const router = createRouter({
     { path: '/share/:token', component: () => import('../views/ShareView.vue') },
     { path: '/sso/callback', component: () => import('../views/SsoCallbackView.vue') },
     { path: '/reset-password', component: () => import('../views/ResetPasswordView.vue') },
+    { path: '/data-policy', component: () => import('../views/DataPolicyView.vue') },
     {
       path: '/',
       component: () => import('../views/BasicLayout.vue'),
@@ -56,7 +57,7 @@ router.beforeEach(async (to) => {
   const user = useUserStore()
   // 公开路由：登录、SSO 回调、会话分享
   if (to.path === '/login' || to.path === '/sso/callback' || to.path === '/reset-password'
-      || to.path === '/widget' || to.path.startsWith('/share/')) return
+      || to.path === '/widget' || to.path.startsWith('/share/') || to.path === '/data-policy') return
   // 页面刷新/新标签页：先用 HttpOnly Cookie 尝试换取 access token
   if (!user.accessToken && !user.bootstrapped) {
     await user.bootstrap()

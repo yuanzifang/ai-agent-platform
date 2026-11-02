@@ -47,6 +47,9 @@
                   <el-option v-for="m in models" :key="m.modelName" :value="m.modelName"
                              :label="modelLabel(m)" />
                 </el-select>
+                <div class="model-policy-link">
+                  <router-link to="/data-policy">{{ t('agentEdit.modelDataPolicy') }}</router-link>
+                </div>
               </el-form-item>
               <el-form-item :label="t('agentEdit.fallback')">
                 <el-select v-model="form.fallbackModelName" clearable :placeholder="t('agentEdit.fallbackPh')"
@@ -1627,4 +1630,7 @@ onMounted(async () => {
 })
 </script>
 
-<style scoped src="./AgentEditView.css"></style>
+<style scoped src="./AgentEditView.css">.model-policy-link { margin-top: 4px; font-size: 12px; }
+.model-policy-link a { color: #909399; text-decoration: none; }
+.model-policy-link a:hover { color: #409eff; text-decoration: underline; }
+</style>

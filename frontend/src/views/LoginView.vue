@@ -49,6 +49,10 @@
         <div class="forgot"><el-link type="info" :underline="false" @click="forgotPassword">{{ t('login.forgot') }}</el-link></div>
       </el-form>
 
+      <div class="policy-link">
+        <router-link to="/data-policy">{{ t('login.dataPolicy') }}</router-link>
+      </div>
+
       <!-- MFA 二次验证 -->
       <el-form v-if="mfaMode" label-position="top" @keyup.enter="verifyMfa" class="mt12">
         <el-alert type="info" :closable="false" :title="t('login.mfa')"
@@ -175,6 +179,9 @@ async function accept() {
 <style scoped>
 .mt8 { margin-top: 8px; }
 .forgot { text-align: right; margin-top: 8px; font-size: 12px; }
+.policy-link { text-align: center; margin-top: 14px; font-size: 12px; }
+.policy-link a { color: #909399; text-decoration: none; }
+.policy-link a:hover { color: #409eff; text-decoration: underline; }
 .mt12 { margin-top: 12px; }
 .login-wrap {
   height: 100vh;
