@@ -1236,7 +1236,7 @@
           <el-descriptions-item :label="t('deploy.image')">{{ deployment.image }}</el-descriptions-item>
           <el-descriptions-item :label="t('deploy.updatedAt')">{{ deployment.updatedAt }}</el-descriptions-item>
         </el-descriptions>
-        <el-alert v-if="deployment.lastError" type="error" :closable="false"
+        <el-alert v-if="deployment.lastError && deployment.status !== 'RUNNING'" type="error" :closable="false"
                   :title="deployment.lastError" class="mt8" />
         <div class="deploy-replicas">
           <span>{{ t('deploy.replicas') }}</span>
