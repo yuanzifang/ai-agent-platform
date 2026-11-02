@@ -712,7 +712,7 @@ function copyShare() {
 
 async function uploadFile(file: File) {
   if (!file || !conversationId.value) return
-  if (file.size > 20 * 1024 * 1024) {
+  if (file.size > 12 * 1024 * 1024) {
     ElMessage.warning(t('chatPage.attachmentTooLarge'))
     return
   }
