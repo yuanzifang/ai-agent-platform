@@ -57,6 +57,7 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redis;
     private final CryptoService cryptoService;
+    private final com.platform.common.security.NetworkPolicyService networkPolicy;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10)).build();
     private final Map<String, WebSocket> upstreams = new ConcurrentHashMap<>();
@@ -360,6 +361,8 @@ public class GatewayWebSocketHandler extends TextWebSocketHandler {
 
     private WebSocket connectTo(GatewayRoute route, WebSocketSession session, String base) throws Exception {
         String target = websocketUrl(route, session, base);
+        // 与 HTTP 转发同款连接时校验；ws/wss 由 validateWsUrl 放行
+        networkPolicy.validateWsUrl(target, "WebSocket 上游地址");
         return httpClient.newWebSocketBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .buildAsync(URI.create(target), new UpstreamListener(session))

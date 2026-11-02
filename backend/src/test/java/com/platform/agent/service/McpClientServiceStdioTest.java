@@ -92,7 +92,8 @@ class McpClientServiceStdioTest {
         client = new McpClientService(cryptoService, objectMapper,
                 mock(org.springframework.data.redis.core.StringRedisTemplate.class),
                 mock(McpOAuthService.class),
-                mock(com.platform.agent.mapper.McpServerMapper.class));
+                mock(com.platform.agent.mapper.McpServerMapper.class),
+                mock(com.platform.common.security.NetworkPolicyService.class));
         Path script = tempDir.resolve("mcp_stdio_mock.py");
         Files.writeString(script, SCRIPT);
         server = new McpServer();

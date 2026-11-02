@@ -714,8 +714,9 @@ public class ChannelService {
             }
         }
         String json = objectMapper.writeValueAsString(body);
+        // 禁随重定向：出站 URL 已按公网/白名单校验，跟随跳转可绕到内网（SSRF）
         HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
-                .followRedirects(HttpClient.Redirect.NORMAL).build();
+                .followRedirects(HttpClient.Redirect.NEVER).build();
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(10))
                 .header("Content-Type", "application/json")

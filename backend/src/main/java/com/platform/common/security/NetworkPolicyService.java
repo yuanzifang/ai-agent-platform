@@ -31,6 +31,13 @@ public class NetworkPolicyService {
         validateHttpUrl(url, label, false);
     }
 
+    /** WebSocket 上游（网关 WS 代理）：允许 ws/wss，主机检查与 http/https 同规则。 */
+    public void validateWsUrl(String url, String label) {
+        if (url == null || url.isBlank()) throw new BusinessException(400, label + "不能为空");
+        String normalized = url.trim().replaceFirst("(?i)^ws://", "http://").replaceFirst("(?i)^wss://", "https://");
+        validateHttpUrl(normalized, label, allowPrivate);
+    }
+
     private void validateHttpUrl(String url, String label, boolean allowPrivate) {
         if (url == null || url.isBlank()) throw new BusinessException(400, label + "不能为空");
         URI uri;
