@@ -99,6 +99,7 @@ public class KnowledgeService {
     private final KnowledgeChunkStore chunkStore;
     private final KnowledgeDocumentMaintenanceService maintenanceService;
     private final KnowledgeSourceHashService sourceHashService;
+    private final KnowledgeUploadPolicy uploadPolicy;
 
     /** MySQL 主库 JdbcTemplate；测试环境未注入时回退逐条 MyBatis insert。 */
     @Autowired(required = false)
@@ -127,10 +128,6 @@ public class KnowledgeService {
     /** 知识库直传最大文件大小（默认 20MB，与 DocumentParser 上限一致）。 */
     @Value("${knowledge.upload.max-bytes:20971520}")
     private int uploadMaxBytes = 20 * 1024 * 1024;
-
-    private static final Set<String> KNOWLEDGE_UPLOAD_EXTENSIONS = Set.of(
-            "md", "txt", "doc", "docx", "pdf", "xlsx", "xls", "pptx", "ppt",
-            "html", "htm", "csv", "json", "epub", "png", "jpg", "jpeg", "bmp", "tif", "tiff");
 
     /** 文档解析专用线程池（架构 2.3）；队列满时 CallerRuns 保证不丢任务。 */
     @Resource(name = "documentParseExecutor")
@@ -657,7 +654,7 @@ public class KnowledgeService {
     public Map<String, Object> requestUpload(Long kbId, String fileName, Long sizeBytes,
                                              Long documentId, KnowledgePermissionService.Viewer viewer) {
         permissionService.requireEdit(kbId, viewer);
-        validateKnowledgeUpload(fileName, sizeBytes);
+        uploadPolicy.validateMetadata(fileName, sizeBytes, uploadMaxBytes);
         if (sizeBytes != null && sizeBytes > 0) quotaService.checkStorage(sizeBytes);
         if (documentId != null) {
             KnowledgeDocument old = docMapper.selectById(documentId);
@@ -669,7 +666,7 @@ public class KnowledgeService {
             }
         }
         Long tenantId = TenantContext.getTenantId();
-        String safeName = safeFileName(fileName);
+        String safeName = uploadPolicy.safeFileName(fileName);
         String objectName = tenantId + "/knowledge/" + kbId + "/"
                 + UUID.randomUUID().toString().replace("-", "").substring(0, 12) + "/" + safeName;
         String uploadUrl = storage.presignPut(objectName);
@@ -678,19 +675,6 @@ public class KnowledgeService {
         result.put("objectName", objectName);
         if (documentId != null) result.put("documentId", documentId);
         return result;
-    }
-
-    /** 直传元数据校验：扩展名白名单 + 20MB 上限（真实对象还会在 callback 做存在性校验）。 */
-    private void validateKnowledgeUpload(String fileName, Long sizeBytes) {
-        if (sizeBytes != null && sizeBytes > uploadMaxBytes) {
-            throw new BusinessException(413, "文件不能超过 " + (uploadMaxBytes / 1024 / 1024) + "MB");
-        }
-        String name = safeFileName(fileName);
-        int dot = name.lastIndexOf('.');
-        String ext = dot >= 0 && dot + 1 < name.length() ? name.substring(dot + 1).toLowerCase(Locale.ROOT) : "";
-        if (!KNOWLEDGE_UPLOAD_EXTENSIONS.contains(ext)) {
-            throw new BusinessException(415, "不支持的知识库文件类型：" + (ext.isBlank() ? name : ext));
-        }
     }
 
     private LocalDateTime toLocalDateTime(Instant instant) {
@@ -712,13 +696,6 @@ public class KnowledgeService {
         } catch (Exception e) {
             throw new BusinessException(400, "解析配置格式不正确");
         }
-    }
-
-    private String safeFileName(String fileName) {
-        String name = fileName == null ? "file" : fileName.trim();
-        name = name.replaceAll("[\\\\/\r\n]", "_");
-        if (name.isBlank()) name = "file";
-        return name.length() > 128 ? name.substring(name.length() - 128) : name;
     }
 
     /** 回调：校验对象存在 + 路径前缀一致（防伪造，需求文档 7.2）→ 登记 → 异步解析；需编辑权限。
@@ -815,7 +792,7 @@ public class KnowledgeService {
         }
         quotaService.checkStorage(content.length);
         Long tenantId = TenantContext.getTenantId();
-        String safeName = safeFileName(fileName == null || fileName.isBlank() ? "feishu.md" : fileName);
+        String safeName = uploadPolicy.safeFileName(fileName == null || fileName.isBlank() ? "feishu.md" : fileName);
         String objectName = tenantId + "/knowledge/" + kbId + "/"
                 + UUID.randomUUID().toString().replace("-", "").substring(0, 12) + "/" + safeName;
         storage.put(objectName, content, contentType == null || contentType.isBlank()

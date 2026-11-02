@@ -133,7 +133,8 @@ class KnowledgeServiceLifecycleTest {
                 new KnowledgeEmbeddingCache(embeddingService, objectMapper),
                 new KnowledgeChunkStore(chunkMapper),
                 new KnowledgeDocumentMaintenanceService(docMapper, vectorRepository, auditService, permissionService),
-                new KnowledgeSourceHashService(docMapper, storage, permissionService));
+                new KnowledgeSourceHashService(docMapper, storage, permissionService),
+                new KnowledgeUploadPolicy());
 
         TenantContext.setTenantId(9L);
         kb = new KnowledgeBase();
