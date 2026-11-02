@@ -286,7 +286,9 @@ public class ConversationService {
                 .split(";")[0].trim();
         boolean extAllowed = ALLOWED_ATTACHMENT_EXTENSIONS.contains(ext);
         boolean mimeAllowed = ALLOWED_ATTACHMENT_MIME.contains(mime);
-        if (!extAllowed && !mimeAllowed) {
+        // 扩展名必须合法；浏览器/客户端声明了具体 MIME 时还必须与白名单一致，
+        // 避免把 .exe 伪装成 application/pdf 绕过校验。octet-stream 仅按扩展名判断。
+        if (!extAllowed || (!mime.isBlank() && !"application/octet-stream".equals(mime) && !mimeAllowed)) {
             throw new BusinessException(415, "不支持的附件类型：" + (mime.isBlank() ? ext : mime));
         }
     }
