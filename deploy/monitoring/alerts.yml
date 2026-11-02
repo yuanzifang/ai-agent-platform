@@ -1,0 +1,146 @@
+groups:
+  - name: ai-agent-platform
+    rules:
+      - alert: AapCriticalTargetDown
+        expr: up{job=~"ai-agent-backend-pods|mysqld|redis|postgres"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: ai-agent-platform
+        annotations:
+          summary: "关键监控目标不可用：{{ $labels.job }}"
+          description: "Prometheus 连续 2 分钟无法抓取 {{ $labels.instance }}。"
+
+
+      - alert: AapDatabaseDown
+        expr: mysql_up == 0 or redis_up == 0 or pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: ai-agent-platform
+        annotations:
+          summary: "数据库不可用：{{ $labels.job }}"
+          description: "{{ $labels.instance }} 的数据库存活指标为 0。"
+
+      - alert: AapBackendDown
+        expr: up{job="ai-agent-backend-pods"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: ai-agent-platform
+        annotations:
+          summary: "AI Agent 后端不可用"
+          description: "Prometheus 连续 2 分钟无法抓取 {{ $labels.instance }}。"
+
+      - alert: AapHighErrorRate
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{status=~"5..",uri!~"/actuator.*"}[5m]))
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count{uri!~"/actuator.*"}[5m])), 0.001)
+          ) > 0.05
+          and
+          sum(rate(http_server_requests_seconds_count{uri!~"/actuator.*"}[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "API 5xx 错误率超过 5%"
+          description: "最近 5 分钟 5xx 占比 {{ $value | humanizePercentage }}。"
+
+      - alert: AapHighLatencyP95
+        expr: |
+          (
+            histogram_quantile(
+              0.95,
+              sum by (le) (rate(http_server_requests_seconds_bucket{uri!~"/actuator.*"}[5m]))
+            ) > 2
+          )
+          and
+          (
+            sum(rate(http_server_requests_seconds_count{uri!~"/actuator.*"}[5m])) > 0.1
+          )
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "API P95 延迟超过 2 秒"
+          description: "最近 5 分钟 API P95 延迟 {{ $value }}s。"
+
+      - alert: AapMySqlSlowQueries
+        expr: rate(mysql_global_status_slow_queries[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "MySQL 慢查询持续出现"
+          description: "最近 5 分钟平均每秒慢查询 {{ $value }}。"
+
+      - alert: AapRedisMemoryHigh
+        expr: |
+          (redis_memory_max_bytes > 0)
+          and
+          (redis_memory_used_bytes / redis_memory_max_bytes > 0.85)
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "Redis 内存使用超过 85%"
+          description: "Redis 内存使用比例 {{ $value | humanizePercentage }}。"
+
+      - alert: AapNodeHighMemory
+        expr: |
+          1 - node_memory_MemAvailable_bytes / clamp_min(node_memory_MemTotal_bytes, 1) > 0.9
+        for: 5m
+        labels:
+          severity: critical
+          service: infrastructure
+        annotations:
+          summary: "UTM 主机内存使用超过 90%"
+          description: "主机内存使用比例 {{ $value | humanizePercentage }}。"
+
+      - alert: AapNodeHighCPU
+        expr: |
+          1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          service: infrastructure
+        annotations:
+          summary: "UTM 主机 CPU 使用超过 90%"
+          description: "主机 CPU 使用比例 {{ $value | humanizePercentage }}。"
+
+      - alert: AapDiskSpaceLow
+        expr: |
+          node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+          / clamp_min(node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}, 1) < 0.15
+        for: 10m
+        labels:
+          severity: warning
+          service: infrastructure
+        annotations:
+          summary: "UTM 主机磁盘可用空间低于 15%"
+          description: "挂载点 {{ $labels.mountpoint }} 可用比例 {{ $value | humanizePercentage }}。"
+      - alert: AapContainerOOM
+        expr: increase(container_oom_events_total{namespace=~"aap|aap-data"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: ai-agent-platform
+        annotations:
+          summary: "工作负载容器发生 OOM：{{ $labels.namespace }}/{{ $labels.pod }}"
+          description: "容器 {{ $labels.container }} 在最近 5 分钟内发生 OOM。"
+      - alert: AapCadvisorDown
+        expr: up{job="kubelet-cadvisor"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-agent-platform
+        annotations:
+          summary: "kubelet cAdvisor 采集目标不可用：{{ $labels.instance }}"
+          description: "Pod CPU/内存/OOM 指标将缺失，检查 kubelet token 和节点 IP。"
+

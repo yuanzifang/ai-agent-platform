@@ -1,0 +1,438 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "pod",
+        "label": "Backend / Gateway Pod",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(jvm_memory_used_bytes{job=\"ai-agent-backend-pods\"}, pod)",
+        "query": {
+          "query": "label_values(jvm_memory_used_bytes{job=\"ai-agent-backend-pods\"}, pod)",
+          "refId": "StandardVariableQuery"
+        },
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "JVM Heap Used",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod,id) (jvm_memory_used_bytes{job=\"ai-agent-backend-pods\",pod=~\"$pod\",area=\"heap\"})",
+          "legendFormat": "{{pod}} / {{id}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Process CPU and Threads",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "process_cpu_usage{job=\"ai-agent-backend-pods\",pod=~\"$pod\"}",
+          "legendFormat": "{{pod}} cpu",
+          "refId": "A"
+        },
+        {
+          "expr": "jvm_threads_live_threads{job=\"ai-agent-backend-pods\",pod=~\"$pod\"}",
+          "legendFormat": "{{pod}} threads",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "JVM GC Pause Rate",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(jvm_gc_pause_seconds_sum{job=\"ai-agent-backend-pods\",pod=~\"$pod\"}[5m])",
+          "legendFormat": "{{pod}} / {{action}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "API QPS by Pod",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (rate(http_server_requests_seconds_count{job=\"ai-agent-backend-pods\",pod=~\"$pod\",uri!~\"/actuator.*\"}[5m]))",
+          "legendFormat": "{{pod}} qps",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "API P95 by Pod",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le,pod) (rate(http_server_requests_seconds_bucket{job=\"ai-agent-backend-pods\",pod=~\"$pod\",uri!~\"/actuator.*\"}[5m])))",
+          "legendFormat": "{{pod}} p95",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP 5xx by Pod",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (rate(http_server_requests_seconds_count{job=\"ai-agent-backend-pods\",pod=~\"$pod\",status=~\"5..\",uri!~\"/actuator.*\"}[5m]))",
+          "legendFormat": "{{pod}} 5xx",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Young GC Count (5m)",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 25
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (increase(jvm_gc_pause_seconds_count{job=\"ai-agent-backend-pods\",pod=~\"$pod\",action=~\".*minor.*|.*young.*\"}[5m]))",
+          "legendFormat": "{{pod}} young gc/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "\u65e0\u5bf9\u5e94 GC \u4e8b\u4ef6"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Old GC Count (5m)",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 25
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (increase(jvm_gc_pause_seconds_count{job=\"ai-agent-backend-pods\",pod=~\"$pod\",action=~\".*major.*|.*old.*\",cause!~\".*Full GC.*|.*Compaction Pause.*|.*To-space Exhausted.*\"}[5m]))",
+          "legendFormat": "{{pod}} old gc/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "\u65e0\u5bf9\u5e94 GC \u4e8b\u4ef6"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Full GC Count (5m)",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 25
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (increase(jvm_gc_pause_seconds_count{job=\"ai-agent-backend-pods\",pod=~\"$pod\",cause=~\".*Full GC.*|.*Compaction Pause.*|.*To-space Exhausted.*\"}[5m]))",
+          "legendFormat": "{{pod}} full gc/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "\u65e0\u5bf9\u5e94 GC \u4e8b\u4ef6"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "GC Count by Action / Cause (5m)",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod,action,cause) (increase(jvm_gc_pause_seconds_count{job=\"ai-agent-backend-pods\",pod=~\"$pod\"}[5m]))",
+          "legendFormat": "{{pod}} / {{action}} / {{cause}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "\u65e0\u5bf9\u5e94 GC \u4e8b\u4ef6"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "GC Pause Time by Cause (5m)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 39
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod,action,cause) (increase(jvm_gc_pause_seconds_sum{job=\"ai-agent-backend-pods\",pod=~\"$pod\"}[5m]))",
+          "legendFormat": "{{pod}} / {{cause}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "\u65e0\u5bf9\u5e94 GC \u4e8b\u4ef6"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Young / Old Heap Used",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 39
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod,id) (jvm_memory_used_bytes{job=\"ai-agent-backend-pods\",pod=~\"$pod\",area=\"heap\",id=~\".*Eden.*|.*Survivor.*\"})",
+          "legendFormat": "{{pod}} / {{id}} young",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (pod,id) (jvm_memory_used_bytes{job=\"ai-agent-backend-pods\",pod=~\"$pod\",area=\"heap\",id=~\".*Old.*\"})",
+          "legendFormat": "{{pod}} / {{id}} old",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Allocation / Promotion Rate",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 47
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pod) (rate(jvm_gc_memory_allocated_bytes_total{job=\"ai-agent-backend-pods\",pod=~\"$pod\"}[5m]))",
+          "legendFormat": "{{pod}} allocated B/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (pod) (rate(jvm_gc_memory_promoted_bytes_total{job=\"ai-agent-backend-pods\",pod=~\"$pod\"}[5m]))",
+          "legendFormat": "{{pod}} promoted B/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "GC Overhead",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 47
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "jvm_gc_overhead{job=\"ai-agent-backend-pods\",pod=~\"$pod\"}",
+          "legendFormat": "{{pod}} gc overhead",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        }
+      }
+    },
+    {
+      "type": "text",
+      "title": "\u8bf4\u660e",
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 55
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Young/Old/Full GC \u53d6\u51b3\u4e8e JVM \u5b9e\u9645 GC \u4e8b\u4ef6\uff1b\u5f53\u524d\u82e5\u8fd8\u6ca1\u6709\u53d1\u751f\u67d0\u7c7b GC\uff0c\u5bf9\u5e94\u65f6\u95f4\u5e8f\u5217\u53ef\u80fd\u4e3a\u7a7a\uff0c\u53d1\u751f GC \u540e\u4f1a\u81ea\u52a8\u51fa\u73b0\u3002\u8fd9\u91cc\u6309 Micrometer `jvm_gc_pause_seconds_*` \u7684 `action`/`cause` \u6807\u7b7e\u5206\u7c7b\uff0c\u540c\u65f6\u4fdd\u7559\u5168\u90e8 GC action/cause \u660e\u7ec6\u3002JVM \u542f\u52a8\u540e\u5c1a\u672a\u53d1\u751f GC \u65f6\uff0c`jvm_gc_pause_*` \u53ef\u80fd\u5b8c\u5168\u6ca1\u6709\u5e8f\u5217\u3002"
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "title": "AI Agent Platform - JVM / Gateway",
+  "uid": "aap-jvm",
+  "version": 1
+}
