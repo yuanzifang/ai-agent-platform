@@ -1723,6 +1723,10 @@ onMounted(async () => {
   buildRefRows('skill', detail.skills, skillCatalog.value, skillRows)
   buildRefRows('tool', detail.tools, toolCatalog.value, toolRows)
   buildRefRows('sub', detail.subAgents, agentCatalog.value, subRows)
+  // 工作流面板徽标随页面加载刷新：此前只在打开工作流弹窗后才更新，已配置的 Agent 进页面也显示「未配置」
+  http.get(`/agent/${agentId}/workflow`, { _silent: true } as any)
+    .then((d: any) => applyWorkflowData(d))
+    .catch(() => {})
 
   // 已删除/无权限的知识库显示为「已失效」，运行时跳过（需求 3.6.3(4)）
   const visibleIds = new Set(kbListArr.map(kb => kb.id))
@@ -2461,8 +2465,8 @@ function goCreate(kind: 'skill' | 'tool' | 'mcp') {
   router.push(path)
 }
 
-async function openWorkflow() {
-  const data = await http.get(`/agent/${agentId}/workflow`) as any
+/** 后端 GET /workflow 恒返回 200（configured=是否有工作流行），此处只负责把响应铺到页面状态。 */
+function applyWorkflowData(data: any) {
   workflowConfigured.value = !!data?.configured
   workflowForm.name = data?.name || `${form.name}${t('agentMsg.workflowNameSuffix')}`
   workflowForm.status = data?.status || 'ENABLED'
@@ -2473,6 +2477,10 @@ async function openWorkflow() {
     ...(n.type === 'LOOP' ? { itemsText: JSON.stringify(n.items || []) } : {})
   }))
   workflowForm.edges = (data?.definition?.edges || []).map((e: any) => ({ ...e }))
+}
+
+async function openWorkflow() {
+  applyWorkflowData(await http.get(`/agent/${agentId}/workflow`) as any)
   ensureWorkflowPositions()
   wfMode.value = 'list'
   wfSelected.value = ''
