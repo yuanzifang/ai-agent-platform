@@ -1117,7 +1117,7 @@ public class WorkflowService {
             if ("APPROVAL".equals(type)) {
                 approvals.add(current);
                 String role = str(n.get("requiredRole"));
-                if (!role.isBlank()) approvalRoles.add(role);
+                if (role != null && !role.isBlank()) approvalRoles.add(role);
             }
             if ("PARALLEL".equals(type)) {
                 if (n.get("branches") instanceof List<?> bs) {

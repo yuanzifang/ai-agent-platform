@@ -393,7 +393,8 @@ test('可观测 Trace：筛选、列配置与 Span 图例', async ({ page }) => 
   await expect.poll(() => traceRequests.some(u => u.includes('keyword=trace-ui'))).toBe(true)
 
   await page.getByRole('button', { name: 'Columns' }).click()
-  await page.getByRole('checkbox', { name: 'INPUT' }).click()
+  // Element Plus 的 checkbox input 视觉隐藏，点击其可见 label 才会触发切换。
+  await page.locator('.col-config .el-checkbox', { hasText: 'INPUT' }).click()
   await expect(page.getByRole('columnheader', { name: 'INPUT' })).toHaveCount(0)
 
   await page.locator('.el-table__row').first().click()
