@@ -971,6 +971,27 @@ public class KnowledgeService {
         return code >= 500 || code == 429;
     }
 
+    /** 展示文件名可能被改成中文标题；解析格式以对象存储的原始扩展名为准。 */
+    private String parserFileName(KnowledgeDocument doc) {
+        String name = doc.getFileName();
+        if (hasParserExtension(name)) return name;
+        String objectName = doc.getObjectName();
+        if (hasParserExtension(objectName)) return objectName;
+        return name;
+    }
+
+    private boolean hasParserExtension(String name) {
+        if (name == null) return false;
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".pdf") || lower.endsWith(".doc") || lower.endsWith(".docx")
+                || lower.endsWith(".ppt") || lower.endsWith(".pptx") || lower.endsWith(".xls")
+                || lower.endsWith(".xlsx") || lower.endsWith(".epub") || lower.endsWith(".html")
+                || lower.endsWith(".htm") || lower.endsWith(".md") || lower.endsWith(".markdown")
+                || lower.endsWith(".txt") || lower.endsWith(".csv") || lower.endsWith(".json")
+                || lower.endsWith(".log") || lower.endsWith(".png") || lower.endsWith(".jpg")
+                || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".webp");
+    }
+
     /** 单次解析：上传对象 → 分段 → 嵌入 → 向量落库。失败时由 doParse 清理残留并重试。 */
     private void parseOnce(KnowledgeDocument doc) throws Exception {
         byte[] bytes = storage.get(doc.getObjectName());
@@ -993,10 +1014,11 @@ public class KnowledgeService {
                 embeddingDimensions, parseWarnings)) {
             return;
         }
+        String parseName = parserFileName(doc);
         DocumentParser.ParseOutcome outcome = parser.parseWithParentsAndWarnings(
-                doc.getFileName(), bytes, parseOptions);
+                parseName, bytes, parseOptions);
         List<DocumentParser.ParsedChunk> chunks = new ArrayList<>(outcome == null
-                ? parser.parseWithParents(doc.getFileName(), bytes, parseOptions) : outcome.chunks());
+                ? parser.parseWithParents(parseName, bytes, parseOptions) : outcome.chunks());
         parseWarnings.addAll(outcome == null ? List.of() : outcome.warnings());
         String chartEvidence = chunks.stream()
                 .map(DocumentParser.ParsedChunk::content)
@@ -1005,7 +1027,7 @@ public class KnowledgeService {
         if (parseOptions.visionEnabled()) {
             int described = 0;
             int maxImages = Math.max(1, Math.min(parseOptions.visionMaxImages(), 10));
-            for (DocumentParser.ExtractedImage image : parser.extractImages(doc.getFileName(), bytes)) {
+            for (DocumentParser.ExtractedImage image : parser.extractImages(parseName, bytes)) {
                 if (described >= maxImages) break;
                 String description = imageUnderstanding.describe(image.data(), image.extension(), parseOptions);
                 if (description == null || description.isBlank()) continue;
@@ -1055,7 +1077,11 @@ public class KnowledgeService {
             }
             if (described > 0) log.info("文档图片多模态分段：doc={} images={}", doc.getId(), described);
         }
-        PdfManualReviewInspector.inspect(chunks, parseWarnings);
+        // 该检查器针对 PDF 文本层/表格结构；HTML 的表格可能是图片或站点模板，
+        // 不能据此判定解析缺失，避免“地表5厘米”等文本造成误报。
+        if (parseName.toLowerCase(Locale.ROOT).endsWith(".pdf")) {
+            PdfManualReviewInspector.inspect(chunks, parseWarnings);
+        }
         float[][] vectors = embeddingCache.embedWithCache(chunks, embeddingModel);
         // 业务有效期优先；未配置时回退文档入库时间，而不是向量写入时间。
         LocalDateTime effectiveFrom = doc.getEffectiveFrom() != null
@@ -1697,7 +1723,8 @@ public class KnowledgeService {
         patch.setId(doc.getId());
         patch.setStatus(status);
         patch.setChunkCount(chunkCount);
-        patch.setErrorMessage(error);
+        // 空串显式清理历史失败信息；MyBatis-Plus updateById 默认忽略 null。
+        patch.setErrorMessage(error == null ? "" : error);
         if ("PARSING".equals(status)) patch.setParseStartedAt(LocalDateTime.now());
         if (doc.getUpgradeJobId() != null) {
             if ("DONE".equals(status)) patch.setUpgradeStatus("SUCCEEDED");
