@@ -54,6 +54,18 @@ public class KubernetesRuntime implements ContainerRuntime {
     @Value("${agent.deploy.k8s.node-selector:}")
     private String nodeSelector;
 
+    @Value("${agent.deploy.k8s.ingress.enabled:false}")
+    private boolean ingressEnabled;
+
+    @Value("${agent.deploy.k8s.ingress.class-name:nginx}")
+    private String ingressClassName;
+
+    @Value("${agent.deploy.k8s.ingress.host-template:}")
+    private String ingressHostTemplate;
+
+    @Value("${agent.deploy.k8s.ingress.tls-secret:}")
+    private String ingressTlsSecret;
+
     private volatile KubernetesClient client;
 
     @Override
@@ -181,6 +193,7 @@ public class KubernetesRuntime implements ContainerRuntime {
                     .endSpec()
                     .build();
             client().services().inNamespace(namespace).resource(service).createOrReplace();
+            createIngress(name, namespace, labels);
             return name;
         } catch (Exception e) {
             throw new BusinessException(409, "创建 K8s Agent 运行时失败：" + message(e));
@@ -201,6 +214,7 @@ public class KubernetesRuntime implements ContainerRuntime {
     public void remove(String resource) {
         String namespace = namespace();
         try {
+            client().network().v1().ingresses().inNamespace(namespace).withName(resource).delete();
             client().services().inNamespace(namespace).withName(resource).delete();
             client().configMaps().inNamespace(namespace).withName(resource + CONFIG_MAP_SUFFIX).delete();
             client().apps().deployments().inNamespace(namespace).withName(resource).delete();
@@ -266,6 +280,10 @@ public class KubernetesRuntime implements ContainerRuntime {
 
     @Override
     public String endpoint(String resource) {
+        String host = ingressHost(resource);
+        if (host != null) {
+            return (ingressTlsSecret != null && !ingressTlsSecret.isBlank() ? "https://" : "http://") + host + "/v1";
+        }
         return "http://" + resource + "." + namespace() + ".svc.cluster.local/v1";
     }
 
@@ -369,6 +387,66 @@ public class KubernetesRuntime implements ContainerRuntime {
             }
         }
         return client;
+    }
+
+    private void createIngress(String resource, String namespace, Map<String, String> labels) {
+        if (!ingressEnabled) return;
+        String host = ingressHost(resource);
+        if (host == null) return;
+        try {
+            var metadata = new io.fabric8.kubernetes.api.model.ObjectMetaBuilder()
+                    .withName(resource)
+                    .withNamespace(namespace)
+                    .addToLabels(labels)
+                    .addToAnnotations(Map.of(
+                            "nginx.ingress.kubernetes.io/proxy-body-size", "2m",
+                            "nginx.ingress.kubernetes.io/proxy-buffering", "off",
+                            "nginx.ingress.kubernetes.io/proxy-read-timeout", "300",
+                            "nginx.ingress.kubernetes.io/proxy-send-timeout", "300"))
+                    .build();
+            var specBuilder = new io.fabric8.kubernetes.api.model.networking.v1.IngressSpecBuilder()
+                    .withIngressClassName(ingressClassName)
+                    .addNewRule()
+                    .withHost(host)
+                    .withNewHttp()
+                    .addNewPath()
+                    .withPath("/")
+                    .withPathType("Prefix")
+                    .withNewBackend()
+                    .withNewService()
+                    .withName(resource)
+                    .withNewPort().withNumber(80).endPort()
+                    .endService()
+                    .endBackend()
+                    .endPath()
+                    .endHttp()
+                    .endRule();
+            if (ingressTlsSecret != null && !ingressTlsSecret.isBlank()) {
+                var tls = new io.fabric8.kubernetes.api.model.networking.v1.IngressTLSBuilder()
+                        .withHosts(host)
+                        .withSecretName(ingressTlsSecret)
+                        .build();
+                specBuilder.withTls(List.of(tls));
+            }
+            var ingress = new io.fabric8.kubernetes.api.model.networking.v1.IngressBuilder()
+                    .withMetadata(metadata)
+                    .withSpec(specBuilder.build())
+                    .build();
+            client().network().v1().ingresses().inNamespace(namespace)
+                    .resource(ingress).createOrReplace();
+        } catch (Exception e) {
+            log.warn("创建 Agent Ingress 失败（继续使用 ClusterIP）：{}", e.getMessage());
+        }
+    }
+
+    private String ingressHost(String resource) {
+        if (!ingressEnabled || ingressHostTemplate == null || ingressHostTemplate.isBlank()) return null;
+        return renderIngressHost(ingressHostTemplate, resource);
+    }
+
+    static String renderIngressHost(String template, String resource) {
+        String agentId = resource.startsWith("aap-agent-") ? resource.substring("aap-agent-".length()) : resource;
+        return template.replace("{agentId}", agentId).replace("{name}", resource);
     }
 
     private Map<String, String> nodeSelectorMap() {

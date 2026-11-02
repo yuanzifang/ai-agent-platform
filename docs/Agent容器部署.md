@@ -164,7 +164,7 @@ client → Service/aap-agent-{id}:80
 - 每个 Agent 只保留一个部署记录（1–5 个运行时副本 + 可选 LB 容器），重新部署 = 删旧建新（短暂不可用）。重新部署优先复用原端口，最多等待 3 秒。
 - 「回滚并部署」= 完整恢复该版本的 Agent 配置（含知识库/工具/技能/子 Agent）+ 重新部署容器，详见 `docs/Agent版本与回滚.md`。
 - 发布自动重新部署是「已部署过才触发」；从未部署过的 Agent 发布后不会自动拉起容器，避免意外占用端口。
-- K8s 已实现 Deployment/Service/ConfigMap；暂未实现公网 Ingress/NodePort、滚动更新策略和集中式日志（Loki 等）。
+- K8s 已实现 Deployment/Service/ConfigMap；外部入口提供可选 Ingress（见 `docs/AgentIngress设计.md`）；滚动更新策略和集中式日志（Loki 等）仍待补。
 
 ## 指标
 
@@ -182,7 +182,7 @@ client → Service/aap-agent-{id}:80
 
 ## 验证
 
-- 后端全量单测：569/569
+- 后端全量单测：570/570
 - `AgentRuntimeGatewayServiceTest`：部署令牌、调用方 Key、非法令牌、停止部署、限流、日配额、内存统计
 - `AgentRuntimeGatewayControllerTest`：模型/对话入口、OpenAI 错误结构、stats 仅部署令牌
 - `AgentDeploymentServiceLifecycleTest`：nginx 模板不持有 Key/令牌、平台统计分支、启停/清理/资源限制
@@ -194,6 +194,6 @@ client → Service/aap-agent-{id}:80
 
 ## 下一步（如需）
 
-1. Agent 运行时外网入口：为动态 Agent Service 增加 Ingress/NodePort 或统一域名路由
+1. Agent 运行时外网入口：在具备 Ingress Controller/DNS/TLS 的环境启用并验证 Ingress
 2. 平台网关运行时：继续补滚动更新、失败回滚与 token 级配额
 3. 容器日志集中存储（Loki）

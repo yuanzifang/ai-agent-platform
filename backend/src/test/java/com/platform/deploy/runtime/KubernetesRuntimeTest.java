@@ -13,4 +13,12 @@ class KubernetesRuntimeTest {
         assertEquals("512Mi", KubernetesRuntime.memoryQuantity("512Mi"));
         assertEquals("512Mi", KubernetesRuntime.memoryQuantity("512"));
     }
+
+    @Test
+    void rendersIngressHostFromTemplate() {
+        assertEquals("agent-1.agents.example.com",
+                KubernetesRuntime.renderIngressHost("agent-{agentId}.agents.example.com", "aap-agent-1"));
+        assertEquals("aap-agent-1.agents.example.com",
+                KubernetesRuntime.renderIngressHost("{name}.agents.example.com", "aap-agent-1"));
+    }
 }

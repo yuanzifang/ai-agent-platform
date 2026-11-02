@@ -397,6 +397,12 @@ agent:
       namespace: ${AGENT_DEPLOY_K8S_NAMESPACE:}
       # 可选：kubernetes.io/hostname=node1,node-role=worker
       node-selector: ${AGENT_DEPLOY_K8S_NODE_SELECTOR:}
+      ingress:
+        enabled: ${AGENT_DEPLOY_K8S_INGRESS_ENABLED:false}
+        class-name: ${AGENT_DEPLOY_K8S_INGRESS_CLASS:nginx}
+        # 域名模板；为空=不创建 Ingress，使用 ClusterIP
+        host-template: ${AGENT_DEPLOY_K8S_INGRESS_HOST_TEMPLATE:}
+        tls-secret: ${AGENT_DEPLOY_K8S_INGRESS_TLS_SECRET:}
     # 平台运行时入口镜像（每 Agent 一个 nginx 容器，只做入口/反代）
     image: ${AGENT_DEPLOY_IMAGE:nginx:alpine}
     # 主令牌的日配额，0=不限（平台网关执行）

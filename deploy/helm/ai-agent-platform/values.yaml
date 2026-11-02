@@ -17,6 +17,11 @@ agentDeploy:
   platformBase: ""
   # 可选逗号分隔，如 kubernetes.io/hostname=worker-1；空=交给调度器
   nodeSelector: ""
+  ingress:
+    enabled: false
+    className: nginx
+    hostTemplate: ""
+    tlsSecret: ""
 
 podAnnotations: {}
 commonLabels: {}
