@@ -78,7 +78,7 @@ Role/RoleBinding: <release>-agent-runtime
 
 - `KubernetesRuntimeTest`：Docker 内存单位转换 `512m -> 512Mi`
 - `AgentRuntimeConfigTest`：auto/kubernetes/docker 选择
-- 后端全量单测：569/569
+- 后端全量单测：570/570
 - `ArchitectureTest`：3/3
 
 ## 真实 k3d 验证
@@ -109,6 +109,6 @@ start -> Deployment replicas=1, Ready
 
 ## 注意
 
-- 当前 Service 为 ClusterIP，适合内部访问；需要公网/跨集群访问时再增加 NodePort/Ingress。
+- Service 默认 ClusterIP；外部入口采用可选 Ingress，设计见 `docs/AgentIngress设计.md`。当前集群没有 IngressClass/Controller，默认关闭。
 - Agent nginx 不再需要 Docker socket。
 - 本机开发仍可选择 Docker 模式，不影响 K8s 部署。

@@ -83,6 +83,14 @@ spec:
               value: {{ default (printf "http://%s:%v" (include "ai-agent-platform.backend.fullname" .) .Values.backend.service.port) .Values.agentDeploy.platformBase | quote }}
             - name: AGENT_DEPLOY_K8S_NODE_SELECTOR
               value: {{ .Values.agentDeploy.nodeSelector | default "" | quote }}
+            - name: AGENT_DEPLOY_K8S_INGRESS_ENABLED
+              value: {{ .Values.agentDeploy.ingress.enabled | quote }}
+            - name: AGENT_DEPLOY_K8S_INGRESS_CLASS
+              value: {{ .Values.agentDeploy.ingress.className | default "nginx" | quote }}
+            - name: AGENT_DEPLOY_K8S_INGRESS_HOST_TEMPLATE
+              value: {{ .Values.agentDeploy.ingress.hostTemplate | default "" | quote }}
+            - name: AGENT_DEPLOY_K8S_INGRESS_TLS_SECRET
+              value: {{ .Values.agentDeploy.ingress.tlsSecret | default "" | quote }}
             {{- end }}
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
