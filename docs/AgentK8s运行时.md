@@ -78,7 +78,7 @@ ServiceAccount 默认 `automountServiceAccountToken=false`；backend Pod 仅在 
 
 - `KubernetesRuntimeTest`：Docker 内存单位转换 `512m -> 512Mi`
 - `AgentRuntimeConfigTest`：auto/kubernetes/docker 选择
-- 后端全量单测：570/570
+- 后端全量单测：573/573
 - `ArchitectureTest`：3/3
 
 ## 真实 k3d 验证

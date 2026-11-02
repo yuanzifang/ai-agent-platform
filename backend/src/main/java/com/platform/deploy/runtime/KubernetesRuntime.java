@@ -66,6 +66,9 @@ public class KubernetesRuntime implements ContainerRuntime {
     @Value("${agent.deploy.k8s.ingress.tls-secret:}")
     private String ingressTlsSecret;
 
+    @Value("${agent.deploy.k8s.ingress.external-port:}")
+    private String ingressExternalPort;
+
     private volatile KubernetesClient client;
 
     @Override
@@ -282,7 +285,10 @@ public class KubernetesRuntime implements ContainerRuntime {
     public String endpoint(String resource) {
         String host = ingressHost(resource);
         if (host != null) {
-            return (ingressTlsSecret != null && !ingressTlsSecret.isBlank() ? "https://" : "http://") + host + "/v1";
+            String port = ingressExternalPort == null || ingressExternalPort.isBlank()
+                    ? "" : ":" + ingressExternalPort.trim();
+            return (ingressTlsSecret != null && !ingressTlsSecret.isBlank() ? "https://" : "http://")
+                    + host + port + "/v1";
         }
         return "http://" + resource + "." + namespace() + ".svc.cluster.local/v1";
     }

@@ -403,6 +403,8 @@ agent:
         # 域名模板；为空=不创建 Ingress，使用 ClusterIP
         host-template: ${AGENT_DEPLOY_K8S_INGRESS_HOST_TEMPLATE:}
         tls-secret: ${AGENT_DEPLOY_K8S_INGRESS_TLS_SECRET:}
+        # 非 443 的外部端口（如本地 NodePort 映射），空=443/80
+        external-port: ${AGENT_DEPLOY_K8S_INGRESS_EXTERNAL_PORT:}
     # 平台运行时入口镜像（每 Agent 一个 nginx 容器，只做入口/反代）
     image: ${AGENT_DEPLOY_IMAGE:nginx:alpine}
     # 主令牌的日配额，0=不限（平台网关执行）

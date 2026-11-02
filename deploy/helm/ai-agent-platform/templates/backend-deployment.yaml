@@ -93,6 +93,8 @@ spec:
               value: {{ .Values.agentDeploy.ingress.hostTemplate | default "" | quote }}
             - name: AGENT_DEPLOY_K8S_INGRESS_TLS_SECRET
               value: {{ .Values.agentDeploy.ingress.tlsSecret | default "" | quote }}
+            - name: AGENT_DEPLOY_K8S_INGRESS_EXTERNAL_PORT
+              value: {{ .Values.agentDeploy.ingress.externalPort | default "" | quote }}
             {{- end }}
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
