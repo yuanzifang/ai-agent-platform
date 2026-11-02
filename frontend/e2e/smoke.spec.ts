@@ -398,6 +398,8 @@ test('可观测 Trace：筛选、列配置与 Span 图例', async ({ page }) => 
 
   await page.locator('.el-table__row').first().click()
   await expect(page.locator('.el-drawer')).toContainText('invoke_agent_1#UI')
+  await expect(page.locator('.waterfall-row').first().locator('.waterfall-bar'))
+    .toHaveAttribute('title', '12ms · SUCCESS')
   await expect(page.locator('.waterfall-row .dot.agent')).toHaveCount(1)
   await expect(page.locator('.waterfall-row .dot.chain')).toHaveCount(1)
   await expect(page.locator('.waterfall-row .dot.llm')).toHaveCount(1)
