@@ -25,7 +25,7 @@ GET /api/v1/agent/{id}/deployment
 - 启用 Agent Ingress 后，部署 endpoint 会变成外部域名，例如：
 
 ```text
-https://agent-1.192-168-64-2.sslip.io:19004/v1
+https://agent-1.192-168-64-2.sslip.io/v1
 ```
 
 当前测试环境使用自签证书，浏览器会提示不安全。

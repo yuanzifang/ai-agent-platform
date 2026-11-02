@@ -22,15 +22,17 @@ k3d image import traefik:v3.7.16 -c aap-k8s
 
 ## k3d 端口映射
 
-Traefik Service 使用 NodePort：
+Traefik Service 使用 NodePort。标准入口映射到 80/443，另保留 19003/19004 作为测试备用端口：
 
 ```text
-web:        30090  -> 宿主 19003
-websecure:  30443  -> 宿主 19004
+web:        30090  -> 宿主 80 / 19003
+websecure:  30443  -> 宿主 443 / 19004
 ```
 
 ```bash
 k3d cluster edit aap-k8s \
+  --port-add 0.0.0.0:80:30090@server:0 \
+  --port-add 0.0.0.0:443:30443@server:0 \
   --port-add 0.0.0.0:19003:30090@server:0 \
   --port-add 0.0.0.0:19004:30443@server:0
 ```
@@ -44,7 +46,7 @@ agentDeploy:
     className: traefik
     hostTemplate: "agent-{agentId}.192-168-64-2.sslip.io"
     tlsSecret: "agents-wildcard-tls"
-    externalPort: "19004"
+    externalPort: ""       # 标准 443；使用 19004 时填 19004
 ```
 
 `externalPort` 用于非 443 的测试端口；生产 TLS 走 443 时留空。
@@ -66,9 +68,9 @@ kubectl -n aap create secret tls agents-wildcard-tls \
 ## 验证
 
 ```bash
-curl -k https://agent-1.192-168-64-2.sslip.io:19004/healthz
+curl -k https://agent-1.192-168-64-2.sslip.io/healthz
 
-curl -k https://agent-1.192-168-64-2.sslip.io:19004/v1/models \
+curl -k https://agent-1.192-168-64-2.sslip.io/v1/models \
   -H "Authorization: Bearer <Agent 部署令牌>"
 ```
 
