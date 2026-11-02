@@ -23,6 +23,7 @@ agentDeploy:
     className: nginx
     hostTemplate: ""
     tlsSecret: ""
+    externalPort: ""
 
 podAnnotations: {}
 commonLabels: {}

@@ -38,6 +38,7 @@ agentDeploy:
     className: nginx          # 或 traefik
     hostTemplate: "agent-{agentId}.agents.example.com"
     tlsSecret: "agents-wildcard-tls"
+    externalPort: ""          # 非 443 测试端口时填写，如 19004
 ```
 
 对应后端环境变量：
@@ -47,6 +48,7 @@ AGENT_DEPLOY_K8S_INGRESS_ENABLED=true
 AGENT_DEPLOY_K8S_INGRESS_CLASS=nginx
 AGENT_DEPLOY_K8S_INGRESS_HOST_TEMPLATE=agent-{agentId}.agents.example.com
 AGENT_DEPLOY_K8S_INGRESS_TLS_SECRET=agents-wildcard-tls
+AGENT_DEPLOY_K8S_INGRESS_EXTERNAL_PORT=   # 生产 443 留空
 ```
 
 `{agentId}` 会被替换为数字 ID，`{name}` 会被替换为 `aap-agent-<id>`。
@@ -120,15 +122,30 @@ ServiceAccount 默认不自动挂载 token；backend Pod 仅在 `agentDeploy.ena
 ## 当前状态
 
 - 代码已支持按需创建 Ingress，默认 `enabled=false`。
-- 当前 k3d 集群没有 IngressClass/Controller，因此未启用真实外部入口。
-- ClusterIP + port-forward 验证已通过。
-- 待目标环境具备 Controller/DNS/TLS 后开启并验证：
+- 当前测试集群已安装 Traefik，IngressClass `traefik` 已就绪。
+- 已用临时 `sslip.io` 域名和自签通配符证书完成真实外部 HTTPS 验证：
 
 ```text
-外部 HTTPS /v1/models
-外部 HTTPS SSE /v1/chat/completions
-证书/域名/安全组
+https://agent-1.192-168-64-2.sslip.io:19004/v1
 ```
+
+- 验证通过：
+
+```text
+/healthz 200
+/v1/models 无 token 401
+/v1/models 有部署令牌 200
+/stats 200
+```
+
+- 当前入口端口：
+
+```text
+http:  19003 -> Traefik 30090
+https: 19004 -> Traefik 30443
+```
+
+- 生产环境仍需替换为真实泛域名 DNS、CA 证书和 443 入口。
 
 ## 管理接口
 

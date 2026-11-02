@@ -1,0 +1,26 @@
+# Traefik Ingress Controller for k3d / Linux Docker
+# Install:
+#   helm upgrade --install traefik traefik/traefik -n traefik --create-namespace \
+#     -f deploy/k8s/ingress/traefik-values.yaml
+image:
+  repository: traefik
+  tag: v3.7.16
+  pullPolicy: IfNotPresent
+
+service:
+  spec:
+    type: NodePort
+
+ports:
+  web:
+    nodePort: 30090
+  websecure:
+    nodePort: 30443
+
+ingressClass:
+  enabled: true
+  isDefaultClass: true
+
+providers:
+  kubernetesIngress:
+    enabled: true

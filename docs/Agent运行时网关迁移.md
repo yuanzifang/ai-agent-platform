@@ -82,7 +82,7 @@ location /v1/ {
 - `AgentRuntimeGatewayControllerTest` 4 个用例：入口复用、OpenAI 错误结构、stats 仅部署令牌
 - `AgentDeploymentServiceLifecycleTest` 11 个用例：nginx 模板不持有 Key/令牌、平台统计分支、启停/清理/资源限制
 - `ArchitectureTest` 3 个用例：gateway 薄层、deploy 依赖边界
-- 后端全量单测：570/570
+- 后端全量单测：573/573
 - 静态门禁：`scripts/check-mvp-freeze.py` 通过
 - 待补：真实 Docker + nginx 容器 + 平台网关全链路实测；外部集群镜像重建
 

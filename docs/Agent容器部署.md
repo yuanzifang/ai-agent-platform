@@ -182,7 +182,7 @@ client → Service/aap-agent-{id}:80
 
 ## 验证
 
-- 后端全量单测：570/570
+- 后端全量单测：573/573
 - `AgentRuntimeGatewayServiceTest`：部署令牌、调用方 Key、非法令牌、停止部署、限流、日配额、内存统计
 - `AgentRuntimeGatewayControllerTest`：模型/对话入口、OpenAI 错误结构、stats 仅部署令牌
 - `AgentDeploymentServiceLifecycleTest`：nginx 模板不持有 Key/令牌、平台统计分支、启停/清理/资源限制
