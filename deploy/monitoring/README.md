@@ -98,7 +98,7 @@ sudo chmod 600 /home/fangyuan/aap-monitoring/kubelet-token
 docker compose restart prometheus
 ```
 
-Prometheus 以非 root 用户运行，token 文件必须能被 uid 65534 读取；部署脚本使用 `chown 65534:65534`。token 默认一年有效，到期前重新生成并重启 Prometheus。cAdvisor 目标使用 k3d 节点 IP（当前 `172.20.0.2/3/4`）；k3d 网络重建后需要更新 `prometheus.yml` 中 `kubelet-cadvisor` 的 targets。
+Prometheus 以非 root 用户运行，token 文件必须能被 uid 65534 读取；部署脚本使用 `chown 65534:65534`。token 默认一年有效，到期前重新生成并重启 Prometheus。cAdvisor 目标使用 k3d 节点 IP（当前 `172.20.0.2/3/5`）；k3d 网络重建或 UTM 重启后节点 IP 可能变化；本次重启后已更新为 `172.20.0.2/3/5`。
 
 ## 定时备份
 
