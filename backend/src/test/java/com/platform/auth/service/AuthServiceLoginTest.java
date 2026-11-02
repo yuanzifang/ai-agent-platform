@@ -56,7 +56,7 @@ class AuthServiceLoginTest {
         verify(userMapper).updateLoginFailure(org.mockito.ArgumentMatchers.eq(7L),
                 org.mockito.ArgumentMatchers.eq(2), locked.capture());
         assertNotNull(locked.getValue(), "达到阈值必须写入锁定时间");
-        verify(auditMapper).insert(any());
+        verify(auditMapper).insert(any(com.platform.system.entity.AuditLogin.class));
     }
 
     @Test

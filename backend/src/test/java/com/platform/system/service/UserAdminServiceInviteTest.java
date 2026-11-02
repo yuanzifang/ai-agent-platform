@@ -17,6 +17,7 @@ import com.platform.system.mapper.UserQuotaMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -36,7 +37,7 @@ class UserAdminServiceInviteTest {
     void inviteCreatesPendingTokenForTenant() {
         TestFixture f = fixture();
         JwtPrincipal principal = new JwtPrincipal(9L, 1L, false, List.of("ADMIN"), List.of("user:manage"));
-        when(f.invitationMapper.insert(any())).thenAnswer(inv -> {
+        when(f.invitationMapper.insert(any(UserInvitation.class))).thenAnswer(inv -> {
             inv.getArgument(0, UserInvitation.class).setId(11L);
             return 1;
         });
@@ -65,7 +66,7 @@ class UserAdminServiceInviteTest {
         invitation.setExpiresAt(LocalDateTime.now().plusDays(1));
         when(f.invitationMapper.findByToken("token-1")).thenReturn(invitation);
         when(f.userMapper.countByUsernameGlobal("invitee")).thenReturn(0L);
-        when(f.userMapper.insert(any())).thenAnswer(inv -> {
+        when(f.userMapper.insert(any(SysUser.class))).thenAnswer(inv -> {
             inv.getArgument(0, SysUser.class).setId(22L);
             return 1;
         });
@@ -98,6 +99,7 @@ class UserAdminServiceInviteTest {
         UserAdminService service = new UserAdminService(userMapper, roleMapper, userRoleMapper,
                 invitationMapper, mail, encoder, audit, mock(UserQuotaMapper.class),
                 mock(AgentRegistryMapper.class), mock(KnowledgeBaseMapper.class), mock(UserSessionMapper.class));
+        ReflectionTestUtils.setField(service, "frontendBase", "http://localhost:5173");
         return new TestFixture(service, userMapper, roleMapper, userRoleMapper,
                 invitationMapper, mail, encoder, audit);
     }

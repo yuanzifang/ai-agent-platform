@@ -1,10 +1,13 @@
 package com.platform.observability.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.observability.entity.AgentTrace;
 import com.platform.observability.mapper.AgentSpanMapper;
 import com.platform.observability.mapper.AgentTraceMapper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -24,6 +27,8 @@ class ObservabilityServiceTraceTest {
 
     @Test
     void tracesClampsPaginationAndMapsFilters() {
+        MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
+        TableInfoHelper.initTableInfo(assistant, AgentTrace.class);
         AgentTraceMapper traceMapper = mock(AgentTraceMapper.class);
         AgentSpanMapper spanMapper = mock(AgentSpanMapper.class);
         TraceService traceService = mock(TraceService.class);

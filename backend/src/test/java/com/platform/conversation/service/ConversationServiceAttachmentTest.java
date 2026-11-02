@@ -74,7 +74,7 @@ class ConversationServiceAttachmentTest {
         conversation.setStatus("ACTIVE");
         when(conversationMapper.selectById(1L)).thenReturn(conversation);
         ChatAttachmentMapper attachmentMapper = mock(ChatAttachmentMapper.class);
-        when(attachmentMapper.insert(org.mockito.ArgumentMatchers.any())).thenAnswer(inv -> {
+        when(attachmentMapper.insert(org.mockito.ArgumentMatchers.any(com.platform.conversation.entity.ChatAttachment.class))).thenAnswer(inv -> {
             inv.getArgument(0, com.platform.conversation.entity.ChatAttachment.class).setId(3L);
             return 1;
         });
