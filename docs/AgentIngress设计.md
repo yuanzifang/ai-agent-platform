@@ -126,7 +126,7 @@ ServiceAccount 默认不自动挂载 token；backend Pod 仅在 `agentDeploy.ena
 - 已用临时 `sslip.io` 域名和自签通配符证书完成真实外部 HTTPS 验证：
 
 ```text
-https://agent-1.192-168-64-2.sslip.io:19004/v1
+https://agent-1.192-168-64-2.sslip.io/v1
 ```
 
 - 验证通过：
@@ -141,8 +141,8 @@ https://agent-1.192-168-64-2.sslip.io:19004/v1
 - 当前入口端口：
 
 ```text
-http:  19003 -> Traefik 30090
-https: 19004 -> Traefik 30443
+http:  80  -> Traefik 30090（测试备用 19003）
+https: 443 -> Traefik 30443（测试备用 19004）
 ```
 
 - 生产环境仍需替换为真实泛域名 DNS、CA 证书和 443 入口。
