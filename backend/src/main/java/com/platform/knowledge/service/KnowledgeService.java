@@ -124,6 +124,14 @@ public class KnowledgeService {
     @Value("${knowledge.import.max-bytes:5242880}")
     private int importMaxBytes;
 
+    /** 知识库直传最大文件大小（默认 20MB，与 DocumentParser 上限一致）。 */
+    @Value("${knowledge.upload.max-bytes:20971520}")
+    private int uploadMaxBytes = 20 * 1024 * 1024;
+
+    private static final Set<String> KNOWLEDGE_UPLOAD_EXTENSIONS = Set.of(
+            "md", "txt", "doc", "docx", "pdf", "xlsx", "xls", "pptx", "ppt",
+            "html", "htm", "csv", "json", "epub", "png", "jpg", "jpeg", "bmp", "tif", "tiff");
+
     /** 文档解析专用线程池（架构 2.3）；队列满时 CallerRuns 保证不丢任务。 */
     @Resource(name = "documentParseExecutor")
     private ThreadPoolTaskExecutor documentParseExecutor;
@@ -649,6 +657,7 @@ public class KnowledgeService {
     public Map<String, Object> requestUpload(Long kbId, String fileName, Long sizeBytes,
                                              Long documentId, KnowledgePermissionService.Viewer viewer) {
         permissionService.requireEdit(kbId, viewer);
+        validateKnowledgeUpload(fileName, sizeBytes);
         if (sizeBytes != null && sizeBytes > 0) quotaService.checkStorage(sizeBytes);
         if (documentId != null) {
             KnowledgeDocument old = docMapper.selectById(documentId);
@@ -669,6 +678,19 @@ public class KnowledgeService {
         result.put("objectName", objectName);
         if (documentId != null) result.put("documentId", documentId);
         return result;
+    }
+
+    /** 直传元数据校验：扩展名白名单 + 20MB 上限（真实对象还会在 callback 做存在性校验）。 */
+    private void validateKnowledgeUpload(String fileName, Long sizeBytes) {
+        if (sizeBytes != null && sizeBytes > uploadMaxBytes) {
+            throw new BusinessException(413, "文件不能超过 " + (uploadMaxBytes / 1024 / 1024) + "MB");
+        }
+        String name = safeFileName(fileName);
+        int dot = name.lastIndexOf('.');
+        String ext = dot >= 0 && dot + 1 < name.length() ? name.substring(dot + 1).toLowerCase(Locale.ROOT) : "";
+        if (!KNOWLEDGE_UPLOAD_EXTENSIONS.contains(ext)) {
+            throw new BusinessException(415, "不支持的知识库文件类型：" + (ext.isBlank() ? name : ext));
+        }
     }
 
     private LocalDateTime toLocalDateTime(Instant instant) {
@@ -721,6 +743,11 @@ public class KnowledgeService {
         }
         if (!storage.exists(objectName)) {
             throw new BusinessException(400, "文件尚未上传成功（MinIO 中不存在）");
+        }
+        long actualSize = storage.statSize(objectName);
+        if (actualSize > uploadMaxBytes) {
+            storage.remove(objectName);
+            throw new BusinessException(413, "文件不能超过 " + (uploadMaxBytes / 1024 / 1024) + "MB");
         }
         String fileName = objectName.substring(objectName.lastIndexOf('/') + 1);
         if (documentId != null) {

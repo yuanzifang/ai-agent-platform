@@ -710,4 +710,32 @@ class KnowledgeServiceLifecycleTest {
         verify(auditService).record(7L, "kb.delete", "knowledge", "1", "SUCCESS",
                 Map.of("name", "产品资料", "documents", 1, "forced", true));
     }
+    @Test
+    void requestUploadRejectsOversizedAndUnsupportedTypes() {
+        ReflectionTestUtils.setField(service, "uploadMaxBytes", 20 * 1024 * 1024);
+        BusinessException tooLarge = assertThrows(BusinessException.class,
+                () -> service.requestUpload(1L, "large.pdf", 20L * 1024 * 1024 + 1, null, viewer));
+        assertEquals(413, tooLarge.getCode());
+
+        BusinessException badType = assertThrows(BusinessException.class,
+                () -> service.requestUpload(1L, "payload.exe", 3L, null, viewer));
+        assertEquals(415, badType.getCode());
+        verifyNoInteractions(storage);
+    }
+
+    @Test
+    void callbackRejectsOversizedActualObjectAndRemovesIt() {
+        ReflectionTestUtils.setField(service, "uploadMaxBytes", 20 * 1024 * 1024);
+        String object = "9/knowledge/1/large/file.pdf";
+        when(storage.exists(object)).thenReturn(true);
+        when(storage.statSize(object)).thenReturn(20L * 1024 * 1024 + 1);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.callback(1L, object, null, null, viewer));
+
+        assertEquals(413, error.getCode());
+        verify(storage).remove(object);
+        verify(docMapper, never()).insert(any(KnowledgeDocument.class));
+    }
+
 }
