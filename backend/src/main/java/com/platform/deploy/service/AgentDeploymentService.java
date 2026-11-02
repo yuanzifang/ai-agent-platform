@@ -43,7 +43,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Agent 容器部署（MVP：本机 Docker）。
+ * Agent 运行时部署（K8s 默认 / 本机 Docker 回退）。
  *
  * 每个已发布的 Agent 部署一个轻量 nginx 容器：容器对外暴露 OpenAI 兼容的
  * /v1/chat/completions，并透明反代到平台网关 /api/v1/gateway/agent-runtime/{agentId}/v1；
@@ -179,7 +179,7 @@ public class AgentDeploymentService {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("agentId", agentId);
         data.put("agentStatus", agent.getStatus());
-        data.put("runtime", "platform");
+        data.put("runtime", runtime.kubernetes() ? "kubernetes" : "docker");
         data.put("image", nginxImage);
         data.put("enabled", deployEnabled);
         data.put("dockerAvailable", runtime.available());
@@ -210,8 +210,9 @@ public class AgentDeploymentService {
             throw new BusinessException(400, "请先发布 Agent，再部署到容器");
         }
         if (!runtime.available()) {
-            throw new BusinessException(409,
-                    "本机 Docker 不可用：请安装并启动 Docker Desktop（或 colima），确保命令行可执行 docker info");
+            throw new BusinessException(409, runtime.kubernetes()
+                    ? "K8s 运行时不可用：请检查 ServiceAccount Token 与 RBAC"
+                    : "本机 Docker 不可用：请安装并启动 Docker Desktop（或 colima），确保命令行可执行 docker info");
         }
 
         AgentDeployment deployment = find(agentId);
@@ -239,9 +240,12 @@ public class AgentDeploymentService {
         replicas = Math.max(1, Math.min(maxReplicas, replicas));
         deployment.setDeployProfileId(deployProfile == null ? null : deployProfile.getId());
 
+        boolean kubernetes = runtime.kubernetes();
         Integer previousLbPort = deployment.getLbHostPort();
-        // host_port 在表结构中非空：首次部署先占一个候选端口，真正创建容器时会优先复用。
-        if (deployment.getHostPort() == null) {
+        // host_port 在表结构中非空。K8s 使用 ClusterIP:80，不占用宿主端口。
+        if (kubernetes) {
+            deployment.setHostPort(80);
+        } else if (deployment.getHostPort() == null) {
             deployment.setHostPort(allocatePort(deployment, Set.of(), false));
         }
         removeReplicaContainers(deployment);
@@ -279,45 +283,64 @@ public class AgentDeploymentService {
             ensureRuntimeToken(deployment);
             env.put("CORS_ORIGIN", corsOrigins == null ? "" : corsOrigins.trim());
             env.put("NGINX_ENTRYPOINT_QUIET_LOGS", "1");
-            List<String> mounts = List.of(templateDir().toString() + ":/etc/nginx/templates:ro");
+            List<String> mounts = kubernetes ? List.of()
+                    : List.of(templateDir().toString() + ":/etc/nginx/templates:ro");
 
             List<String> limits = containerLimits(deployProfile);
-            Set<Integer> reserved = new HashSet<>();
-            for (int i = 0; i < replicas; i++) {
-                String name = baseName + (i == 0 ? "" : "-r" + (i + 1));
-                int port = allocatePort(deployment, reserved, i == 0);
-                reserved.add(port);
+            Map<String, String> resourceLabels = Map.of(
+                    "aap.agent_id", String.valueOf(agentId),
+                    "aap.tenant_id", String.valueOf(agent.getTenantId()),
+                    "aap.managed_by", "ai-agent-platform");
+            if (kubernetes) {
+                Map<String, String> files = Map.of("default.conf.template", NGINX_TEMPLATE);
                 ContainerRuntime.CreateRequest request = new ContainerRuntime.CreateRequest(
-                        name,
-                        effectiveImage,
-                        bind,
-                        port,
-                        containerPort,
-                        env,
-                        Map.of("aap.agent_id", String.valueOf(agentId),
-                                "aap.tenant_id", String.valueOf(agent.getTenantId()),
-                                "aap.managed_by", "ai-agent-platform"),
-                        mounts,
-                        limits);
-                String containerId = runtime.create(request);
-                runtime.start(containerId);
-                waitForHealthy(port);
+                        baseName, effectiveImage, bind, 80, containerPort, env, resourceLabels,
+                        List.of(), limits, replicas, files);
+                String resource = runtime.create(request);
+                runtime.start(resource);
+                waitForRuntimeReady(resource, 120);
                 Map<String, Object> row = new LinkedHashMap<>();
-                row.put("name", name);
-                row.put("containerId", containerId);
-                row.put("hostPort", port);
+                row.put("name", resource);
+                row.put("containerId", resource);
+                row.put("hostPort", 80);
                 row.put("status", "RUNNING");
-                row.put("endpoint", publicEndpoint(port));
-                row.put("localEndpoint", "http://localhost:" + port + "/v1");
+                row.put("endpoint", runtime.endpoint(resource));
+                row.put("localEndpoint", runtime.endpoint(resource));
                 rows.add(row);
-            }
-            applyReplicaRows(deployment, rows);
-            if (replicas > 1) {
-                createLoadBalancer(deployment, rows, reserved, previousLbPort);
-                deployment.setEndpoint(deployment.getLbEndpoint());
-                deployment.setLocalEndpoint(deployment.getLbLocalEndpoint());
-            } else {
+                applyReplicaRows(deployment, rows);
+                deployment.setReplicaCount(replicas);
                 removeLoadBalancer(deployment);
+                deployment.setEndpoint(runtime.endpoint(resource));
+                deployment.setLocalEndpoint(runtime.endpoint(resource));
+            } else {
+                Set<Integer> reserved = new HashSet<>();
+                for (int i = 0; i < replicas; i++) {
+                    String name = baseName + (i == 0 ? "" : "-r" + (i + 1));
+                    int port = allocatePort(deployment, reserved, i == 0);
+                    reserved.add(port);
+                    ContainerRuntime.CreateRequest request = new ContainerRuntime.CreateRequest(
+                            name, effectiveImage, bind, port, containerPort, env, resourceLabels,
+                            mounts, limits);
+                    String containerId = runtime.create(request);
+                    runtime.start(containerId);
+                    waitForHealthy(port);
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("name", name);
+                    row.put("containerId", containerId);
+                    row.put("hostPort", port);
+                    row.put("status", "RUNNING");
+                    row.put("endpoint", publicEndpoint(port));
+                    row.put("localEndpoint", "http://localhost:" + port + "/v1");
+                    rows.add(row);
+                }
+                applyReplicaRows(deployment, rows);
+                if (replicas > 1) {
+                    createLoadBalancer(deployment, rows, reserved, previousLbPort);
+                    deployment.setEndpoint(deployment.getLbEndpoint());
+                    deployment.setLocalEndpoint(deployment.getLbLocalEndpoint());
+                } else {
+                    removeLoadBalancer(deployment);
+                }
             }
             deployment.setStatus("RUNNING");
             publishDeploymentMetrics(deployment);
@@ -590,7 +613,8 @@ public class AgentDeploymentService {
             String name = String.valueOf(row.get("name"));
             try {
                 ContainerRuntime.Info info = runtime.inspect(name);
-                String next = info.running() ? "RUNNING" : "STOPPED";
+                String next = info.running() ? "RUNNING"
+                        : "PENDING".equalsIgnoreCase(info.status()) ? "PENDING" : "STOPPED";
                 if (!next.equals(row.get("status"))) {
                     row.put("status", next);
                     changed = true;
@@ -785,6 +809,26 @@ public class AgentDeploymentService {
             }
         }
         throw new BusinessException(409, "容器启动后健康检查未通过，请查看部署日志（容器已回滚）");
+    }
+
+    /** K8s 模式下等待 Deployment 至少一个副本 Ready，最多等 timeoutSeconds。 */
+    private void waitForRuntimeReady(String resource, int timeoutSeconds) {
+        long deadline = System.currentTimeMillis() + Math.max(10, timeoutSeconds) * 1000L;
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                ContainerRuntime.Info info = runtime.inspect(resource);
+                if (info.running()) return;
+            } catch (BusinessException e) {
+                // Deployment 刚创建，继续等待
+            }
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        throw new BusinessException(409, "Agent Deployment 未在超时时间内 Ready，请查看 K8s 事件");
     }
 
     private String publicEndpoint(int port) {

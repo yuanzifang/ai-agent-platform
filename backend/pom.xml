@@ -31,6 +31,7 @@
         <mybatis-plus.version>3.5.7</mybatis-plus.version>
         <jjwt.version>0.12.6</jjwt.version>
         <ttl.version>2.14.5</ttl.version>
+        <fabric8.version>7.3.1</fabric8.version>
     </properties>
 
     <dependencies>
@@ -141,6 +142,13 @@
             <groupId>io.opentelemetry</groupId>
             <artifactId>opentelemetry-exporter-otlp</artifactId>
             <version>1.37.0</version>
+        </dependency>
+
+        <!-- Agent 运行时：集群内创建 Deployment/Service；本地开发仍可回退 Docker CLI -->
+        <dependency>
+            <groupId>io.fabric8</groupId>
+            <artifactId>kubernetes-client</artifactId>
+            <version>${fabric8.version}</version>
         </dependency>
 
         <!-- M3 知识库：MinIO / POI / PDFBox / PostgreSQL(pgvector) -->

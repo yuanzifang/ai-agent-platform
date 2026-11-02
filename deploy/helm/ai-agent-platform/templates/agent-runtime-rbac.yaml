@@ -1,0 +1,38 @@
+{{- if .Values.agentDeploy.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "ai-agent-platform.fullname" . }}-agent-runtime
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ai-agent-platform.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "ai-agent-platform.fullname" . }}-agent-runtime
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ai-agent-platform.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "ai-agent-platform.fullname" . }}-agent-runtime
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ai-agent-platform.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

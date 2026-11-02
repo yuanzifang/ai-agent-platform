@@ -36,12 +36,17 @@ def main() -> int:
         return fail("Agent 部署 CORS 默认没有收敛")
 
     # 单栈守卫：旧 Node 运行时和旧 K8s manifest 不得回退
-    if "runtime: ${AGENT_DEPLOY_RUNTIME" in app:
-        return fail("application.yml 仍保留旧 AGENT_DEPLOY_RUNTIME 配置")
+    if "runtime: ${AGENT_DEPLOY_RUNTIME:gateway" in app:
+        return fail("application.yml 仍保留旧 Node AGENT_DEPLOY_RUNTIME 配置")
     if (ROOT / "runtime/agent-gateway").exists():
         return fail("runtime/agent-gateway 旧 Node 运行时仍存在")
     if (ROOT / "deploy/k8s/infra/agent-gateway.yaml").exists():
         return fail("旧 agent-gateway K8s manifest 仍存在")
+    values = read("deploy/helm/ai-agent-platform/values.yaml")
+    if "automountServiceAccountToken: true" not in values:
+        return fail("Helm ServiceAccount 未开启 K8s API Token")
+    if not (ROOT / "deploy/helm/ai-agent-platform/templates/agent-runtime-rbac.yaml").exists():
+        return fail("缺少 Agent K8s 运行时 RBAC 模板")
 
     graph = read("backend/src/main/java/com/platform/knowledge/service/KnowledgeGraphService.java")
     if 'configBoolean("knowledge.graph.auto-extract", false)' not in graph:

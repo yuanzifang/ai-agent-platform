@@ -9,7 +9,14 @@ serviceAccount:
   create: true
   name: ""
   annotations: {}
-  automountServiceAccountToken: false
+  automountServiceAccountToken: true
+
+agentDeploy:
+  enabled: true
+  image: nginx:1.27-alpine
+  platformBase: ""
+  # 可选逗号分隔，如 kubernetes.io/hostname=worker-1；空=交给调度器
+  nodeSelector: ""
 
 podAnnotations: {}
 commonLabels: {}
