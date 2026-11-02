@@ -1,0 +1,77 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["127.0.0.1:9093"]
+
+scrape_configs:
+  - job_name: ai-agent-backend-pods
+    scheme: https
+    bearer_token_file: /etc/prometheus/kubelet-token
+    tls_config:
+      insecure_skip_verify: true
+    kubernetes_sd_configs:
+      - role: pod
+        api_server: https://127.0.0.1:6443
+        bearer_token_file: /etc/prometheus/kubelet-token
+        tls_config:
+          insecure_skip_verify: true
+        namespaces:
+          names: [aap]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+        action: keep
+        regex: backend
+      - source_labels: [__meta_kubernetes_pod_phase]
+        action: keep
+        regex: Running
+      - source_labels: [__meta_kubernetes_pod_container_port_number]
+        action: keep
+        regex: "8080"
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: __metrics_path__
+        replacement: /api/v1/namespaces/aap/pods/$1:8080/proxy/actuator/prometheus
+      - target_label: __address__
+        replacement: 127.0.0.1:6443
+      - target_label: __scheme__
+        replacement: https
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [__meta_kubernetes_pod_container_name]
+        target_label: container
+
+  - job_name: mysqld
+    static_configs:
+      - targets: ["127.0.0.1:19104"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["127.0.0.1:19121"]
+
+  - job_name: postgres
+    static_configs:
+      - targets: ["127.0.0.1:19187"]
+
+  - job_name: node
+    static_configs:
+      - targets: ["127.0.0.1:19100"]
+
+  - job_name: kubelet-cadvisor
+    scheme: https
+    metrics_path: /metrics/cadvisor
+    bearer_token_file: /etc/prometheus/kubelet-token
+    tls_config:
+      insecure_skip_verify: true
+    static_configs:
+      - targets:
+          - 172.20.0.2:10250
+          - 172.20.0.3:10250
+          - 172.20.0.4:10250

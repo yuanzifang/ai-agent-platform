@@ -1,0 +1,220 @@
+name: aap-monitoring
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.listen-address=:9090
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./kubelet-token:/etc/prometheus/kubelet-token:ro
+      - prometheus-data:/prometheus
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=:9093
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+
+  alert-relay:
+    image: node:22-bookworm-slim
+    restart: unless-stopped
+    network_mode: host
+    working_dir: /app
+    command: ["node", "server.mjs"]
+    env_file:
+      - ./alert.env
+    environment:
+      PORT: "18099"
+      NODE_ENV: production
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: "16379"
+      REDIS_DB: "0"
+    volumes:
+      - ./alert-relay:/app:ro
+      - alert-relay-state:/data
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?}
+      GRAFANA_MYSQL_PASSWORD: ${GRAFANA_MYSQL_PASSWORD:?}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_HTTP_PORT: "3000"
+      TZ: Asia/Shanghai
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
+  mysqld-exporter:
+    image: prom/mysqld-exporter:v0.16.0
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --mysqld.address=127.0.0.1:13306
+      - --mysqld.username=root
+      - --web.listen-address=:19104
+    environment:
+      MYSQLD_EXPORTER_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+    depends_on:
+      - prometheus
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.67.0
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      REDIS_ADDR: redis://127.0.0.1:16379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+    command:
+      - --web.listen-address=:19121
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      DATA_SOURCE_NAME: postgresql://aiagent:${PG_PASSWORD:?}@127.0.0.1:15432/vector?sslmode=disable
+    command:
+      - --web.listen-address=:19187
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --web.listen-address=:19100
+    volumes:
+      - /:/host:ro,rslave
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+
+  backup-mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    network_mode: host
+    user: "0"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+    volumes:
+      - ./backups:/backup
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        while true; do
+          ts=$$(date +%Y%m%d-%H%M%S)
+          tmp="/backup/.mysql-$$ts.sql"
+          out="/backup/mysql-$$ts.sql.gz"
+          trap 'rm -f "$$tmp" "$$out.partial"' EXIT
+          mysqldump -h127.0.0.1 -P13306 -uroot -p"$$MYSQL_ROOT_PASSWORD" --single-transaction --quick --routines --triggers --events --set-gtid-purged=OFF --default-character-set=utf8mb4 --no-tablespaces ai_agent_platform > "$$tmp"
+          gzip -9 -c "$$tmp" > "$$out.partial"
+          mv "$$out.partial" "$$out"
+          rm -f "$$tmp"
+          mysql -h127.0.0.1 -P13306 -uroot -p"$$MYSQL_ROOT_PASSWORD" -e "TRUNCATE TABLE mysql.slow_log;" || true
+          find /backup -name 'mysql-*.sql.gz' -mtime +14 -delete
+          sleep 86400
+        done
+
+  backup-pg:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    network_mode: host
+    user: "0"
+    environment:
+      PGPASSWORD: ${PG_PASSWORD:?}
+    volumes:
+      - ./backups:/backup
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        while true; do
+          ts=$$(date +%Y%m%d-%H%M%S)
+          tmp="/backup/.pg-vector-$$ts.sql"
+          out="/backup/pg-vector-$$ts.sql.gz"
+          trap 'rm -f "$$tmp" "$$out.partial"' EXIT
+          pg_dump -h127.0.0.1 -p15432 -U aiagent -d vector --format=plain --no-owner --no-privileges > "$$tmp"
+          gzip -9 -c "$$tmp" > "$$out.partial"
+          mv "$$out.partial" "$$out"
+          rm -f "$$tmp"
+          find /backup -name 'pg-vector-*.sql.gz' -mtime +14 -delete
+          sleep 86400
+        done
+
+  backup-redis:
+    image: redis:8.10-alpine
+    restart: unless-stopped
+    network_mode: host
+    user: "0"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+    volumes:
+      - ./backups:/backup
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        while true; do
+          ts=$$(date +%Y%m%d-%H%M%S)
+          out="/backup/redis-$$ts.rdb"
+          tmp="$$out.partial"
+          trap 'rm -f "$$tmp"' EXIT
+          REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli -h 127.0.0.1 -p 16379 --rdb "$$tmp"
+          mv "$$tmp" "$$out"
+          find /backup -name 'redis-*.rdb' -mtime +14 -delete
+          sleep 86400
+        done
+
+  backup-minio:
+    image: bitnamilegacy/minio:latest
+    restart: unless-stopped
+    network_mode: host
+    user: "0"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+    volumes:
+      - ./backups:/backup
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        while true; do
+          ts=$$(date +%Y%m%d-%H%M%S)
+          out="/backup/minio-$$ts"
+          tmp="/backup/.minio-$$ts"
+          trap 'rm -rf "$$tmp"' EXIT
+          /opt/bitnami/minio-client/bin/mc alias set src http://127.0.0.1:19000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null
+          rm -rf "$$tmp"
+          mkdir -p "$$tmp"
+          /opt/bitnami/minio-client/bin/mc mirror --overwrite --preserve src/ "$$tmp/"
+          mv "$$tmp" "$$out"
+          find /backup -maxdepth 1 -type d -name 'minio-*' -mtime +14 -exec rm -rf {} +
+          sleep 86400
+        done
+
+volumes:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:
+  alert-relay-state:

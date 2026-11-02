@@ -1,0 +1,18 @@
+apiVersion: 1
+
+datasources:
+  - name: MySQL Slow Log
+    uid: mysql-slow
+    type: mysql
+    access: proxy
+    url: 127.0.0.1:13306
+    database: mysql
+    user: grafana_monitor
+    secureJsonData:
+      password: $GRAFANA_MYSQL_PASSWORD
+    jsonData:
+      maxOpenConns: 5
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+    editable: false
+    isDefault: false

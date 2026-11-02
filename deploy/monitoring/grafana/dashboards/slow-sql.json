@@ -1,0 +1,100 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Slow Queries (selected range)",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "mysql-slow"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT COUNT(*) AS slow_queries FROM mysql.slow_log WHERE $__timeFilter(start_time)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      }
+    },
+    {
+      "type": "text",
+      "title": "\u8bf4\u660e",
+      "gridPos": {
+        "h": 4,
+        "w": 18,
+        "x": 6,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "\u6570\u636e\u6765\u81ea MySQL `mysql.slow_log`\uff0c\u5df2\u5f00\u542f `slow_query_log=ON`\u3001`long_query_time=1`\u3001`log_output=FILE,TABLE`\u3002\u65f6\u95f4\u5217\u662f\u6162\u67e5\u8be2\u5f00\u59cb\u65f6\u95f4\u3002\u5907\u4efd\u5bb9\u5668\u6bcf\u5929\u6e05\u7406\u8be5\u8868\uff1b\u6587\u4ef6\u65e5\u5fd7\u4ecd\u4fdd\u7559\u5728 `/var/lib/mysql/mysql-0-slow.log`\u3002"
+      }
+    },
+    {
+      "type": "table",
+      "title": "Slow SQL",
+      "gridPos": {
+        "h": 20,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "mysql-slow"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT start_time AS '\u65f6\u95f4', TIME_TO_SEC(query_time) AS '\u8017\u65f6(\u79d2)', TIME_TO_SEC(lock_time) AS '\u9501\u7b49\u5f85(\u79d2)', rows_sent AS '\u8fd4\u56de\u884c', rows_examined AS '\u626b\u63cf\u884c', db AS '\u6570\u636e\u5e93', user_host AS '\u7528\u6237', sql_text AS 'SQL' FROM mysql.slow_log WHERE $__timeFilter(start_time) ORDER BY start_time DESC LIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "\u65f6\u95f4",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "filterable": true
+          }
+        },
+        "overrides": []
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "title": "AI Agent Platform - Slow SQL",
+  "uid": "aap-slow-sql",
+  "version": 1
+}
