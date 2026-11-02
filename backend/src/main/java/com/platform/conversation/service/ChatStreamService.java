@@ -3,10 +3,7 @@ package com.platform.conversation.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.agent.entity.AgentKnowledgeBase;
-import com.platform.knowledge.service.DocumentParser;
-import com.platform.knowledge.service.ImageUnderstandingService;
 import com.platform.knowledge.service.KnowledgePermissionService;
-import com.platform.knowledge.service.StorageService;
 import com.platform.agent.entity.AgentRegistry;
 import com.platform.agent.entity.AgentVersion;
 import com.platform.agent.mapper.AgentKnowledgeBaseMapper;
@@ -80,9 +77,7 @@ public class ChatStreamService {
     private final PricingService pricingService;
     private final QuotaService quotaService;
     private final ChatService chatService;                 // 复用 RAG augmentWithKnowledge
-    private final StorageService storageService;
-    private final DocumentParser documentParser;
-    private final ImageUnderstandingService imageUnderstandingService;
+    private final ChatAttachmentInjector attachmentInjector;
     private final ToolRuntimeService toolRuntime;
     private final com.platform.agent.service.ContextWindowService contextWindow;
     private final ConversationService conversationService;
@@ -1396,68 +1391,10 @@ public class ChatStreamService {
     /**
      * 附件内容解析注入（需求 3.25 / 3.6）：TXT/MD/DOCX/PDF 提取正文，按文件与总长度截断；
      * 图片走视觉模型识别后注入描述，避免把图片字节当文档解析；解析失败不阻断对话。
+     * 详见 {@link ChatAttachmentInjector}。
      */
-    @SuppressWarnings("unchecked")
     private String llmInputWithAttachments(String message, String attachmentsJson) {
-        if (attachmentsJson == null || attachmentsJson.isBlank()) return message;
-        try {
-            java.util.List<Map<String, Object>> list = objectMapper.readValue(attachmentsJson, java.util.List.class);
-            if (list.isEmpty()) return message;
-            StringBuilder sb = new StringBuilder(message);
-            sb.append("\n\n[用户随消息上传了以下附件，内容已解析，请结合附件回答]");
-            int total = 0;
-            int imageCount = 0;
-            for (Map<String, Object> a : list) {
-                String name = String.valueOf(a.get("fileName"));
-                String objectName = a.get("objectName") == null ? null : String.valueOf(a.get("objectName"));
-                String contentType = a.get("contentType") == null ? "" : String.valueOf(a.get("contentType"));
-                sb.append("\n--- 附件：").append(name).append(" ---\n");
-                if (objectName == null || total >= 20000) {
-                    sb.append("（文件内容未解析或已达上下文上限）");
-                    continue;
-                }
-                try {
-                    byte[] bytes = storageService.get(objectName);
-                    if (contentType.toLowerCase(java.util.Locale.ROOT).startsWith("image/")) {
-                        if (imageCount >= imageUnderstandingService.maxImages()) {
-                            sb.append("（图片数量超过视觉识别上限，未识别）");
-                            continue;
-                        }
-                        imageCount++;
-                        String description = imageUnderstandingService.describeForChat(bytes, name);
-                        if (description == null || description.isBlank()) {
-                            sb.append("（图片视觉识别未启用或失败，未提取到图片内容）");
-                        } else {
-                            int remain = 20000 - total;
-                            String clipped = description.length() > Math.min(4000, remain)
-                                    ? description.substring(0, Math.min(4000, remain)) : description;
-                            sb.append("\n<untrusted_image name=\"").append(name)
-                                    .append("\">\n").append(clipped).append("\n</untrusted_image>");
-                            total += clipped.length();
-                        }
-                        continue;
-                    }
-                    List<String> chunks = documentParser.parse(name, bytes);
-                    String text = String.join("\n", chunks);
-                    if (text.isBlank()) {
-                        sb.append("（未提取到文本内容）");
-                    } else {
-                        int remain = 20000 - total;
-                        String clipped = text.length() > Math.min(8000, remain)
-                                ? text.substring(0, Math.min(8000, remain)) : text;
-                        sb.append("\n<untrusted_attachment name=\"").append(name)
-                                .append("\">\n").append(clipped).append("\n</untrusted_attachment>");
-                        total += clipped.length();
-                    }
-                } catch (Exception e) {
-                    log.warn("附件解析失败 file={}：{}", name, e.getMessage());
-                    sb.append("（附件解析失败：").append(e.getMessage()).append("）");
-                }
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            return message;
-        }
+        return attachmentInjector.inject(message, attachmentsJson);
     }
 
     /** 必填变量校验（需求 3.1.3(9)）：required 且无默认值且未传入 → 400。 */
