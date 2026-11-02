@@ -30,6 +30,20 @@ test('发布弹窗：门禁失败直接展示失败步骤与样本明细', async
   await page.route(`**/api/v1/agent/${AGENT_ID}**`, async (route) => {
     const path = new URL(route.request().url()).pathname
     const method = route.request().method()
+    if (method === 'GET' && path === `/api/v1/agent/${AGENT_ID}`) {
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 0,
+          data: {
+            id: AGENT_ID, name: 'E2E Gate Agent', status: 'DRAFT', visibility: 'TENANT',
+            systemPrompt: '你是测试助手', modelConfig: { modelName: 'deepseek-flash' },
+            agentCapabilities: {}, memoryConfig: {}, variables: [], knowledgeBases: [],
+            skills: [], tools: [], subAgents: [], updatedAt: new Date().toISOString()
+          }
+        })
+      })
+    }
     if (method === 'PUT' && path === `/api/v1/agent/${AGENT_ID}`) {
       return route.fulfill({
         contentType: 'application/json',
@@ -89,6 +103,20 @@ test('写工具策略变更：普通发布阻断后可强制发布', async ({ pa
   await page.route(`**/api/v1/agent/${AGENT_ID}**`, async (route) => {
     const path = new URL(route.request().url()).pathname
     const method = route.request().method()
+    if (method === 'GET' && path === `/api/v1/agent/${AGENT_ID}`) {
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 0,
+          data: {
+            id: AGENT_ID, name: 'E2E Gate Agent', status: 'DRAFT', visibility: 'TENANT',
+            systemPrompt: '你是测试助手', modelConfig: { modelName: 'deepseek-flash' },
+            agentCapabilities: {}, memoryConfig: {}, variables: [], knowledgeBases: [],
+            skills: [], tools: [], subAgents: [], updatedAt: new Date().toISOString()
+          }
+        })
+      })
+    }
     if (method === 'PUT' && path === `/api/v1/agent/${AGENT_ID}`) {
       return route.fulfill({
         contentType: 'application/json',

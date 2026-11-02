@@ -875,7 +875,6 @@ public class GatewayService {
         servletResponse.setHeader("Connection", "close");
         byte[] body = ("{\"code\":" + status.value() + ",\"message\":\"" + message.replace("\"", "'") + "\"}")
                 .getBytes(StandardCharsets.UTF_8);
-        servletResponse.setContentLength(body.length);
         return out -> out.write(body);
     }
 
