@@ -336,3 +336,74 @@ test('知识库批量上传与进度展示', async ({ page, request }) => {
     })
   }
 })
+
+test('可观测 Trace：筛选、列配置与 Span 图例', async ({ page }) => {
+  await login(page)
+  const traceRequests: string[] = []
+  await page.route('**/api/v1/observability/traces**', async route => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith('/traces')) {
+      traceRequests.push(url.toString())
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 0,
+          data: {
+            list: [{
+              traceId: 'trace-ui', kind: 'internal', name: 'invoke_agent_1#UI',
+              agentName: 'UI', version: 'V1', input: 'UI input', output: 'UI output',
+              status: 'SUCCESS', startTime: '2026-11-02T09:00:00', latencyMs: 12,
+              totalTokens: 34, score: null
+            }],
+            total: 1, page: 1, pageSize: 20
+          }
+        })
+      })
+    } else {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 0,
+          data: {
+            traceId: 'trace-ui', kind: 'internal', name: 'invoke_agent_1#UI',
+            agentId: 1, agentName: 'UI', status: 'SUCCESS', modelName: 'mock',
+            input: 'UI input', output: 'UI output', inputTokens: 20, outputTokens: 8,
+            totalTokens: 28, latencyMs: 12, startTime: '2026-11-02T09:00:00',
+            spans: [
+              { spanId: 'root', parentSpanId: null, spanType: 'agent', name: 'agent', status: 'SUCCESS', durationMs: 12 },
+              { spanId: 'chain', parentSpanId: 'root', spanType: 'chain', name: 'chain', status: 'SUCCESS', durationMs: 6 },
+              { spanId: 'llm', parentSpanId: 'root', spanType: 'llm', name: 'llm', status: 'SUCCESS', durationMs: 5, modelName: 'mock', inputTokens: 20, outputTokens: 8 },
+              { spanId: 'tool', parentSpanId: 'chain', spanType: 'tool', name: 'tool', status: 'SUCCESS', durationMs: 4, toolName: 'calculator' }
+            ]
+          }
+        })
+      })
+    }
+  })
+
+  await page.goto('/observability')
+  await expect(page.getByRole('columnheader', { name: 'STATUS' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'INPUT' })).toBeVisible()
+
+  const search = page.getByPlaceholder('搜索 Trace ID / 输入 / 输出')
+  await search.fill('trace-ui')
+  await search.press('Enter')
+  await expect.poll(() => traceRequests.some(u => u.includes('keyword=trace-ui'))).toBe(true)
+
+  await page.getByRole('button', { name: 'Columns' }).click()
+  await page.getByRole('checkbox', { name: 'INPUT' }).click()
+  await expect(page.getByRole('columnheader', { name: 'INPUT' })).toHaveCount(0)
+
+  await page.locator('.el-table__row').first().click()
+  await expect(page.locator('.el-drawer')).toContainText('invoke_agent_1#UI')
+  await expect(page.locator('.waterfall-row .dot.agent')).toHaveCount(1)
+  await expect(page.locator('.waterfall-row .dot.chain')).toHaveCount(1)
+  await expect(page.locator('.waterfall-row .dot.llm')).toHaveCount(1)
+  await expect(page.locator('.waterfall-row .dot.tool')).toHaveCount(1)
+  await expect(page.locator('.legend')).toContainText('agent')
+  await expect(page.locator('.legend')).toContainText('chain')
+  await expect(page.locator('.legend')).toContainText('llm')
+  await expect(page.locator('.legend')).toContainText('tool')
+})
