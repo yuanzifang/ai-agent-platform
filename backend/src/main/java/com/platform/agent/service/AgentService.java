@@ -173,16 +173,20 @@ public class AgentService {
         if (modelConfig == null || !modelConfig.containsKey("modelName")) {
             throw new BusinessException(400, "必须选择模型（modelConfig.modelName）");
         }
+        String name = str(req.get("name"));
+        String systemPrompt = str(req.get("systemPrompt"));
+        validateName(name);
+        validateSystemPrompt(systemPrompt);
         validateAgentModel(modelConfig, principal.tenantId());
         validateResourceProfile(toLong(req.get("resourceProfileId")), req.get("knowledgeBases"));
         quotaService.checkAgentCreate();
         AgentRegistry agent = new AgentRegistry();
         agent.setAgentKey(UUID.randomUUID().toString().replace("-", ""));
-        agent.setName(str(req.get("name")));
+        agent.setName(name);
         agent.setDescription(str(req.get("description")));
         agent.setCategory(str(req.get("category")));
         setJsonField(req.get("tags"), agent::setTags);
-        agent.setSystemPrompt(str(req.get("systemPrompt")));
+        agent.setSystemPrompt(systemPrompt);
         agent.setOpeningStatement(str(req.get("openingStatement")));
         setJsonField(req.get("agentCapabilities"), agent::setAgentCapabilities);
         setJsonField(req.get("memoryConfig"), agent::setMemoryConfig);
@@ -213,6 +217,8 @@ public class AgentService {
     public Map<String, Object> update(Long id, Map<String, Object> req, String ifMatch,
                                       JwtPrincipal principal) {
         AgentRegistry current = get(id); // 存在性 + 租户过滤（插件自动注入 tenant_id）
+        if (req.containsKey("name")) validateName(str(req.get("name")));
+        if (req.containsKey("systemPrompt")) validateSystemPrompt(str(req.get("systemPrompt")));
         Long effectiveProfileId = req.containsKey("resourceProfileId")
                 ? toLong(req.get("resourceProfileId")) : current.getResourceProfileId();
         Object effectiveKbs = req.containsKey("knowledgeBases") ? req.get("knowledgeBases") : knowledgeBases(id);
@@ -701,6 +707,21 @@ public class AgentService {
 
     @SuppressWarnings("unchecked")
     /** 平台专用模型（PLATFORM，如本地改写模型）不能绑定到 Agent，Agent 必须使用自己的模型。 */
+    private void validateName(String name) {
+        if (name == null || name.isBlank()) {
+            throw new BusinessException(400, "Agent 名称不能为空");
+        }
+        if (name.length() > 64) {
+            throw new BusinessException(400, "Agent 名称不能超过 64 个字符");
+        }
+    }
+
+    private void validateSystemPrompt(String systemPrompt) {
+        if (systemPrompt == null || systemPrompt.isBlank()) {
+            throw new BusinessException(400, "提示词不能为空");
+        }
+    }
+
     private void validateAgentModel(Map<String, Object> modelConfig, Long tenantId) {
         if (modelConfig == null) return;
         for (String key : List.of("modelName", "fallbackModelName")) {
