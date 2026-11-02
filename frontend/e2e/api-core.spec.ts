@@ -730,3 +730,39 @@ test('私有 Agent 授权与撤销实时生效', async ({ request }) => {
     await deleteAgent(request, owner!, agentId)
   }
 })
+
+test('临时用户密码修改后生效且可清理', async ({ request }) => {
+  const admin = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(admin).toBeTruthy()
+  const username = `e2e-pw-${Date.now()}`
+  const invited = await (await request.post(`${P}/auth/invitations`, {
+    headers: auth(admin!),
+    data: { email: `${username}@example.com`, role: 'MEMBER' }
+  })).json()
+  expect(invited.code, JSON.stringify(invited)).toBe(0)
+  const token = invited.data.token as string
+  const accepted = await (await request.post(`${P}/auth/invitations/accept`, {
+    data: { token, username, password: 'TempPass123' }
+  })).json()
+  expect(accepted.code, JSON.stringify(accepted)).toBe(0)
+  const userId = Number(accepted.data.userId)
+
+  try {
+    const before = await login(request, username, 'TempPass123', 'dev')
+    expect(before, '临时用户旧密码应可登录').toBeTruthy()
+    const changed = await (await request.post(`${P}/auth/change-password`, {
+      headers: auth(before!),
+      data: { oldPassword: 'TempPass123', newPassword: 'TempPass456' }
+    })).json()
+    expect(changed.code, JSON.stringify(changed)).toBe(0)
+
+    expect(await login(request, username, 'TempPass123', 'dev'), '旧密码应失效').toBeNull()
+    const after = await login(request, username, 'TempPass456', 'dev')
+    expect(after, '新密码应可登录').toBeTruthy()
+  } finally {
+    const removed = await (await request.delete(`${P}/users/${userId}`, {
+      headers: auth(admin!)
+    })).json()
+    expect(removed.code, JSON.stringify(removed)).toBe(0)
+  }
+})
