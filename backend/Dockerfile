@@ -18,7 +18,8 @@ RUN mkdir -p /root/.m2 \
            '</settings>' > /root/.m2/settings.xml; \
        fi
 COPY pom.xml .
-RUN mvn -q -DskipTests dependency:go-offline || true
+# 不单独执行 dependency:go-offline：部分构建网络下该步骤会长时间阻塞；
+# 下面的 package 会按需解析依赖。
 COPY src ./src
 # Lombok 配置必须进入构建上下文，否则 @Qualifier 不会复制到构造器参数（多 TaskExecutor 启动失败）
 COPY lombok.config .
