@@ -188,18 +188,16 @@ public class AgentDeploymentService {
         return data;
     }
 
-    @Transactional
+    // 部署包含 Docker/K8s 外部副作用，不能放在数据库事务里；失败状态必须独立落库。
     public Map<String, Object> deploy(Long agentId, JwtPrincipal principal) {
         return deploy(agentId, null, null, principal);
     }
 
-    @Transactional
     public Map<String, Object> deploy(Long agentId, Integer requestedReplicas, JwtPrincipal principal) {
         return deploy(agentId, requestedReplicas, null, principal);
     }
 
     /** 部署/重新部署：按部署资源 Profile 创建容器，未选择时沿用上次部署或默认 Profile。 */
-    @Transactional
     public Map<String, Object> deploy(Long agentId, Integer requestedReplicas,
                                       Long deployProfileId, JwtPrincipal principal) {
         if (!deployEnabled) {
