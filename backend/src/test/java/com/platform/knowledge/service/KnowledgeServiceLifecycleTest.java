@@ -434,6 +434,26 @@ class KnowledgeServiceLifecycleTest {
     }
 
     @Test
+    void sourceHashBackfillIsIdempotent() {
+        KnowledgeDocument doc = new KnowledgeDocument();
+        doc.setId(78L);
+        doc.setKnowledgeBaseId(1L);
+        doc.setObjectName("idempotent-obj");
+        doc.setFileName("idempotent.pdf");
+        doc.setStatus("DONE");
+        when(docMapper.selectList(any())).thenReturn(List.of(doc), List.of());
+        when(storage.get("idempotent-obj")).thenReturn("idempotent-bytes".getBytes(
+                java.nio.charset.StandardCharsets.UTF_8));
+
+        Map<String, Object> first = service.backfillSourceHashes(1L, 20, viewer);
+        Map<String, Object> second = service.backfillSourceHashes(1L, 20, viewer);
+
+        assertEquals(1, first.get("updated"));
+        assertEquals(0, second.get("scanned"));
+        assertEquals(0, second.get("updated"));
+    }
+
+    @Test
     void backfillsSourceHashesForTenantScheduler() {
         KnowledgeDocument doc = new KnowledgeDocument();
         doc.setId(81L);
