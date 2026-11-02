@@ -118,6 +118,7 @@ scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 
 生产建议：
 
+- Compose 中的 `PG_USERNAME` 是 Postgres 初始化/bootstrap 账号（目前默认 `aiagent`，会拥有较高权限），只适合单机验证；生产请使用 Helm + `scripts/vector-role.sh` 创建 `aap_vector_app`，或自行用管理员创建专用角色并切换应用连接账号。
 - 只开放 80/443；MinIO 控制台 9001 仅内网访问
 - 前面再加 HTTPS/负载均衡；SSE 需关闭代理缓冲（Nginx 配置已设置）
 - `TOOL_ALLOW_PRIVATE=false`，需要访问内网工具时用 `TOOL_ALLOWED_HOSTS` 白名单
