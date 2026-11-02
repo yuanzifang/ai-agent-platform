@@ -570,7 +570,9 @@ public class KnowledgeController {
     public ApiResponse<Map<String, Object>> commitGraph(@PathVariable Long id,
                                                          @RequestBody Map<String, Object> req,
                                                          @AuthenticationPrincipal JwtPrincipal principal) {
-        return ApiResponse.ok(graphService.commitPreview(id, req, viewer(principal)));
+        var commitResult = graphService.commitPreview(id, req, viewer(principal));
+        graphService.autoRefreshCommunities(null, id);
+        return ApiResponse.ok(commitResult);
     }
 
     @PostMapping("/{id}/graph/entities")
