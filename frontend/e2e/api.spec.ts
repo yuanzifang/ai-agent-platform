@@ -6,6 +6,7 @@ const P = '/api/v1'
 const MOCK = 'http://127.0.0.1:18092'
 const MCP_MOCK = 'http://127.0.0.1:18093'
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://localhost:8080'
+const GATEWAY = `${BACKEND}${P}/gateway/call`
 const OPENAI_MOCK = 'http://127.0.0.1:18080'
 
 function auth(token: string) {
@@ -2109,19 +2110,19 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
   const route = created.data
   expect(route.apiKey).toMatch(/^gw_/)
   try {
-    const ok = await request.get(`${P}/gateway/call/${route.routeKey}/health`, {
+    const ok = await request.get(`${GATEWAY}/${route.routeKey}/health`, {
       headers: { 'X-Gateway-Key': route.apiKey }
     })
     expect(ok.status()).toBe(200)
     expect(await ok.text()).toContain('UP')
 
-    const denied = await request.get(`${P}/gateway/call/${route.routeKey}/health`, {
+    const denied = await request.get(`${GATEWAY}/${route.routeKey}/health`, {
       headers: { 'X-Gateway-Key': 'gw_invalid' }
     })
     expect(denied.status()).toBe(401)
 
     const wafBlocked = await request.get(
-      `${P}/gateway/call/${route.routeKey}/health?q=1%20union%20select%20password%20from%20users`, {
+      `${GATEWAY}/${route.routeKey}/health?q=1%20union%20select%20password%20from%20users`, {
         headers: { 'X-Gateway-Key': route.apiKey }
       })
     expect(wafBlocked.status()).toBe(400)
@@ -2148,11 +2149,11 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
         'X-Gateway-Nonce': nonce,
         'X-Gateway-Signature': signature
       }
-      expect((await request.get(`${P}/gateway/call/${signedRoute.routeKey}/always-ok`, { headers })).status()).toBe(200)
-      expect((await request.get(`${P}/gateway/call/${signedRoute.routeKey}/always-ok`, {
+      expect((await request.get(`${GATEWAY}/${signedRoute.routeKey}/always-ok`, { headers })).status()).toBe(200)
+      expect((await request.get(`${GATEWAY}/${signedRoute.routeKey}/always-ok`, {
         headers: { ...headers, 'X-Gateway-Signature': '0'.repeat(64) }
       })).status()).toBe(401)
-      expect((await request.get(`${P}/gateway/call/${signedRoute.routeKey}/always-ok`, { headers })).status()).toBe(409)
+      expect((await request.get(`${GATEWAY}/${signedRoute.routeKey}/always-ok`, { headers })).status()).toBe(409)
     } finally {
       await request.delete(`${P}/gateway/routes/${signedRoute.id}`, { headers: auth(token!) })
     }
@@ -2169,15 +2170,15 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
     })).json()
     expect(scopedKey.code, JSON.stringify(scopedKey)).toBe(0)
     try {
-      const scopeOk = await request.get(`${P}/gateway/call/${scopeRoute.data.routeKey}/always-ok`, {
+      const scopeOk = await request.get(`${GATEWAY}/${scopeRoute.data.routeKey}/always-ok`, {
         headers: { 'X-Gateway-Key': scopedKey.data.apiKey }
       })
       expect(scopeOk.status()).toBe(200)
-      const scopeMethod = await request.post(`${P}/gateway/call/${scopeRoute.data.routeKey}/always-ok`, {
+      const scopeMethod = await request.post(`${GATEWAY}/${scopeRoute.data.routeKey}/always-ok`, {
         headers: { 'X-Gateway-Key': scopedKey.data.apiKey }, data: {}
       })
       expect(scopeMethod.status()).toBe(403)
-      const scopePath = await request.get(`${P}/gateway/call/${scopeRoute.data.routeKey}/other`, {
+      const scopePath = await request.get(`${GATEWAY}/${scopeRoute.data.routeKey}/other`, {
         headers: { 'X-Gateway-Key': scopedKey.data.apiKey }
       })
       expect(scopePath.status()).toBe(403)
@@ -2186,11 +2187,11 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
         headers: auth(token!),
         data: { name: 'daily', dailyQuota: 1 }
       })).json()
-      const dailyFirst = await request.get(`${P}/gateway/call/${scopeRoute.data.routeKey}/always-ok`, {
+      const dailyFirst = await request.get(`${GATEWAY}/${scopeRoute.data.routeKey}/always-ok`, {
         headers: { 'X-Gateway-Key': dailyKey.data.apiKey }
       })
       expect(dailyFirst.status()).toBe(200)
-      const dailySecond = await request.get(`${P}/gateway/call/${scopeRoute.data.routeKey}/always-ok`, {
+      const dailySecond = await request.get(`${GATEWAY}/${scopeRoute.data.routeKey}/always-ok`, {
         headers: { 'X-Gateway-Key': dailyKey.data.apiKey }
       })
       expect(dailySecond.status()).toBe(429)
@@ -2198,7 +2199,7 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
       const ipDeniedKey = await (await request.post(`${P}/gateway/routes/${scopeRoute.data.id}/keys`, {
         headers: auth(token!), data: { name: 'ip-denied', allowedIps: '10.0.0.0/8' }
       })).json()
-      const ipDenied = await request.get(`${P}/gateway/call/${scopeRoute.data.routeKey}/always-ok`, {
+      const ipDenied = await request.get(`${GATEWAY}/${scopeRoute.data.routeKey}/always-ok`, {
         headers: { 'X-Gateway-Key': ipDeniedKey.data.apiKey }
       })
       expect(ipDenied.status()).toBe(403)
@@ -2206,7 +2207,7 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
       const ipOkKey = await (await request.post(`${P}/gateway/routes/${scopeRoute.data.id}/keys`, {
         headers: auth(token!), data: { name: 'ip-ok', allowedIps: '127.0.0.1' }
       })).json()
-      const ipOk = await request.get(`${P}/gateway/call/${scopeRoute.data.routeKey}/always-ok`, {
+      const ipOk = await request.get(`${GATEWAY}/${scopeRoute.data.routeKey}/always-ok`, {
         headers: { 'X-Gateway-Key': ipOkKey.data.apiKey }
       })
       expect(ipOk.status()).toBe(200)
@@ -2214,11 +2215,11 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
       const bodyKey = await (await request.post(`${P}/gateway/routes/${scopeRoute.data.id}/keys`, {
         headers: auth(token!), data: { name: 'body-limit', maxBodyBytes: 10 }
       })).json()
-      const bodyTooLarge = await request.post(`${P}/gateway/call/${scopeRoute.data.routeKey}/probe`, {
+      const bodyTooLarge = await request.post(`${GATEWAY}/${scopeRoute.data.routeKey}/probe`, {
         headers: { 'X-Gateway-Key': bodyKey.data.apiKey }, data: { name: 'ok' }
       })
       expect(bodyTooLarge.status()).toBe(413)
-      const bodySmall = await request.post(`${P}/gateway/call/${scopeRoute.data.routeKey}/probe`, {
+      const bodySmall = await request.post(`${GATEWAY}/${scopeRoute.data.routeKey}/probe`, {
         headers: { 'X-Gateway-Key': bodyKey.data.apiKey }, data: {}
       })
       expect(bodySmall.status()).toBe(200)
@@ -2226,14 +2227,14 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
       const clearKey = await (await request.post(`${P}/gateway/routes/${scopeRoute.data.id}/keys`, {
         headers: auth(token!), data: { name: 'clear-scope', allowedMethods: 'GET' }
       })).json()
-      const blockedPost = await request.post(`${P}/gateway/call/${scopeRoute.data.routeKey}/probe`, {
+      const blockedPost = await request.post(`${GATEWAY}/${scopeRoute.data.routeKey}/probe`, {
         headers: { 'X-Gateway-Key': clearKey.data.apiKey }, data: {}
       })
       expect(blockedPost.status()).toBe(403)
       await request.put(`${P}/gateway/routes/${scopeRoute.data.id}/keys/${clearKey.data.id}`, {
         headers: auth(token!), data: { allowedMethods: '' }
       })
-      const allowedPost = await request.post(`${P}/gateway/call/${scopeRoute.data.routeKey}/probe`, {
+      const allowedPost = await request.post(`${GATEWAY}/${scopeRoute.data.routeKey}/probe`, {
         headers: { 'X-Gateway-Key': clearKey.data.apiKey }, data: {}
       })
       expect(allowedPost.status()).toBe(200)
@@ -2249,13 +2250,13 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
     })).json()
     expect(schemaRoute.code, JSON.stringify(schemaRoute)).toBe(0)
     try {
-      const invalid = await request.post(`${P}/gateway/call/${schemaRoute.data.routeKey}/probe`, {
+      const invalid = await request.post(`${GATEWAY}/${schemaRoute.data.routeKey}/probe`, {
         headers: { 'X-Gateway-Key': schemaRoute.data.apiKey },
         data: { name: 123 }
       })
       expect(invalid.status()).toBe(400)
       expect(await invalid.text()).toContain('Schema')
-      const valid = await request.post(`${P}/gateway/call/${schemaRoute.data.routeKey}/probe`, {
+      const valid = await request.post(`${GATEWAY}/${schemaRoute.data.routeKey}/probe`, {
         headers: { 'X-Gateway-Key': schemaRoute.data.apiKey },
         data: { name: 'ok' }
       })
@@ -2275,11 +2276,11 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
     })).json()
     expect(rotated.code, JSON.stringify(rotated)).toBe(0)
     expect(rotated.data.apiKey).not.toBe(route.apiKey)
-    const oldKey = await request.get(`${P}/gateway/call/${route.routeKey}/health`, {
+    const oldKey = await request.get(`${GATEWAY}/${route.routeKey}/health`, {
       headers: { 'X-Gateway-Key': route.apiKey }
     })
     expect(oldKey.status()).toBe(401)
-    const newKey = await request.get(`${P}/gateway/call/${route.routeKey}/health`, {
+    const newKey = await request.get(`${GATEWAY}/${route.routeKey}/health`, {
       headers: { 'X-Gateway-Key': rotated.data.apiKey }
     })
     expect(newKey.status()).toBe(200)
@@ -2291,7 +2292,7 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
     })).json()
     expect(sseRoute.code, JSON.stringify(sseRoute)).toBe(0)
     try {
-      const sse = await request.get(`${P}/gateway/call/${sseRoute.data.routeKey}/gateway-sse`, {
+      const sse = await request.get(`${GATEWAY}/${sseRoute.data.routeKey}/gateway-sse`, {
         headers: { 'X-Gateway-Key': sseRoute.data.apiKey, Accept: 'text/event-stream' }
       })
       expect(sse.status()).toBe(200)
@@ -2315,7 +2316,7 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
     expect(cbRoute.code, JSON.stringify(cbRoute)).toBe(0)
     try {
       for (let i = 0; i < 4; i++) {
-        const cb = await request.get(`${P}/gateway/call/${cbRoute.data.routeKey}/probe`, {
+        const cb = await request.get(`${GATEWAY}/${cbRoute.data.routeKey}/probe`, {
           headers: { 'X-Gateway-Key': cbRoute.data.apiKey }
         })
         expect(cb.status()).toBe(200)
@@ -2336,7 +2337,7 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
         timeoutMs: 2000, retries: 0, rateLimitPerMin: 100 }
     })).json()
     try {
-      const viaFallback = await request.get(`${P}/gateway/call/${fallbackRoute.data.routeKey}/health`, {
+      const viaFallback = await request.get(`${GATEWAY}/${fallbackRoute.data.routeKey}/health`, {
         headers: { 'X-Gateway-Key': fallbackRoute.data.apiKey }
       })
       expect(viaFallback.status()).toBe(200)
@@ -2351,11 +2352,11 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
         timeoutMs: 5000, retries: 0, rateLimitPerMin: 1 }
     })).json()
     try {
-      const first = await request.get(`${P}/gateway/call/${limitedRoute.data.routeKey}/health`, {
+      const first = await request.get(`${GATEWAY}/${limitedRoute.data.routeKey}/health`, {
         headers: { 'X-Gateway-Key': limitedRoute.data.apiKey }
       })
       expect(first.status()).toBe(200)
-      const second = await request.get(`${P}/gateway/call/${limitedRoute.data.routeKey}/health`, {
+      const second = await request.get(`${GATEWAY}/${limitedRoute.data.routeKey}/health`, {
         headers: { 'X-Gateway-Key': limitedRoute.data.apiKey }
       })
       expect(second.status()).toBe(429)
@@ -2364,7 +2365,7 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
     }
 
     await request.put(`${P}/gateway/routes/${route.id}`, { headers: auth(token!), data: { enabled: false } })
-    const disabled = await request.get(`${P}/gateway/call/${route.routeKey}/health`, {
+    const disabled = await request.get(`${GATEWAY}/${route.routeKey}/health`, {
       headers: { 'X-Gateway-Key': rotated.data.apiKey }
     })
     expect(disabled.status()).toBe(503)
