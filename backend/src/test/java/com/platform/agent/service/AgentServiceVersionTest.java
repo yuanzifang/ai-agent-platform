@@ -11,6 +11,7 @@ import com.platform.agent.mapper.AgentToolBindingMapper;
 import com.platform.agent.mapper.AgentVersionMapper;
 import com.platform.billing.service.QuotaService;
 import com.platform.capability.mapper.SkillRegistryMapper;
+import com.platform.common.exception.BusinessException;
 import com.platform.capability.mapper.ToolRegistryMapper;
 import com.platform.deploy.service.AgentDeploymentService;
 import com.platform.eval.service.EvalService;
@@ -28,10 +29,12 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -103,6 +106,59 @@ class AgentServiceVersionTest {
         assertEquals(v1.getSnapshot(), inserted.getValue().getSnapshot());
         verify(auditService).record(9L, "agent.rollback", "agent", "7", "SUCCESS",
                 Map.of("from", "V1", "newVersion", "V3"));
+    }
+
+    @Test
+    void createRejectsBlankName() {
+        Map<String, Object> req = validCreateRequest();
+        req.put("name", "   ");
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> agentService.create(req, principal()));
+
+        assertEquals(400, error.getCode());
+        assertEquals("Agent 名称不能为空", error.getMessage());
+    }
+
+    @Test
+    void createRejectsBlankSystemPrompt() {
+        Map<String, Object> req = validCreateRequest();
+        req.put("systemPrompt", "  ");
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> agentService.create(req, principal()));
+
+        assertEquals(400, error.getCode());
+        assertEquals("提示词不能为空", error.getMessage());
+    }
+
+    @Test
+    void updateRejectsBlankNameAndPrompt() {
+        when(agentMapper.selectById(7L)).thenReturn(agent(7L));
+        JwtPrincipal principal = principal();
+
+        BusinessException nameError = assertThrows(BusinessException.class,
+                () -> agentService.update(7L, Map.of("name", " "), null, principal));
+        assertEquals(400, nameError.getCode());
+        assertEquals("Agent 名称不能为空", nameError.getMessage());
+
+        BusinessException promptError = assertThrows(BusinessException.class,
+                () -> agentService.update(7L, Map.of("systemPrompt", " "), null, principal));
+        assertEquals(400, promptError.getCode());
+        assertEquals("提示词不能为空", promptError.getMessage());
+    }
+
+    private Map<String, Object> validCreateRequest() {
+        Map<String, Object> req = new HashMap<>();
+        req.put("name", "valid-name");
+        req.put("systemPrompt", "valid-prompt");
+        req.put("modelConfig", Map.of("modelName", "deepseek-flash"));
+        return req;
+    }
+
+    private JwtPrincipal principal() {
+        return new JwtPrincipal(9L, 1L, false,
+                List.of("OWNER"), List.of("agent:create", "agent:edit"));
     }
 
     private AgentRegistry agent(Long id) {
