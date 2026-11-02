@@ -186,3 +186,20 @@ kubectl get pods -n aap -o wide
 
 注意：状态服务当前使用 `local-path` PVC，数据 Pod 固定在 server 节点；这是应用层多节点
 调度测试，不是数据库高可用。生产需要分布式存储或对应数据库 Operator。
+
+## 10. MySQL MGR / Redis Sentinel
+
+数据库 HA 组件在 `deploy/k8s/ha/`：
+
+- MySQL MGR：3 节点 + ProxySQL 读写入口
+- Redis Sentinel：3 个 Redis Pod，每个内置 Sentinel
+
+应用 values 参考：
+
+```text
+deploy/k8s/values-utm-ha.example.yaml
+```
+
+完整初始化和 failover 说明见 `deploy/k8s/ha/README.md`。
+
+当前 UTM 在 HA 验证后已恢复 MySQL/Redis 单实例；HA 组件已缩容但 PVC/清单保留。

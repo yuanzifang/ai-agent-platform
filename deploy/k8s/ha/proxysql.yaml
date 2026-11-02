@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-proxy
+  namespace: aap-ha
+  labels:
+    app.kubernetes.io/name: proxysql
+spec:
+  selector:
+    app.kubernetes.io/name: proxysql
+  ports:
+    - name: mysql
+      port: 6033
+      targetPort: mysql
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxysql
+  namespace: aap-ha
+  labels:
+    app.kubernetes.io/name: proxysql
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: proxysql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: proxysql
+        app.kubernetes.io/part-of: aap-ha
+    spec:
+      containers:
+        - name: proxysql
+          image: proxysql/proxysql:2.6.3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: mysql
+              containerPort: 6033
+            - name: admin
+              containerPort: 6032
+          volumeMounts:
+            - name: config
+              mountPath: /etc/proxysql.cnf
+              subPath: proxysql.cnf
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/proxysql
+          readinessProbe:
+            tcpSocket:
+              port: 6033
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: config
+          secret:
+            secretName: proxysql-config
+            defaultMode: 0440
+        - name: data
+          emptyDir: {}

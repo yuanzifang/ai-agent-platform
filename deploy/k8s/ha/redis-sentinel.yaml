@@ -1,0 +1,142 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-headless
+  namespace: aap-ha
+  labels:
+    app.kubernetes.io/name: redis-ha
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: redis-ha
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+    - name: sentinel
+      port: 26379
+      targetPort: sentinel
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-ha
+  namespace: aap-ha
+  labels:
+    app.kubernetes.io/name: redis-ha
+spec:
+  serviceName: redis-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-ha
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-ha
+        app.kubernetes.io/part-of: aap-ha
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: redis-ha
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: redis
+          image: redis:8.10-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              ordinal="${HOSTNAME##*-}"
+              if [ "$ordinal" = "0" ]; then
+                exec redis-server \
+                  --appendonly yes \
+                  --requirepass "$REDIS_PASSWORD" \
+                  --masterauth "$REDIS_PASSWORD" \
+                  --protected-mode no
+              else
+                exec redis-server \
+                  --appendonly yes \
+                  --requirepass "$REDIS_PASSWORD" \
+                  --masterauth "$REDIS_PASSWORD" \
+                  --replicaof redis-ha-0.redis-headless.aap-ha.svc.cluster.local 6379 \
+                  --protected-mode no
+              fi
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aap-ha-secrets
+                  key: REDIS_PASSWORD
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+        - name: sentinel
+          image: redis:8.10-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              cat > /tmp/sentinel.conf <<EOF
+              port 26379
+              sentinel resolve-hostnames yes
+              sentinel announce-hostnames yes
+              dir /tmp
+              sentinel monitor mymaster redis-ha-0.redis-headless.aap-ha.svc.cluster.local 6379 2
+              sentinel auth-pass mymaster $REDIS_PASSWORD
+              sentinel down-after-milliseconds mymaster 5000
+              sentinel failover-timeout mymaster 60000
+              sentinel parallel-syncs mymaster 1
+              EOF
+              exec redis-server /tmp/sentinel.conf --sentinel
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aap-ha-secrets
+                  key: REDIS_PASSWORD
+          ports:
+            - name: sentinel
+              containerPort: 26379
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 2Gi
