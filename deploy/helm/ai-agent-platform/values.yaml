@@ -9,7 +9,8 @@ serviceAccount:
   create: true
   name: ""
   annotations: {}
-  automountServiceAccountToken: true
+  # 默认不把 SA token 自动挂载到业务 Pod；backend 仅在 agentDeploy 开启时显式需要 K8s API
+  automountServiceAccountToken: false
 
 agentDeploy:
   enabled: true
@@ -161,8 +162,8 @@ config:
   moderationPromptInjectionEnabled: "true"
   moderationPromptInjectionBlockScore: "2"
   skillScriptEnabled: "false"
-  # 容器沙箱需后端容器挂载 /var/run/docker.sock 并安装 docker CLI，未挂载前保持 process
-  skillScriptRuntime: "process"
+  # 默认 docker；开启脚本前必须让后端具备 Docker CLI/socket，否则 fail-closed
+  skillScriptRuntime: "docker"
   asrEnabled: "false"
   asrEndpoint: ""
   smtpHost: ""

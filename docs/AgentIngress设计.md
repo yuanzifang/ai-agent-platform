@@ -106,7 +106,7 @@ resources: ["ingresses"]
 verbs: get/list/watch/create/update/patch/delete
 ```
 
-后端 ServiceAccount 仍需 `automountServiceAccountToken=true`。
+ServiceAccount 默认不自动挂载 token；backend Pod 仅在 `agentDeploy.enabled=true` 时显式挂载，frontend 始终不挂载。
 
 ## 安全边界
 

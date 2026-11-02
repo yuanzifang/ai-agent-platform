@@ -72,7 +72,7 @@ Role/RoleBinding: <release>-agent-runtime
 - `pods`: get/list/watch
 - `pods/log`: get
 
-后端 ServiceAccount 必须开启 `automountServiceAccountToken=true`，否则无法调用 K8s API。
+ServiceAccount 默认 `automountServiceAccountToken=false`；backend Pod 仅在 `agentDeploy.enabled=true` 时显式挂载 token 以调用 K8s API，frontend 始终不挂载。
 
 ## 自动化验证
 

@@ -131,9 +131,9 @@ embedding:
 
 skill:
   script:
-    # 技能脚本执行（Python/JavaScript）
-    enabled: ${SKILL_SCRIPT_ENABLED:true}
-    # 隔离层级：process=进程级（OS 沙箱+语言禁网，本机开发）；docker=容器沙箱（生产/SaaS 开脚本时用）
+    # 技能脚本执行（Python/JavaScript）；默认关闭，显式开启才允许执行
+    enabled: ${SKILL_SCRIPT_ENABLED:false}
+    # 隔离层级：process=进程级（OS 沙箱+语言禁网，仅本机开发）；docker=容器沙箱（生产/SaaS 开脚本时用）
     runtime: ${SKILL_SCRIPT_RUNTIME:process}
     python-command: ${SKILL_SCRIPT_PYTHON:python3}
     node-command: ${SKILL_SCRIPT_NODE:node}

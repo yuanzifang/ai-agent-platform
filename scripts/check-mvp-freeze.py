@@ -30,6 +30,18 @@ def main() -> int:
     app = read("backend/src/main/resources/application.yml")
     if "enabled: ${AGENT_DEPLOY_ENABLED:true}" not in app:
         return fail("Agent 部署默认开关异常")
+    if "enabled: ${SKILL_SCRIPT_ENABLED:false}" not in app:
+        return fail("技能脚本默认未关闭（SKILL_SCRIPT_ENABLED 必须默认 false）")
+    if "runtime: ${SKILL_SCRIPT_RUNTIME:process}" not in app:
+        return fail("技能脚本基础 runtime 配置异常")
+    prod = read("backend/src/main/resources/application-prod.yml")
+    if "runtime: ${SKILL_SCRIPT_RUNTIME:docker}" not in prod:
+        return fail("生产 profile 未强制技能脚本 runtime=docker")
+    runner = read("backend/src/main/java/com/platform/capability/runtime/ScriptRunnerService.java")
+    if '@Value("${skill.script.enabled:false}")' not in runner:
+        return fail("ScriptRunnerService 的技能脚本默认开关未关闭")
+    if "已拒绝执行" not in runner:
+        return fail("Docker 沙箱不可用时未 fail-closed")
     if "bind: ${AGENT_DEPLOY_BIND:127.0.0.1}" not in app:
         return fail("Agent 部署默认绑定不是 127.0.0.1")
     if "cors-origins: ${AGENT_DEPLOY_CORS_ORIGINS:}" not in app:
@@ -43,8 +55,23 @@ def main() -> int:
     if (ROOT / "deploy/k8s/infra/agent-gateway.yaml").exists():
         return fail("旧 agent-gateway K8s manifest 仍存在")
     values = read("deploy/helm/ai-agent-platform/values.yaml")
-    if "automountServiceAccountToken: true" not in values:
-        return fail("Helm ServiceAccount 未开启 K8s API Token")
+    compose = read("docker-compose.yml")
+    if "SKILL_SCRIPT_ENABLED: ${SKILL_SCRIPT_ENABLED:-false}" not in compose:
+        return fail("Compose 技能脚本默认开关未关闭")
+    if "SKILL_SCRIPT_RUNTIME: ${SKILL_SCRIPT_RUNTIME:-docker}" not in compose:
+        return fail("Compose 技能脚本默认运行时不是 docker")
+    if 'skillScriptEnabled: "false"' not in values:
+        return fail("Helm 技能脚本默认开关未关闭")
+    if 'skillScriptRuntime: "docker"' not in values:
+        return fail("Helm 技能脚本默认运行时不是 docker")
+    if "automountServiceAccountToken: false" not in values:
+        return fail("Helm ServiceAccount 默认仍自动挂载 K8s API Token")
+    backend = read("deploy/helm/ai-agent-platform/templates/backend-deployment.yaml")
+    if "automountServiceAccountToken: {{ .Values.agentDeploy.enabled }}" not in backend:
+        return fail("backend 未按 agentDeploy 开关控制 SA token 挂载")
+    frontend = read("deploy/helm/ai-agent-platform/templates/frontend-deployment.yaml")
+    if "automountServiceAccountToken: false" not in frontend:
+        return fail("frontend 仍自动挂载 SA token")
     if not (ROOT / "deploy/helm/ai-agent-platform/templates/agent-runtime-rbac.yaml").exists():
         return fail("缺少 Agent K8s 运行时 RBAC 模板")
 
