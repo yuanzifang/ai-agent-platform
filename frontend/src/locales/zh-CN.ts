@@ -735,7 +735,7 @@ export default {
       back: '返回列表', published: '已发布', draft: '草稿', versions: '版本', integration: '集成',
       channels: '渠道', schedules: '定时', credentials: '凭证', eval: '评测', publish: '发布', save: '保存',
       basic: '基本信息', name: '名称', desc: '描述', category: '分类', categoryPh: '如：客服', tags: '标签',
-      tagsPh: '逗号分隔，如：售后,售前', modelSection: '模型选择', model: '模型', fallback: '备用模型',
+      tagsPh: '逗号分隔，如：售后,售前', modelSection: '模型选择', model: '模型', modelDataPolicy: '模型数据留存与训练政策', fallback: '备用模型',
       fallbackPh: '不启用（失败直接报错）', fallbackHint: '主模型 402/429/5xx/超时自动切换，切换记录在 Trace',
       grayModel: '灰度模型', grayModelPh: '不启用（灰度未命中走主模型）',
       grayHint: '请求头 X-Gray-Tag 命中下方灰度标记时，本 Agent 改用灰度模型（失败自动回退主模型）',
@@ -1062,6 +1062,7 @@ export default {
       username: '用户名', password: '密码', tenant: '租户标识（可选）', login: '登 录',
       sso: '企业 SSO 登录', forgot: '忘记密码？', mfa: '需要二次验证', code: '验证码',
       verify: '验 证', back: '返回登录', invite: '邀请激活',
-      inviteDesc: '你被邀请加入团队，设置用户名和密码完成激活', activate: '激活并加入'
+      inviteDesc: '你被邀请加入团队，设置用户名和密码完成激活', activate: '激活并加入',
+      dataPolicy: '模型数据留存与训练政策'
     }
   }

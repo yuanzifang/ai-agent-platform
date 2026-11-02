@@ -739,7 +739,7 @@ export default {
       back: 'Back to list', published: 'Published', draft: 'Draft', versions: 'Versions', integration: 'Integration',
       channels: 'Channels', schedules: 'Schedules', credentials: 'Credentials', eval: 'Evaluation', publish: 'Publish', save: 'Save',
       basic: 'Basic info', name: 'Name', desc: 'Description', category: 'Category', categoryPh: 'e.g. Support', tags: 'Tags',
-      tagsPh: 'Comma separated, e.g. after-sales,pre-sales', modelSection: 'Model', model: 'Model', fallback: 'Fallback model',
+      tagsPh: 'Comma separated, e.g. after-sales,pre-sales', modelSection: 'Model', model: 'Model', modelDataPolicy: 'Model data retention & training policy', fallback: 'Fallback model',
       fallbackPh: 'Disabled (fail immediately on error)', fallbackHint: 'Fallback on 402/429/5xx/timeout; recorded in traces',
       grayModel: 'Gray model', grayModelPh: 'Off (unmatched requests use primary)',
       grayHint: 'When request header X-Gray-Tag matches the gray tag below, this agent uses the gray model (auto-fallback to primary on failure)',
@@ -1072,6 +1072,7 @@ export default {
       username: 'Username', password: 'Password', tenant: 'Tenant key (optional)', login: 'Sign in',
       sso: 'Enterprise SSO', forgot: 'Forgot password?', mfa: 'Two-factor verification', code: 'Code',
       verify: 'Verify', back: 'Back to login', invite: 'Invitation',
-      inviteDesc: 'Set a username and password to join the team', activate: 'Activate & join'
+      inviteDesc: 'Set a username and password to join the team', activate: 'Activate & join',
+      dataPolicy: 'Model data retention & training policy'
     }
   }
