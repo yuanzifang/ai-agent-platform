@@ -18,6 +18,7 @@
         <el-button @click="openSchedules">{{ t('agentEdit.schedules') }}</el-button>
         <el-button @click="openCredentials">{{ t('agentEdit.credentials') }}</el-button>
         <el-button @click="evalEntry">{{ t('agentEdit.eval') }}</el-button>
+        <el-button @click="openPublishInfo">{{ t('deploy.publishInfo') }}</el-button>
         <el-button @click="openDeploy">{{ t('deploy.button') }}</el-button>
         <el-button type="success" plain @click="publish()">{{ t('agentEdit.publish') }}</el-button>
         <el-button type="primary" :loading="saving" @click="save">{{ t('agentEdit.save') }}</el-button>
@@ -1137,6 +1138,56 @@
       </el-table>
     </el-drawer>
 
+    <!-- 发布信息 / 外部验证 -->
+    <el-dialog v-model="publishInfoVisible" :title="t('deploy.publishInfoTitle')" width="760px">
+      <div v-if="publishInfoLoading" class="hint">{{ t('deploy.publishInfoLoading') }}</div>
+      <template v-else>
+        <el-alert v-if="!deployment" type="info" :closable="false" :title="t('deploy.notDeployed')" class="mb8" />
+        <el-descriptions v-if="deployment" :column="1" border size="small">
+          <el-descriptions-item :label="t('deploy.status')">
+            <el-tag :type="deployTagType" size="small">{{ deployStatusText }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('deploy.endpoint')">
+            <code class="deploy-code">{{ deployment.endpoint }}</code>
+            <el-button size="small" text type="primary" @click="copyText(deployment.endpoint!)">{{ t('deploy.copy') }}</el-button>
+            <div v-if="isClusterEndpoint" class="hint">{{ t('deploy.endpointClusterOnly') }}</div>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="deployment.localEndpoint" :label="t('deploy.localEndpoint')">
+            <code class="deploy-code">{{ deployment.localEndpoint }}</code>
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <el-divider content-position="left">{{ t('deploy.testPageTitle') }}</el-divider>
+        <div class="hint mb8">{{ t('deploy.testPageHint') }}</div>
+        <el-alert v-if="testWidgetUrl" type="warning" :closable="false" :title="t('deploy.testKeyWarning')" class="mb8" />
+        <template v-if="testWidgetUrl">
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item :label="t('deploy.testLink')">
+              <el-input :model-value="testWidgetUrl" readonly>
+                <template #append>
+                  <el-button @click="copyText(testWidgetUrl)">{{ t('deploy.copy') }}</el-button>
+                </template>
+              </el-input>
+            </el-descriptions-item>
+            <el-descriptions-item :label="t('deploy.testIframe')">
+              <el-input :model-value="testWidgetIframe" type="textarea" :rows="2" readonly />
+              <el-button size="small" class="mt8" @click="copyText(testWidgetIframe)">{{ t('deploy.copyIframe') }}</el-button>
+            </el-descriptions-item>
+          </el-descriptions>
+          <div class="deploy-actions">
+            <el-button type="primary" @click="openTestPage">{{ t('deploy.openTestPage') }}</el-button>
+            <el-button :loading="testLinkCreating" @click="createTestLink">{{ t('deploy.regenerateTestLink') }}</el-button>
+          </div>
+        </template>
+        <el-button v-else type="primary" :loading="testLinkCreating" @click="createTestLink">
+          {{ t('deploy.createTestLink') }}
+        </el-button>
+      </template>
+      <template #footer>
+        <el-button @click="publishInfoVisible = false">{{ t('deploy.close') }}</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 容器部署 -->
     <el-dialog v-model="deployVisible" :title="t('deploy.title')" width="760px">
       <el-alert v-if="form.status !== 'PUBLISHED'" type="warning" :closable="false"
@@ -1350,6 +1401,12 @@ const versionsVisible = ref(false)
 const deployVisible = ref(false)
 const deployInfo = reactive({ enabled: true, dockerAvailable: false, dockerVersion: '', image: '' })
 const deployment = ref<any>(null)
+const publishInfoVisible = ref(false)
+const publishInfoLoading = ref(false)
+const testLinkCreating = ref(false)
+const testWidgetUrl = ref('')
+const testWidgetIframe = ref('')
+const isClusterEndpoint = computed(() => String(deployment.value?.endpoint || '').includes('.svc.cluster.local'))
 const deploying = ref(false)
 const deployLogsVisible = ref(false)
 const deployLogs = ref('')
@@ -1669,6 +1726,8 @@ onMounted(async () => {
 
   // 已删除/无权限的知识库显示为「已失效」，运行时跳过（需求 3.6.3(4)）
   const visibleIds = new Set(kbListArr.map(kb => kb.id))
+  // 发布信息需要展示已部署服务的对外地址；不阻塞编辑页加载
+  loadPublishInfo().catch(() => {})
   for (const b of detail.knowledgeBases || []) {
     if (!visibleIds.has(b.knowledgeBaseId)) {
       kbRows.value.push({
@@ -2003,6 +2062,50 @@ const deployCurl = computed(() => {
   const token = runtimeToken.value || '<访问令牌>'
   return `curl -s ${endpoint}/chat/completions \\\n  -H 'Authorization: Bearer ${token}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{"model":"agent","messages":[{"role":"user","content":"你好"}]}'`
 })
+
+async function loadPublishInfo() {
+  publishInfoLoading.value = true
+  try {
+    const data = await http.get(`/agent/${agentId}/deployment`) as any
+    deployInfo.enabled = data?.enabled !== false
+    deployInfo.dockerAvailable = !!data?.dockerAvailable
+    deployInfo.dockerVersion = data?.dockerVersion || ''
+    deployInfo.image = data?.image || ''
+    deployment.value = data?.deployment || null
+  } catch {
+    deployment.value = null
+  } finally {
+    publishInfoLoading.value = false
+  }
+}
+
+async function openPublishInfo() {
+  publishInfoVisible.value = true
+  await loadPublishInfo()
+}
+
+async function createTestLink() {
+  testLinkCreating.value = true
+  try {
+    const res = await http.post(`/agent/${agentId}/api-keys`, {
+      name: t('deploy.testKeyName'),
+      channel: 'WIDGET',
+      dailyLimit: 0,
+      minuteLimit: 60
+    }) as any
+    const url = `${location.origin}/widget?key=${encodeURIComponent(res.apiKey)}`
+    testWidgetUrl.value = url
+    testWidgetIframe.value = `<iframe src="${url}" style="width:100%;height:640px;border:0;border-radius:12px" title="Agent test"></iframe>`
+    await loadApiKeys()
+    ElMessage.success(t('deploy.testLinkCreated'))
+  } finally {
+    testLinkCreating.value = false
+  }
+}
+
+function openTestPage() {
+  if (testWidgetUrl.value) window.open(testWidgetUrl.value, '_blank')
+}
 
 async function openDeploy() {
   deployVisible.value = true
