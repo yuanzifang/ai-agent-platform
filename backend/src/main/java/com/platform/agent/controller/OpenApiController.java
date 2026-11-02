@@ -101,25 +101,24 @@ public class OpenApiController {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(400, "附件不能为空");
         }
+        ConversationService.MultipartFilePart part;
         try {
-            AgentRegistry agent = TenantContext.runWith(key.getTenantId(),
-                    () -> agentMapper.selectById(key.getAgentId()));
+            part = new ConversationService.MultipartFilePart(
+                    file.getOriginalFilename(), file.getContentType(), file.getBytes());
+        } catch (IOException e) {
+            throw new BusinessException(400, "附件读取失败");
+        }
+        return TenantContext.runWith(key.getTenantId(), () -> {
+            AgentRegistry agent = agentMapper.selectById(key.getAgentId());
             if (agent == null || !"PUBLISHED".equals(agent.getStatus())) {
                 throw new BusinessException(403, "Agent 未发布，无法上传附件");
             }
             Conversation conversation = resolveConversation(key, agent, sessionId, endUserId);
             JwtPrincipal principal = new JwtPrincipal(key.getServiceUserId(), key.getTenantId(), false,
                     List.of(), List.of());
-            ConversationService.MultipartFilePart part = new ConversationService.MultipartFilePart(
-                    file.getOriginalFilename(), file.getContentType(), file.getBytes());
-            Map<String, Object> saved = TenantContext.runWith(key.getTenantId(),
-                    () -> conversationService.saveAttachment(conversation.getId(), part, principal));
+            Map<String, Object> saved = conversationService.saveAttachment(conversation.getId(), part, principal);
             return com.platform.common.response.ApiResponse.ok(saved);
-        } catch (BusinessException e) {
-            throw e;
-        } catch (IOException e) {
-            throw new BusinessException(400, "附件读取失败");
-        }
+        });
     }
 
     /**
