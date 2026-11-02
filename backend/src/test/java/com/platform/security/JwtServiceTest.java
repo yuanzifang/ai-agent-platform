@@ -68,6 +68,21 @@ class JwtServiceTest {
     }
 
     @Test
+    void prodProfileRejectsBuiltinDefaultOrEmptySecret() {
+        org.springframework.mock.env.MockEnvironment prod =
+                new org.springframework.mock.env.MockEnvironment();
+        prod.setActiveProfiles("prod");
+        assertThrows(IllegalStateException.class,
+                () -> new JwtService(JwtService.BUILTIN_DEFAULT_SECRET, 3600, prod));
+        assertThrows(IllegalStateException.class, () -> new JwtService("  ", 3600, prod));
+        // 非默认强密钥在生产 profile 正常创建
+        new JwtService(SECRET, 3600, prod);
+        // 默认密钥在非 prod profile（本地开发/CI）仍然可用
+        new JwtService(JwtService.BUILTIN_DEFAULT_SECRET, 3600,
+                new org.springframework.mock.env.MockEnvironment());
+    }
+
+    @Test
     void refreshTokenIsRandom64HexAndOnlyHashIsStable() {
         String first = service.createRefreshToken();
         String second = service.createRefreshToken();
