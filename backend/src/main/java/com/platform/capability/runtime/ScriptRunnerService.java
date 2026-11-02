@@ -41,7 +41,7 @@ public class ScriptRunnerService {
 
     private final ObjectMapper objectMapper;
 
-    @Value("${skill.script.enabled:true}")
+    @Value("${skill.script.enabled:false}")
     private boolean enabled;
 
     @Value("${skill.script.python-command:python3}")
@@ -133,8 +133,8 @@ public class ScriptRunnerService {
             if (containerMode) {
                 dockerBinPath = findExecutable(dockerBin);
                 if (dockerBinPath == null || !dockerUsable(dockerBinPath)) {
-                    log.warn("skill.script.runtime=docker 但 Docker 不可用，回退进程级隔离（网络仍受 OS/语言级沙箱限制）");
-                    containerMode = false;
+                    // 安全失败关闭：生产已选择 docker 隔离时，不能静默降级到宿主机进程。
+                    throw new BusinessException(503, "技能脚本容器沙箱不可用（runtime=docker），已拒绝执行");
                 }
             }
             List<String> command;

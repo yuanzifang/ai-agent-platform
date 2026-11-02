@@ -37,6 +37,8 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "ai-agent-platform.serviceAccountName" . }}
+      # 只有 Agent K8s 运行时需要访问 K8s API；未开启时 Pod 不挂载 SA token
+      automountServiceAccountToken: {{ .Values.agentDeploy.enabled }}
       terminationGracePeriodSeconds: 120
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

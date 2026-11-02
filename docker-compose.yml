@@ -183,8 +183,8 @@ services:
       MODERATION_PROMPT_INJECTION_BLOCK_SCORE: ${MODERATION_PROMPT_INJECTION_BLOCK_SCORE:-2}
       METRICS_SCRAPE_TOKEN: ${METRICS_SCRAPE_TOKEN:-}
       SKILL_SCRIPT_ENABLED: ${SKILL_SCRIPT_ENABLED:-false}
-      # 容器沙箱需后端容器可访问 docker CLI + /var/run/docker.sock；未挂载前保持 process
-      SKILL_SCRIPT_RUNTIME: ${SKILL_SCRIPT_RUNTIME:-process}
+      # Compose 也默认 docker；未挂载 docker CLI/socket 时脚本执行会 fail-closed
+      SKILL_SCRIPT_RUNTIME: ${SKILL_SCRIPT_RUNTIME:-docker}
       ASR_ENABLED: ${ASR_ENABLED:-false}
       ASR_ENDPOINT: ${ASR_ENDPOINT:-}
       SMTP_HOST: ${SMTP_HOST:-}

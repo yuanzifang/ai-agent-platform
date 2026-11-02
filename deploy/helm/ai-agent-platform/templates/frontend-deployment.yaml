@@ -33,6 +33,7 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "ai-agent-platform.serviceAccountName" . }}
+      automountServiceAccountToken: false
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
