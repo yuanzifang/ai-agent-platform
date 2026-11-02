@@ -91,6 +91,8 @@ public class ToolRuntimeService {
     private final AgentSkillBindingMapper agentSkillMapper;
     private final AgentSubAgentMapper subAgentMapper;
     private final AgentKnowledgeBaseMapper agentKbMapper;
+    /** 连接时二次校验出站地址（注册时已校验过，防 DNS rebinding 窗口）。 */
+    private final com.platform.common.security.NetworkPolicyService networkPolicy;
     private final AgentRegistryMapper agentMapper;
     private final AgentVersionMapper versionMapper;
     private final AgentUserGrantMapper grantMapper;
@@ -830,6 +832,8 @@ public class ToolRuntimeService {
         if (query.length() > 0) {
             uri = URI.create(uri.toString() + (uri.toString().contains("?") ? "&" : "?") + query);
         }
+        // 参数替换后的最终 URL 再校验一次：与网关同款连接时防线
+        networkPolicy.validateHttpUrl(uri.toString(), "API 地址");
 
         String bodyTemplate = str(cfg.get("bodyTemplate"));
         String body = null;

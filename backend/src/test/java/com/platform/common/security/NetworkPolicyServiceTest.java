@@ -53,4 +53,17 @@ class NetworkPolicyServiceTest {
         assertThrows(BusinessException.class, () -> service.validateHttpUrl("http://127.0.0.1/x", "URL"));
         assertThrows(BusinessException.class, () -> service.validateHttpUrl("http://localhost/x", "URL"));
     }
+
+    @Test
+    void wsUrlsShareHttpRules() {
+        NetworkPolicyService service = new NetworkPolicyService();
+        ReflectionTestUtils.setField(service, "allowPrivate", true);
+        ReflectionTestUtils.setField(service, "allowedHosts", "");
+        assertDoesNotThrow(() -> service.validateWsUrl("ws://127.0.0.1:9000/gw", "WS"));
+        assertDoesNotThrow(() -> service.validateWsUrl("wss://gw.example.com/ws", "WS"));
+        assertThrows(BusinessException.class, () -> service.validateWsUrl("ftp://example.com", "WS"));
+        ReflectionTestUtils.setField(service, "allowPrivate", false);
+        assertThrows(BusinessException.class,
+                () -> service.validateWsUrl("ws://127.0.0.1:9000/gw", "WS"));
+    }
 }
