@@ -29,6 +29,7 @@ RUN mvn -q -DskipTests package
 FROM node:22-bookworm-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends openjdk-17-jre-headless python3 curl tzdata \
+       tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim \
     && rm -rf /var/lib/apt/lists/*
 ENV TZ=Asia/Shanghai \
     JAVA_OPTS="-Xms512m -Xmx1g"
