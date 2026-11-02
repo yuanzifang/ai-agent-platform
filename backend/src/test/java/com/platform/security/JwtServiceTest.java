@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class JwtServiceTest {
 
     private static final String SECRET = "unit-test-jwt-secret-at-least-32-bytes-long";
-    private final JwtService service = new JwtService(SECRET, 3600);
+    private final JwtService service = new JwtService(SECRET, 3600, null);
 
     @Test
     void accessTokenRoundTripsPrincipalClaims() {
@@ -55,13 +55,13 @@ class JwtServiceTest {
         String tampered = token.substring(0, token.length() - 2) + "xx";
         assertThrows(JwtException.class, () -> service.parse(tampered));
 
-        JwtService other = new JwtService(SECRET + "-different-key", 3600);
+        JwtService other = new JwtService(SECRET + "-different-key", 3600, null);
         assertThrows(JwtException.class, () -> other.parse(token));
     }
 
     @Test
     void expiredTokenIsRejected() {
-        JwtService expired = new JwtService(SECRET, -1);
+        JwtService expired = new JwtService(SECRET, -1, null);
         JwtPrincipal principal = new JwtPrincipal(42L, 9L, false, List.of(), List.of());
         String token = expired.createAccessToken(principal);
         assertThrows(JwtException.class, () -> expired.parse(token));

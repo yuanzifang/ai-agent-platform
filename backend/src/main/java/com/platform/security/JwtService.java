@@ -27,11 +27,6 @@ public class JwtService {
     private final SecretKey key;
     private final long expirySeconds;
 
-    /** 测试与既有调用便利构造：无 Environment（不做 prod 守卫）。 */
-    public JwtService(String secret, long expirySeconds) {
-        this(secret, expirySeconds, null);
-    }
-
     public JwtService(@Value("${security.jwt.secret}") String secret,
                       @Value("${security.jwt.expiry-seconds:7200}") long expirySeconds,
                       org.springframework.core.env.Environment environment) {
