@@ -869,6 +869,8 @@ public class ToolRuntimeService {
             builder.method(method, HttpRequest.BodyPublishers.noBody());
         }
 
+        boolean idempotent = Set.of("GET", "HEAD", "OPTIONS").contains(method)
+                || idempotencyKey.get() != null && !idempotencyKey.get().isBlank();
         Exception last = null;
         for (int attempt = 0; attempt <= retries; attempt++) {
             try {
@@ -888,12 +890,14 @@ public class ToolRuntimeService {
                         // 继续轮询取消信号
                     }
                 }
-                if ((resp.statusCode() >= 500 || resp.statusCode() == 429) && attempt < retries) {
-                    last = new IllegalStateException("HTTP " + resp.statusCode());
-                    sleepBackoff(attempt);
-                    continue;
-                }
                 if (resp.statusCode() >= 400) {
+                    boolean transientStatus = resp.statusCode() >= 500 || resp.statusCode() == 429;
+                    if (transientStatus && idempotent && attempt < retries) {
+                        last = new IllegalStateException("HTTP " + resp.statusCode());
+                        sleepBackoff(attempt);
+                        continue;
+                    }
+                    // 4xx 非临时错误不重试；非幂等写请求即使 5xx 也不自动重试，避免重复副作用。
                     throw new IllegalStateException("HTTP " + resp.statusCode() + "："
                             + truncate(resp.body(), 300));
                 }
@@ -901,7 +905,9 @@ public class ToolRuntimeService {
             } catch (Exception e) {
                 if (isCancelled(collector)) throw e;
                 last = e;
-                if (attempt < retries) sleepBackoff(attempt);
+                // 只对幂等请求重试网络异常/临时错误；非幂等写请求交给调用方或补偿逻辑。
+                if (!idempotent || attempt >= retries) throw e;
+                sleepBackoff(attempt);
             }
         }
         throw last == null ? new IllegalStateException("请求失败") : last;

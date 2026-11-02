@@ -186,7 +186,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
     public Map<String, Object> savedCommunities(Long kbId, KnowledgePermissionService.Viewer viewer) {
         KnowledgeBase kb = permissionService.requireView(kbId, viewer);
         ensureGraphEnabled(kb);
-        return communityService.saved(kb);
+        return communityService.saved(kb, visibleEntityIdsForKb(kb, viewer));
     }
 
     /** 社区摘要向量检索。 */
@@ -194,7 +194,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
                                                  KnowledgePermissionService.Viewer viewer) {
         KnowledgeBase kb = permissionService.requireView(kbId, viewer);
         ensureGraphEnabled(kb);
-        return communityService.search(kb, query, topK);
+        return communityService.search(kb, query, topK, visibleEntityIdsForKb(kb, viewer));
     }
 
     /** 重建实体向量（名称 + 描述）。 */
@@ -813,6 +813,15 @@ public class KnowledgeGraphService implements ApplicationRunner {
      * 图谱变更后自动刷新社区摘要（异步）。
      * 前置：commitPreview（批量抽取提交）或 deleteEntity 等图谱结构变更后调用。
      */
+    /** 当前 viewer 可见的实体集合；社区成员必须全部可见才允许返回，避免摘要绕过 chunk ACL。 */
+    private Set<Long> visibleEntityIdsForKb(KnowledgeBase kb,
+                                            KnowledgePermissionService.Viewer viewer) {
+        List<KnowledgeGraphEntity> entities = entityMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeGraphEntity>()
+                        .eq(KnowledgeGraphEntity::getKbId, kb.getId()));
+        return visibleEntityIds(kb, entities, viewer);
+    }
+
     public void autoRefreshCommunities(Long tenantId, Long kbId) {
         boolean enabled;
         KnowledgeBase kb;
@@ -1724,6 +1733,7 @@ public class KnowledgeGraphService implements ApplicationRunner {
 
     @Transactional
     public void deleteByKnowledgeBase(Long kbId) {
+        communityService.deleteForKnowledgeBase(kbId);
         mentionMapper.delete(new LambdaQueryWrapper<KnowledgeGraphMention>()
                 .eq(KnowledgeGraphMention::getKbId, kbId));
         relationMapper.delete(new LambdaQueryWrapper<KnowledgeGraphRelation>()
@@ -1737,6 +1747,8 @@ public class KnowledgeGraphService implements ApplicationRunner {
     /** 删除某文档贡献的自动图谱数据；手工实体/关系保留。 */
     @Transactional
     public void deleteByDocument(Long kbId, Long documentId) {
+        // 社区成员可能包含本文档实体；保守失效整个 KB 的社区，等待下次刷新重建。
+        communityService.deleteForKnowledgeBase(kbId);
         // 先记录该文档贡献过的实体，删除 mention 后再精确判断哪些自动实体已无证据。
         Set<Long> affectedEntityIds = new LinkedHashSet<>(mentionMapper.selectList(
                         new LambdaQueryWrapper<KnowledgeGraphMention>()

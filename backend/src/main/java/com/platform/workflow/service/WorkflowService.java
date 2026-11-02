@@ -1047,10 +1047,11 @@ public class WorkflowService {
                                             WorkflowNodeRun nr, JwtPrincipal principal) {
         String join = str(node.get("joinNode"));
         Set<String> approvals = new java.util.LinkedHashSet<>();
+        Set<String> approvalRoles = new java.util.LinkedHashSet<>();
         Set<String> loops = new java.util.LinkedHashSet<>();
         if (node.get("branches") instanceof List<?> branches) {
             for (Object b : branches) {
-                collectApprovals(str(b), join, nodes, new java.util.HashSet<>(), approvals);
+                collectApprovals(str(b), join, nodes, new java.util.HashSet<>(), approvals, approvalRoles);
                 collectOverLimitLoops(str(b), join, nodes, new java.util.HashSet<>(), loops, run);
             }
         }
@@ -1066,6 +1067,8 @@ public class WorkflowService {
         approval.setNodeId(parallelNodeId);
         approval.setTitle("并行分支审批（" + (approvals.size() + loops.size()) + " 项）");
         String requiredRole = str(node.get("requiredRole"));
+        // 并行门禁必须覆盖分支内所有审批节点的角色要求，避免用网关节点角色绕过 ADMIN 审批。
+        for (String role : approvalRoles) requiredRole = WorkflowRoleSupport.strongerRole(requiredRole, role);
         approval.setRequiredRole(requiredRole);
         int timeoutMinutes = toInt(node.get("timeoutMinutes"));
         if (timeoutMinutes > 0) approval.setExpireAt(LocalDateTime.now().plusMinutes(timeoutMinutes));
@@ -1105,23 +1108,28 @@ public class WorkflowService {
 
     private void collectApprovals(String nodeId, String joinId,
                                   Map<String, Map<String, Object>> nodes,
-                                  Set<String> visited, Set<String> approvals) {
+                                  Set<String> visited, Set<String> approvals, Set<String> approvalRoles) {
         String current = nodeId;
         while (current != null && !current.isBlank() && !current.equals(joinId) && visited.add(current)) {
             Map<String, Object> n = nodes.get(current);
             if (n == null) return;
             String type = str(n.getOrDefault("type", "LLM")).toUpperCase();
-            if ("APPROVAL".equals(type)) approvals.add(current);
+            if ("APPROVAL".equals(type)) {
+                approvals.add(current);
+                String role = str(n.get("requiredRole"));
+                if (role != null && !role.isBlank()) approvalRoles.add(role);
+            }
             if ("PARALLEL".equals(type)) {
                 if (n.get("branches") instanceof List<?> bs) {
-                    for (Object b : bs) collectApprovals(str(b), str(n.get("joinNode")), nodes, visited, approvals);
+                    for (Object b : bs) collectApprovals(str(b), str(n.get("joinNode")), nodes, visited,
+                            approvals, approvalRoles);
                 }
                 current = str(n.get("joinNode"));
                 continue;
             }
             if ("CONDITION".equals(type)) {
-                collectApprovals(str(n.get("trueNext")), joinId, nodes, visited, approvals);
-                collectApprovals(str(n.get("falseNext")), joinId, nodes, visited, approvals);
+                collectApprovals(str(n.get("trueNext")), joinId, nodes, visited, approvals, approvalRoles);
+                collectApprovals(str(n.get("falseNext")), joinId, nodes, visited, approvals, approvalRoles);
                 return;
             }
             if ("END".equals(type)) return;
@@ -1445,10 +1453,17 @@ public class WorkflowService {
         if (!allowSideEffects && Set.of("TOOL", "HANDOFF", "AGENT").contains(nodeType)) {
             throw new BusinessException(409, "当前节点可能产生外部副作用，请确认后显式允许恢复");
         }
+        int claimed = runMapper.update(null, new LambdaUpdateWrapper<WorkflowRun>()
+                .eq(WorkflowRun::getId, runId)
+                .eq(WorkflowRun::getStatus, "FAILED")
+                .set(WorkflowRun::getStatus, "RUNNING")
+                .set(WorkflowRun::getErrorMessage, null)
+                .set(WorkflowRun::getUpdatedAt, LocalDateTime.now()));
+        if (claimed == 0) {
+            throw new BusinessException(409, "运行状态已变化，可能已被其他实例恢复");
+        }
         run.setStatus("RUNNING");
         run.setErrorMessage(null);
-        run.setUpdatedAt(LocalDateTime.now());
-        runMapper.updateById(run);
         auditService.record(principal.userId(), "workflow.resume", "workflow_run",
                 String.valueOf(runId), "SUCCESS", Map.of("node", run.getCurrentNode()));
         execute(run, run.getCurrentNode(), principal);
