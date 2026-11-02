@@ -77,7 +77,8 @@ final class ChunkMetadataExtractor {
         String section = sectionType(path, content, parent);
         int level = path.isEmpty() ? 1 : Math.max(1, Math.min(4, path.size()));
         String parentKey = documentId + ":" + chunk.parentIndex();
-        List<String> keywords = keywords(content + "\n" + parent);
+        // 父块可能覆盖整篇单段落大文件；元数据抽取只取前缀，避免每个 chunk 重复扫描数 MB。
+        List<String> keywords = keywords(content + "\n" + prefix(parent, 2000));
         double score = relevance(section, keywords, content);
         return new Metadata(profile.documentType(), section, level, parentKey, keywords, score,
                 profile.regulatoryCategory());
@@ -124,8 +125,9 @@ final class ChunkMetadataExtractor {
             if (word.length() < 4 || STOP.contains(word) || word.matches("\\d+")) continue;
             counts.merge(word, 1, Integer::sum);
         }
+        String lower = text == null ? "" : text.toLowerCase(Locale.ROOT);
         for (String term : KNOWN_TERMS) {
-            if ((text == null ? "" : text).toLowerCase(Locale.ROOT).contains(term)) {
+            if (lower.contains(term)) {
                 counts.merge(term, 50, Integer::sum);
             }
         }
