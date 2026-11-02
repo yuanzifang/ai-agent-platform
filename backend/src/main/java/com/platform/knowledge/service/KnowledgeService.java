@@ -754,6 +754,11 @@ public class KnowledgeService {
         if (!storage.exists(objectName)) {
             throw new BusinessException(400, "文件尚未上传成功（MinIO 中不存在）");
         }
+        long actualSize = storage.statSize(objectName);
+        if (actualSize > uploadMaxBytes) {
+            storage.remove(objectName);
+            throw new BusinessException(413, "文件不能超过 " + (uploadMaxBytes / 1024 / 1024) + "MB");
+        }
         String fileName = objectName.substring(objectName.lastIndexOf('/') + 1);
         if (documentId != null) {
             KnowledgeDocument doc = docMapper.selectById(documentId);
