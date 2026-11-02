@@ -716,4 +716,19 @@ class KnowledgeServiceLifecycleTest {
         verifyNoInteractions(storage);
     }
 
+    @Test
+    void callbackRejectsOversizedActualObjectAndRemovesIt() {
+        ReflectionTestUtils.setField(service, "uploadMaxBytes", 20 * 1024 * 1024);
+        String object = "9/knowledge/1/large/file.pdf";
+        when(storage.exists(object)).thenReturn(true);
+        when(storage.statSize(object)).thenReturn(20L * 1024 * 1024 + 1);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.callback(1L, object, null, null, viewer));
+
+        assertEquals(413, error.getCode());
+        verify(storage).remove(object);
+        verify(docMapper, never()).insert(any(KnowledgeDocument.class));
+    }
+
 }
