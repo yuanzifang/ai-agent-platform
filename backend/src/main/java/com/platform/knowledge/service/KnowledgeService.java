@@ -47,7 +47,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.*;
 
 /**
@@ -677,10 +676,6 @@ public class KnowledgeService {
         return result;
     }
 
-    private LocalDateTime toLocalDateTime(Instant instant) {
-        return LocalDateTime.ofInstant(instant, ZoneId.systemDefault());
-    }
-
     /** 文档级 PDF 密码落库前 AES-GCM 加密；密码不进入日志或知识库级配置。 */
     private String protectPdfPassword(String json) {
         if (json == null || json.isBlank()) return json;
@@ -743,12 +738,18 @@ public class KnowledgeService {
             doc.setStatus("PENDING");
             doc.setChunkCount(0);
             doc.setParseConfig(protectedConfig);
-            if (effectiveFrom != null) doc.setEffectiveFrom(toLocalDateTime(effectiveFrom));
-            if (effectiveTo != null) doc.setEffectiveTo(toLocalDateTime(effectiveTo));
+            if (effectiveFrom != null) doc.setEffectiveFrom(KnowledgeUploadPolicy.toLocalDateTime(effectiveFrom));
+            if (effectiveTo != null) doc.setEffectiveTo(KnowledgeUploadPolicy.toLocalDateTime(effectiveTo));
             doc.setSizeBytes(storage.statSize(objectName));
             doc.setRetryTimes(0);
             doc.setErrorMessage(null);
             docMapper.updateById(doc);
+            // updateById 跳过 null；覆盖上传未带配置时必须显式清空旧解析配置/错误。
+            LambdaUpdateWrapper<KnowledgeDocument> clear = new LambdaUpdateWrapper<KnowledgeDocument>()
+                    .eq(KnowledgeDocument::getId, doc.getId())
+                    .set(KnowledgeDocument::getErrorMessage, null);
+            if (protectedConfig == null) clear.set(KnowledgeDocument::getParseConfig, null);
+            docMapper.update(null, clear);
             if (oldObject != null && !oldObject.equals(objectName)) {
                 storage.remove(oldObject);
             }
@@ -766,8 +767,8 @@ public class KnowledgeService {
         doc.setStatus("PENDING");
         doc.setChunkCount(0);
         doc.setParseConfig(protectedConfig);
-        doc.setEffectiveFrom(effectiveFrom == null ? null : toLocalDateTime(effectiveFrom));
-        doc.setEffectiveTo(effectiveTo == null ? null : toLocalDateTime(effectiveTo));
+        doc.setEffectiveFrom(effectiveFrom == null ? null : KnowledgeUploadPolicy.toLocalDateTime(effectiveFrom));
+        doc.setEffectiveTo(effectiveTo == null ? null : KnowledgeUploadPolicy.toLocalDateTime(effectiveTo));
         doc.setSizeBytes(storage.statSize(objectName));
         doc.setRetryTimes(0);
         doc.setTenantId(tenantId);
@@ -1381,7 +1382,7 @@ public class KnowledgeService {
         }
         if (password == null || password.isBlank()) config.remove("pdfPassword");
         else config.put("pdfPassword", password);
-        String configJson = config.isEmpty() ? null : toJsonQuiet(config);
+        String configJson = config.isEmpty() ? null : KnowledgeJsonSupport.write(objectMapper, config);
         String protectedConfig = protectPdfPassword(configJson);
         docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
                 .eq(KnowledgeDocument::getId, documentId)
@@ -1525,10 +1526,10 @@ public class KnowledgeService {
             m.put("sectionType", c.getSectionType());
             m.put("chunkLevel", c.getChunkLevel());
             m.put("parentKey", c.getParentKey());
-            m.put("domainKeywords", parseJson(c.getDomainKeywords()));
+            m.put("domainKeywords", KnowledgeJsonSupport.parse(objectMapper, c.getDomainKeywords()));
             m.put("relevanceScore", c.getRelevanceScore());
             m.put("regulatoryCategory", c.getRegulatoryCategory());
-            m.put("allowedUsers", parseJson(c.getAllowedUsers()));
+            m.put("allowedUsers", KnowledgeJsonSupport.parse(objectMapper, c.getAllowedUsers()));
             m.put("tenantVisible", c.getTenantVisible() == null || c.getTenantVisible() == 1);
             m.put("reviewStatus", c.getReviewStatus());
             m.put("reviewRequired", chartChunkBuilder.isChartChunk(c.getContent())
@@ -1541,6 +1542,7 @@ public class KnowledgeService {
     }
 
     /** 单 chunk 独立授权：更新 MySQL 分段与 PgVector metadata；需知识库编辑权限。 */
+    @Transactional
     public Map<String, Object> updateChunkAcl(Long kbId, Long chunkId, List<Long> allowedUsers,
                                                boolean tenantVisible,
                                                KnowledgePermissionService.Viewer viewer) {
@@ -1647,8 +1649,10 @@ public class KnowledgeService {
                     && (doc.getParseFingerprint() == null
                     || doc.getParserVersion() == null
                     || !DocumentParser.PARSER_VERSION.equals(doc.getParserVersion())));
+            // RESOLVED 后即使历史 parseWarning 仍含“人工复核”，也不能继续标记为待处理。
             doc.setManualReviewRequired("PENDING".equals(doc.getManualReviewStatus())
-                    || (doc.getParseWarning() != null && doc.getParseWarning().contains("人工复核")));
+                    || (doc.getManualReviewStatus() == null && doc.getParseWarning() != null
+                    && doc.getParseWarning().contains("人工复核")));
         }
         return docs;
     }
@@ -1667,23 +1671,6 @@ public class KnowledgeService {
             vectorRepository.deleteByDocument(tenantId, documentId);
         } catch (Exception e) {
             log.warn("删除文档向量失败 doc={} err={}（数据库记录继续清理）", documentId, e.getMessage());
-        }
-    }
-
-    private Object parseJson(String raw) {
-        if (raw == null || raw.isBlank()) return null;
-        try {
-            return objectMapper.readValue(raw, Object.class);
-        } catch (Exception e) {
-            return raw;
-        }
-    }
-
-    private String toJsonQuiet(Map<String, Object> value) {
-        try {
-            return objectMapper.writeValueAsString(value);
-        } catch (Exception e) {
-            return null;
         }
     }
 
