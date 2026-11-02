@@ -1168,6 +1168,10 @@
                   <el-button @click="copyText(testWidgetUrl)">{{ t('deploy.copy') }}</el-button>
                 </template>
               </el-input>
+              <el-button size="small" class="mt8" @click="openManualCopy(testWidgetUrl)">
+                {{ t('deploy.manualSelect') }}
+              </el-button>
+              <div class="hint mt4">{{ t('deploy.copyFallbackHint') }}</div>
             </el-descriptions-item>
             <el-descriptions-item :label="t('deploy.testIframe')">
               <el-input :model-value="testWidgetIframe" type="textarea" :rows="2" readonly />
@@ -2124,7 +2128,7 @@ async function copyText(text: string) {
     } catch {
       // fall through
     }
-    ElMessage.warning(t('agentDlg.copyFailManual'))
+    ElMessage.info(t('agentDlg.copyFallbackOpened'))
     openManualCopy(text)
   }
 }
