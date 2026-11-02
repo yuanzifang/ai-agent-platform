@@ -17,6 +17,10 @@ data:
   PG_USERNAME: {{ .Values.config.pgUsername | quote }}
   MINIO_ENDPOINT: {{ .Values.config.minioEndpoint | quote }}
   OLLAMA_ENDPOINT: {{ .Values.config.ollamaEndpoint | quote }}
+  KNOWLEDGE_VISION_ENABLED: {{ .Values.config.visionEnabled | quote }}
+  KNOWLEDGE_VISION_ENDPOINT: {{ .Values.config.visionEndpoint | quote }}
+  KNOWLEDGE_VISION_MODEL: {{ .Values.config.visionModel | quote }}
+  KNOWLEDGE_VISION_TIMEOUT_SECONDS: {{ .Values.config.visionTimeoutSeconds | quote }}
   EMBEDDING_PROVIDER: {{ .Values.config.embeddingProvider | quote }}
   EMBEDDING_ENDPOINT: {{ .Values.config.embeddingEndpoint | quote }}
   DEEPSEEK_BASE_URL: {{ .Values.config.deepseekBaseUrl | quote }}
@@ -53,6 +57,7 @@ data:
   SKILL_SCRIPT_RUNTIME: {{ .Values.config.skillScriptRuntime | quote }}
   ASR_ENABLED: {{ .Values.config.asrEnabled | quote }}
   ASR_ENDPOINT: {{ .Values.config.asrEndpoint | quote }}
+  ASR_MODEL: {{ .Values.config.asrModel | quote }}
   SMTP_HOST: {{ .Values.config.smtpHost | quote }}
   SMTP_PORT: {{ .Values.config.smtpPort | quote }}
   SMTP_AUTH: {{ .Values.config.smtpAuth | quote }}
