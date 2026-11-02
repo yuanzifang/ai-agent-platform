@@ -240,6 +240,7 @@ public class GatewayService {
     }
 
     public List<Map<String, Object>> apiKeys(Long routeId) {
+        require(routeId);
         return apiKeyService.listView(routeId);
     }
 
@@ -250,6 +251,7 @@ public class GatewayService {
     public Map<String, Object> createKey(Long routeId, Map<String, Object> req,
                                          com.platform.security.JwtPrincipal principal,
                                          java.time.LocalDateTime expiresAt) {
+        require(routeId);
         var created = apiKeyService.create(routeId, principal.tenantId(),
                 String.valueOf(req.getOrDefault("name", "")),
                 req.get("rateLimitPerMin") instanceof Number n ? n.intValue() : null,
@@ -357,8 +359,15 @@ public class GatewayService {
         }
         String query = request.getQueryString();
         try {
-            byte[] body = "GET".equalsIgnoreCase(request.getMethod()) || "HEAD".equalsIgnoreCase(request.getMethod())
-                    ? new byte[0] : request.getInputStream().readAllBytes();
+            boolean noBody = "GET".equalsIgnoreCase(request.getMethod())
+                    || "HEAD".equalsIgnoreCase(request.getMethod());
+            if (!noBody && request.getContentLengthLong() > MAX_BODY) {
+                log(route, request, 413, null, started, "body too large");
+                return error(servletResponse, HttpStatus.PAYLOAD_TOO_LARGE, "请求体不能超过 5MB");
+            }
+            // 不直接 readAllBytes：即使客户端不提供 Content-Length，也只读取上限 + 1 字节。
+            byte[] body = noBody ? new byte[0]
+                    : request.getInputStream().readNBytes(MAX_BODY + 1);
             if (body.length > MAX_BODY) {
                 log(route, request, 413, null, started, "body too large");
                 return error(servletResponse, HttpStatus.PAYLOAD_TOO_LARGE, "请求体不能超过 5MB");
@@ -427,12 +436,15 @@ public class GatewayService {
 
                     int attempts = 1 + (isIdempotent(request.getMethod())
                             ? Math.max(0, route.getRetries() == null ? 0 : route.getRetries()) : 0);
-                    HttpResponse<byte[]> response = null;
+                    HttpResponse<InputStream> response = null;
                     Exception attemptError = null;
                     for (int i = 0; i < attempts; i++) {
                         try {
-                            response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
+                            response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
                             if (response.statusCode() < 500 || i == attempts - 1) break;
+                            try (InputStream ignored = response.body()) {
+                                // 丢弃可重试的 5xx 响应体，避免连接/内存占用
+                            }
                         } catch (Exception e) {
                             attemptError = e;
                             if (i == attempts - 1) throw e;
@@ -444,10 +456,17 @@ public class GatewayService {
                     if (response.statusCode() >= 500) recordUpstreamFailure(route.getId(), upstream);
                     else recordUpstreamSuccess(route.getId(), upstream);
                     if (response.statusCode() >= 500 && ti < targets.size() - 1) {
-                        last = new IllegalStateException("upstream " + response.statusCode());
+                        try (InputStream ignored = response.body()) {
+                            last = new IllegalStateException("upstream " + response.statusCode());
+                        }
                         continue;
                     }
-                    if (response.body().length > MAX_TARGET_BYTES) {
+                    byte[] resultBody;
+                    try (InputStream in = response.body()) {
+                        resultBody = in == null ? new byte[0]
+                                : in.readNBytes((int) MAX_TARGET_BYTES + 1);
+                    }
+                    if (resultBody.length > MAX_TARGET_BYTES) {
                         log(route, request, 502, response.statusCode(), started, "upstream response too large");
                         return error(servletResponse, HttpStatus.BAD_GATEWAY, "上游响应超过 10MB");
                     }
@@ -458,7 +477,6 @@ public class GatewayService {
                     response.headers().firstValue("Content-Type").ifPresent(v -> headers.set(HttpHeaders.CONTENT_TYPE, v));
                     response.headers().firstValue("Content-Disposition").ifPresent(v -> headers.set(HttpHeaders.CONTENT_DISPOSITION, v));
                     applyHeaders(servletResponse, headers, response.statusCode());
-                    byte[] resultBody = response.body();
                     servletResponse.setContentLength(resultBody.length);
                     return out -> out.write(resultBody);
                 } catch (Exception e) {

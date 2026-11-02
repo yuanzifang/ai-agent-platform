@@ -3,6 +3,9 @@ package com.platform.knowledge.service;
 import com.platform.common.exception.BusinessException;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Locale;
 import java.util.Set;
 
@@ -13,6 +16,10 @@ public class KnowledgeUploadPolicy {
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
             "md", "txt", "doc", "docx", "pdf", "xlsx", "xls", "pptx", "ppt",
             "html", "htm", "csv", "json", "epub", "png", "jpg", "jpeg", "bmp", "tif", "tiff");
+
+    public static LocalDateTime toLocalDateTime(Instant instant) {
+        return LocalDateTime.ofInstant(instant, ZoneId.systemDefault());
+    }
 
     public void validateMetadata(String fileName, Long sizeBytes, int maxBytes) {
         if (sizeBytes != null && sizeBytes > maxBytes) {

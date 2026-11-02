@@ -334,7 +334,8 @@ public class ChatStreamService {
             out.event("tool_start", Map.of("name", "知识库检索", "toolName", "knowledge_retrieval",
                     "toolType", "RAG", "status", "RUNNING"));
             long kbStart = System.currentTimeMillis();
-            systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings,
+            systemPrompt = chatService.augmentWithKnowledge(systemPrompt,
+                    retrievalQuery(userMsg.getContent(), userMsgWithAttachments), kbBindings,
                     citations, viewer, steps);
             Map<String, Object> kbEvent = new LinkedHashMap<>();
             kbEvent.put("name", "知识库检索");
@@ -735,7 +736,8 @@ public class ChatStreamService {
             kbBindings.add(Map.of("knowledgeBaseId", kbId, "enabled", true));
         }
         if (!kbBindings.isEmpty()) {
-            systemPrompt = chatService.augmentWithKnowledge(systemPrompt, userMsg.getContent(), kbBindings,
+            systemPrompt = chatService.augmentWithKnowledge(systemPrompt,
+                    retrievalQuery(userMsg.getContent(), userMsgWithAttachments), kbBindings,
                     citations, viewer, steps);
         }
         String longTermMemory = userMemoryService.contextFor(principal.userId(), conv.getAgentId(), tenantId);
@@ -773,25 +775,27 @@ public class ChatStreamService {
         org.springframework.ai.chat.model.ChatResponse resp;
         concurrencyGuard.acquire();
         try {
-            resp = buildSpec(usedModel, systemPrompt, history, userMsgWithAttachments,
-                    runtime.callbacks(), temperature, thinking, reasoningEffort).call().chatResponse();
-        } catch (Exception e) {
-            concurrencyGuard.release();           // 主调用失败，先还名额
-            chatModelRouter.recordModelFailure(usedModel);
-            if (fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(usedModel)
-                    || !chatModelRouter.isFallbackable(e)) {
-                throw e;
+            try {
+                resp = buildSpec(usedModel, systemPrompt, history, userMsgWithAttachments,
+                        runtime.callbacks(), temperature, thinking, reasoningEffort).call().chatResponse();
+            } catch (Exception e) {
+                chatModelRouter.recordModelFailure(usedModel);
+                if (fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(usedModel)
+                        || !chatModelRouter.isFallbackable(e)) {
+                    throw e;
+                }
+                log.warn("模型失败，切换备用模型 {} -> {}：{}", modelName, fallbackModel, e.getMessage());
+                steps.add("chain", "model-fallback", "SUCCESS", System.currentTimeMillis(), System.currentTimeMillis(),
+                        java.util.Map.of("from", modelName, "to", fallbackModel,
+                                "error", e.getMessage() == null ? "" : e.getMessage()));
+                usedModel = fallbackModel;
+                // 主调用和备用调用共用同一个并发名额，finally 只释放一次；备用失败不会泄漏。
+                resp = buildSpec(fallbackModel, systemPrompt, history, userMsgWithAttachments,
+                        runtime.callbacks(), temperature, thinking, reasoningEffort).call().chatResponse();
             }
-            log.warn("模型失败，切换备用模型 {} -> {}：{}", modelName, fallbackModel, e.getMessage());
-            steps.add("chain", "model-fallback", "SUCCESS", System.currentTimeMillis(), System.currentTimeMillis(),
-                    java.util.Map.of("from", modelName, "to", fallbackModel,
-                            "error", e.getMessage() == null ? "" : e.getMessage()));
-            usedModel = fallbackModel;
-            concurrencyGuard.acquire();           // 备用重试重新占用一个名额（精确对称，防超发）
-            resp = buildSpec(fallbackModel, systemPrompt, history, userMsgWithAttachments,
-                    runtime.callbacks(), temperature, thinking, reasoningEffort).call().chatResponse();
+        } finally {
+            concurrencyGuard.release();
         }
-        concurrencyGuard.release();
         chatModelRouter.recordModelSuccess(usedModel);
         String answer = resp.getResult().getOutput().getText();
         var usage = resp.getMetadata().getUsage();
@@ -933,7 +937,7 @@ public class ChatStreamService {
      */
     public Map<String, Object> continueFromCheckpoint(Long conversationId, JwtPrincipal principal) {
         Conversation conv = conversationService.owned(conversationId, principal);
-        ChatCheckpoint checkpoint = checkpointService.get(conversationId);
+        ChatCheckpoint checkpoint = checkpointService.get(principal.tenantId(), conversationId);
         if (checkpoint == null || checkpoint.getContent() == null || checkpoint.getContent().isBlank()) {
             throw new BusinessException(404, "没有可继续的对话 checkpoint");
         }
@@ -1011,7 +1015,7 @@ public class ChatStreamService {
                     ChatLiveStateService.LiveState state = liveState.get(conversationId);
                     if (state == null) {
                         com.platform.conversation.entity.ChatCheckpoint checkpoint =
-                                checkpointService.get(conversationId);
+                                checkpointService.get(principal.tenantId(), conversationId);
                         if (checkpoint != null) {
                             String content = checkpoint.getContent() == null ? "" : checkpoint.getContent();
                             int safeCursor = Math.min(cursor, content.length());
@@ -1356,6 +1360,32 @@ public class ChatStreamService {
         } catch (Exception e) {
             return Map.of();
         }
+    }
+
+    /**
+     * RAG 检索词：文字问题 + 图片识别结果。文档附件正文不参与检索，避免整篇文档污染 query；
+     * 图片识别出的作物/病虫害关键词正是检索最需要的信号。
+     */
+    private String retrievalQuery(String message, String withAttachments) {
+        if (message == null) message = "";
+        if (withAttachments == null || withAttachments.isBlank() || withAttachments.equals(message)) {
+            return message;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("<untrusted_image(?:\\s[^>]*)?>([\\s\\S]*?)</untrusted_image>")
+                .matcher(withAttachments);
+        StringBuilder images = new StringBuilder();
+        while (matcher.find() && images.length() < 2000) {
+            if (images.length() > 0) images.append('\n');
+            images.append(matcher.group(1).trim());
+        }
+        if (images.length() == 0) return message;
+        String suffix = "\n\n[图片识别结果，用于知识检索]\n" + images;
+        int max = 4000;
+        if (message.length() + suffix.length() > max) {
+            suffix = suffix.substring(0, Math.max(0, max - message.length()));
+        }
+        return message + suffix;
     }
 
     /**
