@@ -145,7 +145,7 @@ scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 
 ## Kubernetes / Helm
 
-生产多副本建议用 Helm Chart（后端/前端；MySQL/Redis/PgVector/MinIO/Ollama 使用托管服务或集群内独立服务）：
+生产多副本建议用 Helm Chart（后端/前端；MySQL/Redis/PgVector/MinIO/Ollama 使用托管服务或集群内独立服务）。首次部署前必须按 `deploy/helm/ai-agent-platform/README.md` 先执行 `scripts/vector-role.sh` 和 `scripts/vector-grants.sh` 创建向量库专用账号；Chart 默认 `pgUsername=aap_vector_app`。
 
 ```bash
 # 构建并推送镜像后
