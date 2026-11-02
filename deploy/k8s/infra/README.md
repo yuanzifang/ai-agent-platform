@@ -58,6 +58,21 @@ kubectl -n aap-data get pods,pvc -o wide
 需要先确保集群有 `local-path` StorageClass，或者把 PVC 的
 `storageClassName` 改成目标集群的 StorageClass。
 
+### 3.1 初始化向量库专用账号
+
+应用部署前，用 PostgreSQL 管理员账号创建专用角色：
+
+```bash
+APP_DB_ROLE=aap_vector_app APP_DB_PASSWORD='***' \
+PGHOST=127.0.0.1 PGPORT=5432 PGUSER=aiagent PGDATABASE=vector \
+scripts/vector-role.sh --apply
+
+APP_DB_ROLE=aap_vector_app PGHOST=127.0.0.1 PGPORT=5432 \
+PGUSER=aiagent PGDATABASE=vector scripts/vector-grants.sh --apply
+```
+
+集群内执行时可通过 `kubectl port-forward svc/pgvector 5432:5432 -n aap-data`，或直接在 `pgvector-0` 内执行生成的 SQL。角色密码需与应用 Secret 的 `PG_PASSWORD` 一致。
+
 ## 4. 导入数据
 
 新环境可以从空库启动；已有平台数据时按以下方式导入：

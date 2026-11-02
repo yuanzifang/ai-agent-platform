@@ -21,7 +21,26 @@ aap/frontend:0.1.0
 
 如果使用远程 Docker（例如 UTM Docker），先设置 `DOCKER_HOST` 即可复用脚本。
 
-## 2. 创建命名空间和 Secret
+## 2. 创建向量库专用账号
+
+本目录示例 values 默认使用 `config.pgUsername: aap_vector_app`。首次部署前，用 PostgreSQL 管理员账号创建角色并转移已有租户对象所有权：
+
+```bash
+APP_DB_ROLE=aap_vector_app \
+APP_DB_PASSWORD='与 Secret 中 PG_PASSWORD 相同' \
+PGUSER=postgres PGHOST=<pg-host> PGDATABASE=vector \
+scripts/vector-role.sh --apply
+
+APP_DB_ROLE=aap_vector_app \
+PGUSER=postgres PGHOST=<pg-host> PGDATABASE=vector \
+scripts/vector-grants.sh --apply
+```
+
+- `vector-role.sh`：创建 `NOSUPERUSER` 账号，转移 `tenant_*` Schema/表/序列所有权。
+- `vector-grants.sh`：补充 DML/序列权限。
+- 角色密码必须与 Secret 的 `PG_PASSWORD` 一致；如使用其他角色名，修改 values 的 `config.pgUsername`。
+
+## 3. 创建命名空间和 Secret
 
 Secret key 与 Chart 保持一致：
 
@@ -43,7 +62,7 @@ kubectl -n aap create secret generic aap-secrets \
 `AES_KEY` 至少 32 字符。若历史数据使用了 JWT_SECRET 作为兜底密钥，
 部署时应保持与历史环境一致。
 
-## 3. 部署
+## 4. 部署
 
 复制示例 values，修改外部服务地址和镜像标签：
 
@@ -61,7 +80,7 @@ kubectl -n aap rollout status deploy/aap-ai-agent-platform-backend
 kubectl -n aap rollout status deploy/aap-ai-agent-platform-frontend
 ```
 
-## 4. 无 Ingress 时访问
+## 5. 无 Ingress 时访问
 
 Chart 默认关闭 Ingress，适合单机 K3s/k3d 或内网验证。
 
@@ -82,7 +101,7 @@ kubectl -n aap port-forward svc/aap-ai-agent-platform-frontend 18080:80
 生产环境建议启用 Ingress，并把 `config.publicBase` / `config.frontendBase`
 改为正式域名。
 
-## 5. UTM 单机 k3d 示例
+## 6. UTM 单机 k3d 示例
 
 当前 UTM 上的集群名为 `aap-k8s`，API 只监听 UTM 本机 `6443`。Mac 侧通过
 SSH 本地转发使用：
@@ -113,7 +132,7 @@ k3d image import aap/backend:0.1.0 aap/frontend:0.1.0 -c aap-k8s
 如果节点无法从 Docker Hub 拉取系统镜像，需要额外把 pause、CoreDNS、
 local-path-provisioner、metrics-server 预载到 k3s containerd。
 
-## 6. 外部依赖
+## 7. 外部依赖
 
 示例 values 使用 UTM 宿主机的 Docker 服务地址。K3s/k3d 节点可以通过
 `host.k3d.internal` 或宿主机内网 IP 访问这些服务。
@@ -135,7 +154,7 @@ local-path-provisioner、metrics-server 预载到 k3s containerd。
 
 Ollama 不放在 Docker/Compose/K8s 中，作为独立原生服务运行。当前 Mac 上的 Ollama 默认只监听 `127.0.0.1:11434`，因此使用一个仅绑定 `192.168.64.1:11434` 的本地 TCP 代理供 K8s 访问；不要把 Ollama 镜像加入集群。
 
-## 7. 升级和回滚
+## 8. 升级和回滚
 
 ```bash
 helm upgrade aap deploy/helm/ai-agent-platform -n aap -f /tmp/aap-values.yaml
@@ -145,7 +164,7 @@ helm rollback aap <revision> -n aap
 
 升级前建议先构建并推送新 tag，或者先把镜像导入目标节点。
 
-## 8. 集群内状态服务
+## 9. 集群内状态服务
 
 如果希望应用不依赖 UTM Docker，可使用 `deploy/k8s/infra/stateful.yaml`
 部署 MySQL/Redis/PG/MinIO/ES/Qdrant，并使用
@@ -160,7 +179,7 @@ helm upgrade --install aap deploy/helm/ai-agent-platform \
 当前 UTM 已按这个模式运行；旧 Docker 栈已移除，迁移前备份保留在 Mac。详见
 `deploy/k8s/infra/README.md`。Ollama 不属于该清单，仍独立原生运行。
 
-## 9. 多节点测试
+## 10. 多节点测试
 
 当前 UTM 集群已从单节点扩到 1 server + 2 agents：
 

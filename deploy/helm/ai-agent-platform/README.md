@@ -23,6 +23,23 @@ docker push registry.example.com/ai-agent/frontend:0.1.0
 
 如果使用集群内 Bitnami 等 Chart，请把 `config.mysqlHost/redisHost/pgUrl/minioEndpoint/ollamaEndpoint` 改成对应 Service 名称。
 
+### 2.1 初始化向量库专用账号
+
+Chart 默认 `config.pgUsername=aap_vector_app`，首次部署前必须先在 `vector` 库创建该角色并收敛租户对象权限。使用数据库管理员账号执行：
+
+```bash
+APP_DB_ROLE=aap_vector_app \
+APP_DB_PASSWORD='与 secrets.pgPassword 相同' \
+PGUSER=postgres PGHOST=<pg-host> PGDATABASE=vector \
+scripts/vector-role.sh --apply
+
+APP_DB_ROLE=aap_vector_app \
+PGUSER=postgres PGHOST=<pg-host> PGDATABASE=vector \
+scripts/vector-grants.sh --apply
+```
+
+`vector-role.sh` 会创建 `NOSUPERUSER` 角色并把已有 `tenant_*` Schema、表、序列所有权转交；`vector-grants.sh` 负责 DML/序列权限。若角色名不同，必须同步修改 `config.pgUsername`，并保证 `PG_PASSWORD`/`secrets.pgPassword` 与新角色一致。
+
 ## 3. 安装
 
 ```bash
@@ -69,8 +86,12 @@ helm upgrade --install ai-agent deploy/helm/ai-agent-platform \
 
 Secret key 名称固定为：
 
-首次部署前先在向量库执行 `scripts/vector-role.sh` / `scripts/vector-grants.sh` 创建专用账号；密钥仍使用 `MYSQL_PASSWORD`、`REDIS_PASSWORD`、`PG_PASSWORD`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、
-`JWT_SECRET`、`AES_KEY`、`DEEPSEEK_API_KEY`、`PLATFORM_ADMIN_PASSWORD`、`SMTP_USERNAME`、`SMTP_PASSWORD`。
+```text
+MYSQL_PASSWORD, REDIS_PASSWORD, PG_PASSWORD,
+MINIO_ACCESS_KEY, MINIO_SECRET_KEY,
+JWT_SECRET, AES_KEY, DEEPSEEK_API_KEY,
+PLATFORM_ADMIN_PASSWORD, SMTP_USERNAME, SMTP_PASSWORD
+```
 
 ### 平台基础设施配置
 
@@ -145,7 +166,7 @@ config:
 
 敏感值仍应放在 `secrets.existingSecret`。
 
-## 7. 多副本注意事项
+## 8. 多副本注意事项
 
 - 审计哈希链使用 MySQL 租户行锁；定时任务/指标汇总使用 Redis 互斥。
 - SSE "停止生成/重新生成" 使用单实例内存中的流句柄；Service 默认 `ClientIP` 会话保持。若 Ingress/负载均衡不保持连接，先将 `backend.replicaCount` 设为 1，或引入 Redis/消息总线共享流状态。
@@ -153,7 +174,7 @@ config:
 - 技能脚本在容器内以 Python/Node 进程执行；生产建议替换为隔离执行器（Firecracker/gVisor/K8s Job）。
 - 当前 Chart 未包含 MySQL/Redis/PgVector/MinIO/Ollama 的 StatefulSet；全量单机请用根目录 `docker-compose.yml`。
 
-## 8. 本地 k3d 实跑记录
+## 9. 本地 k3d 实跑记录
 
 2026-10-26 已在 k3d 5.9.0 / k3s v1.35.5 上完成首次 install 与 `helm test`，详见 `docs/Helm实跑验收.md`。
 
