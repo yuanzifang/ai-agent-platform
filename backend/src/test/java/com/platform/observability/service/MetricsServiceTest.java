@@ -69,7 +69,7 @@ class MetricsServiceTest {
         ArgumentCaptor<LocalDateTime> ends = ArgumentCaptor.forClass(LocalDateTime.class);
         verify(traceMapper, times(2)).distinctAgg(eq(7L), starts.capture(), ends.capture());
         assertEquals(currentStart, starts.getAllValues().get(0));
-        assertEquals(currentStart, ends.getAllValues().get(0));
+        assertEquals(currentEnd, ends.getAllValues().get(0));
         assertEquals(currentStart.minusDays(1), starts.getAllValues().get(1));
         assertEquals(currentStart, ends.getAllValues().get(1));
     }
