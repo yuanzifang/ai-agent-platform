@@ -61,9 +61,10 @@ Redis 不可用时回退本机内存，单实例可用；多实例下统计/配�
 
 ```text
 AGENT_DEPLOY_ENABLED=true
+AGENT_DEPLOY_RUNTIME=auto        # auto/kubernetes/docker
 ```
 
-不再有 `AGENT_DEPLOY_RUNTIME`、`gateway-image`、`caller-keys`、`redis-url` 这些旧配置。
+不再有 Node gateway 的 `gateway-image`、`caller-keys`、`redis-url` 配置。
 
 nginx 模板由 `AgentDeploymentService` 生成：
 
@@ -81,7 +82,7 @@ location /v1/ {
 - `AgentRuntimeGatewayControllerTest` 4 个用例：入口复用、OpenAI 错误结构、stats 仅部署令牌
 - `AgentDeploymentServiceLifecycleTest` 11 个用例：nginx 模板不持有 Key/令牌、平台统计分支、启停/清理/资源限制
 - `ArchitectureTest` 3 个用例：gateway 薄层、deploy 依赖边界
-- 后端全量单测：564/564
+- 后端全量单测：569/569
 - 静态门禁：`scripts/check-mvp-freeze.py` 通过
 - 待补：真实 Docker + nginx 容器 + 平台网关全链路实测；外部集群镜像重建
 

@@ -72,6 +72,18 @@ spec:
               value: {{ .Values.config.timezone | quote }}
             - name: JAVA_OPTS
               value: {{ .Values.backend.javaOpts | quote }}
+            {{- if .Values.agentDeploy.enabled }}
+            - name: AGENT_DEPLOY_RUNTIME
+              value: kubernetes
+            - name: AGENT_DEPLOY_K8S_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: AGENT_DEPLOY_IMAGE
+              value: {{ .Values.agentDeploy.image | quote }}
+            - name: AGENT_DEPLOY_PLATFORM_BASE
+              value: {{ default (printf "http://%s:%v" (include "ai-agent-platform.backend.fullname" .) .Values.backend.service.port) .Values.agentDeploy.platformBase | quote }}
+            - name: AGENT_DEPLOY_K8S_NODE_SELECTOR
+              value: {{ .Values.agentDeploy.nodeSelector | default "" | quote }}
+            {{- end }}
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
           startupProbe:

@@ -15,7 +15,17 @@ public interface ContainerRuntime {
     /** 服务端版本号，不可用时返回 null。 */
     String version();
 
-    /** 创建容器并返回容器 ID（不启动）。 */
+    /** 是否 K8s 运行时；默认 Docker。 */
+    default boolean kubernetes() {
+        return false;
+    }
+
+    /** K8s Service 的内部访问地址；Docker 返回 null。 */
+    default String endpoint(String resource) {
+        return null;
+    }
+
+    /** 创建容器/Deployment 并返回资源名（不启动）。 */
     String create(CreateRequest request);
 
     void start(String container);
@@ -30,7 +40,15 @@ public interface ContainerRuntime {
 
     record CreateRequest(String name, String image, String hostBind, int hostPort, int containerPort,
                          Map<String, String> env, Map<String, String> labels,
-                         List<String> mounts, List<String> extraArgs) {
+                         List<String> mounts, List<String> extraArgs,
+                         int replicas, Map<String, String> files) {
+
+        /** Docker 调用兼容构造器（单副本、无 ConfigMap 文件）。 */
+        public CreateRequest(String name, String image, String hostBind, int hostPort, int containerPort,
+                             Map<String, String> env, Map<String, String> labels,
+                             List<String> mounts, List<String> extraArgs) {
+            this(name, image, hostBind, hostPort, containerPort, env, labels, mounts, extraArgs, 1, Map.of());
+        }
     }
 
     record Info(String id, boolean running, String status, String error) {

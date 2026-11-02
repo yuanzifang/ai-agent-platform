@@ -390,6 +390,13 @@ agent:
   deploy:
     # 默认开启；设为 false 可临时冻结部署入口
     enabled: ${AGENT_DEPLOY_ENABLED:true}
+    # auto=集群内使用 K8s API，否则本机 Docker；可显式 docker/kubernetes
+    runtime: ${AGENT_DEPLOY_RUNTIME:auto}
+    # K8s 部署 Agent 运行时使用的 namespace（空=ServiceAccount/POD_NAMESPACE）
+    k8s:
+      namespace: ${AGENT_DEPLOY_K8S_NAMESPACE:}
+      # 可选：kubernetes.io/hostname=node1,node-role=worker
+      node-selector: ${AGENT_DEPLOY_K8S_NODE_SELECTOR:}
     # 平台运行时入口镜像（每 Agent 一个 nginx 容器，只做入口/反代）
     image: ${AGENT_DEPLOY_IMAGE:nginx:alpine}
     # 主令牌的日配额，0=不限（平台网关执行）

@@ -1,6 +1,6 @@
-# Agent 容器部署（MVP：本机 Docker）
+# Agent 容器部署（K8s 运行时 / 本机 Docker 回退）
 
-> 2026-10-31 运行时单栈：`agent.deploy.runtime` 已移除，每 Agent 固定部署一个 `nginx:alpine` 入口容器。nginx 只做入口、CORS、`/healthz` 和 `/v1` 反向代理；Bearer 部署令牌、调用方 Key、分钟限流、日配额、用量统计全部由 Spring 平台网关 `/api/v1/gateway/agent-runtime/{agentId}/v1/*` 执行。
+> 2026-11-02 起集群内默认通过 **K8s API** 创建每 Agent 的 Deployment + Service + nginx ConfigMap；由 K8s 调度拉起，不再执行 `docker run`。本机开发仍可显式使用 Docker 模式。详见 `docs/AgentK8s运行时.md`。
 
 目标：**发布 → 一键部署 → 容器里跑起来 → 直接调用**。
 
@@ -52,18 +52,19 @@ curl -s http://100.82.118.40:19000/v1/chat/completions \
 
 ## 实现方式
 
-默认使用**平台网关运行时**：每个 Agent 至少一个 `nginx:alpine` 容器，容器内只有模板和入口；多副本时额外一个 nginx LB 容器：
+集群内使用 **K8s 运行时**：每个 Agent 一个 Deployment（nginx）和一个 ClusterIP Service；本机开发使用 Docker CLI：
 
 ```
-client → container:80 /v1/chat/completions
-       → nginx 透明反代（保留 Authorization / X-Gray-Tag）
+client → Service/aap-agent-{id}:80
+       → Deployment/aap-agent-{id} (nginx)
        → 平台 /api/v1/gateway/agent-runtime/{agentId}/v1/chat/completions
        → 平台校验部署令牌/调用方 Key、限流、日配额、用量
        → 平台 /api/v1/open 内部链路（对话/审核/记忆/RAG/工具/计费/Trace）
        → 透传响应（含 SSE）
 ```
 
-- 无需额外运行时镜像，使用 `nginx:alpine` 入口容器
+- K8s 使用 `nginx:1.27-alpine`；Docker 模式使用 `nginx:alpine`
+- K8s 创建 Deployment/Service/ConfigMap，RBAC 见 `docs/AgentK8s运行时.md`
 - 部署时仍会创建该 Agent 的内部集成 API Key（`container:aap-agent-<id>`），但**只留在平台数据库**，不注入 nginx、不写入容器环境变量
 - 运行时令牌（部署令牌）加密保存在 `agent_deployment`；平台网关在每次请求时校验，nginx 不持有明文
 - 调用方 Key 从 `agent_runtime_key` 表实时读取；新增/停用/删除不需要重建容器
@@ -96,7 +97,10 @@ client → container:80 /v1/chat/completions
 
 | 配置 | 环境变量 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| `image` | `AGENT_DEPLOY_IMAGE` | `nginx:alpine` | 平台网关运行时入口镜像 |
+| `runtime` | `AGENT_DEPLOY_RUNTIME` | `auto` | `auto`/`kubernetes`/`docker` |
+| `k8s.namespace` | `AGENT_DEPLOY_K8S_NAMESPACE` | 空 | K8s namespace，空=ServiceAccount/POD_NAMESPACE |
+| `k8s.node-selector` | `AGENT_DEPLOY_K8S_NODE_SELECTOR` | 空 | 可选 `key=value,...` |
+| `image` | `AGENT_DEPLOY_IMAGE` | `nginx:alpine` | Agent 入口镜像；K8s 推荐 `nginx:1.27-alpine` |
 | `caller-quota-daily` | `AGENT_DEPLOY_CALLER_QUOTA_DAILY` | 0 | 主令牌日配额（0=不限，平台网关执行） |
 | `replicas` | `AGENT_DEPLOY_REPLICAS` | 1 | 默认副本数（1-5）；部署时可单独指定 |
 | `port-start/port-end` | `AGENT_DEPLOY_PORT_START/END` | 19000-19999 | 宿主端口池（自动挑空端口） |
@@ -160,7 +164,7 @@ client → container:80 /v1/chat/completions
 - 每个 Agent 只保留一个部署记录（1–5 个运行时副本 + 可选 LB 容器），重新部署 = 删旧建新（短暂不可用）。重新部署优先复用原端口，最多等待 3 秒。
 - 「回滚并部署」= 完整恢复该版本的 Agent 配置（含知识库/工具/技能/子 Agent）+ 重新部署容器，详见 `docs/Agent版本与回滚.md`。
 - 发布自动重新部署是「已部署过才触发」；从未部署过的 Agent 发布后不会自动拉起容器，避免意外占用端口。
-- 暂未实现：K8s 部署、滚动更新、集中式日志存储（Loki 等）；平台已支持按部署聚合副本/LB 日志、资源限制与动态 Prometheus 指标。
+- K8s 已实现 Deployment/Service/ConfigMap；暂未实现公网 Ingress/NodePort、滚动更新策略和集中式日志（Loki 等）。
 
 ## 指标
 
@@ -178,17 +182,18 @@ client → container:80 /v1/chat/completions
 
 ## 验证
 
-- 后端全量单测：564/564
+- 后端全量单测：569/569
 - `AgentRuntimeGatewayServiceTest`：部署令牌、调用方 Key、非法令牌、停止部署、限流、日配额、内存统计
 - `AgentRuntimeGatewayControllerTest`：模型/对话入口、OpenAI 错误结构、stats 仅部署令牌
 - `AgentDeploymentServiceLifecycleTest`：nginx 模板不持有 Key/令牌、平台统计分支、启停/清理/资源限制
 - `DockerCliRuntimeTest`：Docker 命令构造、失败处理、inspect JSON；CI 用 `alert-relay:ci` 跑真实 Docker create→start→inspect→logs→stop→remove
+- `KubernetesRuntimeTest` / `AgentRuntimeConfigTest`：K8s/Docker 选择、`512m -> 512Mi` 内存单位转换
 - `ArchitectureTest`：gateway 薄层、deploy 依赖边界
 - 静态门禁：`scripts/check-mvp-freeze.py`
 - 待补：真实 Docker + nginx 容器 + 平台网关全链路回归；外部集群镜像重建
 
 ## 下一步（如需）
 
-1. K8s 实现：`ContainerRuntime` 增加 `KubernetesRuntime`，按租户配额创建 Deployment/Service/Ingress
-2. 平台网关运行时：继续补真实 Docker/nginx 全链路回归与 token 级配额
+1. Agent 运行时外网入口：为动态 Agent Service 增加 Ingress/NodePort 或统一域名路由
+2. 平台网关运行时：继续补滚动更新、失败回滚与 token 级配额
 3. 容器日志集中存储（Loki）
