@@ -659,6 +659,48 @@ test('配额阻断', async ({ request }) => {
   }
 })
 
+test('Agent 调试：未保存配置生效、debug 计费、不写正式 Trace', async ({ request }) => {
+  const token = await login(request, 'dev', 'Dev@123456', 'dev')
+  expect(token).toBeTruthy()
+
+  const tracesBefore = await (await request.get(`${P}/observability/traces`, {
+    headers: auth(token!), params: { pageSize: 1 }
+  })).json()
+  const usageBefore = await (await request.get(`${P}/billing/usage`, {
+    headers: auth(token!), params: { days: 1, pageSize: 100 }
+  })).json()
+  const debugBefore = (usageBefore.data.list || []).filter((row: any) => row.source === 'debug').length
+
+  const debugRes = await request.post(`${P}/agent/debug/chat`, {
+    headers: auth(token!),
+    data: {
+      config: {
+        systemPrompt: 'E2E-DEBUG-UNSAVED-PROMPT，只回答 OK',
+        modelConfig: { modelName: 'deepseek-flash', temperature: 0.2 }
+      },
+      message: '请回答 OK'
+    }
+  })
+  const debug = await debugRes.json()
+  expect(debug.code, JSON.stringify(debug)).toBe(0)
+  expect(Number(debug.data.usage.inputTokens) + Number(debug.data.usage.outputTokens)).toBeGreaterThan(0)
+
+  // 未保存的调试 systemPrompt 确实被送到模型，而不是读取已保存的 Agent 配置。
+  const last = await (await request.get(`${OPENAI_MOCK}/last`)).json()
+  expect(JSON.stringify(last.messages || [])).toContain('E2E-DEBUG-UNSAVED-PROMPT')
+
+  const usageAfter = await (await request.get(`${P}/billing/usage`, {
+    headers: auth(token!), params: { days: 1, pageSize: 100 }
+  })).json()
+  const debugAfter = (usageAfter.data.list || []).filter((row: any) => row.source === 'debug').length
+  expect(debugAfter, '调试 Token 应写入 source=debug').toBeGreaterThan(debugBefore)
+
+  const tracesAfter = await (await request.get(`${P}/observability/traces`, {
+    headers: auth(token!), params: { pageSize: 1 }
+  })).json()
+  expect(tracesAfter.data.total, '调试不应写正式 Trace').toBe(tracesBefore.data.total)
+})
+
 test('MCP HTTP：会话复用与 2025-03-26 能力', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()

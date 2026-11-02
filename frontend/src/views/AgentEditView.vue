@@ -1236,7 +1236,7 @@
           <el-descriptions-item :label="t('deploy.image')">{{ deployment.image }}</el-descriptions-item>
           <el-descriptions-item :label="t('deploy.updatedAt')">{{ deployment.updatedAt }}</el-descriptions-item>
         </el-descriptions>
-        <el-alert v-if="deployment.lastError" type="error" :closable="false"
+        <el-alert v-if="deployment.lastError && deployment.status !== 'RUNNING'" type="error" :closable="false"
                   :title="deployment.lastError" class="mt8" />
         <div class="deploy-replicas">
           <span>{{ t('deploy.replicas') }}</span>
@@ -2040,11 +2040,43 @@ async function createWidgetKey() {
   }
 }
 
-async function copyText(text: string) {
+function legacyCopy(text: string): boolean {
+  const area = document.createElement('textarea')
+  area.value = text
+  area.setAttribute('readonly', '')
+  area.style.position = 'fixed'
+  area.style.top = '-1000px'
+  area.style.opacity = '0'
+  document.body.appendChild(area)
   try {
-    await navigator.clipboard.writeText(text)
+    area.focus()
+    area.select()
+    area.setSelectionRange(0, text.length)
+    return document.execCommand('copy')
+  } finally {
+    document.body.removeChild(area)
+  }
+}
+
+async function copyText(text: string) {
+  if (!text) return
+  try {
+    // HTTP 内网地址不是 secure context，navigator.clipboard 可能不存在或直接抛错。
+    if (window.isSecureContext && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+    } else if (!legacyCopy(text)) {
+      throw new Error('legacy copy rejected')
+    }
     ElMessage.success(t('agentDlg.copied'))
   } catch {
+    try {
+      if (legacyCopy(text)) {
+        ElMessage.success(t('agentDlg.copied'))
+        return
+      }
+    } catch {
+      // fall through
+    }
     ElMessage.warning(t('agentDlg.copyFailManual'))
   }
 }

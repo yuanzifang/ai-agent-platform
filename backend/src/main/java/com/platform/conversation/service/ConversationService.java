@@ -28,6 +28,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -38,6 +39,21 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class ConversationService {
+
+    /** 会话附件上限：与 spring.servlet.multipart.max-file-size=12MB 保持一致。 */
+    private static final long MAX_ATTACHMENT_BYTES = 12L * 1024 * 1024;
+    private static final Set<String> ALLOWED_ATTACHMENT_EXTENSIONS = Set.of(
+            "png", "jpg", "jpeg", "gif", "webp", "pdf", "txt", "md", "csv", "json",
+            "doc", "docx", "xls", "xlsx", "ppt", "pptx");
+    private static final Set<String> ALLOWED_ATTACHMENT_MIME = Set.of(
+            "image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf",
+            "text/plain", "text/markdown", "text/csv", "application/json",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-powerpoint",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation");
 
     private final ConversationMapper conversationMapper;
     private final MessageMapper messageMapper;
@@ -235,6 +251,7 @@ public class ConversationService {
     /** 保存会话附件（multipart → MinIO → chat_attachment）。 */
     public Map<String, Object> saveAttachment(Long conversationId, MultipartFilePart file, JwtPrincipal principal) {
         owned(conversationId, principal);
+        validateAttachment(file);
         quotaService.checkStorage(file.bytes().length);
         // 文件名同时用于 MinIO object key 与 VARCHAR(256) 列：去路径分隔符/控制字符并限长
         String safeName = sanitizeFileName(file.fileName(), 200);
@@ -252,6 +269,28 @@ public class ConversationService {
         attachmentMapper.insert(a);
         return Map.of("attachmentId", a.getId(), "fileName", a.getFileName(),
                 "sizeBytes", a.getSizeBytes(), "contentType", a.getContentType());
+    }
+
+    /** 会话附件类型/大小白名单；防止任意二进制和超大对象进入存储。 */
+    private void validateAttachment(MultipartFilePart file) {
+        if (file == null || file.bytes() == null || file.bytes().length == 0) {
+            throw new BusinessException(400, "附件不能为空");
+        }
+        if (file.bytes().length > MAX_ATTACHMENT_BYTES) {
+            throw new BusinessException(413, "附件不能超过 12MB");
+        }
+        String name = file.fileName() == null ? "" : file.fileName().toLowerCase(java.util.Locale.ROOT);
+        int dot = name.lastIndexOf('.');
+        String ext = dot >= 0 && dot + 1 < name.length() ? name.substring(dot + 1) : "";
+        String mime = file.contentType() == null ? "" : file.contentType().toLowerCase(java.util.Locale.ROOT)
+                .split(";")[0].trim();
+        boolean extAllowed = ALLOWED_ATTACHMENT_EXTENSIONS.contains(ext);
+        boolean mimeAllowed = ALLOWED_ATTACHMENT_MIME.contains(mime);
+        // 扩展名必须合法；浏览器/客户端声明了具体 MIME 时还必须与白名单一致，
+        // 避免把 .exe 伪装成 application/pdf 绕过校验。octet-stream 仅按扩展名判断。
+        if (!extAllowed || (!mime.isBlank() && !"application/octet-stream".equals(mime) && !mimeAllowed)) {
+            throw new BusinessException(415, "不支持的附件类型：" + (mime.isBlank() ? ext : mime));
+        }
     }
 
     /** 仅可对 ASSISTANT 消息反馈（需求文档 6.22）。 */

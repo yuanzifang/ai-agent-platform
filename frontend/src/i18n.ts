@@ -664,7 +664,7 @@ const messages = {
       msgNotSaved: '消息尚未保存完成', badExpectedHint: '坏例建议填写期望答案；也可先收藏，稍后在用例库审核时补充',
       caseSaved: '已收藏到用例库（待审核）', copied: '已复制', copyFail: '复制失败',
       renamePrompt: '输入新的会话名称', renameTitle: '重命名会话', renamed: '已重命名',
-      upvoted: '已点赞', downvoted: '已点踩', feedbackCancelled: '已取消反馈', attachmentTooLarge: '附件不能超过 20MB',
+      upvoted: '已点赞', downvoted: '已点踩', feedbackCancelled: '已取消反馈', attachmentTooLarge: '附件不能超过 12MB',
       attachmentUploaded: '附件已上传：', recordingCancelled: '已取消录音', micDenied: '无法访问麦克风，请检查浏览器权限',
       speechDone: '语音已转文字', speechFail: '转写失败：', unknownError: '未知错误',
       toolRag: '知识库', toolApi: 'API', toolMcp: 'MCP', toolSkill: '技能', toolBuiltin: '内置', toolSubAgent: '子 Agent', toolGeneric: '工具'
@@ -1726,7 +1726,7 @@ const messages = {
       msgNotSaved: 'Message not saved yet', badExpectedHint: 'Provide an expected answer for bad cases, or save and complete it during review',
       caseSaved: 'Saved to Case Library (pending review)', copied: 'Copied', copyFail: 'Copy failed',
       renamePrompt: 'Enter a new conversation title', renameTitle: 'Rename conversation', renamed: 'Renamed',
-      upvoted: 'Liked', downvoted: 'Disliked', feedbackCancelled: 'Feedback removed', attachmentTooLarge: 'Attachment must be under 20MB',
+      upvoted: 'Liked', downvoted: 'Disliked', feedbackCancelled: 'Feedback removed', attachmentTooLarge: 'Attachment must be under 12MB',
       attachmentUploaded: 'Attachment uploaded: ', recordingCancelled: 'Recording cancelled', micDenied: 'Cannot access microphone; check browser permissions',
       speechDone: 'Speech transcribed', speechFail: 'Transcription failed: ', unknownError: 'Unknown error',
       toolRag: 'Knowledge', toolApi: 'API', toolMcp: 'MCP', toolSkill: 'Skill', toolBuiltin: 'Built-in', toolSubAgent: 'Sub-Agent', toolGeneric: 'Tool'
