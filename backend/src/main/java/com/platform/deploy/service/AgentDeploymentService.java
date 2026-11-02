@@ -372,6 +372,7 @@ public class AgentDeploymentService {
 
     public Map<String, Object> start(Long agentId, JwtPrincipal principal) {
         AgentDeployment deployment = requireDeployment(agentId);
+        int desired = deployment.getReplicaCount() == null ? 1 : deployment.getReplicaCount();
         List<Map<String, Object>> rows = replicaRows(deployment);
         for (Map<String, Object> row : rows) {
             runtime.start(String.valueOf(row.get("name")));
@@ -383,6 +384,7 @@ public class AgentDeploymentService {
             deployment.setLbStatus("RUNNING");
         }
         applyReplicaRows(deployment, rows);
+        if (runtime.kubernetes()) deployment.setReplicaCount(desired);
         deployment.setStatus("RUNNING");
         deployment.setLastError(null);
         publishDeploymentMetrics(deployment);
@@ -397,12 +399,14 @@ public class AgentDeploymentService {
             runtime.stop(deployment.getLbContainerName());
             deployment.setLbStatus("STOPPED");
         }
+        int desired = deployment.getReplicaCount() == null ? 1 : deployment.getReplicaCount();
         List<Map<String, Object>> rows = replicaRows(deployment);
         for (Map<String, Object> row : rows) {
             runtime.stop(String.valueOf(row.get("name")));
             row.put("status", "STOPPED");
         }
         applyReplicaRows(deployment, rows);
+        if (runtime.kubernetes()) deployment.setReplicaCount(desired);
         deployment.setStatus("STOPPED");
         publishDeploymentMetrics(deployment);
         save(deployment, true);
