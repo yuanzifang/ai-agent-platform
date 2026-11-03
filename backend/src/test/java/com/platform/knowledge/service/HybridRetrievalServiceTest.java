@@ -379,6 +379,42 @@ class HybridRetrievalServiceTest {
     }
 
     @Test
+    void detectCropKeepsQueryScoped() {
+        assertEquals("水稻", HybridRetrievalService.detectCrop("水稻纹枯病怎么防治"));
+        assertEquals("小麦", HybridRetrievalService.detectCrop("小麦除草剂药害怎么办"));
+        assertEquals("玉米", HybridRetrievalService.detectCrop("玉米南方锈病怎么防治"));
+        assertEquals("蔬菜", HybridRetrievalService.detectCrop("蔬菜冬季生产管理要点"));
+        assertEquals("柑橘", HybridRetrievalService.detectCrop("柑橘木虱怎么防治"));
+        assertEquals(null, HybridRetrievalService.detectCrop("土壤板结怎么改良"));
+    }
+
+    @Test
+    void cropScopeDropsOtherCropHitsButFallsBackWhenNoneMatch() {
+        when(embedding.embedOne(anyString(), anyString())).thenReturn(new float[]{0.1f});
+        when(vectorRepository.search(anyLong(), any(float[].class), anyLong(), anyInt(), anyDouble(), anyInt()))
+                .thenReturn(List.of(
+                        Map.of("content", "玉米大斑病防治", "score", 0.9,
+                                "metadata", "{\"chunk_id\":1}"),
+                        Map.of("content", "水稻纹枯病防治", "score", 0.8,
+                                "metadata", "{\"chunk_id\":2}")));
+        when(chunkMapper.searchFulltext(eq(1L), anyString(), anyInt())).thenReturn(List.of());
+
+        var scoped = service.search(1L, "水稻纹枯病怎么防治", 1L, 5, 0.3,
+                Map.of("mode", "vector", "normalizeQuery", "true", "cropScope", "true"));
+
+        assertEquals(1, scoped.hits().size());
+        assertEquals("水稻纹枯病防治", scoped.hits().get(0).get("content"));
+    }
+
+    @Test
+    void normalizeRetrievalQueryKeepsCropAndDiseaseTerms() {
+        assertEquals("水稻稻瘟病", HybridRetrievalService.normalizeRetrievalQuery("水稻稻瘟病怎么防治？"));
+        assertEquals("小麦叶片发黄 长势弱", HybridRetrievalService.normalizeRetrievalQuery("小麦叶片发黄、长势弱怎么办？"));
+        assertEquals("玉米秸秆还田", HybridRetrievalService.normalizeRetrievalQuery("玉米秸秆还田注意什么？"));
+        assertEquals("土壤板结", HybridRetrievalService.normalizeRetrievalQuery("土壤板结怎么改良？"));
+    }
+
+    @Test
     void rerankCanBeDisabledPerRequest() {
         RerankService rerank = mock(RerankService.class);
         when(rerank.enabled()).thenReturn(true);

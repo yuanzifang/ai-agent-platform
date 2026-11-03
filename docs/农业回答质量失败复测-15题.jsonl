@@ -1,0 +1,15 @@
+{"question": "水稻稻瘟病怎么防治？", "expectedAnswer": "选用抗病品种、种子处理，叶瘟和穗颈瘟关键期用三环唑、稻瘟灵、肟菌·戊唑醇等登记药剂；避免偏施氮肥。", "scoreCriteria": "必须针对稻瘟病给出抗病品种、关键期和药剂方向；不得把纹枯病措施当作全部答案。", "stepType": "ANSWER"}
+{"question": "小麦叶片发黄、长势弱怎么办？", "expectedAnswer": "查分布和根系，缺氮、渍害、冻害、根病或药害都可能；缺氮可亩追尿素5-8公斤，渍害先排水，冻害喷叶面肥，根病用登记药剂，不能盲目施药。", "scoreCriteria": "必须要求查分布和根系，并列缺氮/渍害/冻害/根病/药害；不得直接断定单一原因。", "stepType": "ANSWER"}
+{"question": "马铃薯防涝怎么做？", "expectedAnswer": "高垄栽培、清沟排水、中耕，监测晚疫病，收获前降湿。", "scoreCriteria": "必须包含排水、中耕和晚疫病监测；不得只讲施肥。", "stepType": "ANSWER"}
+{"question": "番茄灰霉病怎么防治？", "expectedAnswer": "花期重点，控湿、摘除病叶病果，使用登记药剂，避免花期高湿。", "scoreCriteria": "必须点明番茄灰霉病和花期控湿；不得只给叶面肥。", "stepType": "ANSWER"}
+{"question": "黄瓜霜霉病怎么防治？", "expectedAnswer": "控湿、通风、滴灌；发病初期用烯酰吗啉、霜脲·锰锌、氟菌·霜霉威等登记药剂，叶背喷施。", "scoreCriteria": "必须点明黄瓜霜霉病和叶背喷施；不得混入灰霉病。", "stepType": "ANSWER"}
+{"question": "豇豆蓟马怎么防治？", "expectedAnswer": "蓝板监测、防虫网、清除杂草；用乙基多杀菌素、多杀霉素、溴虫氟苯双酰胺等登记药剂，轮换。", "scoreCriteria": "必须点明豇豆蓟马和蓝板/防虫网；不得只推荐杀菌剂。", "stepType": "ANSWER"}
+{"question": "苹果腐烂病怎么防治？", "expectedAnswer": "增强树势、清园刮治病斑、保护剪锯口；萌芽前石硫合剂，发病期用戊唑醇、甲基硫菌灵等登记药剂涂干。", "scoreCriteria": "必须点明苹果腐烂病、刮治病斑和涂干；不得混入柑橘木虱。", "stepType": "ANSWER"}
+{"question": "柑橘木虱怎么防治？", "expectedAnswer": "清园、监测、统一放梢；用矿物油、噻虫嗪、啶虫脒等登记药剂，重点嫩梢。", "scoreCriteria": "必须点明柑橘木虱和嫩梢防治；不得混入苹果腐烂病。", "stepType": "ANSWER"}
+{"question": "玉米秸秆还田注意什么？", "expectedAnswer": "粉碎、深翻、配施氮肥或腐熟剂，避免影响下茬播种和病虫害。", "scoreCriteria": "必须包含粉碎、深翻和配施氮肥/腐熟剂；不得只说焚烧。", "stepType": "ANSWER"}
+{"question": "玉米高温热害怎么防范？", "expectedAnswer": "抽雄授粉期遇高温可灌水调温、叶面喷磷酸二氢钾/芸苔素，避开高温施药。", "scoreCriteria": "必须点明玉米抽雄授粉期和灌水/叶面肥；不得混入水稻高温。", "stepType": "ANSWER"}
+{"question": "土壤板结怎么改良？", "expectedAnswer": "增施有机肥、深松、轮作、秸秆还田，控制踩踏和大水漫灌。", "scoreCriteria": "必须包含有机肥、深松/轮作和秸秆还田；不得只推荐化肥。", "stepType": "ANSWER"}
+{"question": "我的作物生病了怎么办？", "expectedAnswer": "请提供作物、部位、症状图片、分布、生育期和用药史；建议联系当地农技站或植保站。", "scoreCriteria": "必须要求补充作物/症状/图片等信息并建议当地农技人员；不得凭空诊断。", "stepType": "ANSWER"}
+{"question": "随便推荐一个农药就行？", "expectedAnswer": "不能无标签推荐；需要作物、病害、登记药剂、安全间隔期，建议咨询当地农技/植保站。", "scoreCriteria": "必须拒绝无依据推荐，强调登记作物、标签和安全间隔期；不得给出具体未登记药剂。", "stepType": "ANSWER"}
+{"question": "给我一个能增产50%的方案？", "expectedAnswer": "不能承诺产量；应围绕品种、土壤、水肥、病虫害综合管理，按当地条件制定方案。", "scoreCriteria": "必须不承诺50%增产，并给出综合管理方向；不得编造保证增产的方案。", "stepType": "ANSWER"}
+{"question": "榴莲炭疽病怎么防治？", "expectedAnswer": "知识库暂未检索到榴莲炭疽病的直接依据；不要编造资料，建议咨询当地农技人员。", "scoreCriteria": "必须说明知识库没有直接依据，不得编造榴莲病害资料或具体药剂。", "stepType": "ANSWER"}

@@ -203,6 +203,9 @@ public class ChatService {
             int defaultTopK = visibleKb.getDefaultTopK() == null ? 5 : visibleKb.getDefaultTopK();
             int maxTopK = visibleKb.getMaxTopK() == null ? 20 : visibleKb.getMaxTopK();
             int topK = Math.min(Math.max(1, toInt(rc.get("topK"), defaultTopK)), Math.max(1, maxTopK));
+            // 农业等精确问答场景可选子片段上下文，避免整块父文档把相邻病害章节带入提示词。
+            boolean childOnly = Boolean.TRUE.equals(rc.get("useChildContent"))
+                    || "true".equalsIgnoreCase(String.valueOf(rc.get("useChildContent")));
             double defaultThreshold = visibleKb.getDefaultScoreThreshold() == null
                     ? 0.5 : visibleKb.getDefaultScoreThreshold();
             double threshold = toDoubleOrDefault(rc.get("scoreThreshold"), defaultThreshold);
@@ -290,8 +293,10 @@ public class ChatService {
                 Map<String, Object> meta = hitMetas.get(hitIndex);
                 Long docId = toLong(meta.get("document_id"));
                 Long chunkId = toLong(meta.get("chunk_id"));
-                Object contextText = hit.get("parentContent") != null
-                        ? hit.get("parentContent") : hit.get("content");
+                Object contextText = childOnly && hit.get("content") != null
+                        ? hit.get("content")
+                        : (hit.get("parentContent") != null
+                        ? hit.get("parentContent") : hit.get("content"));
                 // 间接提示注入防护：知识库内容也可能被投毒，高置信注入分段不进入系统提示/引用。
                 List<ModerationService.Hit> injectionHits =
                         promptInjection.check("IN", String.valueOf(contextText));
