@@ -20,16 +20,17 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime
+from pathlib import Path
 
 BASE = os.environ.get("AAP_BASE", "http://127.0.0.1:18085")
 OLLAMA = os.environ.get("OLLAMA_BASE", "http://192.168.64.1:11434")
 TOKEN_FILE = "/private/var/folders/v9/_zcwpw5n5kn77p_850hd06br0000gn/T/opencode/agri_token.txt"
 CASES = os.environ.get(
     "AAP_CASES",
-    "/Users/wangpan/.zcode/workspace/default/ai-agent-platform/docs/农业回答质量评测集-60题.jsonl")
+    str(Path(__file__).resolve().parent.parent / "eval-data/agri/农业回答质量评测集-60题.jsonl"))
 OUT = os.environ.get(
     "AAP_OUT",
-    "/Users/wangpan/.zcode/workspace/default/ai-agent-platform/docs/农业回答质量基线-V7-60题.json")
+    str(Path(__file__).resolve().parent.parent / "eval-data/agri/农业回答质量基线-V7-60题.json"))
 PROGRESS = os.environ.get(
     "AAP_PROGRESS",
     "/private/var/folders/v9/_zcwpw5n5kn77p_850hd06br0000gn/T/opencode/agri_quality_v7_progress.json")

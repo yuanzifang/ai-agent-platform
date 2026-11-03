@@ -53,8 +53,51 @@ jobs:
           output: frontend-sbom.cdx.json
           exit-code: '0'
 
-      - name: 构建告警中继镜像
-        run: docker build -t alert-relay:release runtime/alert-relay
+      - name: 构建后端/前端/告警中继镜像
+        run: |
+          docker build -t aap/backend:release ./backend
+          docker build -t aap/frontend:release ./frontend
+          docker build -t alert-relay:release runtime/alert-relay
+
+      - name: 后端镜像 SBOM（CycloneDX）
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: aap/backend:release
+          format: cyclonedx
+          output: backend-image-sbom.cdx.json
+          exit-code: '0'
+
+      - name: 后端镜像漏洞扫描（HIGH/CRITICAL，观察模式）
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: aap/backend:release
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          output: backend-image-vuln.txt
+          exit-code: '0'
+
+      - name: 前端镜像 SBOM（CycloneDX）
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: aap/frontend:release
+          format: cyclonedx
+          output: frontend-image-sbom.cdx.json
+          exit-code: '0'
+
+      - name: 前端镜像漏洞扫描（HIGH/CRITICAL，观察模式）
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: aap/frontend:release
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          output: frontend-image-vuln.txt
+          exit-code: '0'
 
       - name: Alert-relay 镜像 SBOM（CycloneDX）
         uses: aquasecurity/trivy-action@v0.36.0
@@ -65,6 +108,17 @@ jobs:
           output: alert-relay-sbom.cdx.json
           exit-code: '0'
 
+      - name: Alert-relay 镜像漏洞扫描（HIGH/CRITICAL，观察模式）
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: alert-relay:release
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          output: alert-relay-image-vuln.txt
+          exit-code: '0'
+
       - name: 归档、校验并生成校验和
         run: |
           set -euo pipefail
@@ -72,17 +126,24 @@ jobs:
           mkdir -p release-assets
           cp backend/target/bom.json "release-assets/backend-sbom-${SAFE_TAG}.cdx.json"
           cp frontend-sbom.cdx.json "release-assets/frontend-sbom-${SAFE_TAG}.cdx.json"
+          cp backend-image-sbom.cdx.json "release-assets/backend-image-sbom-${SAFE_TAG}.cdx.json"
+          cp frontend-image-sbom.cdx.json "release-assets/frontend-image-sbom-${SAFE_TAG}.cdx.json"
           cp alert-relay-sbom.cdx.json "release-assets/alert-relay-image-sbom-${SAFE_TAG}.cdx.json"
+          cp backend-image-vuln.txt "release-assets/backend-image-vuln-${SAFE_TAG}.txt"
+          cp frontend-image-vuln.txt "release-assets/frontend-image-vuln-${SAFE_TAG}.txt"
+          cp alert-relay-image-vuln.txt "release-assets/alert-relay-image-vuln-${SAFE_TAG}.txt"
           python3 scripts/merge_cyclonedx_sbom.py \
             "release-assets/backend-sbom-${SAFE_TAG}.cdx.json" \
             "release-assets/frontend-sbom-${SAFE_TAG}.cdx.json" \
+            "release-assets/backend-image-sbom-${SAFE_TAG}.cdx.json" \
+            "release-assets/frontend-image-sbom-${SAFE_TAG}.cdx.json" \
             "release-assets/alert-relay-image-sbom-${SAFE_TAG}.cdx.json" \
             --output "release-assets/merged-sbom-${SAFE_TAG}.cdx.json"
           python3 - <<'PY'
           import glob, json, sys
           files = glob.glob('release-assets/*.cdx.json')
-          if len(files) != 4:
-              sys.exit(f'expected 4 SBOM files, got {files}')
+          if len(files) != 6:
+              sys.exit(f'expected 6 SBOM files, got {files}')
           for path in files:
               with open(path, encoding='utf-8') as fh:
                   bom = json.load(fh)
@@ -91,7 +152,7 @@ jobs:
               if bom.get('bomFormat') != 'CycloneDX' or not components:
                   sys.exit(f'invalid SBOM: {path}')
           PY
-          sha256sum release-assets/*.cdx.json > release-assets/SHA256SUMS
+          sha256sum release-assets/*.cdx.json release-assets/*-vuln-*.txt > release-assets/SHA256SUMS
           cat release-assets/SHA256SUMS
 
       - name: 安装 cosign
@@ -100,7 +161,7 @@ jobs:
       - name: 生成 Sigstore 签名
         run: |
           set -euo pipefail
-          for f in release-assets/*.cdx.json release-assets/SHA256SUMS; do
+          for f in release-assets/*.cdx.json release-assets/*-vuln-*.txt release-assets/SHA256SUMS; do
             cosign sign-blob --yes --bundle "${f}.sigstore.json" "$f"
           done
 
