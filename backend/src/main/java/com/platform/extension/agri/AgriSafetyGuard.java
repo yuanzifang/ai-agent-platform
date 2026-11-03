@@ -1,21 +1,26 @@
-package com.platform.agent.service;
+package com.platform.extension.agri;
 
 import com.platform.agent.entity.AgentRegistry;
+import com.platform.extension.agent.AgentExtensionService;
+import com.platform.extension.agent.AgentRequestGuard;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.regex.Pattern;
 
 /**
- * 农业 Agent 的确定性安全兜底。
+ * 农业场景的可选请求护栏实现。
  *
- * 提示词约束对 7B 小模型不稳定，以下高风险请求在任何模型调用前直接返回
- * 固定安全答复，避免无依据推荐农药、承诺增产、跨作物套用资料。
- * 仅对分类为“农业”的 Agent 生效，不影响平台其他 Agent。
+ * <p>该类属于业务扩展，不进入平台通用服务；只有 Agent 配置
+ * {@code agentCapabilities.extensions} 包含 {@link #EXTENSION_ID} 时才生效。</p>
  */
 @Service
-public class AgriSafetyGuard {
+@RequiredArgsConstructor
+public class AgriSafetyGuard implements AgentRequestGuard {
 
-    public record GuardResult(boolean blocked, String answer, String rule) { }
+    public static final String EXTENSION_ID = "agri-safety";
+
+    private final AgentExtensionService extensions;
 
     private static final Pattern RANDOM_PESTICIDE = Pattern.compile(
             "(随便|随意|直接).{0,20}(推荐|来|给).{0,20}(农药|药)|(推荐|来|给).{0,8}农药");
@@ -31,10 +36,11 @@ public class AgriSafetyGuard {
     private static final Pattern VAGUE_CROP_SICK = Pattern.compile(
             "我的作物.{0,8}(生病|病了|黄了|不好)|作物生病了怎么办");
 
+    @Override
     public GuardResult check(AgentRegistry agent, String message) {
-        if (agent == null || message == null || message.isBlank()) return null;
-        String category = agent.getCategory() == null ? "" : agent.getCategory();
-        if (!category.contains("农业")) return null;
+        if (!extensions.enabled(agent, EXTENSION_ID) || message == null || message.isBlank()) {
+            return null;
+        }
         String q = message.trim();
 
         if (RANDOM_PESTICIDE.matcher(q).find()) {

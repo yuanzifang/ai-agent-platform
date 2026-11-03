@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.common.exception.BusinessException;
 import com.platform.knowledge.entity.KnowledgeChunk;
 import com.platform.knowledge.entity.KnowledgeParent;
+import com.platform.extension.agri.AgriRetrievalPolicy;
 import com.platform.knowledge.mapper.KnowledgeBaseMapper;
 import com.platform.knowledge.mapper.KnowledgeChunkMapper;
 import com.platform.knowledge.mapper.KnowledgeParentMapper;
@@ -58,6 +59,7 @@ class HybridRetrievalServiceTest {
         service = new HybridRetrievalService(embedding, vectorRepository, chunkMapper, kbMapper,
                 new ObjectMapper());
         ReflectionTestUtils.setField(service, "hybridEnabled", true);
+        ReflectionTestUtils.setField(service, "retrievalPolicies", List.of(new AgriRetrievalPolicy()));
         ReflectionTestUtils.setField(service, "defaultKeywordWeight", 0.35);
     }
 
@@ -380,12 +382,12 @@ class HybridRetrievalServiceTest {
 
     @Test
     void detectCropKeepsQueryScoped() {
-        assertEquals("水稻", HybridRetrievalService.detectCrop("水稻纹枯病怎么防治"));
-        assertEquals("小麦", HybridRetrievalService.detectCrop("小麦除草剂药害怎么办"));
-        assertEquals("玉米", HybridRetrievalService.detectCrop("玉米南方锈病怎么防治"));
-        assertEquals("蔬菜", HybridRetrievalService.detectCrop("蔬菜冬季生产管理要点"));
-        assertEquals("柑橘", HybridRetrievalService.detectCrop("柑橘木虱怎么防治"));
-        assertEquals(null, HybridRetrievalService.detectCrop("土壤板结怎么改良"));
+        assertEquals("水稻", AgriRetrievalPolicy.detectCrop("水稻纹枯病怎么防治"));
+        assertEquals("小麦", AgriRetrievalPolicy.detectCrop("小麦除草剂药害怎么办"));
+        assertEquals("玉米", AgriRetrievalPolicy.detectCrop("玉米南方锈病怎么防治"));
+        assertEquals("蔬菜", AgriRetrievalPolicy.detectCrop("蔬菜冬季生产管理要点"));
+        assertEquals("柑橘", AgriRetrievalPolicy.detectCrop("柑橘木虱怎么防治"));
+        assertEquals(null, AgriRetrievalPolicy.detectCrop("土壤板结怎么改良"));
     }
 
     @Test
@@ -408,10 +410,10 @@ class HybridRetrievalServiceTest {
 
     @Test
     void normalizeRetrievalQueryKeepsCropAndDiseaseTerms() {
-        assertEquals("水稻稻瘟病", HybridRetrievalService.normalizeRetrievalQuery("水稻稻瘟病怎么防治？"));
-        assertEquals("小麦叶片发黄 长势弱", HybridRetrievalService.normalizeRetrievalQuery("小麦叶片发黄、长势弱怎么办？"));
-        assertEquals("玉米秸秆还田", HybridRetrievalService.normalizeRetrievalQuery("玉米秸秆还田注意什么？"));
-        assertEquals("土壤板结", HybridRetrievalService.normalizeRetrievalQuery("土壤板结怎么改良？"));
+        assertEquals("水稻稻瘟病", AgriRetrievalPolicy.normalizeRetrievalQuery("水稻稻瘟病怎么防治？"));
+        assertEquals("小麦叶片发黄 长势弱", AgriRetrievalPolicy.normalizeRetrievalQuery("小麦叶片发黄、长势弱怎么办？"));
+        assertEquals("玉米秸秆还田", AgriRetrievalPolicy.normalizeRetrievalQuery("玉米秸秆还田注意什么？"));
+        assertEquals("土壤板结", AgriRetrievalPolicy.normalizeRetrievalQuery("土壤板结怎么改良？"));
     }
 
     @Test

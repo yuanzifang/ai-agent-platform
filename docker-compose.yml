@@ -6,6 +6,13 @@ x-logging: &default-logging
     max-size: "20m"
     max-file: "5"
 
+# 主栈应用容器默认加固：禁止提权，丢弃 Linux capabilities。
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
 services:
   mysql:
     image: mysql:8.4
@@ -63,7 +70,10 @@ services:
     logging: *default-logging
 
   minio:
-    image: ${MINIO_IMAGE:-minio/minio:latest}
+    # 固定版本 + 多架构 index digest；生产可通过 MINIO_IMAGE 指向自建镜像仓库。
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e}
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
@@ -73,12 +83,13 @@ services:
     volumes:
       - minio-data:/data
     ports:
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     logging: *default-logging
 
   # 等待 MinIO 就绪；bucket 由后端 StorageService 启动时自动创建
   minio-init:
     image: busybox:1.36
+    <<: *hardening
     restart: "no"
     depends_on:
       - minio
@@ -93,7 +104,10 @@ services:
     logging: *default-logging
 
   ollama:
-    image: ollama/ollama:latest
+    # 固定版本 + 多架构 index digest；生产可通过 OLLAMA_IMAGE 指向自建镜像仓库。
+    image: ${OLLAMA_IMAGE:-ollama/ollama:0.40.7@sha256:2e6cc92ffa43b4b1a2e70e315407e00ac97ec125afc71277d73c7efe01c4f31b}
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
     volumes:
       - ollama-data:/root/.ollama
@@ -111,6 +125,10 @@ services:
       dockerfile: Dockerfile
       args:
         MAVEN_MIRROR_URL: ${MAVEN_MIRROR_URL:-}
+    <<: *hardening
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: unless-stopped
     depends_on:
       mysql:
@@ -210,6 +228,10 @@ services:
     build:
       context: ./runtime/alert-relay
       dockerfile: Dockerfile
+    <<: *hardening
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: unless-stopped
     environment:
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
@@ -491,6 +513,14 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    <<: *hardening
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    cap_add:
+      - NET_BIND_SERVICE
     restart: unless-stopped
     depends_on:
       backend:
