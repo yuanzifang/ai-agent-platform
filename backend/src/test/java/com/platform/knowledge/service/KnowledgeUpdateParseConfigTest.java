@@ -133,7 +133,14 @@ class KnowledgeUpdateParseConfigTest {
                         docMapper, storage, permissionService),
                 new com.platform.knowledge.service.KnowledgeUploadPolicy(),
                 new com.platform.knowledge.service.KnowledgeChunkAclService(
-                        chunkMapper, vectorRepository, permissionService, auditService, objectMapper));
+                        chunkMapper, vectorRepository, permissionService, auditService, objectMapper),
+                new com.platform.knowledge.service.KnowledgeDocumentSupport(
+                        docMapper, documentImageMapper, chunkMapper, permissionService, storage,
+                        new com.platform.knowledge.service.KnowledgeChunkStore(chunkMapper),
+                        new com.platform.knowledge.service.KnowledgeDocumentMediaStore(
+                                documentImageMapper, storage, parser),
+                        graphService, billingMapper, pricingService, embeddingService,
+                        objectMapper, cryptoService, vectorRepository, null, null));
 
         kb = new KnowledgeBase();
         kb.setId(161L);

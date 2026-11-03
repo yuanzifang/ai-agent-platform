@@ -1,12 +1,14 @@
 package com.platform.knowledge.service;
 
 import com.platform.common.exception.BusinessException;
+import com.platform.knowledge.entity.KnowledgeChunk;
 import com.platform.knowledge.entity.KnowledgeGraphJob;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.Normalizer;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -116,4 +118,24 @@ public final class KnowledgeGraphSupport {
         while (t.getCause() != null) t = t.getCause();
         return t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
     }
+
+    public static KnowledgeChunk chunkAt(List<KnowledgeChunk> chunks, int number) {
+        int index = Math.max(0, Math.min(chunks.size() - 1, number - 1));
+        return chunks.get(index);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static List<Map<String, Object>> maps(Object raw) {
+        if (!(raw instanceof List<?> list)) return List.of();
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> map) {
+                Map<String, Object> m = new java.util.LinkedHashMap<>();
+                map.forEach((k, v) -> m.put(String.valueOf(k), v));
+                result.add(m);
+            }
+        }
+        return result;
+    }
+
 }

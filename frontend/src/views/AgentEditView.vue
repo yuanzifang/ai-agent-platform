@@ -235,7 +235,6 @@
               </div>
             </div>
           </el-collapse-item>
-
           <el-collapse-item name="variable">
             <template #title><span class="p-title">{{ t('agentEdit.vars') }}</span>
               <el-tag size="small" class="ml8">{{ form.variables.length }}{{ t('agentEdit.varsSuffix') }}</el-tag>
@@ -608,46 +607,8 @@
       </div>
     </el-dialog>
 
-    <el-dialog v-model="channelCreateVisible" :title="t('agentDlg.addChannelTitle')" width="560px">
-      <el-form label-width="110px">
-        <el-form-item :label="t('agentEdit.name')"><el-input v-model="channelForm.name" maxlength="64" /></el-form-item>
-        <el-form-item :label="t('agentDlg.type')">
-          <el-select v-model="channelForm.type" style="width: 200px">
-            <el-option :label="t('agentDlg.webhook')" value="WEBHOOK" />
-            <el-option label="Slack" value="SLACK" />
-            <el-option :label="t('agentDlg.dingtalk')" value="DINGTALK" />
-            <el-option :label="t('agentDlg.feishu')" value="FEISHU" />
-            <el-option :label="t('agentDlg.wecom')" value="WECOM" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('agentDlg.outbound')">
-          <el-input v-model="channelForm.outboundUrl" :placeholder="t('agentDlg.outboundPh')" />
-        </el-form-item>
-        <el-form-item :label="t('agentDlg.secret')">
-          <el-input v-model="channelForm.secret" type="password" show-password :placeholder="t('agentDlg.secretPh')" />
-        </el-form-item>
-        <el-form-item :label="t('agentDlg.verifyToken')">
-          <el-input v-model="channelForm.verificationToken" :placeholder="t('agentDlg.verifyPh')" />
-        </el-form-item>
-        <el-form-item label="Encrypt Key">
-          <el-input v-model="channelForm.encryptKey" type="password" show-password :placeholder="t('agentDlg.encryptPh')" />
-        </el-form-item>
-        <el-form-item label="EncodingAESKey">
-          <el-input v-model="channelForm.encodingAesKey" type="password" show-password :placeholder="t('agentDlg.aesPh')" />
-        </el-form-item>
-        <el-form-item label="CorpID/AppID">
-          <el-input v-model="channelForm.corpId" :placeholder="t('agentDlg.corpPh')" />
-        </el-form-item>
-        <el-form-item :label="t('agentDlg.rateLimit')">
-          <el-input-number v-model="channelForm.rateLimitPerMinute" :min="0" :max="10000" />
-          <span class="hint ml8">{{ t('agentDlg.unlimited') }}</span>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="channelCreateVisible = false">{{ t('agentDlg.cancel') }}</el-button>
-        <el-button type="primary" :loading="channelSaving" @click="createChannel">{{ t('agentDlg.create') }}</el-button>
-      </template>
-    </el-dialog>
+    <AgentChannelCreateDialog v-model="channelCreateVisible" :form="channelForm"
+                              :saving="channelSaving" :t="t" @create="createChannel" />
 
     <el-drawer v-model="channelMessagesVisible" :title="`${t('agentDlg.channelMessages')}${messagesChannelName}`" size="640px">
       <el-table :data="channelMessages" size="small" :empty-text="t('agentDlg.noMessages')">
@@ -1395,6 +1356,7 @@ import http from '../api/http'
 import { escapeHtml, renderGateFailures } from '../utils/gateDetails'
 import WorkflowNodeForm from '../components/WorkflowNodeForm.vue'
 import AgentRoutingPanel from '../components/AgentRoutingPanel.vue'
+import AgentChannelCreateDialog from '../components/AgentChannelCreateDialog.vue'
 import KbRerankControl from '../components/KbRerankControl.vue'
 import { hydrateRoutingForm } from '../utils/agentEditRoutingForm'
 import { useAgentEditorActions } from './agentEditorActions'
@@ -1513,7 +1475,7 @@ watch([() => form.modelName, () => form.thinking], () => {
 const sectionOptions = ['abstract', 'introduction', 'methods', 'results', 'discussion', 'conclusion', 'references', 'body']
 interface KbRow {
   knowledgeBaseId: number; name: string; enabled: boolean; topK: number; scoreThreshold: number; mode: string
-  rerank: boolean; rerankTopN?: number
+  rerank: boolean; rerankTopN?: number; rerankScoreThreshold?: number
   documentType?: string; sectionType?: string; regulatoryCategory?: string
   chunkLevel?: number; minRelevance?: number; defaultTopK?: number; maxTopK?: number
   searchBackend?: string; vectorBackend?: string; missing?: boolean
@@ -1602,7 +1564,8 @@ onMounted(async () => {
       knowledgeBaseId: kb.id, name: kb.name,
       enabled: b ? b.enabled !== false : false,
       topK: rc.topK ?? kb.defaultTopK ?? 5, scoreThreshold: rc.scoreThreshold ?? 0.5, mode: rc.mode || 'hybrid',
-      rerank: rc.rerank !== false, rerankTopN: rc.rerankTopN ?? rc.topK ?? kb.defaultTopK ?? 5,
+      rerank: rc.rerank === true, rerankTopN: rc.rerankTopN ?? rc.topK ?? kb.defaultTopK ?? 5,
+      rerankScoreThreshold: rc.rerankScoreThreshold ?? 0.1,
       defaultTopK: kb.defaultTopK ?? 5, maxTopK: kb.maxTopK ?? 20,
       searchBackend: kb.searchBackend || 'MYSQL', vectorBackend: kb.vectorBackend || 'PGVECTOR',
       documentType: rc.documentType || undefined, sectionType: rc.sectionType || undefined,
@@ -1626,7 +1589,7 @@ onMounted(async () => {
     if (!visibleIds.has(b.knowledgeBaseId)) {
       kbRows.value.push({
         knowledgeBaseId: b.knowledgeBaseId, name: `${t('agentMsg.invalidSuffix')}KB #${b.knowledgeBaseId}${t('agentMsg.invalidSuffix2')}`,
-        enabled: false, topK: 5, scoreThreshold: 0.5, mode: 'hybrid', rerank: false, rerankTopN: 5, missing: true
+        enabled: false, topK: 5, scoreThreshold: 0.5, mode: 'hybrid', rerank: false, rerankTopN: 5, rerankScoreThreshold: 0.1, missing: true
       })
     }
   }

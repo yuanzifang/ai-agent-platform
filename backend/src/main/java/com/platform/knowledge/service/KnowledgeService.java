@@ -102,6 +102,7 @@ public class KnowledgeService {
     private final KnowledgeSourceHashService sourceHashService;
     private final KnowledgeUploadPolicy uploadPolicy;
     private final KnowledgeChunkAclService chunkAclService;
+    private final KnowledgeDocumentSupport documentSupport;
 
     /** MySQL 主库 JdbcTemplate；测试环境未注入时回退逐条 MyBatis insert。 */
     @Autowired(required = false)
@@ -487,7 +488,7 @@ public class KnowledgeService {
         graphService.deleteByKnowledgeBase(id);
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getKnowledgeBaseId, id));
-        for (KnowledgeDocument doc : docs) deleteParentsQuietly(doc.getId());
+        for (KnowledgeDocument doc : docs) documentSupport.deleteParentsQuietly(doc.getId());
         docMapper.delete(new LambdaQueryWrapper<KnowledgeDocument>()
                 .eq(KnowledgeDocument::getKnowledgeBaseId, id));
         permissionService.deleteAll(id);
@@ -495,7 +496,7 @@ public class KnowledgeService {
         // 外部对象/向量不可回滚，必须等 MySQL 事务提交后再删，避免回滚后文档仍在但文件已丢。
         KnowledgeCleanupSupport.afterCommit(() -> {
             for (KnowledgeDocument doc : docs) {
-                deleteVectorsQuietly(tenantId, doc.getId());
+                documentSupport.deleteVectorsQuietly(tenantId, doc.getId());
                 KnowledgeCleanupSupport.removeObjectQuietly(storage, doc.getObjectName());
                 try {
                     mediaStore.delete(doc);
@@ -525,10 +526,10 @@ public class KnowledgeService {
         graphService.deleteByDocument(kbId, docId);
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getDocumentId, docId));
-        deleteParentsQuietly(docId);
+        documentSupport.deleteParentsQuietly(docId);
         docMapper.deleteById(docId);
         KnowledgeCleanupSupport.afterCommit(() -> {
-            deleteVectorsQuietly(kb.getTenantId(), docId);
+            documentSupport.deleteVectorsQuietly(kb.getTenantId(), docId);
             KnowledgeCleanupSupport.removeObjectQuietly(storage, doc.getObjectName());
             try {
                 mediaStore.delete(doc);
@@ -575,8 +576,8 @@ public class KnowledgeService {
         }
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getDocumentId, docId));
-        deleteParentsQuietly(docId);
-        deleteVectorsQuietly(kb.getTenantId(), docId);
+        documentSupport.deleteParentsQuietly(docId);
+        documentSupport.deleteVectorsQuietly(kb.getTenantId(), docId);
         mediaStore.delete(doc);
         triggerParse(kb.getTenantId(), docId);
         auditService.record(viewer.userId(), "kb.document.retry", "knowledge_document",
@@ -644,23 +645,6 @@ public class KnowledgeService {
         return result;
     }
 
-    /** 文档级 PDF 密码落库前 AES-GCM 加密；密码不进入日志或知识库级配置。 */
-    private String protectPdfPassword(String json) {
-        if (json == null || json.isBlank()) return json;
-        try {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> config = objectMapper.readValue(json, Map.class);
-            Object raw = config.get("pdfPassword");
-            if (raw == null || String.valueOf(raw).isBlank()) return json;
-            String password = String.valueOf(raw);
-            config.put("pdfPassword", password.startsWith("v1:")
-                    ? password : cryptoService.encrypt(password));
-            return objectMapper.writeValueAsString(config);
-        } catch (Exception e) {
-            throw new BusinessException(400, "解析配置格式不正确");
-        }
-    }
-
     /** 回调：校验对象存在 + 路径前缀一致（防伪造，需求文档 7.2）→ 登记 → 异步解析；需编辑权限。
      *  parseConfigJson：文档级解析配置覆盖（上传时选择，可空=跟随知识库）。 */
     public Map<String, Object> callback(Long kbId, String objectName, Long documentId,
@@ -675,7 +659,7 @@ public class KnowledgeService {
         if (effectiveFrom != null && effectiveTo != null && effectiveFrom.isAfter(effectiveTo)) {
             throw new BusinessException(400, "内容生效开始时间不能晚于结束时间");
         }
-        String protectedConfig = protectPdfPassword(parseConfigJson);
+        String protectedConfig = documentSupport.protectPdfPassword(parseConfigJson);
         Long tenantId = TenantContext.getTenantId();
         String expectedPrefix = tenantId + "/knowledge/" + kbId + "/";
         if (objectName == null || !objectName.startsWith(expectedPrefix)) {
@@ -698,7 +682,7 @@ public class KnowledgeService {
             if (!"DONE".equals(doc.getStatus()) && !"FAILED".equals(doc.getStatus())) {
                 throw new BusinessException(409, "文档解析中，暂不能覆盖上传");
             }
-            cleanupPartial(doc);
+            documentSupport.cleanupPartial(doc);
             mediaStore.delete(doc);
             String oldObject = doc.getObjectName();
             doc.setFileName(fileName);
@@ -871,7 +855,7 @@ public class KnowledgeService {
                         .set(KnowledgeDocument::getErrorMessage,
                                 "解析超过 " + minutes + " 分钟未完成，已清理残留；请重试"));
                 if (claimed == 0) continue;
-                cleanupPartial(doc);
+                documentSupport.cleanupPartial(doc);
                 recovered++;
                 log.warn("回收超时解析文档：doc={} staleMinutes={}", doc.getId(), minutes);
             } catch (Exception e) {
@@ -884,9 +868,9 @@ public class KnowledgeService {
     private void doParse(Long documentId) {
         KnowledgeDocument doc = docMapper.selectById(documentId);
         if (doc == null) return;
-        updateStatus(doc, "PARSING", null, null);
-        markOutboxPending(doc);
-        storeParseWarning(doc, List.of());
+        documentSupport.updateStatus(doc, "PARSING", null, null);
+        documentSupport.markOutboxPending(doc);
+        documentSupport.storeParseWarning(doc, List.of());
         int attempts = 1 + Math.max(autoParseRetries, 0);
         for (int attempt = 0; attempt < attempts; attempt++) {
             try {
@@ -897,28 +881,28 @@ public class KnowledgeService {
                 while (root.getCause() != null) root = root.getCause();
                 log.warn("文档解析失败（第 {}/{} 次）doc={} err={}", attempt + 1, attempts,
                         documentId, root.getMessage());
-                cleanupPartial(doc);
+                documentSupport.cleanupPartial(doc);
                 if (root instanceof BusinessException business && !isRetryable(business)) {
                     log.info("文档解析遇到确定性错误，不重试：doc={} code={} err={}",
                             documentId, business.getCode(), business.getMessage());
-                    updateStatus(doc, "FAILED", null, business.getMessage());
-                    markOutboxFailed(doc, business.getMessage());
+                    documentSupport.updateStatus(doc, "FAILED", null, business.getMessage());
+                    documentSupport.markOutboxFailed(doc, business.getMessage());
                     return;
                 }
                 if (attempt == attempts - 1) {
-                    updateStatus(doc, "FAILED", null, root.getMessage());
-                    markOutboxFailed(doc, root.getMessage());
+                    documentSupport.updateStatus(doc, "FAILED", null, root.getMessage());
+                    documentSupport.markOutboxFailed(doc, root.getMessage());
                     return;
                 }
                 try {
                     Thread.sleep(600L * (attempt + 1));
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    updateStatus(doc, "FAILED", null, "解析被中断");
-                    markOutboxFailed(doc, "解析被中断");
+                    documentSupport.updateStatus(doc, "FAILED", null, "解析被中断");
+                    documentSupport.markOutboxFailed(doc, "解析被中断");
                     return;
                 }
-                updateStatus(doc, "PARSING", null, null);
+                documentSupport.updateStatus(doc, "PARSING", null, null);
             }
         }
     }
@@ -945,10 +929,10 @@ public class KnowledgeService {
         // 四级解析配置：env → 平台 → 租户 → 知识库 → 文档（上传时选择）
         ParseOptions parseOptions = parseConfigResolver.resolve(kb, doc.getParseConfig());
         String parseFingerprint = parseFingerprint(parseOptions);
-        recordSourceHash(doc, sourceSha, parseWarnings);
-        recordParseFingerprint(doc, parseFingerprint);
-        KnowledgeDocument reusable = findReusableDocument(doc, sourceSha, parseFingerprint);
-        if (reusable != null && reuseDocument(doc, bytes, reusable, acl, embeddingModel,
+        documentSupport.recordSourceHash(doc, sourceSha, parseWarnings);
+        documentSupport.recordParseFingerprint(doc, parseFingerprint);
+        KnowledgeDocument reusable = documentSupport.findReusableDocument(doc, sourceSha, parseFingerprint);
+        if (reusable != null && documentSupport.reuseDocument(doc, bytes, reusable, acl, embeddingModel,
                 embeddingDimensions, parseWarnings)) {
             return;
         }
@@ -1125,12 +1109,12 @@ public class KnowledgeService {
         log.info("文档解析阶段：doc={} phase=vector rows={} ms={}",
                 doc.getId(), rows.size(), System.currentTimeMillis() - vectorStartedAt);
         mediaStore.store(doc, bytes);
-        recordParserVersion(doc);
-        recordEmbeddingInfo(doc, embeddingModel, embeddingDimensions);
-        updateStatus(doc, "DONE", chunks.size(), null);
-        markOutboxDone(doc);
-        storeParseWarning(doc, parseWarnings);
-        recordEmbeddingUsage(doc, chunks.size(), embeddingModel);
+        documentSupport.recordParserVersion(doc);
+        documentSupport.recordEmbeddingInfo(doc, embeddingModel, embeddingDimensions);
+        documentSupport.updateStatus(doc, "DONE", chunks.size(), null);
+        documentSupport.markOutboxDone(doc);
+        documentSupport.storeParseWarning(doc, parseWarnings);
+        documentSupport.recordEmbeddingUsage(doc, chunks.size(), embeddingModel);
         // 解析完成后自动生成知识图谱（异步，失败不影响文档状态；可在系统配置关闭）
         graphService.autoExtractAfterParse(doc.getTenantId(), doc.getKnowledgeBaseId(), doc.getId());
         log.info("文档解析完成：doc={} chunks={} totalMs={}",
@@ -1169,7 +1153,7 @@ public class KnowledgeService {
     public boolean retryInterruptedForOutbox(Long documentId) {
         KnowledgeDocument doc = docMapper.selectById(documentId);
         if (doc == null) return false;
-        cleanupPartial(doc);
+        documentSupport.cleanupPartial(doc);
         KnowledgeDocument patch = new KnowledgeDocument();
         patch.setId(documentId);
         patch.setStatus("PENDING");
@@ -1183,41 +1167,9 @@ public class KnowledgeService {
     public void failInterruptedForOutbox(Long documentId, String error) {
         KnowledgeDocument doc = docMapper.selectById(documentId);
         if (doc == null) return;
-        cleanupPartial(doc);
-        updateStatus(doc, "FAILED", null, error);
-        markOutboxFailed(doc, error);
-    }
-
-    private void markOutboxPending(KnowledgeDocument doc) {
-        if (vectorOutboxMapper == null || doc == null || doc.getId() == null) return;
-        try {
-            LocalDateTime now = LocalDateTime.now();
-            KnowledgeVectorOutbox task = vectorOutboxMapper.selectOne(
-                    new LambdaQueryWrapper<KnowledgeVectorOutbox>()
-                            .eq(KnowledgeVectorOutbox::getDocumentId, doc.getId()));
-            if (task == null) {
-                task = new KnowledgeVectorOutbox();
-                task.setTenantId(doc.getTenantId());
-                task.setDocumentId(doc.getId());
-                task.setStatus("PENDING");
-                task.setAttempts(0);
-                task.setAvailableAt(now.plusMinutes(5));
-                task.setCreatedAt(now);
-                task.setUpdatedAt(now);
-                vectorOutboxMapper.insert(task);
-            } else {
-                vectorOutboxMapper.update(null, new LambdaUpdateWrapper<KnowledgeVectorOutbox>()
-                        .eq(KnowledgeVectorOutbox::getId, task.getId())
-                        .set(KnowledgeVectorOutbox::getStatus, "PENDING")
-                        .set(KnowledgeVectorOutbox::getAvailableAt, now.plusMinutes(5))
-                        .set(KnowledgeVectorOutbox::getPayload, null)
-                        .set(KnowledgeVectorOutbox::getEmbeddingModel, null)
-                        .set(KnowledgeVectorOutbox::getDimensions, null)
-                        .set(KnowledgeVectorOutbox::getUpdatedAt, now));
-            }
-        } catch (Exception e) {
-            log.debug("outbox 写入失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
-        }
+        documentSupport.cleanupPartial(doc);
+        documentSupport.updateStatus(doc, "FAILED", null, error);
+        documentSupport.markOutboxFailed(doc, error);
     }
 
     private void storeOutboxPayload(KnowledgeDocument doc, List<Map<String, Object>> rows,
@@ -1244,44 +1196,14 @@ public class KnowledgeService {
     public boolean completeOutboxVectors(Long documentId, int chunkCount) {
         KnowledgeDocument doc = docMapper.selectById(documentId);
         if (doc == null) return false;
-        recordParserVersion(doc);
-        updateStatus(doc, "DONE", chunkCount, null);
-        markOutboxDone(doc);
+        documentSupport.recordParserVersion(doc);
+        documentSupport.updateStatus(doc, "DONE", chunkCount, null);
+        documentSupport.markOutboxDone(doc);
         return true;
     }
 
-    private void markOutboxDone(KnowledgeDocument doc) {
-        if (vectorOutboxMapper == null || doc == null || doc.getId() == null) return;
-        try {
-            vectorOutboxMapper.update(null, new LambdaUpdateWrapper<KnowledgeVectorOutbox>()
-                    .eq(KnowledgeVectorOutbox::getDocumentId, doc.getId())
-                    .set(KnowledgeVectorOutbox::getStatus, "DONE")
-                    .set(KnowledgeVectorOutbox::getLastError, null)
-                    .set(KnowledgeVectorOutbox::getPayload, null)
-                    .set(KnowledgeVectorOutbox::getEmbeddingModel, null)
-                    .set(KnowledgeVectorOutbox::getDimensions, null)
-                    .set(KnowledgeVectorOutbox::getUpdatedAt, LocalDateTime.now()));
-        } catch (Exception e) {
-            log.debug("outbox 完成标记失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
-        }
-    }
-
-    private void markOutboxFailed(KnowledgeDocument doc, String error) {
-        if (vectorOutboxMapper == null || doc == null || doc.getId() == null) return;
-        try {
-            String message = error == null ? null : error.substring(0, Math.min(1000, error.length()));
-            vectorOutboxMapper.update(null, new LambdaUpdateWrapper<KnowledgeVectorOutbox>()
-                    .eq(KnowledgeVectorOutbox::getDocumentId, doc.getId())
-                    .set(KnowledgeVectorOutbox::getStatus, "FAILED")
-                    .set(KnowledgeVectorOutbox::getLastError, message)
-                    .set(KnowledgeVectorOutbox::getUpdatedAt, LocalDateTime.now()));
-        } catch (Exception e) {
-            log.debug("outbox 失败标记失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
-        }
-    }
-
     private void performReparse(KnowledgeDocument doc) {
-        cleanupPartial(doc);
+        documentSupport.cleanupPartial(doc);
         mediaStore.delete(doc);
         KnowledgeDocument patch = new KnowledgeDocument();
         patch.setId(doc.getId());
@@ -1371,7 +1293,7 @@ public class KnowledgeService {
         if (password == null || password.isBlank()) config.remove("pdfPassword");
         else config.put("pdfPassword", password);
         String configJson = config.isEmpty() ? null : KnowledgeJsonSupport.write(objectMapper, config);
-        String protectedConfig = protectPdfPassword(configJson);
+        String protectedConfig = documentSupport.protectPdfPassword(configJson);
         docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
                 .eq(KnowledgeDocument::getId, documentId)
                 .set(KnowledgeDocument::getParseConfig, protectedConfig));
@@ -1379,42 +1301,6 @@ public class KnowledgeService {
                 String.valueOf(documentId), "SUCCESS", Map.of("kbId", kbId, "passwordSet",
                         password != null && !password.isBlank()));
         return reparse(kbId, documentId, viewer);
-    }
-
-    /** 补偿清理：重试前删除可能已写入的部分分段与向量，并清掉该文档贡献的自动图谱。 */
-    private void cleanupPartial(KnowledgeDocument doc) {
-        if (vectorOutboxMapper != null && doc != null) {
-            try {
-                vectorOutboxMapper.update(null, new LambdaUpdateWrapper<KnowledgeVectorOutbox>()
-                        .eq(KnowledgeVectorOutbox::getDocumentId, doc.getId())
-                        .set(KnowledgeVectorOutbox::getPayload, null)
-                        .set(KnowledgeVectorOutbox::getEmbeddingModel, null)
-                        .set(KnowledgeVectorOutbox::getDimensions, null));
-            } catch (Exception ignored) { }
-        }
-        try {
-            chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
-                    .eq(KnowledgeChunk::getDocumentId, doc.getId()));
-        } catch (Exception e) {
-            log.warn("清理失败分段失败 doc={}：{}", doc.getId(), e.getMessage());
-        }
-        deleteParentsQuietly(doc.getId());
-        deleteVectorsQuietly(doc.getTenantId(), doc.getId());
-        try {
-            graphService.deleteByDocument(doc.getKnowledgeBaseId(), doc.getId());
-        } catch (Exception e) {
-            log.warn("清理文档自动图谱失败 doc={}：{}", doc.getId(), e.getMessage());
-        }
-    }
-
-    private void deleteParentsQuietly(Long documentId) {
-        if (parentMapper == null) return;
-        try {
-            parentMapper.delete(new LambdaQueryWrapper<KnowledgeParent>()
-                    .eq(KnowledgeParent::getDocumentId, documentId));
-        } catch (Exception e) {
-            log.warn("清理父块失败 doc={}：{}", documentId, e.getMessage());
-        }
     }
 
     /** 检索测试（需求文档 3.6(4)）：query 嵌入 → PgVector topK + 阈值过滤；需可见权限。 */
@@ -1634,72 +1520,10 @@ public class KnowledgeService {
         return sourceHashService.backfillForTenant(limit);
     }
 
-    private void deleteVectorsQuietly(Long tenantId, Long documentId) {
-        try {
-            vectorRepository.deleteByDocument(tenantId, documentId);
-        } catch (Exception e) {
-            log.warn("删除文档向量失败 doc={} err={}（数据库记录继续清理）", documentId, e.getMessage());
-        }
-    }
-
-    /** 文档图片列表（预签名 URL；需知识库可见权限）。 */
+    /** 文档图片列表（预签名 URL；需知识库可见权限）→ 文档支撑服务。 */
     public List<Map<String, Object>> documentImages(Long kbId, Long docId,
                                                      KnowledgePermissionService.Viewer viewer) {
-        permissionService.requireView(kbId, viewer);
-        KnowledgeDocument doc = docMapper.selectById(docId);
-        if (doc == null || !Objects.equals(doc.getKnowledgeBaseId(), kbId)) {
-            throw new BusinessException(404, "文档不存在");
-        }
-        return documentImageMapper.selectList(new LambdaQueryWrapper<KnowledgeDocumentImage>()
-                        .eq(KnowledgeDocumentImage::getDocumentId, docId)
-                        .orderByAsc(KnowledgeDocumentImage::getId))
-                .stream().map(row -> {
-                    Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("id", row.getId());
-                    m.put("fileName", row.getFileName());
-                    m.put("mimeType", row.getMimeType());
-                    m.put("sizeBytes", row.getSizeBytes());
-                    m.put("url", storage.presignGet(row.getObjectName()));
-                    return m;
-                }).toList();
-    }
-
-    private void updateStatus(KnowledgeDocument doc, String status, Integer chunkCount, String error) {
-        KnowledgeDocument patch = new KnowledgeDocument();
-        patch.setId(doc.getId());
-        patch.setStatus(status);
-        patch.setChunkCount(chunkCount);
-        // 空串显式清理历史失败信息；MyBatis-Plus updateById 默认忽略 null。
-        patch.setErrorMessage(error == null ? "" : error);
-        if ("PARSING".equals(status)) patch.setParseStartedAt(LocalDateTime.now());
-        if (doc.getUpgradeJobId() != null) {
-            if ("DONE".equals(status)) patch.setUpgradeStatus("SUCCEEDED");
-            else if ("FAILED".equals(status)) patch.setUpgradeStatus("FAILED");
-        }
-        docMapper.updateById(patch);
-    }
-
-    private KnowledgeDocument findReusableDocument(KnowledgeDocument doc, String sourceSha,
-                                                   String parseFingerprint) {
-        // 老文档没有解析指纹时不做复用，避免用未知解析配置的旧结果覆盖新上传。
-        if (sourceSha == null || parseFingerprint == null) return null;
-        try {
-            List<KnowledgeDocument> candidates = docMapper.selectList(
-                    new LambdaQueryWrapper<KnowledgeDocument>()
-                            .eq(doc.getTenantId() != null, KnowledgeDocument::getTenantId,
-                                    doc.getTenantId())
-                            .eq(KnowledgeDocument::getSourceSha256, sourceSha)
-                            .eq(KnowledgeDocument::getParseFingerprint, parseFingerprint)
-                            .eq(KnowledgeDocument::getParserVersion, DocumentParser.PARSER_VERSION)
-                            .ne(KnowledgeDocument::getId, doc.getId())
-                            .eq(KnowledgeDocument::getStatus, "DONE")
-                            .orderByDesc(KnowledgeDocument::getCreatedAt)
-                            .last("LIMIT 5"));
-            if (candidates != null && !candidates.isEmpty()) return candidates.get(0);
-        } catch (Exception e) {
-            log.debug("重复文件查询失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
-        }
-        return null;
+        return documentSupport.documentImages(kbId, docId, viewer);
     }
 
     /** 解析配置指纹：同内容、同配置才允许跨知识库复用。 */
@@ -1713,222 +1537,15 @@ public class KnowledgeService {
         }
     }
 
-    private void recordParserVersion(KnowledgeDocument doc) {
-        if (DocumentParser.PARSER_VERSION.equals(doc.getParserVersion())) return;
-        try {
-            doc.setParserVersion(DocumentParser.PARSER_VERSION);
-            docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
-                    .eq(KnowledgeDocument::getId, doc.getId())
-                    .set(KnowledgeDocument::getParserVersion, DocumentParser.PARSER_VERSION));
-        } catch (Exception e) {
-            log.debug("解析器版本记录失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
-        }
+    /** 兼容测试反射调用：实际实现见 KnowledgeDocumentSupport。 */
+    @SuppressWarnings("unused")
+    private String protectPdfPassword(String json) {
+        return documentSupport.protectPdfPassword(json);
     }
 
-    private void recordEmbeddingInfo(KnowledgeDocument doc, String model, int dimensions) {
-        doc.setEmbeddingModel(model);
-        doc.setEmbeddingDimensions(dimensions);
-        try {
-            docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
-                    .eq(KnowledgeDocument::getId, doc.getId())
-                    .set(KnowledgeDocument::getEmbeddingModel, model)
-                    .set(KnowledgeDocument::getEmbeddingDimensions, dimensions));
-        } catch (Exception e) {
-            log.debug("embedding 信息记录失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
-        }
-    }
-
-    private void recordParseFingerprint(KnowledgeDocument doc, String fingerprint) {
-        if (fingerprint == null) return;
-        try {
-            doc.setParseFingerprint(fingerprint);
-            docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
-                    .eq(KnowledgeDocument::getId, doc.getId())
-                    .set(KnowledgeDocument::getParseFingerprint, fingerprint));
-        } catch (Exception e) {
-            log.debug("解析配置指纹记录失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
-        }
-    }
-
-    /**
-     * 复用同租户、相同 SHA256 且解析配置指纹一致文档的分段、父块和向量，
-     * 跳过重复解析/嵌入。任一环节失败都会清理新文档残留并回退正常解析。
-     */
-    private boolean reuseDocument(KnowledgeDocument doc, byte[] bytes, KnowledgeDocument source,
-                                  KnowledgePermissionService.Acl acl, String embeddingModel,
-                                  int dimensions, List<String> warnings) {
-        try {
-            List<KnowledgeChunk> oldChunks = chunkMapper.selectList(
-                    new LambdaQueryWrapper<KnowledgeChunk>()
-                            .eq(KnowledgeChunk::getDocumentId, source.getId())
-                            .orderByAsc(KnowledgeChunk::getChunkIndex));
-            if (oldChunks == null || oldChunks.isEmpty()) return false;
-            Map<Integer, String> parentContents = new HashMap<>();
-            if (parentMapper != null) {
-                for (KnowledgeParent parent : parentMapper.selectList(
-                        new LambdaQueryWrapper<KnowledgeParent>()
-                                .eq(KnowledgeParent::getDocumentId, source.getId()))) {
-                    if (parent.getParentIndex() != null) {
-                        parentContents.put(parent.getParentIndex(), parent.getContent());
-                    }
-                }
-            }
-            List<KnowledgeChunk> newChunks = new ArrayList<>(oldChunks.size());
-            for (KnowledgeChunk old : oldChunks) {
-                KnowledgeChunk chunk = new KnowledgeChunk();
-                chunk.setDocumentId(doc.getId());
-                chunk.setKnowledgeBaseId(doc.getKnowledgeBaseId());
-                chunk.setChunkIndex(old.getChunkIndex());
-                chunk.setParentIndex(old.getParentIndex());
-                String parentContent = old.getParentContent();
-                if ((parentContent == null || parentContent.isBlank()) && old.getParentIndex() != null) {
-                    parentContent = parentContents.get(old.getParentIndex());
-                }
-                chunk.setParentContent(parentContent);
-                chunk.setContent(old.getContent());
-                chunk.setDocumentType(old.getDocumentType());
-                chunk.setSectionType(old.getSectionType());
-                chunk.setChunkLevel(old.getChunkLevel());
-                chunk.setParentKey(doc.getId() + ":" + old.getParentIndex());
-                chunk.setDomainKeywords(old.getDomainKeywords());
-                chunk.setRelevanceScore(old.getRelevanceScore());
-                chunk.setRegulatoryCategory(old.getRegulatoryCategory());
-                chunk.setPageFrom(old.getPageFrom());
-                chunk.setPageTo(old.getPageTo());
-                chunk.setAllowedUsers(usersJson(acl.allowedUsers()));
-                chunk.setTenantVisible(acl.tenantWide() ? 1 : 0);
-                chunk.setTenantId(doc.getTenantId());
-                chunk.setCreatedAt(LocalDateTime.now());
-                newChunks.add(chunk);
-            }
-            Map<Integer, Long> chunkIds = chunkStore.persist(doc, newChunks, warnings);
-            if (chunkIds.size() != newChunks.size()) {
-                cleanupPartial(doc);
-                return false;
-            }
-            LocalDateTime effectiveFrom = doc.getEffectiveFrom() != null
-                    ? doc.getEffectiveFrom() : (doc.getCreatedAt() == null ? LocalDateTime.now() : doc.getCreatedAt());
-            LocalDateTime effectiveTo = doc.getEffectiveTo();
-            LocalDateTime now = LocalDateTime.now();
-            Map<String, Object> overrides = new LinkedHashMap<>();
-            overrides.put("knowledge_base_id", doc.getKnowledgeBaseId());
-            overrides.put("document_id", doc.getId());
-            overrides.put("file_name", doc.getFileName());
-            overrides.put("document_created_at",
-                    doc.getCreatedAt() == null ? null : doc.getCreatedAt().toString());
-            overrides.put("allowed_users", acl.allowedUsers().stream().map(String::valueOf).toList());
-            overrides.put("tenant_visible", acl.tenantWide());
-            overrides.put("embedding_model", embeddingModel);
-            overrides.put("effective_from", effectiveFrom.toString());
-            overrides.put("effective_to", effectiveTo == null ? null : effectiveTo.toString());
-            overrides.put("created_at", now.toString());
-            overrides.put("updated_at", now.toString());
-            int copied = vectorRepository.copyDocumentVectors(doc.getTenantId(), source.getId(),
-                    doc.getId(), dimensions, embeddingModel, chunkIds, overrides);
-            if (copied < newChunks.size()) {
-                cleanupPartial(doc);
-                return false;
-            }
-            if (mysqlJdbcTemplate != null) {
-                long vectorCount = vectorRepository.countByDocument(doc.getTenantId(), doc.getId(), dimensions);
-                if (vectorCount != newChunks.size()) {
-                    cleanupPartial(doc);
-                    return false;
-                }
-            }
-            try {
-                mediaStore.store(doc, bytes);
-            } catch (Exception e) {
-                log.warn("复用文档图片存储失败（忽略）doc={} err={}", doc.getId(), e.getMessage());
-            }
-            String reuseMessage = Objects.equals(source.getKnowledgeBaseId(), doc.getKnowledgeBaseId())
-                    ? "已复用相同文件「" + source.getFileName() + "」的解析结果"
-                    : "已复用同租户相同文件的解析结果";
-            warnings.add(reuseMessage);
-            if (source.getParseWarning() != null && source.getParseWarning().contains("人工复核")) {
-                warnings.add("人工复核：复用了需人工复核的源文档解析结果，请核对");
-            }
-            recordParserVersion(doc);
-            recordEmbeddingInfo(doc, embeddingModel, dimensions);
-            updateStatus(doc, "DONE", newChunks.size(), null);
-            markOutboxDone(doc);
-            storeParseWarning(doc, warnings);
-            try {
-                graphService.autoExtractAfterParse(doc.getTenantId(), doc.getKnowledgeBaseId(), doc.getId());
-            } catch (Exception e) {
-                log.warn("复用文档自动图谱失败（忽略）doc={} err={}", doc.getId(), e.getMessage());
-            }
-            log.info("文档复用完成：doc={} source={} chunks={}", doc.getId(), source.getId(), copied);
-            return true;
-        } catch (Exception e) {
-            log.warn("重复文件复用失败，回退重新解析 doc={} source={} err={}",
-                    doc.getId(), source.getId(), e.getMessage());
-            cleanupPartial(doc);
-            return false;
-        }
-    }
-
-    private void recordSourceHash(KnowledgeDocument doc, String sha256, List<String> warnings) {
-        if (sha256 == null) return;
-        try {
-            doc.setSourceSha256(sha256);
-            docMapper.update(null, new LambdaUpdateWrapper<KnowledgeDocument>()
-                    .eq(KnowledgeDocument::getId, doc.getId())
-                    .set(KnowledgeDocument::getSourceSha256, sha256));
-            List<KnowledgeDocument> duplicates = docMapper.selectList(
-                    new LambdaQueryWrapper<KnowledgeDocument>()
-                            .eq(KnowledgeDocument::getKnowledgeBaseId, doc.getKnowledgeBaseId())
-                            .eq(KnowledgeDocument::getSourceSha256, sha256)
-                            .ne(KnowledgeDocument::getId, doc.getId())
-                            .eq(KnowledgeDocument::getStatus, "DONE")
-                            .last("LIMIT 1"));
-            if (duplicates != null && !duplicates.isEmpty()) {
-                warnings.add("检测到相同文件「" + duplicates.get(0).getFileName()
-                        + "」；相同文本嵌入会命中缓存，如需清理可删除重复文档");
-            }
-        } catch (Exception e) {
-            log.debug("文件哈希记录失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
-        }
-    }
-
-    private void storeParseWarning(KnowledgeDocument doc, List<String> warnings) {
-        String text = warnings == null ? "" : warnings.stream()
-                .filter(message -> message != null && !message.isBlank())
-                .distinct()
-                .collect(java.util.stream.Collectors.joining("；"));
-        if (text.length() > 1000) text = text.substring(0, 1000);
-        try {
-            LambdaUpdateWrapper<KnowledgeDocument> update = new LambdaUpdateWrapper<KnowledgeDocument>()
-                    .eq(KnowledgeDocument::getId, doc.getId())
-                    .set(KnowledgeDocument::getParseWarning, text);
-            if (text.contains("人工复核")) {
-                update.set(KnowledgeDocument::getManualReviewStatus, "PENDING");
-            } else {
-                update.set(KnowledgeDocument::getManualReviewStatus, null);
-            }
-            docMapper.update(null, update);
-        } catch (Exception e) {
-            log.warn("解析告警写入失败（不影响文档状态）doc={} err={}", doc.getId(), e.getMessage());
-        }
-    }
-
+    /** 兼容测试反射调用：实际实现见 KnowledgeDocumentSupport。 */
+    @SuppressWarnings("unused")
     private void recordEmbeddingUsage(KnowledgeDocument doc, int chunkCount, String embeddingModel) {
-        try {
-            BillingUsage u = new BillingUsage();
-            u.setTenantId(doc.getTenantId());
-            u.setKnowledgeBaseId(doc.getKnowledgeBaseId());
-            u.setSource("embedding");
-            String billedModel = embeddingModel == null || embeddingModel.isBlank()
-                    ? embeddingService.model() : embeddingModel;
-            u.setModelName(billedModel);
-            u.setInputTokens((long) chunkCount);
-            u.setOutputTokens(0L);
-            u.setCost(pricingService.cost(doc.getTenantId(), billedModel, chunkCount, 0));
-            u.setStatDate(LocalDate.now());
-            u.setCreatedAt(LocalDateTime.now());
-            billingMapper.insert(u);
-        } catch (Exception e) {
-            log.warn("嵌入用量记录失败：{}", e.getMessage());
-        }
+        documentSupport.recordEmbeddingUsage(doc, chunkCount, embeddingModel);
     }
 }

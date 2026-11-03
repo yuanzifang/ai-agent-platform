@@ -85,7 +85,11 @@ class KnowledgeGraphServiceAclTest {
                 sysConfigMapper, mock(BillingUsageMapper.class),
                 mock(PricingService.class), permissionService, mock(AuditService.class),
                 mock(ChatModelRouter.class), new ObjectMapper(), mock(KnowledgeGraphCommunityService.class),
-                mock(KnowledgeGraphDraftValidator.class));
+                mock(KnowledgeGraphDraftValidator.class),
+                new KnowledgeGraphQueryService(entityMapper, relationMapper, mentionMapper,
+                        chunkMapper, mock(KnowledgeDocumentMapper.class), permissionService,
+                        mock(com.platform.knowledge.service.EmbeddingService.class),
+                        mock(com.platform.knowledge.service.GraphVectorIndexService.class), new ObjectMapper()));
 
         kb = new KnowledgeBase();
         kb.setId(1L);
