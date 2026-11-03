@@ -3,6 +3,7 @@ package com.platform.knowledge.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.common.exception.BusinessException;
+import com.platform.extension.retrieval.RetrievalPolicy;
 import com.platform.knowledge.entity.KnowledgeChunk;
 import com.platform.knowledge.entity.KnowledgeParent;
 import com.platform.knowledge.mapper.KnowledgeChunkMapper;
@@ -24,7 +25,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 /**
  * 混合检索：向量召回 + MySQL ngram 全文召回，RRF 融合后按 topK 返回。
@@ -40,6 +40,10 @@ public class HybridRetrievalService {
     private final KnowledgeChunkMapper chunkMapper;
     private final com.platform.knowledge.mapper.KnowledgeBaseMapper kbMapper;
     private final ObjectMapper objectMapper;
+
+    /** 可选检索策略扩展；核心检索不包含行业词表或过滤规则。 */
+    @Autowired(required = false)
+    private List<RetrievalPolicy> retrievalPolicies = List.of();
 
     @Value("${retrieval.hybrid.enabled:true}")
     private boolean hybridEnabled;
@@ -110,11 +114,11 @@ public class HybridRetrievalService {
         LocalDateTime validityBefore = effectiveBefore == null ? null
                 : LocalDateTime.ofInstant(effectiveBefore, ZoneId.systemDefault());
         String q = query == null ? "" : query.trim();
-        // 检索查询归一化：问句中的“怎么防治/怎么办”等泛化词会让标题块压过真正的作物病害块。
-        if (Boolean.TRUE.equals(config.get("normalizeQuery"))
-                || "true".equalsIgnoreCase(String.valueOf(config.get("normalizeQuery")))) {
-            String normalized = normalizeRetrievalQuery(q);
-            if (!normalized.isBlank()) q = normalized;
+        // 可选检索策略（查询归一化、业务范围过滤等）由扩展实现，核心不感知行业规则。
+        for (RetrievalPolicy policy : retrievalPolicies) {
+            if (policy == null) continue;
+            String normalized = policy.normalizeQuery(q, config);
+            if (normalized != null && !normalized.isBlank()) q = normalized;
         }
         if (q.isBlank()) return new Result(List.of(), 0, 0, 0, 0, mode);
         String keywordQuery = q.length() > 120 ? q.substring(0, 120) : q;
@@ -216,20 +220,6 @@ public class HybridRetrievalService {
             keywordRank.put(key, i + 1);
         }
 
-        // 农业精确问答：问题已明确作物时，优先只保留命中该作物的片段，避免水稻问题带出玉米/花生章节。
-        if (Boolean.TRUE.equals(config.get("cropScope"))
-                || "true".equalsIgnoreCase(String.valueOf(config.get("cropScope")))) {
-            String crop = detectCrop(q);
-            if (crop != null) {
-                Map<String, Candidate> scoped = new LinkedHashMap<>();
-                for (var e : merged.entrySet()) {
-                    if (containsCrop(e.getValue().content, crop)) scoped.put(e.getKey(), e.getValue());
-                }
-                // 没有作物命中的召回时保留原结果，避免过滤后空上下文。
-                if (!scoped.isEmpty()) merged = scoped;
-            }
-        }
-
         if ("vector".equals(mode)) {
             for (var e : merged.entrySet()) e.getValue().score = e.getValue().vectorScore == null
                     ? 0 : e.getValue().vectorScore;
@@ -252,19 +242,24 @@ public class HybridRetrievalService {
             }
         }
 
-        List<Map<String, Object>> result = new ArrayList<>(merged.values().stream()
+        List<Map<String, Object>> ranked = merged.values().stream()
                 .filter(c -> c.content != null && !c.content.isBlank())
                 .sorted(Comparator.comparingDouble((Candidate c) -> c.score).reversed()
                         .thenComparing(Comparator.comparingDouble(
                                 (Candidate c) -> c.relevanceScore).reversed()))
-                .limit(limit)
                 .map(c -> {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("content", c.content);
                     m.put("score", c.score);
                     m.put("metadata", c.metadata);
                     return m;
-                }).toList());
+                }).toList();
+        // 排序后、截断前执行可选策略，保持策略可以基于完整候选集做兜底。
+        for (RetrievalPolicy policy : retrievalPolicies) {
+            if (policy == null) continue;
+            ranked = policy.filter(q, config, ranked);
+        }
+        List<Map<String, Object>> result = new ArrayList<>(ranked.stream().limit(limit).toList());
         enrichNeighbors(kbId, result);
         result = dedupeByParent(result);
         boolean rerank = rerankService != null && rerankService.enabled()
@@ -650,59 +645,7 @@ public class HybridRetrievalService {
         return def;
     }
 
-    private static final Map<String, Pattern> CROP_PATTERNS = Map.ofEntries(
-            Map.entry("水稻", Pattern.compile("水稻|稻谷|稻田|稻瘟病|稻飞虱|稻曲病|稻纵卷叶螟|稻蓟马|稻")),
-            Map.entry("小麦", Pattern.compile("小麦|冬小麦|麦田|麦苗|麦")),
-            Map.entry("玉米", Pattern.compile("玉米|苞米|苞谷")),
-            Map.entry("大豆", Pattern.compile("大豆|黄豆")),
-            Map.entry("油菜", Pattern.compile("油菜|油菜籽")),
-            Map.entry("花生", Pattern.compile("花生")),
-            Map.entry("马铃薯", Pattern.compile("马铃薯|土豆|种薯")),
-            Map.entry("番茄", Pattern.compile("番茄|西红柿")),
-            Map.entry("黄瓜", Pattern.compile("黄瓜")),
-            Map.entry("豇豆", Pattern.compile("豇豆")),
-            Map.entry("芹菜", Pattern.compile("芹菜")),
-            Map.entry("韭菜", Pattern.compile("韭菜")),
-            Map.entry("苹果", Pattern.compile("苹果")),
-            Map.entry("柑橘", Pattern.compile("柑橘|橘|橙|柚")),
-            Map.entry("葡萄", Pattern.compile("葡萄")),
-            Map.entry("茶树", Pattern.compile("茶树|茶园|茶叶|茶")),
-            Map.entry("蔬菜", Pattern.compile("蔬菜|菜田|菜农|菜地")));
-
-    /** 仅用于 cropScope 的轻量作物识别；不引入额外分词服务。 */
-    static String detectCrop(String query) {
-        if (query == null || query.isBlank()) return null;
-        for (var e : CROP_PATTERNS.entrySet()) {
-            if (e.getValue().matcher(query).find()) return e.getKey();
-        }
-        return null;
-    }
-
-    private static boolean containsCrop(String content, String crop) {
-        if (content == null || content.isBlank()) return false;
-        Pattern p = CROP_PATTERNS.get(crop);
-        return p != null && p.matcher(content).find();
-    }
-
     private String str(Object o) {
         return o == null ? null : String.valueOf(o);
-    }
-
-    /**
-     * 去掉问句套话，保留作物/病害/措施等实体词。
-     * 仅由检索配置 normalizeQuery=true 启用，避免改变其他业务场景的召回习惯。
-     */
-    static String normalizeRetrievalQuery(String query) {
-        if (query == null || query.isBlank()) return "";
-        String q = query.replaceAll(
-                "(请问|请帮我|帮我|帮忙|想问|想了解|一下|怎么办|怎么防治|如何防治|怎样防治"
-                        + "|怎么防控|如何防控|怎样防控|怎么预防|如何预防|怎样预防"
-                        + "|怎么治|如何治|怎样治|怎么处理|如何处理|怎样处理"
-                        + "|怎么改良|如何改良|怎么改进|如何改进|怎么防范|如何防范"
-                        + "|怎么应对|如何应对|怎样应对|防治方法|防治措施|防治办法"
-                        + "|防控措施|注意事项|注意什么|需要注意什么|有哪些|是什么"
-                        + "|怎么|如何|怎样|咋)", " ");
-        q = q.replaceAll("[\\s，,。！？?；;：:、]+", " ").trim();
-        return q;
     }
 }
