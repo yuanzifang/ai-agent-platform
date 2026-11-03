@@ -158,10 +158,10 @@ retrieval:
 - `HybridRetrievalServiceTest#rerankCanBeDisabledPerRequest`：验证 `rerank=false` 不调用 RerankService。
 - `RerankServiceTest#reordersByServerIndex`：真实启动本地 HTTP stub，验证按 reranker 返回的 index 重排。
 - 本地 BGE reranker 已部署到 `http://192.168.64.1:8010/rerank`，平台链路已验证会实际发出 `POST /rerank` 并按返回顺序调整引用。
-- 15 道失败题重排复测为 5/15，未超过无重排的 7/15；因此 Agent 5422 暂不开启 rerank，服务保留供后续 A/B。
+- 重排候选池扩大后，15 道失败题复测为 8/15；但完整 60 题为 33/60，对比无重排 34/60 没有提升；因此 Agent 5422 暂不开启 rerank，服务保留供后续 A/B。
 
 ### 部署
 
-- 前端构建通过，部署镜像 `aap/frontend:agri-rerank-final-11031015`。
-- 后端镜像：`aap/backend:agri-rerank-final-11031014`。
-- 当前 Agent 5422：V22，未启用 routing；知识库显式 `rerank=false`；测试配置已清理。
+- 前端构建通过，部署镜像 `aap/frontend:agri-rerank2-ui-11031026`。
+- 后端镜像：`aap/backend:agri-rerank2-11031025`。
+- 当前 Agent 5422：V24，未启用 routing；知识库显式 `rerank=false`；测试配置已清理。

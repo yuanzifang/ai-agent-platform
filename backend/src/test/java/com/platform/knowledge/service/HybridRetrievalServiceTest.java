@@ -433,6 +433,23 @@ class HybridRetrievalServiceTest {
     }
 
     @Test
+    void rerankExpandsCandidatePoolBeforeFinalTopK() {
+        RerankService rerank = mock(RerankService.class);
+        when(rerank.enabled()).thenReturn(true);
+        when(rerank.rerank(anyString(), anyList(), anyInt())).thenAnswer(inv -> inv.getArgument(1));
+        ReflectionTestUtils.setField(service, "rerankService", rerank);
+        when(chunkMapper.searchFulltext(eq(1L), anyString(), anyInt())).thenReturn(List.of(
+                Map.of("id", 1, "content", "A", "score", 1,
+                        "document_id", 1, "chunk_index", 0)));
+
+        service.search(1L, "q", 1L, 3, 0.5,
+                Map.of("mode", "keyword", "rerank", "true", "rerankTopN", 3));
+
+        verify(chunkMapper).searchFulltext(eq(1L), anyString(), eq(30));
+        verify(rerank).rerank(anyString(), anyList(), eq(3));
+    }
+
+    @Test
     void rerankIsOptInByDefault() {
         RerankService rerank = mock(RerankService.class);
         when(rerank.enabled()).thenReturn(true);

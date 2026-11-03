@@ -88,22 +88,37 @@ RERANK_MODEL=bge-reranker-v2-m3
 
 ### 4.3 质量影响
 
-对 15 道历史失败题做了重排复测：
+第一轮 topK=3、候选中只有 3 条的重排复测：
 
-- 无重排：7/15（最近 V13 结果，单次 2.5 裁判）
+- 无重排：7/15（V13，单次 2.5 裁判）
 - 开启重排：5/15（V21，单次 2.5 裁判）
 
-重排没有带来稳定提升，且会改变引用顺序和条数。为避免当前 7B 答案质量进一步下降，**Agent 5422 暂未开启 rerank**，保持 V22 的关闭状态；平台服务保持运行，后续可针对具体 Agent 做 A/B 后再开启。
+随后改为“先召回更大候选池，再重排到 topK”：
+
+- 15 道历史失败题：8/15（V23）
+- 完整 60 题：33/60，平均分 0.7492（V23）
+- 无重排完整 60 题：34/60（V13）
+
+重排对 15 道失败题有小幅提升，但完整 60 题没有超过无重排基线，且会改变引用顺序和条数。为避免当前 7B 答案质量波动，**Agent 5422 暂未开启 rerank**，保持 V24 的关闭状态；平台服务保持运行，后续可针对具体 Agent 做 A/B 后再开启。
+
+V23 原始结果：`eval-data/agri/农业回答质量基线-V23-60题.json`。
+
+### 4.4 本次改动
+
+- `HybridRetrievalService` 在 `rerank=true` 时先把候选池扩大到 `max(topK*3, 10)`，再截断到 `rerankTopN`；
+- 支持 `rerankScoreThreshold`，过滤低分重排结果；
+- 前端 Agent 知识库参数增加“重排最低分”；
+- `rerank` 改为显式 opt-in，默认关闭，避免全局开启影响其他 Agent。
 
 ## 5. 当前状态
 
 - 本地 reranker：运行中
 - 平台 `RERANK_ENABLED=true`
-- Agent 5422：V22，`rerank=false`
+- Agent 5422：V24，`rerank=false`
 - 其他 Agent：未显式开启
 - 这样不会影响 Agent 4878 等无关业务
-- 后端镜像：`aap/backend:agri-rerank-final-11031014`
-- 前端镜像：`aap/frontend:agri-rerank-final-11031015`
+- 后端镜像：`aap/backend:agri-rerank2-11031025`
+- 前端镜像：`aap/frontend:agri-rerank2-ui-11031026`
 
 ## 6. 注意事项
 
