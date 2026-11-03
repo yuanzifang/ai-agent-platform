@@ -32,6 +32,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends openjdk-17-jre-headless python3 curl tzdata \
        tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim \
     && rm -rf /var/lib/apt/lists/*
+# 飞书 MCP STDIO 运行依赖：预装官方 lark-mcp，避免运行时 npx 首次安装/原生 keytar 构建失败。
+# 使用 --ignore-scripts 跳过 keytar 的 libsecret 编译；tenant_access_token 模式不需要系统钥匙串。
+RUN npm install -g --ignore-scripts @larksuiteoapi/lark-mcp@0.5.1 \
+    && lark-mcp --version
 ENV TZ=Asia/Shanghai \
     JAVA_OPTS="-Xms512m -Xmx1g"
 WORKDIR /app
