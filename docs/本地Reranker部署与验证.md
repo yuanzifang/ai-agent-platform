@@ -86,6 +86,10 @@ RERANK_MODEL=bge-reranker-v2-m3
 - 后端日志出现 `POST /rerank 200`
 - 引用顺序按 reranker 返回值变化，说明链路已打通
 
+### 4.3 长文本参数
+
+本地 bge-reranker-v2-m3 默认使用 `RERANKER_MAX_LENGTH=2048`，覆盖长分段；如显存不足可下调。
+
 ### 4.3 质量影响
 
 第一轮 topK=3、候选中只有 3 条的重排复测：

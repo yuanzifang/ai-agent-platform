@@ -19,5 +19,6 @@ exec env \
   HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}" \
   HF_HUB_DISABLE_XET=1 \
   HF_HOME="$HF_HOME" \
+  RERANKER_MAX_LENGTH="${RERANKER_MAX_LENGTH:-2048}" \
   "$VENV/bin/python" "$ROOT/scripts/reranker_server.py" \
   --host 0.0.0.0 --port "$PORT" --model "$MODEL"

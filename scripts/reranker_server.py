@@ -28,7 +28,8 @@ def load_model(name: str):
     device = os.environ.get("RERANKER_DEVICE", "cpu")
     print(f"loading reranker model={name} device={device}", flush=True)
     # bge-reranker-v2-m3 目前可直接由 sentence-transformers 加载；失败时由启动命令显式换 base 模型。
-    model = CrossEncoder(name, device=device, max_length=512)
+    max_length = int(os.environ.get("RERANKER_MAX_LENGTH", "2048"))
+    model = CrossEncoder(name, device=device, max_length=max_length)
     print("reranker model ready", flush=True)
     return model
 
