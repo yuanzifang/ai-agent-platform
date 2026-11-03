@@ -27,7 +27,7 @@ RUN mvn -q -DskipTests package
 
 # 运行：JRE + Python/Node（技能脚本）+ curl（健康检查）
 # 用 Debian 多架构基础镜像：eclipse-temurin:17-jre-alpine 无 arm64 manifest，Apple Silicon 无法构建
-FROM node:22-bookworm-slim
+FROM node:22-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da
 RUN apt-get update \
     && apt-get install -y --no-install-recommends openjdk-17-jre-headless python3 curl tzdata \
        tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim \
