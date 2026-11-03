@@ -176,6 +176,6 @@ config:
 
 ## 9. 本地 k3d 实跑记录
 
-2026-10-26 已在 k3d 5.9.0 / k3s v1.35.5 上完成首次 install 与 `helm test`，详见 `docs/Helm实跑验收.md`。
+2026-10-26 已在 k3d 5.9.0 / k3s v1.35.5 上完成首次 install 与 `helm test`，详见 `docs/archive/Helm实跑验收.md`。
 
 受限网络下需先预载 k3s 系统镜像（pause/CoreDNS/local-path-provisioner）和 test 镜像 `curlimages/curl`，否则 Pod 会卡在 `ContainerCreating`。本地冒烟可关闭 Ingress 后用 `kubectl port-forward svc/<release>-frontend 18091:80` 验证。
