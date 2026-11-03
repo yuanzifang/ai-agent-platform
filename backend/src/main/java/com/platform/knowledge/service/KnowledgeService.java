@@ -44,6 +44,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import static com.platform.knowledge.service.KnowledgeSettingsSupport.*;
+
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -200,15 +202,6 @@ public class KnowledgeService {
         return Map.of("id", kb.getId());
     }
 
-    private String normalizeBackend(String requested, String fallback, java.util.Set<String> allowed) {
-        String value = requested == null || requested.isBlank() ? fallback : requested.trim();
-        value = value == null ? "" : value.toUpperCase(java.util.Locale.ROOT);
-        if (!allowed.contains(value)) {
-            throw new BusinessException(400, "不支持的检索后端：" + requested);
-        }
-        return value;
-    }
-
     private void validateBackendAvailability(String search, String vector) {
         if ("ES".equals(search) && searchIndexService == null) {
             throw new BusinessException(400, "ES 后端未启用，请先配置 SEARCH_ES_ENABLED=true");
@@ -218,41 +211,6 @@ public class KnowledgeService {
                 throw new BusinessException(400, "Qdrant 后端未启用，请先配置 VECTOR_QDRANT_ENABLED=true");
             }
         }
-    }
-
-    private String normalizeRetrievalMode(String mode) {
-        String value = mode == null || mode.isBlank() ? "hybrid" : mode.trim().toLowerCase(java.util.Locale.ROOT);
-        if (!java.util.Set.of("hybrid", "vector", "keyword").contains(value)) {
-            throw new BusinessException(400, "不支持的检索模式：" + mode);
-        }
-        return value;
-    }
-
-    private double normalizeScoreThreshold(Double value, double fallback) {
-        if (value == null) return fallback;
-        return Math.max(0, Math.min(1, value));
-    }
-
-    private double normalizeKeywordWeight(Double value, double fallback) {
-        if (value == null) return fallback;
-        return Math.max(0, Math.min(1, value));
-    }
-
-    private int normalizeCacheTtl(Integer value) {
-        if (value == null) return 300;
-        return Math.max(0, Math.min(value, 86400));
-    }
-
-    private int normalizeCacheMaxEntries(Integer value) {
-        if (value == null) return 2000;
-        return Math.max(0, Math.min(value, 100000));
-    }
-
-    private int[] normalizeTopK(Integer defaultTopK, Integer maxTopK) {
-        int def = defaultTopK == null ? 5 : Math.max(1, Math.min(defaultTopK, 50));
-        int max = maxTopK == null ? 20 : Math.max(1, Math.min(maxTopK, 50));
-        if (max < def) max = def;
-        return new int[]{def, max};
     }
 
     /** 编辑名称/描述（需求 3.6.3(6)）；需编辑权限。 */
@@ -1684,12 +1642,6 @@ public class KnowledgeService {
         }
     }
 
-    private String usersJson(List<Long> users) {
-        // MySQL JSON_CONTAINS 与 PgVector jsonb_array_elements_text 都按字符串匹配 userId
-        return users.stream().map(String::valueOf).map(id -> "\"" + id + "\"")
-                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
-    }
-
     /** 文档图片列表（预签名 URL；需知识库可见权限）。 */
     public List<Map<String, Object>> documentImages(Long kbId, Long docId,
                                                      KnowledgePermissionService.Viewer viewer) {
@@ -1937,21 +1889,6 @@ public class KnowledgeService {
         } catch (Exception e) {
             log.debug("文件哈希记录失败（忽略）doc={}：{}", doc.getId(), e.getMessage());
         }
-    }
-
-    /** 图片说明按句末截断，避免切在句子中间。 */
-    private String truncateAtSentence(String text, int max) {
-        if (text == null || text.length() <= max) return text;
-        int cut = max;
-        for (int i = max - 1; i >= max / 2; i--) {
-            char c = text.charAt(i);
-            if (c == '。' || c == '！' || c == '？' || c == '.' || c == '!' || c == '?'
-                    || c == '；' || c == ';' || c == '\n') {
-                cut = i + 1;
-                break;
-            }
-        }
-        return text.substring(0, cut).trim() + "…";
     }
 
     private void storeParseWarning(KnowledgeDocument doc, List<String> warnings) {
