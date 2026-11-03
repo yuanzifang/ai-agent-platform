@@ -21,6 +21,14 @@ public class AgriRetrievalPolicy implements RetrievalPolicy {
 
     public static final String NORMALIZE_QUERY = "normalizeQuery";
     public static final String CROP_SCOPE = "cropScope";
+    public static final String CLEAN_GENERIC = "cleanGeneric";
+
+    private static final Pattern SITE_PREFIX = Pattern.compile(
+            "^中国农业农村信息网_.*?视频\\s*(?:首页>[^\\s]*\\s*)?", Pattern.DOTALL);
+    private static final Pattern FORECAST = Pattern.compile(
+            "预测|趋势|发生动态|总体中等|偏重发生|发生面积|发生程度");
+    private static final Pattern ACTION = Pattern.compile(
+            "防治|防控|用药|施药|喷施|喷雾|田间管理|栽培|选用|品种|剂量");
 
     private static final Map<String, Pattern> CROP_PATTERNS = cropPatterns();
 
@@ -38,17 +46,54 @@ public class AgriRetrievalPolicy implements RetrievalPolicy {
     @Override
     public List<Map<String, Object>> filter(String query, Map<String, Object> config,
                                             List<Map<String, Object>> hits) {
-        if (!enabled(config, CROP_SCOPE) || hits == null || hits.isEmpty()) return hits;
+        if (hits == null || hits.isEmpty()) return hits;
+        List<Map<String, Object>> working = hits;
+        if (enabled(config, CLEAN_GENERIC)) {
+            working = cleanGenericHits(query, hits);
+        }
+        if (!enabled(config, CROP_SCOPE)) return working;
         String crop = detectCrop(query);
-        if (crop == null) return hits;
+        if (crop == null) return working;
         List<Map<String, Object>> scoped = new ArrayList<>();
-        for (Map<String, Object> hit : hits) {
+        for (Map<String, Object> hit : working) {
             if (containsCrop(String.valueOf(hit.getOrDefault("content", "")), crop)) {
                 scoped.add(hit);
             }
         }
         // 没有作物命中的召回时保留原结果，避免过滤后空上下文。
-        return scoped.isEmpty() ? hits : scoped;
+        return scoped.isEmpty() ? working : scoped;
+    }
+
+    private List<Map<String, Object>> cleanGenericHits(String query, List<Map<String, Object>> hits) {
+        boolean actionQuery = query != null && Pattern.compile(
+                "防治|防控|怎么办|怎么治|如何治|用药|打药|管理|补救|恢复").matcher(query).find();
+        List<Map<String, Object>> cleaned = new ArrayList<>();
+        for (Map<String, Object> hit : hits) {
+            String content = cleanSiteChrome(str(hit.get("content")));
+            if (content.isBlank()) continue;
+            // “怎么防治”类问题不应把纯趋势预测片段排进上下文；趋势查询保留。
+            if (actionQuery && FORECAST.matcher(content).find() && !ACTION.matcher(content).find()) {
+                continue;
+            }
+            Map<String, Object> copy = new LinkedHashMap<>(hit);
+            copy.put("content", content);
+            Object parent = hit.get("parentContent");
+            if (parent != null) copy.put("parentContent", cleanSiteChrome(str(parent)));
+            cleaned.add(copy);
+        }
+        // 全部被清洗时保留原结果，避免空上下文；正常情况返回清洗后的候选。
+        return cleaned.isEmpty() ? hits : cleaned;
+    }
+
+    /** 去掉农业农村信息网首块的站点导航；正文从标题/正文开始。 */
+    static String cleanSiteChrome(String content) {
+        if (content == null || content.isBlank()) return "";
+        String cleaned = SITE_PREFIX.matcher(content).replaceFirst("").trim();
+        return cleaned.isBlank() ? "" : cleaned;
+    }
+
+    private static String str(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private boolean enabled(Map<String, Object> config, String key) {
