@@ -136,7 +136,12 @@ class KnowledgeServiceLifecycleTest {
                 new KnowledgeSourceHashService(docMapper, storage, permissionService),
                 new KnowledgeUploadPolicy(),
                 new KnowledgeChunkAclService(chunkMapper, vectorRepository, permissionService,
-                        auditService, objectMapper));
+                        auditService, objectMapper),
+                new KnowledgeDocumentSupport(docMapper, imageMapper, chunkMapper, permissionService,
+                        storage, new KnowledgeChunkStore(chunkMapper),
+                        new KnowledgeDocumentMediaStore(imageMapper, storage, parser),
+                        graphService, mock(BillingUsageMapper.class), mock(PricingService.class),
+                        embeddingService, objectMapper, cryptoService, vectorRepository, null, null));
 
         TenantContext.setTenantId(9L);
         kb = new KnowledgeBase();

@@ -97,7 +97,11 @@ class KnowledgeGraphServiceCrudTest {
                 mock(SysConfigMapper.class), mock(BillingUsageMapper.class),
                 mock(PricingService.class), permissionService, auditService, modelRouter,
                 new ObjectMapper(), communityService,
-                mock(KnowledgeGraphDraftValidator.class));
+                mock(KnowledgeGraphDraftValidator.class),
+                new KnowledgeGraphQueryService(entityMapper, relationMapper, mentionMapper,
+                        mock(KnowledgeChunkMapper.class), documentMapper, permissionService,
+                        mock(com.platform.knowledge.service.EmbeddingService.class),
+                        mock(com.platform.knowledge.service.GraphVectorIndexService.class), new ObjectMapper()));
 
         kb = new KnowledgeBase();
         kb.setId(1L);

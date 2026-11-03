@@ -221,7 +221,7 @@ jobs:
         working-directory: frontend
         run: node scripts/check-i18n-keys.cjs
 
-      - name: 文件行数守卫（新文件 <= 1500，存量只缩不增）
+      - name: 文件行数守卫（所有源文件 <= 1600）
         run: bash scripts/check-file-sizes.sh
 
       - name: Docs 生命周期检查
