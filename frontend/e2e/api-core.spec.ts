@@ -697,17 +697,24 @@ test('Agent 必填校验与配置重新读取', async ({ request }) => {
 
 test('私有 Agent 授权与撤销实时生效', async ({ request }) => {
   const owner = await login(request, 'dev', 'Dev@123456', 'dev')
-  const memberLogin = await (await request.post(`${P}/auth/login`, {
-    data: { username: 'zhangsan', password: 'Member@123', tenantKey: 'dev' }
+  expect(owner).toBeTruthy()
+  const memberName = `e2e-perm-${Date.now()}`
+  const invited = await (await request.post(`${P}/auth/invitations`, {
+    headers: auth(owner!), data: { email: `${memberName}@example.com`, role: 'MEMBER' }
   })).json()
-  expect(memberLogin.code, JSON.stringify(memberLogin)).toBe(0)
-  const member = memberLogin.data.accessToken as string
-  const memberId = Number(memberLogin.data.user.id)
+  expect(invited.code, JSON.stringify(invited)).toBe(0)
+  const accepted = await (await request.post(`${P}/auth/invitations/accept`, {
+    data: { token: invited.data.token, username: memberName, password: 'TempPass123' }
+  })).json()
+  expect(accepted.code, JSON.stringify(accepted)).toBe(0)
+  const memberId = Number(accepted.data.userId)
+  const member = await login(request, memberName, 'TempPass123', 'dev')
+  expect(member, '临时成员应可登录').toBeTruthy()
   const name = `E2E权限实时-${Date.now()}`
   const agentId = await createAgent(request, owner!, name)
   const visibleToMember = async () => {
     const list = await (await request.get(`${P}/agent`, {
-      headers: auth(member), params: { keyword: name, pageSize: 50 }
+      headers: auth(member!), params: { keyword: name, pageSize: 50 }
     })).json()
     expect(list.code, JSON.stringify(list)).toBe(0)
     return (list.data.list || []).some((row: any) => Number(row.id) === agentId)
@@ -728,6 +735,7 @@ test('私有 Agent 授权与撤销实时生效', async ({ request }) => {
     expect(await visibleToMember(), '撤销后应立即不可见').toBe(false)
   } finally {
     await deleteAgent(request, owner!, agentId)
+    await request.delete(`${P}/users/${memberId}`, { headers: auth(owner!) }).catch(() => {})
   }
 })
 
