@@ -86,7 +86,7 @@ docker compose --env-file .env.docker exec ollama ollama pull bge-m3
 > docker compose --env-file .env.docker -f docker-compose.yml -f docker-compose.external-minio.yml up -d --build
 > ```
 >
-> 该模式使用宿主机 `host.docker.internal:9000` 的对象存储，其余服务仍由 Compose 启动。首次实跑记录见 `docs/Compose实跑验收.md`。
+> 该模式使用宿主机 `host.docker.internal:9000` 的对象存储，其余服务仍由 Compose 启动。首次实跑记录见 `docs/archive/Compose实跑验收.md`。
 
 启动后：
 
@@ -174,7 +174,7 @@ helm upgrade --install ai-agent deploy/helm/ai-agent-platform \
 - 支持 HPA/PDB/NetworkPolicy/ServiceAccount
 - 生产建议 `secrets.existingSecret` 引用 Secret，不把密码写进 values
 - 多副本 SSE 停止/重生成依赖 ClientIP 会话保持；如不生效请先将 backend 副本设为 1
-- Helm 已在 k3d 完成首次实跑验收（install / helm test / 登录验证），见 `docs/Helm实跑验收.md`
+- Helm 已在 k3d 完成首次实跑验收（install / helm test / 登录验证），见 `docs/archive/Helm实跑验收.md`
 - 详见 `deploy/helm/ai-agent-platform/README.md`
 
 ## 里程碑
