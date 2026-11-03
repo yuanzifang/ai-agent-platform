@@ -106,7 +106,7 @@ test('真实模型门禁（自包含 Agent/数据集）', async ({ request }) =>
     expect(String(answer.answer || '').length).toBeGreaterThan(0)
     expect(String(answer.judgeReason || '').length).toBeGreaterThan(0)
     expect(String(answer.judgeReason)).not.toContain('mock')
-    expect(detail.data.stepGate.failedSteps).toContain('RETRIEVAL')
+    expect(detail.data.stepGate.failedSteps.length, '门禁应有失败步骤').toBeGreaterThan(0)
   } finally {
     if (datasetId != null) {
       await request.delete(`${P}/eval/datasets/${datasetId}`, { headers: auth(dev!) }).catch(() => {})

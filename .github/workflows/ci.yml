@@ -366,6 +366,7 @@ jobs:
             sleep 2
           done
           ollama pull qwen2.5:7b
+          ollama pull nomic-embed-text
 
       - name: 启动离线模型/嵌入/渠道 Mock
         working-directory: frontend
