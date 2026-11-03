@@ -35,18 +35,34 @@ class ImageUnderstandingServiceDescribeTest {
     }
 
     @Test
-    void describeForChatSendsAgriculturePromptWithConfiguredModel() throws Exception {
+    void describeForChatUsesGenericPromptWithConfiguredModel() throws Exception {
         AtomicReference<String> requestBody = new AtomicReference<>();
-        HttpServer server = mockOllama(requestBody, "褐色病斑描述");
+        HttpServer server = mockOllama(requestBody, "图片描述");
         try {
             ImageUnderstandingService service = service(server, true, "mock-vl");
-            assertEquals("褐色病斑描述", service.describeForChat(new byte[]{1}, "leaf.png"));
+            assertEquals("图片描述", service.describeForChat(new byte[]{1}, "photo.png"));
 
             JsonNode body = new ObjectMapper().readTree(requestBody.get());
             assertEquals("mock-vl", body.path("model").asText());
-            assertTrue(body.path("prompt").asText().contains("农业"),
-                    "聊天识别 prompt 应面向农业场景");
+            assertTrue(body.path("prompt").asText().contains("图片"),
+                    "默认聊天识别 prompt 应为平台通用提示");
             assertEquals("AQ==", body.path("images").get(0).asText());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void describeForChatUsesAgentLevelPromptOverride() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        HttpServer server = mockOllama(requestBody, "自定义描述");
+        try {
+            ImageUnderstandingService service = service(server, true, "mock-vl");
+            assertEquals("自定义描述",
+                    service.describeForChat(new byte[]{1}, "photo.png", "识别图片中的作物病斑"));
+
+            JsonNode body = new ObjectMapper().readTree(requestBody.get());
+            assertEquals("识别图片中的作物病斑", body.path("prompt").asText());
         } finally {
             server.stop(0);
         }
