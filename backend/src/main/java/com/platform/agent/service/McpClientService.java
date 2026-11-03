@@ -1133,6 +1133,7 @@ public class McpClientService {
             case "API_KEY" -> builder.header(
                     str(auth.getOrDefault("header", "X-API-Key")), str(auth.get("value")));
             case "OAUTH" -> builder.header("Authorization", "Bearer " + oauthService.accessToken(server));
+            case "FEISHU_APP" -> builder.header("Authorization", "Bearer " + feishuTenantToken(server));
             case "BEARER" -> builder.header("Authorization", "Bearer " + str(auth.get("token")));
             case "BASIC" -> {
                 String raw = str(auth.getOrDefault("username", "")) + ":" + str(auth.getOrDefault("password", ""));
