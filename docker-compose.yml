@@ -521,6 +521,11 @@ services:
       - /var/run
     cap_add:
       - NET_BIND_SERVICE
+      # nginx 官方入口在启动时会调整缓存目录属主并切换 worker 用户；
+      # 只保留这三个最小能力，不能依赖完整 root capabilities。
+      - CHOWN
+      - SETGID
+      - SETUID
     restart: unless-stopped
     depends_on:
       backend:
