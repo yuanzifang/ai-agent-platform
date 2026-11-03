@@ -727,11 +727,31 @@ public class AgentService {
         for (String key : List.of("modelName", "fallbackModelName")) {
             String name = str(modelConfig.get(key));
             if (name == null || name.isBlank()) continue;
-            var model = modelMapper.findForPricing(name, tenantId);
-            if (model != null && "PLATFORM".equalsIgnoreCase(model.getPurpose())) {
-                throw new BusinessException(400,
-                        "模型「" + name + "」为平台评测专用，不能用于 Agent；请选择 Agent 自己的对话模型");
+            validateAgentModelName(name, tenantId);
+        }
+        Object routingRaw = modelConfig.get("routing");
+        if (routingRaw instanceof Map<?, ?> raw) {
+            Map<String, Object> routing = asMap(raw);
+            for (String key : List.of("classifierModel", "simpleModel", "complexModel")) {
+                String name = str(routing.get(key));
+                if (name != null && !name.isBlank()) validateAgentModelName(name, tenantId);
             }
+            if (routing.get("rules") instanceof List<?> rules) {
+                for (Object ruleObj : rules) {
+                    if (ruleObj instanceof Map<?, ?> rule) {
+                        String name = str(asMap(rule).get("model"));
+                        if (name != null && !name.isBlank()) validateAgentModelName(name, tenantId);
+                    }
+                }
+            }
+        }
+    }
+
+    private void validateAgentModelName(String name, Long tenantId) {
+        var model = modelMapper.findForPricing(name, tenantId);
+        if (model != null && "PLATFORM".equalsIgnoreCase(model.getPurpose())) {
+            throw new BusinessException(400,
+                    "模型「" + name + "」为平台评测专用，不能用于 Agent；请选择 Agent 自己的对话模型");
         }
     }
 

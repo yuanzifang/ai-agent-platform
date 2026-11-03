@@ -98,7 +98,13 @@ public class HybridRetrievalService {
         Map<String, Object> config = retrievalConfig == null ? Map.of() : retrievalConfig;
         // 与知识库 maxTopK 上限保持一致，避免配置 50 却静默截断到 20。
         int limit = Math.max(1, Math.min(topK, 50));
-        int candidates = Math.max(10, Math.min(limit * 3, 150));
+        boolean rerankRequested = rerankService != null && rerankService.enabled()
+                && "true".equalsIgnoreCase(String.valueOf(config.getOrDefault("rerank", "false")));
+        // rerank 需要更大的候选池；否则只会在最终 topK 里换顺序，无法补回被截断的相关片段。
+        int candidateLimit = rerankRequested
+                ? Math.min(Math.max(limit * 3, 10), 50)
+                : limit;
+        int candidates = Math.max(10, Math.min(candidateLimit * 3, 150));
         String mode = str(config.get("mode"));
         if (mode == null || mode.isBlank()) mode = hybridEnabled ? "hybrid" : "vector";
         mode = mode.toLowerCase();
@@ -259,16 +265,25 @@ public class HybridRetrievalService {
             if (policy == null) continue;
             ranked = policy.filter(q, config, ranked);
         }
-        List<Map<String, Object>> result = new ArrayList<>(ranked.stream().limit(limit).toList());
+        // 策略过滤后再按 rerank 需要保留候选池；普通检索仍只返回 topK。
+        int resultLimit = rerankRequested ? candidateLimit : limit;
+        List<Map<String, Object>> result = new ArrayList<>(ranked.stream().limit(resultLimit).toList());
         enrichNeighbors(kbId, result);
         result = dedupeByParent(result);
-        boolean rerank = rerankService != null && rerankService.enabled()
-                && !"false".equalsIgnoreCase(String.valueOf(config.getOrDefault("rerank", "true")));
+        boolean rerank = rerankRequested;
         if (rerank) {
-            result = new ArrayList<>(rerankService.rerank(q, result, limit));
+            int rerankTopN = Math.max(1, Math.min(toInt(config.get("rerankTopN"), limit), 50));
+            result = new ArrayList<>(rerankService.rerank(q, result, rerankTopN));
+            double minRerankScore = toDouble(config.get("rerankScoreThreshold"), 0);
+            boolean hasRerankScore = result.stream().anyMatch(h -> h.get("rerankScore") != null);
+            if (hasRerankScore && minRerankScore > 0) {
+                result = result.stream()
+                        .filter(h -> toDouble(h.get("rerankScore"), 0) >= minRerankScore)
+                        .toList();
+            }
         }
-        log.debug("混合检索 kb={} mode={} vector={} keyword={} merged={} rerank={}",
-                kbId, mode, vectorHits.size(), keywordHits.size(), result.size(), rerank);
+        log.debug("混合检索 kb={} mode={} vector={} keyword={} merged={} rerank={} candidates={}",
+                kbId, mode, vectorHits.size(), keywordHits.size(), result.size(), rerank, candidateLimit);
         return new Result(result, vectorHits.size(), keywordHits.size(), embedMs, searchMs, mode);
     }
 
@@ -635,6 +650,11 @@ public class HybridRetrievalService {
             if (actual == null || toDouble(actual, 0) < toDouble(minRelevance, 0)) return false;
         }
         return true;
+    }
+
+    private int toInt(Object o, int def) {
+        Integer value = intValue(o);
+        return value == null ? def : value;
     }
 
     private double toDouble(Object o, double def) {

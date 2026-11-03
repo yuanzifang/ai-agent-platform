@@ -56,6 +56,7 @@ public class ChatService {
     private final com.platform.knowledge.mapper.KnowledgeBaseMapper knowledgeBaseMapper;
     private final PromptInjectionModerationProvider promptInjection;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private final com.platform.conversation.service.ModelRoutingService modelRoutingService;
 
     @SuppressWarnings("unchecked")
     public Map<String, Object> debugChat(Map<String, Object> config, String message,
@@ -105,6 +106,12 @@ public class ChatService {
 
         String modelName = com.platform.conversation.service.ChatStreamService.applyGrayModel(modelConfig,
                 String.valueOf(modelConfig.getOrDefault("modelName", "deepseek-flash")));
+        var routingDecision = modelRoutingService.resolve(modelConfig, message);
+        if (routingDecision != null && routingDecision.model() != null
+                && !routingDecision.model().isBlank()) {
+            modelName = com.platform.conversation.service.ChatStreamService.applyGrayModel(
+                    modelConfig, routingDecision.model());
+        }
         String fallbackModel = String.valueOf(modelConfig.getOrDefault("fallbackModelName", ""));
         Double temperature = toDouble(modelConfig.get("temperature"));
         Boolean thinking = modelConfig.get("thinking") instanceof Boolean b ? b : null;
@@ -140,6 +147,7 @@ public class ChatService {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("answer", answer == null ? "" : answer);
+        result.put("model", usedModel);
         result.put("latencyMs", System.currentTimeMillis() - start);
         result.put("usage", Map.of("inputTokens", inputTokens, "outputTokens", outputTokens,
                 "cachedInputTokens", metrics.cachedInputTokens(),

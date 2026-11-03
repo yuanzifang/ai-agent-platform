@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import http from '../api/http'
 import { escapeHtml, renderGateFailures } from '../utils/gateDetails'
+import { buildKbRetrievalConfig, buildModelRoutingConfig } from '../utils/agentRoutingConfig'
 
 interface RefRow { id: number; name: string; description?: string; type?: string; isBuiltin?: boolean; enabled: boolean; missing?: boolean }
 type RefType = 'skill' | 'tool' | 'sub'
@@ -896,18 +897,14 @@ function buildPayload() {
     modelConfig: { modelName: form.modelName, fallbackModelName: form.fallbackModelName || null,
       grayModel: form.grayModel || null, grayTag: form.grayTag || null,
       temperature: form.temperature,
-      thinking: form.thinking, reasoningEffort: form.thinking ? form.reasoningEffort : null },
+      thinking: form.thinking, reasoningEffort: form.thinking ? form.reasoningEffort : null,
+      routing: buildModelRoutingConfig(form) },
     resourceProfileId: form.resourceProfileId,
     variables: form.variables.filter((v: any) => v.key),
     visibility: form.visibility,
     knowledgeBases: kbRows.value.filter((k: any) => k.enabled).map((k: any) => ({
       knowledgeBaseId: k.knowledgeBaseId, enabled: true,
-      retrievalConfig: {
-        topK: k.topK, scoreThreshold: k.scoreThreshold, mode: k.mode,
-        documentType: k.documentType || undefined, sectionType: k.sectionType || undefined,
-        regulatoryCategory: k.regulatoryCategory || undefined, chunkLevel: k.chunkLevel,
-        minRelevance: k.minRelevance
-      }
+      retrievalConfig: buildKbRetrievalConfig(k)
     })),
     skills: skillRows.value.filter(r => !r.missing).map(r => ({ skillId: r.id, enabled: r.enabled })),
     tools: toolRows.value.filter(r => !r.missing).map(r => ({ toolId: r.id, enabled: r.enabled })),
