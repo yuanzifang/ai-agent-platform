@@ -1,5 +1,4 @@
 package com.platform.workflow.service;
-
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -34,7 +33,6 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
-
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -279,6 +277,8 @@ public class WorkflowService {
         m.put("name", "知识库检索");
         m.put("mode", "hybrid");
         m.put("topK", 5);
+        m.put("rerank", true);
+        m.put("rerankTopN", 5);
         m.put("queryTemplate", "{{input}}");
         m.put("next", next);
         return m;
@@ -1377,7 +1377,7 @@ public class WorkflowService {
         if (topK <= 0) topK = 5;
         double threshold = toDouble(node.get("scoreThreshold"), 0.5);
         String mode = str(node.get("mode"));
-        Map<String, Object> cfg = mode == null || mode.isBlank() ? Map.of() : Map.of("mode", mode);
+        Map<String, Object> cfg = WorkflowRetrievalOptions.from(node, mode);
         var result = hybridRetrieval.search(run.getTenantId(), query, kbId, topK, threshold, cfg,
                 viewer.userId(), permissionService.tenantWide(viewer));
         if (result.hits().isEmpty()) return "（知识库未检索到相关内容）";

@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
-"""MVP 安全/冻结默认值静态门禁（不启动 Docker/MySQL）。"""
+"""MVP 安全/冻结默认值静态门禁（不启动 Docker/MySQL）。
+
+安全默认值的清单在 backend/src/main/resources/security-defaults.json；
+本脚本和 Java ProductionGuard 共用该文件，避免两套检查漂移。
+"""
 from pathlib import Path
 import sys
 
+import json
+
 ROOT = Path(__file__).resolve().parent.parent
+DEFAULTS_FILE = ROOT / "backend/src/main/resources/security-defaults.json"
 
 
 def read(path: str) -> str:
@@ -27,51 +34,30 @@ def main() -> int:
     if 'profiles: ["obs"]' not in compose:
         return fail("可观测服务未设置 obs profile")
 
-    app = read("backend/src/main/resources/application.yml")
-    if "enabled: ${AGENT_DEPLOY_ENABLED:true}" not in app:
-        return fail("Agent 部署默认开关异常")
-    if "enabled: ${SKILL_SCRIPT_ENABLED:false}" not in app:
-        return fail("技能脚本默认未关闭（SKILL_SCRIPT_ENABLED 必须默认 false）")
-    if "runtime: ${SKILL_SCRIPT_RUNTIME:process}" not in app:
-        return fail("技能脚本基础 runtime 配置异常")
-    prod = read("backend/src/main/resources/application-prod.yml")
-    if "runtime: ${SKILL_SCRIPT_RUNTIME:docker}" not in prod:
-        return fail("生产 profile 未强制技能脚本 runtime=docker")
-    runner = read("backend/src/main/java/com/platform/capability/runtime/ScriptRunnerService.java")
-    if '@Value("${skill.script.enabled:false}")' not in runner:
-        return fail("ScriptRunnerService 的技能脚本默认开关未关闭")
-    if "已拒绝执行" not in runner:
-        return fail("Docker 沙箱不可用时未 fail-closed")
-    if "bind: ${AGENT_DEPLOY_BIND:127.0.0.1}" not in app:
-        return fail("Agent 部署默认绑定不是 127.0.0.1")
-    if "cors-origins: ${AGENT_DEPLOY_CORS_ORIGINS:}" not in app:
-        return fail("Agent 部署 CORS 默认没有收敛")
+    # 单一来源的默认值/静态检查。
+    try:
+        defaults = json.loads(DEFAULTS_FILE.read_text(encoding="utf-8"))
+    except Exception as e:
+        return fail(f"无法加载 security-defaults.json：{e}")
+    for check in defaults.get("staticChecks", []):
+        path = check.get("file")
+        needle = check.get("contains")
+        message = check.get("message") or f"{path} 缺少安全默认值"
+        if not path or needle is None:
+            return fail(f"security-defaults.json 中的静态检查缺少 file/contains：{check}")
+        file_path = ROOT / path
+        if not file_path.exists():
+            return fail(f"安全默认值检查文件不存在：{path}")
+        if needle not in file_path.read_text(encoding="utf-8"):
+            return fail(message)
 
-    # 单栈守卫：旧 Node 运行时和旧 K8s manifest 不得回退
+    app = read("backend/src/main/resources/application.yml")
     if "runtime: ${AGENT_DEPLOY_RUNTIME:gateway" in app:
         return fail("application.yml 仍保留旧 Node AGENT_DEPLOY_RUNTIME 配置")
     if (ROOT / "runtime/agent-gateway").exists():
         return fail("runtime/agent-gateway 旧 Node 运行时仍存在")
     if (ROOT / "deploy/k8s/infra/agent-gateway.yaml").exists():
         return fail("旧 agent-gateway K8s manifest 仍存在")
-    values = read("deploy/helm/ai-agent-platform/values.yaml")
-    compose = read("docker-compose.yml")
-    if "SKILL_SCRIPT_ENABLED: ${SKILL_SCRIPT_ENABLED:-false}" not in compose:
-        return fail("Compose 技能脚本默认开关未关闭")
-    if "SKILL_SCRIPT_RUNTIME: ${SKILL_SCRIPT_RUNTIME:-docker}" not in compose:
-        return fail("Compose 技能脚本默认运行时不是 docker")
-    if 'skillScriptEnabled: "false"' not in values:
-        return fail("Helm 技能脚本默认开关未关闭")
-    if 'skillScriptRuntime: "docker"' not in values:
-        return fail("Helm 技能脚本默认运行时不是 docker")
-    if "automountServiceAccountToken: false" not in values:
-        return fail("Helm ServiceAccount 默认仍自动挂载 K8s API Token")
-    backend = read("deploy/helm/ai-agent-platform/templates/backend-deployment.yaml")
-    if "automountServiceAccountToken: {{ .Values.agentDeploy.enabled }}" not in backend:
-        return fail("backend 未按 agentDeploy 开关控制 SA token 挂载")
-    frontend = read("deploy/helm/ai-agent-platform/templates/frontend-deployment.yaml")
-    if "automountServiceAccountToken: false" not in frontend:
-        return fail("frontend 仍自动挂载 SA token")
     if not (ROOT / "deploy/helm/ai-agent-platform/templates/agent-runtime-rbac.yaml").exists():
         return fail("缺少 Agent K8s 运行时 RBAC 模板")
 
@@ -80,6 +66,28 @@ def main() -> int:
         return fail("知识图谱自动抽取没有默认关闭")
     if 'configBoolean("knowledge.graph.retrieval-enabled", false)' not in graph:
         return fail("GraphRAG 检索扩展没有默认关闭")
+
+    # 主栈容器加固与 MinIO 控制台默认只绑本机。
+    if "x-hardening: &hardening" not in compose:
+        return fail("Compose 缺少统一容器加固锚点")
+    if "no-new-privileges:true" not in compose:
+        return fail("Compose 缺少 no-new-privileges")
+    if "cap_drop:" not in compose:
+        return fail("Compose 缺少 cap_drop")
+    if '"127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"' not in compose:
+        return fail("MinIO 控制台未默认绑定 127.0.0.1")
+    if ":latest" in compose:
+        return fail("docker-compose.yml 仍使用 :latest 浮动标签")
+
+    # 供应链扫描必须覆盖后端、前端和告警中继镜像。
+    ci = read(".github/workflows/ci.yml")
+    for image in ("backend", "frontend", "alert-relay"):
+        if f"- image: {image}" not in ci or "scan-type: image" not in ci:
+            return fail(f"CI 未构建/扫描 {image} 镜像")
+    release = read(".github/workflows/release.yml")
+    for image in ("aap/backend:release", "aap/frontend:release", "alert-relay:release"):
+        if image not in release:
+            return fail(f"Release 未构建/扫描 {image} 镜像")
 
     print("MVP security/freeze static checks OK")
     return 0
