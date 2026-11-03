@@ -93,6 +93,7 @@ public class ChatStreamService {
     private final SelfCorrectionService selfCorrectionService;
     private final MemoryExtractionService memoryExtractionService;
     private final com.platform.agent.service.CaseService caseService;
+    private final com.platform.agent.service.AgriSafetyGuard agriSafetyGuard;
     @Value("${moderation.stream.buffer-chars:40}")
     private int streamModerateChars;
     @org.springframework.beans.factory.annotation.Qualifier("llmTaskExecutor")
@@ -243,6 +244,13 @@ public class ChatStreamService {
 
         if (blocked) {
             return blockedEmitter(conversationId, userMsg, hits, sink);
+        }
+        // 农业 Agent 的确定性安全兜底：高风险请求不进入小模型，避免无依据荐药/承诺增产。
+        com.platform.agent.service.AgriSafetyGuard.GuardResult guard =
+                agriSafetyGuard.check(agent, req.message());
+        if (guard != null && guard.blocked()) {
+            return safetyGuardResponse(conv, userMsg, guard.answer(),
+                    Boolean.FALSE.equals(req.stream()), sink);
         }
         KnowledgePermissionService.Viewer viewer = viewer(principal);
         if (Boolean.FALSE.equals(req.stream())) {
@@ -899,6 +907,30 @@ public class ChatStreamService {
                             + fitted.ragKeptFragments() + "/" + fitted.ragTotalFragments()
                             + " 个完整片段；回答可能未覆盖全部资料。"));
         }
+    }
+
+    /** 农业安全兜底：不调用模型，直接持久化并返回确定的策略答复。 */
+    private Object safetyGuardResponse(Conversation conv, Message userMsg, String answer,
+                                       boolean nonStream, StreamSink sink) {
+        String traceId = UUID.randomUUID().toString().replace("-", "");
+        Message ai = newMessage(conv, traceId, null, false);
+        ai.setContent(answer);
+        ai.setStatus("SUCCESS");
+        ai.setTokens((int) estimateTokens(answer));
+        messageMapper.insert(ai);
+        conversationService.touch(conv.getId());
+        if (nonStream) {
+            return Map.of("answer", answer, "traceId", traceId, "messageId", ai.getId(),
+                    "usage", Map.of("inputTokens", 0, "outputTokens", estimateTokens(answer)),
+                    "citations", List.of(), "toolCalls", List.of(),
+                    "ragTruncated", false, "ragKeptFragments", 0, "ragTotalFragments", 0);
+        }
+        StreamSink out = sink == null ? new SseStreamSink(new SseEmitter(300_000L)) : sink;
+        out.event("delta", Map.of("content", answer));
+        out.event("done", Map.of("traceId", traceId, "messageId", ai.getId(), "status", "SUCCESS",
+                "usage", Map.of("inputTokens", 0, "outputTokens", estimateTokens(answer))));
+        out.complete();
+        return out.emitter();
     }
 
     /** 输入命中 BLOCK：不调用模型，返回仅含 moderation/error/done 的 SSE。 */
