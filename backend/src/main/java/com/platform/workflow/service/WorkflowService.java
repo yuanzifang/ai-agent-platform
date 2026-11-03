@@ -271,17 +271,7 @@ public class WorkflowService {
     }
 
     private Map<String, Object> knowledge(String id, String next) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", id);
-        m.put("type", "KNOWLEDGE");
-        m.put("name", "知识库检索");
-        m.put("mode", "hybrid");
-        m.put("topK", 5);
-        m.put("rerank", true);
-        m.put("rerankTopN", 5);
-        m.put("queryTemplate", "{{input}}");
-        m.put("next", next);
-        return m;
+        return WorkflowRetrievalOptions.knowledgeNode(id, next);
     }
 
     private Map<String, Object> approval(String id, String next) {

@@ -18,6 +18,20 @@ final class WorkflowRetrievalOptions {
         return cfg;
     }
 
+    static Map<String, Object> knowledgeNode(String id, String next) {
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("id", id);
+        node.put("type", "KNOWLEDGE");
+        node.put("name", "知识库检索");
+        node.put("mode", "hybrid");
+        node.put("topK", 5);
+        node.put("rerank", true);
+        node.put("rerankTopN", 5);
+        node.put("queryTemplate", "{{input}}");
+        node.put("next", next);
+        return node;
+    }
+
     private static int intValue(Object value) {
         if (value instanceof Number number) return number.intValue();
         if (value == null) return 0;
