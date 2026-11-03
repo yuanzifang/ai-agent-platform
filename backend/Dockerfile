@@ -35,7 +35,8 @@ RUN apt-get update \
 # 飞书 MCP STDIO 运行依赖：预装官方 lark-mcp，避免运行时 npx 首次安装/原生 keytar 构建失败。
 # 使用 --ignore-scripts 跳过 keytar 的 libsecret 编译；tenant_access_token 模式不需要系统钥匙串。
 RUN npm install -g --ignore-scripts @larksuiteoapi/lark-mcp@0.5.1 \
-    && lark-mcp --version
+    && lark-mcp --version \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 ENV TZ=Asia/Shanghai \
     JAVA_OPTS="-Xms512m -Xmx1g"
 WORKDIR /app
