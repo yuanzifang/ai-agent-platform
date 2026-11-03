@@ -286,6 +286,14 @@ test('统一 API 网关：转发/鉴权/轮换/限流日志', async ({ request }
 test('文档重新上传覆盖原文件', async ({ request }) => {
   const token = await login(request, 'dev', 'Dev@123456', 'dev')
   expect(token).toBeTruthy()
+  const admin = await login(request, 'admin', process.env.PLATFORM_ADMIN_PASSWORD || 'Admin@123456')
+  expect(admin).toBeTruthy()
+  const config = await (await request.get(`${P}/admin/config`, { headers: auth(admin!) })).json()
+  const oldGraph = (config.data || []).find((row: any) => row.configKey === 'knowledge.graph.retrieval-enabled')?.configValue || ''
+  await request.put(`${P}/admin/config`, {
+    headers: auth(admin!),
+    data: { configKey: 'knowledge.graph.retrieval-enabled', configValue: 'true' }
+  })
   const suffix = Date.now()
   const kb = await (await request.post(`${P}/knowledge-base`, {
     headers: auth(token!), data: { name: `E2E 覆盖上传-${suffix}`, visibility: 'PRIVATE',
@@ -558,6 +566,10 @@ test('GraphRAG：高阈值下图谱关联 chunk 召回', async ({ request }) => 
     expect(String(meta2.reason)).toContain('related2')
   } finally {
     await request.delete(`${P}/knowledge-base/${kbId}?force=true`, { headers: auth(token!) })
+    await request.put(`${P}/admin/config`, {
+      headers: auth(admin!),
+      data: { configKey: 'knowledge.graph.retrieval-enabled', configValue: oldGraph }
+    }).catch(() => {})
   }
 })
 
