@@ -24,7 +24,6 @@
         <el-button type="primary" :loading="saving" @click="save">{{ t('agentEdit.save') }}</el-button>
       </div>
     </div>
-
     <div class="edit-body">
       <!-- 左侧：配置面板 -->
       <div class="panels">
@@ -38,7 +37,6 @@
               <el-form-item :label="t('agentEdit.tags')"><el-input v-model="tagsStr" :placeholder="t('agentEdit.tagsPh')" /></el-form-item>
             </el-form>
           </el-collapse-item>
-
           <el-collapse-item name="model">
             <template #title><span class="p-title">{{ t('agentEdit.modelSection') }}</span></template>
             <el-form label-width="70px">
@@ -87,9 +85,9 @@
                 </el-select>
                 <span class="hint">{{ t('agentEdit.thinkingLevelHint') }}</span>
               </el-form-item>
+              <AgentRoutingPanel :models="models" :form="form" :t="t" :model-label="modelLabel" />
             </el-form>
           </el-collapse-item>
-
           <el-collapse-item name="prompt">
             <template #title><span class="p-title">{{ t('agentEdit.prompts') }}</span><span class="req">*</span></template>
             <div class="prompt-actions">
@@ -100,13 +98,11 @@
             <el-input v-model="form.systemPrompt" type="textarea" :rows="8"
                       :placeholder="t('agentEdit.systemPromptPh')" />
           </el-collapse-item>
-
           <el-collapse-item name="welcome">
             <template #title><span class="p-title">{{ t('agentEdit.welcome') }}</span></template>
             <el-input v-model="form.openingStatement" type="textarea" :rows="3"
                       :placeholder="t('agentEdit.welcomePh')" />
           </el-collapse-item>
-
           <el-collapse-item name="capability">
             <template #title><span class="p-title">{{ t('agentEdit.capabilities') }}</span></template>
             <el-form label-width="90px">
@@ -169,7 +165,6 @@
               </el-form-item>
             </el-form>
           </el-collapse-item>
-
           <el-collapse-item name="memory">
             <template #title><span class="p-title">{{ t('agentEdit.memory') }}</span></template>
             <el-form label-width="90px">
@@ -183,7 +178,6 @@
               </el-form-item>
             </el-form>
           </el-collapse-item>
-
           <el-collapse-item name="knowledge">
             <template #title><span class="p-title">{{ t('agentEdit.kb') }}</span>
               <el-tag size="small" class="ml8">{{ enabledKbCount ? `${t('agentEdit.boundCount')}${enabledKbCount}${t('agentEdit.countSuffix')}` : t('agentEdit.unbound') }}</el-tag>
@@ -211,6 +205,7 @@
                 </el-select>
                 topK <el-input-number v-model="kb.topK" :min="1" :max="kb.maxTopK || 20" size="small" />
                 {{ t('agentEdit.threshold') }} <el-input-number v-model="kb.scoreThreshold" :min="0" :max="1" :step="0.05" size="small" />
+                <KbRerankControl :kb="kb" :t="t" />
               </div>
               <div class="kb-params" v-if="kb.enabled">
                 <el-select v-model="kb.documentType" size="small" clearable
@@ -1399,6 +1394,9 @@ import { ArrowLeft } from '@element-plus/icons-vue'
 import http from '../api/http'
 import { escapeHtml, renderGateFailures } from '../utils/gateDetails'
 import WorkflowNodeForm from '../components/WorkflowNodeForm.vue'
+import AgentRoutingPanel from '../components/AgentRoutingPanel.vue'
+import KbRerankControl from '../components/KbRerankControl.vue'
+import { hydrateRoutingForm } from '../utils/agentEditRoutingForm'
 import { useAgentEditorActions } from './agentEditorActions'
 import { useAgentWorkflowEditor } from './agentWorkflowEditor'
 
@@ -1460,6 +1458,8 @@ const form = reactive({
   name: '', description: '', category: '', visibility: 'TENANT', listed: true,
   modelName: '', fallbackModelName: '', grayModel: '', grayTag: '', temperature: 0.7,
   thinking: false, reasoningEffort: 'medium',
+  routingEnabled: false, routingClassifierModel: '', routingSimpleModel: '', routingComplexModel: '',
+  routingRules: [] as Array<{ keywords: string; model: string }>,
   systemPrompt: '', openingStatement: '',
   capabilities: { streamOutput: true, functionCall: false, maxToolCalls: 0, redactSecrets: true,
     maxInputValidationAttempts: 3, maxToolOutputChars: 0, multimodal: false, selfCorrection: false,
@@ -1513,6 +1513,7 @@ watch([() => form.modelName, () => form.thinking], () => {
 const sectionOptions = ['abstract', 'introduction', 'methods', 'results', 'discussion', 'conclusion', 'references', 'body']
 interface KbRow {
   knowledgeBaseId: number; name: string; enabled: boolean; topK: number; scoreThreshold: number; mode: string
+  rerank: boolean; rerankTopN?: number
   documentType?: string; sectionType?: string; regulatoryCategory?: string
   chunkLevel?: number; minRelevance?: number; defaultTopK?: number; maxTopK?: number
   searchBackend?: string; vectorBackend?: string; missing?: boolean
@@ -1562,6 +1563,7 @@ onMounted(async () => {
   form.temperature = mc.temperature ?? 0.7
   form.thinking = mc.thinking === true
   form.reasoningEffort = typeof mc.reasoningEffort === 'string' ? mc.reasoningEffort : 'medium'
+  hydrateRoutingForm(form, mc)
   form.systemPrompt = detail.systemPrompt || ''
   form.openingStatement = detail.openingStatement || ''
   form.resourceProfileId = detail.resourceProfileId || null
@@ -1600,6 +1602,7 @@ onMounted(async () => {
       knowledgeBaseId: kb.id, name: kb.name,
       enabled: b ? b.enabled !== false : false,
       topK: rc.topK ?? kb.defaultTopK ?? 5, scoreThreshold: rc.scoreThreshold ?? 0.5, mode: rc.mode || 'hybrid',
+      rerank: rc.rerank !== false, rerankTopN: rc.rerankTopN ?? rc.topK ?? kb.defaultTopK ?? 5,
       defaultTopK: kb.defaultTopK ?? 5, maxTopK: kb.maxTopK ?? 20,
       searchBackend: kb.searchBackend || 'MYSQL', vectorBackend: kb.vectorBackend || 'PGVECTOR',
       documentType: rc.documentType || undefined, sectionType: rc.sectionType || undefined,
@@ -1623,14 +1626,11 @@ onMounted(async () => {
     if (!visibleIds.has(b.knowledgeBaseId)) {
       kbRows.value.push({
         knowledgeBaseId: b.knowledgeBaseId, name: `${t('agentMsg.invalidSuffix')}KB #${b.knowledgeBaseId}${t('agentMsg.invalidSuffix2')}`,
-        enabled: false, topK: 5, scoreThreshold: 0.5, mode: 'hybrid', missing: true
+        enabled: false, topK: 5, scoreThreshold: 0.5, mode: 'hybrid', rerank: false, rerankTopN: 5, missing: true
       })
     }
   }
 })
 </script>
 
-<style scoped src="./AgentEditView.css">.model-policy-link { margin-top: 4px; font-size: 12px; }
-.model-policy-link a { color: #909399; text-decoration: none; }
-.model-policy-link a:hover { color: #409eff; text-decoration: underline; }
-</style>
+<style scoped src="./AgentEditView.css"></style>

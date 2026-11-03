@@ -320,6 +320,7 @@
 .deploy-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .deploy-keys-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .deploy-replicas { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.routing-rule { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
 :deep(.el-descriptions__label) { white-space: nowrap; }
 
 @media (max-width: 768px) {
@@ -338,3 +339,7 @@
   .wf-palette-item { margin-bottom: 0; }
   .wf-node-panel { width: 100%; max-height: none; }
 }
+
+.model-policy-link { margin-top: 4px; font-size: 12px; }
+.model-policy-link a { color: #909399; text-decoration: none; }
+.model-policy-link a:hover { color: #409eff; text-decoration: underline; }
