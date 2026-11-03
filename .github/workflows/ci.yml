@@ -170,7 +170,7 @@ jobs:
         include:
           - image: backend
             context: ./backend
-            fail_on_vuln: '0'
+            fail_on_vuln: '1'
           - image: frontend
             context: ./frontend
             fail_on_vuln: '1'
@@ -193,6 +193,7 @@ jobs:
           format: table
           output: ${{ matrix.image }}-image-vuln.txt
           exit-code: ${{ matrix.fail_on_vuln }}
+          trivyignores: .trivyignore
 
       - name: Trivy 镜像 SBOM（${{ matrix.image }}）
         uses: aquasecurity/trivy-action@v0.36.0

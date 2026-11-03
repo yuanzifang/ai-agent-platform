@@ -1,2 +1,14 @@
-# trivy 豁免清单（HIGH/CRITICAL 门禁例外须在此记录理由，升级依赖后及时清理）
-# 2026-10-25：CVE-2026-22733 豁免已随 Spring Boot 3.5.16 升级移除。
+# Trivy HIGH/CRITICAL 豁免清单。
+# 每条必须写清：日期、受影响组件、为什么不可利用/不可修复、何时复查。
+# 升级依赖或更换实现后必须重新评估并尽量删除。
+#
+# 2026-11-03：Spring Framework 6.2.19（Boot 3.5.16 管理版本，6.x 暂无修复版本）
+# 平台只使用 Spring MVC + SseEmitter，不启用 XSLT View、WebFlux 函数式端点或 WebFlux View；
+# 这些 CVE 的受影响路径当前不可达。复查：Boot 升级到包含 6.2.20+ 或 Spring 7 时。
+CVE-2026-47890
+CVE-2026-47892
+CVE-2026-47884
+#
+# 2026-11-03：lark-mcp 间接依赖 basic-ftp 5.3.1；平台只使用飞书 API，不启用 FTP 功能。
+# 复查：lark-mcp 升级或移除 FTP 依赖后删除。
+CVE-2026-102990

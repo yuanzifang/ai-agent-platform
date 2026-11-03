@@ -77,7 +77,8 @@ jobs:
           ignore-unfixed: true
           format: table
           output: backend-image-vuln.txt
-          exit-code: '0'
+          exit-code: '1'
+          trivyignores: .trivyignore
 
       - name: 前端镜像 SBOM（CycloneDX）
         uses: aquasecurity/trivy-action@v0.36.0
