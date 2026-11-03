@@ -78,7 +78,8 @@ class ChatServiceKnowledgeTest {
         service = new ChatService(modelRouter, billingMapper, pricingService, quotaService,
                 hybridRetrieval, graphService, permissionService, toolRuntime, contextWindow,
                 documentMapper, knowledgeBaseMapper,
-                new PromptInjectionModerationProvider(true, 2), new ObjectMapper());
+                new PromptInjectionModerationProvider(true, 2), new ObjectMapper(),
+                mock(com.platform.conversation.service.ModelRoutingService.class));
 
         kb = new KnowledgeBase();
         kb.setId(1L);

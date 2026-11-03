@@ -60,7 +60,16 @@
                   <el-option :label="t('agentEdit.keyword')" value="keyword" />
                 </el-select>
                 topK <el-input-number v-model="node.topK" :min="1" :max="20" size="small" />
+                <el-checkbox :model-value="node.rerank === true"
+                             @update:model-value="node.rerank = $event">
+                  {{ t('wf.rerank') }}
+                </el-checkbox>
+                <template v-if="node.rerank === true">
+                  {{ t('wf.rerankTopN') }}
+                  <el-input-number v-model="node.rerankTopN" :min="1" :max="20" size="small" />
+                </template>
               </div>
+              <div class="hint">{{ t('wf.rerankHint') }}</div>
               <el-input v-model="node.queryTemplate" class="mt8"
                         :placeholder="t('wf.queryPh')" />
             </template>

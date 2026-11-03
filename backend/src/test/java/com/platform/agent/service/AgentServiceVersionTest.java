@@ -109,6 +109,26 @@ class AgentServiceVersionTest {
     }
 
     @Test
+    void updateRejectsPlatformModelInRoutingConfig() {
+        when(agentMapper.selectById(7L)).thenReturn(agent(7L));
+        com.platform.model.entity.ModelEntity platform = new com.platform.model.entity.ModelEntity();
+        platform.setModelName("qwen2.5:7b");
+        platform.setPurpose("PLATFORM");
+        when(modelMapper.findForPricing("current-model", 1L)).thenReturn(null);
+        when(modelMapper.findForPricing("qwen2.5:7b", 1L)).thenReturn(platform);
+        Map<String, Object> config = Map.of(
+                "modelName", "current-model",
+                "routing", Map.of("enabled", true, "complexModel", "qwen2.5:7b"));
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> agentService.update(7L, Map.of("modelConfig", config), null, principal()));
+
+        assertEquals(400, error.getCode());
+        assertEquals("模型「qwen2.5:7b」为平台评测专用，不能用于 Agent；请选择 Agent 自己的对话模型",
+                error.getMessage());
+    }
+
+    @Test
     void createRejectsBlankName() {
         Map<String, Object> req = validCreateRequest();
         req.put("name", "   ");

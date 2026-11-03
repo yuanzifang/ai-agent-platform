@@ -417,6 +417,36 @@ class HybridRetrievalServiceTest {
     }
 
     @Test
+    void rerankTopNComesFromRetrievalConfig() {
+        RerankService rerank = mock(RerankService.class);
+        when(rerank.enabled()).thenReturn(true);
+        when(rerank.rerank(anyString(), anyList(), anyInt())).thenAnswer(inv -> inv.getArgument(1));
+        ReflectionTestUtils.setField(service, "rerankService", rerank);
+        when(chunkMapper.searchFulltext(eq(1L), anyString(), anyInt())).thenReturn(List.of(
+                Map.of("id", 1, "content", "A", "score", 1,
+                        "document_id", 1, "chunk_index", 0)));
+
+        service.search(1L, "q", 1L, 5, 0.5,
+                Map.of("mode", "keyword", "rerank", "true", "rerankTopN", 2));
+
+        verify(rerank).rerank(eq("q"), anyList(), eq(2));
+    }
+
+    @Test
+    void rerankIsOptInByDefault() {
+        RerankService rerank = mock(RerankService.class);
+        when(rerank.enabled()).thenReturn(true);
+        ReflectionTestUtils.setField(service, "rerankService", rerank);
+        when(chunkMapper.searchFulltext(eq(1L), anyString(), anyInt())).thenReturn(List.of(
+                Map.of("id", 1, "content", "A", "score", 1,
+                        "document_id", 1, "chunk_index", 0)));
+
+        service.search(1L, "q", 1L, 5, 0.5, Map.of("mode", "keyword"));
+
+        verify(rerank, never()).rerank(anyString(), anyList(), anyInt());
+    }
+
+    @Test
     void rerankCanBeDisabledPerRequest() {
         RerankService rerank = mock(RerankService.class);
         when(rerank.enabled()).thenReturn(true);

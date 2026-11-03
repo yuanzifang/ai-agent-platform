@@ -86,12 +86,15 @@ public class ModelRoutingService {
         if (classifierModel == null || classifierModel.isBlank()) return null;
         if (simpleModel == null && complexModel == null) return null;
 
-        CachedClassify cached = classifyCache.get(userMessage);
+        // 缓存必须带租户和分类器模型：同一句话在不同租户/分类器下可能得到不同复杂度。
+        String cacheKey = com.platform.common.context.TenantContext.getTenantId()
+                + "|" + classifierModel + "|" + userMessage;
+        CachedClassify cached = classifyCache.get(cacheKey);
         if (cached == null || !cached.fresh()) {
             String complexity = classifyWithTimeout(classifierModel, userMessage);
             cached = new CachedClassify(complexity, System.currentTimeMillis());
             if (classifyCache.size() >= CACHE_MAX) classifyCache.clear();
-            classifyCache.put(userMessage, cached);
+            classifyCache.put(cacheKey, cached);
         }
         String complexity = cached.complexity();
         return switch (complexity) {

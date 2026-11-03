@@ -848,7 +848,10 @@ function buildWorkflowNode(type: string): any {
   if (type === 'HANDOFF') { node.inputTemplate = '{{input}}'; node.returnRounds = 1 }
   if (type === 'STATE') { node.stateKey = ''; node.valueTemplate = '{{last}}' }
   if (type === 'TOOL') node.argsTemplate = '{}'
-  if (type === 'KNOWLEDGE') { node.mode = 'hybrid'; node.topK = 5; node.queryTemplate = '' }
+  if (type === 'KNOWLEDGE') {
+    node.mode = 'hybrid'; node.topK = 5; node.queryTemplate = ''
+    node.rerank = true; node.rerankTopN = 5
+  }
   if (type === 'APPROVAL') { node.requiredRole = ''; node.timeoutMinutes = 0 }
   if (type === 'PARALLEL') { node.branches = []; node.joinNode = ''; node.next = ''; node.strategy = 'ALL_OR_NOTHING' }
   if (type === 'LOOP') { node.bodyNode = ''; node.loopEnd = ''; node.itemsText = '["A","B"]'; node.maxIterations = 10; node.requiredRole = ''; node.timeoutMinutes = 0 }
