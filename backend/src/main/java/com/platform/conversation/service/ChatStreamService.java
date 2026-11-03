@@ -94,6 +94,7 @@ public class ChatStreamService {
     private final MemoryExtractionService memoryExtractionService;
     private final com.platform.agent.service.CaseService caseService;
     private final com.platform.agent.service.AgriSafetyGuard agriSafetyGuard;
+    private final ModelRoutingService modelRoutingService;
     @Value("${moderation.stream.buffer-chars:40}")
     private int streamModerateChars;
     @org.springframework.beans.factory.annotation.Qualifier("llmTaskExecutor")
@@ -148,19 +149,16 @@ public class ChatStreamService {
     }
 
 
-    /**
-     * 灰度路由（需求：灰度标记从网关透传后的消费端）：请求携带的灰度标记命中
-     * Agent 模型配置的 grayTag 时，模型切换为 grayModel；未命中/未配置返回原模型。
-     * 灰度模型失败仍走 fallbackModelName 链（金丝雀回退语义）。大小写不敏感。
-     */
+    /** 兼容公开调用：灰度路由具体实现已抽到 ChatStreamRoutingSupport。 */
     public static String applyGrayModel(Map<String, Object> modelConfig, String currentModel) {
-        String tag = GrayTagContext.get();
-        if (tag == null || tag.isBlank()) return currentModel;
-        Object grayTag = modelConfig.get("grayTag");
-        Object grayModel = modelConfig.get("grayModel");
-        if (grayTag == null || grayModel == null) return currentModel;
-        return tag.trim().equalsIgnoreCase(String.valueOf(grayTag).trim())
-                ? String.valueOf(grayModel) : currentModel;
+        return ChatStreamRoutingSupport.applyGrayModel(modelConfig, currentModel);
+    }
+
+    /** 兼容测试/包内调用：智能路由具体实现已抽到 ChatStreamRoutingSupport。 */
+    static String resolveRoutedModel(ModelRoutingService service, Map<String, Object> modelConfig,
+                                     String userMessage, String baseModel,
+                                     com.platform.capability.runtime.TraceStepCollector steps) {
+        return ChatStreamRoutingSupport.resolveRoutedModel(service, modelConfig, userMessage, baseModel, steps);
     }
 
     /** 发送消息：入口（校验/审核/落用户消息），随后进入流式或非流式生成。 */
@@ -368,8 +366,8 @@ public class ChatStreamService {
 
         Map<String, Object> modelConfig = config.get("modelConfig") instanceof Map<?, ?> m
                 ? (Map<String, Object>) m : Map.of();
-        String modelName = applyGrayModel(modelConfig,
-                str(modelConfig.getOrDefault("modelName", "deepseek-chat")));
+        String modelName = ChatStreamRoutingSupport.resolveRoutedModel(modelRoutingService, modelConfig,
+                userMsg.getContent(), str(modelConfig.getOrDefault("modelName", "deepseek-chat")), steps);
         String fallbackModel = str(modelConfig.get("fallbackModelName"));
         Double temperature = modelConfig.get("temperature") instanceof Number n ? n.doubleValue() : null;
         Boolean thinking = modelConfig.get("thinking") instanceof Boolean b ? b : null;
@@ -759,8 +757,8 @@ public class ChatStreamService {
         steps.add("chain", "memory-load", "SUCCESS", memoryStart, System.currentTimeMillis(),
                 java.util.Map.of("messages", history.size()));
         Map<String, Object> modelConfig = asMap(config.get("modelConfig"));
-        String modelName = applyGrayModel(modelConfig,
-                str(modelConfig.getOrDefault("modelName", "deepseek-chat")));
+        String modelName = ChatStreamRoutingSupport.resolveRoutedModel(modelRoutingService, modelConfig,
+                userMsg.getContent(), str(modelConfig.getOrDefault("modelName", "deepseek-chat")), steps);
         String fallbackModel = str(modelConfig.get("fallbackModelName"));
         Double temperature = modelConfig.get("temperature") instanceof Number n ? n.doubleValue() : null;
         Boolean thinking = modelConfig.get("thinking") instanceof Boolean b ? b : null;
