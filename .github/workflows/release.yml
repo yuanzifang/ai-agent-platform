@@ -88,7 +88,7 @@ jobs:
           output: frontend-image-sbom.cdx.json
           exit-code: '0'
 
-      - name: 前端镜像漏洞扫描（HIGH/CRITICAL，观察模式）
+      - name: 前端镜像漏洞扫描（HIGH/CRITICAL，阻断模式）
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
@@ -97,7 +97,7 @@ jobs:
           ignore-unfixed: true
           format: table
           output: frontend-image-vuln.txt
-          exit-code: '0'
+          exit-code: '1'
 
       - name: Alert-relay 镜像 SBOM（CycloneDX）
         uses: aquasecurity/trivy-action@v0.36.0
@@ -108,7 +108,7 @@ jobs:
           output: alert-relay-sbom.cdx.json
           exit-code: '0'
 
-      - name: Alert-relay 镜像漏洞扫描（HIGH/CRITICAL，观察模式）
+      - name: Alert-relay 镜像漏洞扫描（HIGH/CRITICAL，阻断模式）
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
@@ -117,7 +117,7 @@ jobs:
           ignore-unfixed: true
           format: table
           output: alert-relay-image-vuln.txt
-          exit-code: '0'
+          exit-code: '1'
 
       - name: 归档、校验并生成校验和
         run: |
