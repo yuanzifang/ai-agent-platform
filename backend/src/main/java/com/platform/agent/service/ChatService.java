@@ -203,7 +203,7 @@ public class ChatService {
             int defaultTopK = visibleKb.getDefaultTopK() == null ? 5 : visibleKb.getDefaultTopK();
             int maxTopK = visibleKb.getMaxTopK() == null ? 20 : visibleKb.getMaxTopK();
             int topK = Math.min(Math.max(1, toInt(rc.get("topK"), defaultTopK)), Math.max(1, maxTopK));
-            // 农业等精确问答场景可选子片段上下文，避免整块父文档把相邻病害章节带入提示词。
+            // Agent/知识库可按需选择子片段上下文，避免整块父文档把相邻章节带入提示词。
             boolean childOnly = Boolean.TRUE.equals(rc.get("useChildContent"))
                     || "true".equalsIgnoreCase(String.valueOf(rc.get("useChildContent")));
             double defaultThreshold = visibleKb.getDefaultScoreThreshold() == null

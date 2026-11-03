@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "runtime": {
+    "agentDeploy": {
+      "bind": "127.0.0.1",
+      "corsOrigins": ""
+    },
+    "skillScript": {
+      "enabled": "false",
+      "runtime": "process",
+      "prodRuntime": "docker"
+    }
+  },
+  "staticChecks": [
+    {
+      "file": "backend/src/main/resources/application.yml",
+      "contains": "enabled: ${AGENT_DEPLOY_ENABLED:true}",
+      "message": "Agent 部署默认开关异常"
+    },
+    {
+      "file": "backend/src/main/resources/application.yml",
+      "contains": "enabled: ${SKILL_SCRIPT_ENABLED:false}",
+      "message": "技能脚本默认未关闭（SKILL_SCRIPT_ENABLED 必须默认 false）"
+    },
+    {
+      "file": "backend/src/main/resources/application.yml",
+      "contains": "runtime: ${SKILL_SCRIPT_RUNTIME:process}",
+      "message": "技能脚本基础 runtime 配置异常"
+    },
+    {
+      "file": "backend/src/main/resources/application-prod.yml",
+      "contains": "runtime: ${SKILL_SCRIPT_RUNTIME:docker}",
+      "message": "生产 profile 未强制技能脚本 runtime=docker"
+    },
+    {
+      "file": "backend/src/main/java/com/platform/capability/runtime/ScriptRunnerService.java",
+      "contains": "@Value(\"${skill.script.enabled:false}\")",
+      "message": "ScriptRunnerService 的技能脚本默认开关未关闭"
+    },
+    {
+      "file": "backend/src/main/java/com/platform/capability/runtime/ScriptRunnerService.java",
+      "contains": "已拒绝执行",
+      "message": "Docker 沙箱不可用时未 fail-closed"
+    },
+    {
+      "file": "backend/src/main/resources/application.yml",
+      "contains": "bind: ${AGENT_DEPLOY_BIND:127.0.0.1}",
+      "message": "Agent 部署默认绑定不是 127.0.0.1"
+    },
+    {
+      "file": "backend/src/main/resources/application.yml",
+      "contains": "cors-origins: ${AGENT_DEPLOY_CORS_ORIGINS:}",
+      "message": "Agent 部署 CORS 默认没有收敛"
+    },
+    {
+      "file": "docker-compose.yml",
+      "contains": "SKILL_SCRIPT_ENABLED: ${SKILL_SCRIPT_ENABLED:-false}",
+      "message": "Compose 技能脚本默认开关未关闭"
+    },
+    {
+      "file": "docker-compose.yml",
+      "contains": "SKILL_SCRIPT_RUNTIME: ${SKILL_SCRIPT_RUNTIME:-docker}",
+      "message": "Compose 技能脚本默认运行时不是 docker"
+    },
+    {
+      "file": "deploy/helm/ai-agent-platform/values.yaml",
+      "contains": "skillScriptEnabled: \"false\"",
+      "message": "Helm 技能脚本默认开关未关闭"
+    },
+    {
+      "file": "deploy/helm/ai-agent-platform/values.yaml",
+      "contains": "skillScriptRuntime: \"docker\"",
+      "message": "Helm 技能脚本默认运行时不是 docker"
+    },
+    {
+      "file": "deploy/helm/ai-agent-platform/values.yaml",
+      "contains": "automountServiceAccountToken: false",
+      "message": "Helm ServiceAccount 默认仍自动挂载 K8s API Token"
+    },
+    {
+      "file": "deploy/helm/ai-agent-platform/templates/backend-deployment.yaml",
+      "contains": "automountServiceAccountToken: {{ .Values.agentDeploy.enabled }}",
+      "message": "backend 未按 agentDeploy 开关控制 SA token 挂载"
+    },
+    {
+      "file": "deploy/helm/ai-agent-platform/templates/frontend-deployment.yaml",
+      "contains": "automountServiceAccountToken: false",
+      "message": "frontend 仍自动挂载 SA token"
+    }
+  ]
+}

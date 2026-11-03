@@ -135,17 +135,28 @@ public class ImageUnderstandingService {
                 + "扫描文档：提取标题、表格和关键字段。用中文回答，不超过300字。");
     }
 
+    /** 平台通用聊天图片提示；行业特化提示由 Agent 配置提供。 */
+    static final String DEFAULT_CHAT_IMAGE_PROMPT =
+            "请描述图片中的文字、主要对象、场景和可见细节；如涉及专业判断，请说明不确定性。"
+                    + "用中文回答，不超过600字，不要编造图片中不可见的信息。";
+
     /**
-     * 聊天图片识别：面向农业咨询，识别作物/器官、病虫害症状、杂草或农资包装，
-     * 输出可供文本模型参考的描述。未启用或失败时返回空串，不阻断对话。
+     * 聊天图片识别：使用平台通用提示词，输出可供文本模型参考的描述。
+     * 未启用或失败时返回空串，不阻断对话。
      */
     public String describeForChat(byte[] data, String extension) {
+        return describeForChat(data, extension, null);
+    }
+
+    /**
+     * 聊天图片识别扩展入口：Agent 可通过配置覆盖提示词；
+     * 未配置时回落到平台通用提示，不在核心服务中写死行业提示。
+     */
+    public String describeForChat(byte[] data, String extension, String prompt) {
         if (!enabled) return "";
-        return describeInternal(data, model, "你是农业植物保护与作物栽培专家。请识别图片中的作物或器官，"
-                + "描述可见的病斑、害虫、杂草、农资包装或田间场景；判断最可能的病虫害/问题"
-                + "（最多3个，并区分较确定与推测），说明判断依据。若图片是农资包装，请读出名称、"
-                + "有效成分和登记作物（看不清就说明看不清）。用中文回答，不超过600字，"
-                + "不要编造图片中不可见的信息，也不要给出具体农药用量。");
+        String effectivePrompt = prompt == null || prompt.isBlank()
+                ? DEFAULT_CHAT_IMAGE_PROMPT : prompt;
+        return describeInternal(data, model, effectivePrompt);
     }
 
     private String describeInternal(byte[] data, String effModel, String prompt) {

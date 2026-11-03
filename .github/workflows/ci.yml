@@ -160,6 +160,55 @@ jobs:
           DOCKER_IT_IMAGE: alert-relay:ci
         run: mvn -q -Dtest=DockerCliRuntimeIT test
 
+  images:
+    name: 镜像构建与供应链扫描（backend/frontend/alert-relay）
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: ./backend
+          - image: frontend
+            context: ./frontend
+          - image: alert-relay
+            context: ./runtime/alert-relay
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 构建镜像（${{ matrix.image }}）
+        run: docker build -t aap/${{ matrix.image }}:ci ${{ matrix.context }}
+
+      - name: Trivy 漏洞扫描（${{ matrix.image }}）
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: aap/${{ matrix.image }}:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          output: ${{ matrix.image }}-image-vuln.txt
+          exit-code: '0'
+
+      - name: Trivy 镜像 SBOM（${{ matrix.image }}）
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: aap/${{ matrix.image }}:ci
+          format: cyclonedx
+          output: ${{ matrix.image }}-image-sbom.cdx.json
+          exit-code: '0'
+
+      - name: 上传镜像扫描结果（${{ matrix.image }}）
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-scan-${{ matrix.image }}
+          path: |
+            ${{ matrix.image }}-image-vuln.txt
+            ${{ matrix.image }}-image-sbom.cdx.json
+          if-no-files-found: error
+
   build:
     name: 后端构建 + 前端类型检查/构建
     runs-on: ubuntu-latest
