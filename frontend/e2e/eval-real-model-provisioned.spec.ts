@@ -19,6 +19,7 @@ test('真实模型门禁（自包含 Agent/数据集）', async ({ request }) =>
 
   let agentId: number | null = null
   let datasetId: number | null = null
+  let kbId: number | null = null
   let oldJudge = ''
 
   const config = await (await request.get(`${P}/admin/config`, {
@@ -56,6 +57,18 @@ test('真实模型门禁（自包含 Agent/数据集）', async ({ request }) =>
     expect(ds.code, JSON.stringify(ds)).toBe(0)
     datasetId = ds.data.id as number
 
+    // 不依赖固定知识库 ID；空知识库能让 RETRIEVAL 步骤稳定得到 0 命中并失败。
+    const kb = await (await request.post(`${P}/knowledge-base`, {
+      headers: auth(dev!),
+      data: {
+        name: `${name}-空知识库`,
+        visibility: 'PRIVATE',
+        embeddingModel: 'nomic-embed-text'
+      }
+    })).json()
+    expect(kb.code, JSON.stringify(kb)).toBe(0)
+    kbId = kb.data.id as number
+
     const answerMarker = `REAL_ANSWER_${Date.now()}`
     const retrievalMarker = `REAL_RETRIEVAL_${Date.now()}`
     for (const item of [
@@ -71,7 +84,7 @@ test('真实模型门禁（自包含 Agent/数据集）', async ({ request }) =>
         scoreCriteria: '',
         stepType: 'RETRIEVAL',
         expectedPayload: '{"chunk_ids":[999999999]}',
-        stepConfig: '{"knowledgeBaseId":1,"topK":5}'
+        stepConfig: JSON.stringify({ knowledgeBaseId: kbId, topK: 5 })
       }
     ]) {
       const added = await (await request.post(`${P}/eval/datasets/${datasetId}/items`, {
@@ -106,12 +119,17 @@ test('真实模型门禁（自包含 Agent/数据集）', async ({ request }) =>
     expect(String(answer.answer || '').length).toBeGreaterThan(0)
     expect(String(answer.judgeReason || '').length).toBeGreaterThan(0)
     expect(String(answer.judgeReason)).not.toContain('mock')
-    expect(detail.data.stepGate.failedSteps.length, '门禁应有失败步骤').toBeGreaterThan(0)
+    expect(detail.data.stepGate.failedSteps).toContain('RETRIEVAL')
   } finally {
     if (datasetId != null) {
       await request.delete(`${P}/eval/datasets/${datasetId}`, { headers: auth(dev!) }).catch(() => {})
     }
     if (agentId != null) await deleteAgent(request, dev!, agentId)
+    if (kbId != null) {
+      await request.delete(`${P}/knowledge-base/${kbId}?force=true`, {
+        headers: auth(dev!)
+      }).catch(() => {})
+    }
     await request.put(`${P}/admin/config`, {
       headers: auth(admin!),
       data: { configKey: 'eval.gate-judge-model', configValue: oldJudge }

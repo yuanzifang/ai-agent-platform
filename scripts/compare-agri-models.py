@@ -26,6 +26,7 @@ PROGRESS = os.environ.get(
 MODELS = [m.strip() for m in os.environ.get(
     "AAP_MODELS", "qwen2.5:7b-chat,qwen2.5:14b").split(",") if m.strip()]
 JUDGE_MODEL = os.environ.get("AAP_JUDGE_MODEL", "qwen2.5:7b-chat")
+PROMPT_VERSION = os.environ.get("AAP_PROMPT_VERSION", "").strip()
 PASS_THRESHOLD = float(os.environ.get("AAP_PASS_THRESHOLD", "0.75"))
 ONLY_FAILED = [c for c in json.load(open("/Users/wangpan/.zcode/workspace/default/ai-agent-platform/docs/农业回答质量基线-V7-60题.json",
                                         encoding="utf-8"))["results"] if not c["passed"]]
@@ -123,7 +124,17 @@ def load_cases():
 
 
 def agent_config():
-    return api("GET", "/api/v1/agent/5422")["data"]
+    config = api("GET", "/api/v1/agent/5422")["data"]
+    if PROMPT_VERSION:
+        versions = api("GET", "/api/v1/agent/5422/versions")["data"]
+        version = next((v for v in versions if v.get("version") == PROMPT_VERSION), None)
+        if not version:
+            raise RuntimeError("找不到提示词版本 " + PROMPT_VERSION)
+        snapshot = version.get("snapshot") or {}
+        if isinstance(snapshot, str):
+            snapshot = json.loads(snapshot)
+        config["systemPrompt"] = snapshot.get("systemPrompt")
+    return config
 
 
 def main():
