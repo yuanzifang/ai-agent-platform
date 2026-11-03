@@ -38,6 +38,14 @@ public class ChatAttachmentInjector {
 
     /** 把附件解析内容拼进用户消息；无附件或 JSON 非法时原样返回。 */
     public String inject(String message, String attachmentsJson) {
+        return inject(message, attachmentsJson, null);
+    }
+
+    /**
+     * 带 Agent 级图片识别提示词的注入。提示词为空时使用平台通用视觉提示，
+     * 行业提示词由 Agent 配置提供，不在核心服务中硬编码。
+     */
+    public String inject(String message, String attachmentsJson, String imagePrompt) {
         if (attachmentsJson == null || attachmentsJson.isBlank()) return message;
         try {
             List<Map<String, Object>> list =
@@ -71,7 +79,9 @@ public class ChatAttachmentInjector {
                     byte[] bytes = storageService.get(objectName);
                     if (image) {
                         imageCount++;
-                        String description = imageUnderstandingService.describeForChat(bytes, name);
+                        String description = imagePrompt == null || imagePrompt.isBlank()
+                                ? imageUnderstandingService.describeForChat(bytes, name)
+                                : imageUnderstandingService.describeForChat(bytes, name, imagePrompt);
                         if (description == null || description.isBlank()) {
                             sb.append("（图片视觉识别未启用或失败，未提取到图片内容）");
                         } else {

@@ -22,6 +22,7 @@ import com.platform.common.context.TenantContext;
 import com.platform.common.ratelimit.ModelConcurrencyGuard;
 import com.platform.common.context.GrayTagContext;
 import com.platform.common.exception.BusinessException;
+import com.platform.extension.agent.AgentRequestGuard;
 import com.platform.conversation.entity.ChatAttachment;
 import com.platform.conversation.entity.ChatCheckpoint;
 import com.platform.conversation.entity.Conversation;
@@ -55,6 +56,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -93,7 +95,8 @@ public class ChatStreamService {
     private final SelfCorrectionService selfCorrectionService;
     private final MemoryExtractionService memoryExtractionService;
     private final com.platform.agent.service.CaseService caseService;
-    private final com.platform.agent.service.AgriSafetyGuard agriSafetyGuard;
+    /** Agent 级可选请求护栏；核心不感知具体行业实现。 */
+    private final List<AgentRequestGuard> requestGuards;
     private final ModelRoutingService modelRoutingService;
     @Value("${moderation.stream.buffer-chars:40}")
     private int streamModerateChars;
@@ -232,7 +235,7 @@ public class ChatStreamService {
         userMsg.setRole("USER");
         userMsg.setContent(req.message());
         userMsg.setAttachments(attachmentsJson(conversationId, req.attachmentIds(), userMsg));
-        String llmInput = llmInputWithAttachments(req.message(), userMsg.getAttachments());
+        String llmInput = llmInputWithAttachments(req.message(), userMsg.getAttachments(), imagePrompt(config));
         userMsg.setStatus(blocked ? "ERROR" : "SUCCESS");
         userMsg.setAuditedStatus(blocked ? "REVOKED" : "PASS");
         userMsg.setIsAiGenerated(0);
@@ -243,10 +246,14 @@ public class ChatStreamService {
         if (blocked) {
             return blockedEmitter(conversationId, userMsg, hits, sink);
         }
-        // 农业 Agent 的确定性安全兜底：高风险请求不进入小模型，避免无依据荐药/承诺增产。
-        com.platform.agent.service.AgriSafetyGuard.GuardResult guard =
-                agriSafetyGuard.check(agent, req.message());
-        if (guard != null && guard.blocked()) {
+        // Agent 扩展护栏：行业规则由扩展实现和 Agent 配置控制，核心只负责调度。
+        AgentRequestGuard.GuardResult guard = requestGuards.stream()
+                .filter(Objects::nonNull)
+                .map(candidate -> candidate.check(agent, req.message()))
+                .filter(Objects::nonNull)
+                .filter(AgentRequestGuard.GuardResult::blocked)
+                .findFirst().orElse(null);
+        if (guard != null) {
             return safetyGuardResponse(conv, userMsg, guard.answer(),
                     Boolean.FALSE.equals(req.stream()), sink);
         }
@@ -286,7 +293,7 @@ public class ChatStreamService {
         AgentRegistry agent = agentMapper.selectById(conv.getAgentId());
         Published published = publishedOrThrow(agent);
         Map<String, Object> config = published.config();
-        String regenInput = llmInputWithAttachments(lastUser.getContent(), lastUser.getAttachments());
+        String regenInput = llmInputWithAttachments(lastUser.getContent(), lastUser.getAttachments(), imagePrompt(config));
         return streamChat(conv, agent, config, lastUser, target.getId(), true, List.of(), Map.of(), regenInput,
                 published.version(), viewer(principal), principal, "chat",
                 new com.platform.capability.runtime.TraceStepCollector(), null);
@@ -907,7 +914,7 @@ public class ChatStreamService {
         }
     }
 
-    /** 农业安全兜底：不调用模型，直接持久化并返回确定的策略答复。 */
+    /** Agent 扩展护栏命中：不调用模型，直接持久化并返回确定的策略答复。 */
     private Object safetyGuardResponse(Conversation conv, Message userMsg, String answer,
                                        boolean nonStream, StreamSink sink) {
         String traceId = UUID.randomUUID().toString().replace("-", "");
@@ -1394,7 +1401,7 @@ public class ChatStreamService {
 
     /**
      * RAG 检索词：文字问题 + 图片识别结果。文档附件正文不参与检索，避免整篇文档污染 query；
-     * 图片识别出的作物/病虫害关键词正是检索最需要的信号。
+     * 图片识别出的实体/症状关键词是检索的重要信号。
      */
     private String retrievalQuery(String message, String withAttachments) {
         if (message == null) message = "";
@@ -1423,8 +1430,15 @@ public class ChatStreamService {
      * 图片走视觉模型识别后注入描述，避免把图片字节当文档解析；解析失败不阻断对话。
      * 详见 {@link ChatAttachmentInjector}。
      */
-    private String llmInputWithAttachments(String message, String attachmentsJson) {
-        return attachmentInjector.inject(message, attachmentsJson);
+    private String llmInputWithAttachments(String message, String attachmentsJson, String imagePrompt) {
+        return attachmentInjector.inject(message, attachmentsJson, imagePrompt);
+    }
+
+    /** 行业视觉提示词放在 Agent 配置中；核心只读取通用字段。 */
+    private String imagePrompt(Map<String, Object> config) {
+        if (config == null || !(config.get("agentCapabilities") instanceof Map<?, ?> caps)) return null;
+        Object prompt = caps.get("imageUnderstandingPrompt");
+        return prompt == null || String.valueOf(prompt).isBlank() ? null : String.valueOf(prompt);
     }
 
     /** 必填变量校验（需求 3.1.3(9)）：required 且无默认值且未传入 → 400。 */
