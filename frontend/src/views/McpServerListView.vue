@@ -281,7 +281,7 @@ function applyPreset(type: string) {
   if (type === 'feishu') {
     Object.assign(editForm, {
       name: t('mcpPage.feishu'), endpoint: 'https://mcp.feishu.cn/mcp', transport: 'HTTP',
-      authType: 'BEARER', headersText: '{}'
+      authType: 'OAUTH', headersText: '{}'
     })
   } else if (type === 'zhipu') {
     Object.assign(editForm, {
