@@ -41,6 +41,14 @@ public class ProductionGuard {
         if (blank(modelApiKey) || "sk-not-configured".equals(modelApiKey)) {
             problems.add("DEEPSEEK_API_KEY 未配置");
         }
+        // 默认值统一来自 security-defaults.json，避免 Java/Python 两套清单漂移。
+        String skillEnabled = environment.getProperty("skill.script.enabled",
+                SecurityDefaults.runtime("skillScript", "enabled"));
+        String skillRuntime = environment.getProperty("skill.script.runtime",
+                SecurityDefaults.runtime("skillScript", "prodRuntime"));
+        if ("true".equalsIgnoreCase(skillEnabled) && !"docker".equalsIgnoreCase(skillRuntime)) {
+            problems.add("技能脚本已开启但 runtime 不是 docker，拒绝在生产环境启动");
+        }
         if (!problems.isEmpty()) {
             throw new IllegalStateException("生产环境配置校验失败，拒绝启动：\n - "
                     + String.join("\n - ", problems));
