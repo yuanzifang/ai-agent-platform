@@ -77,9 +77,11 @@ public class ConversationService {
                         .like(keyword != null && !keyword.isBlank(), Conversation::getTitle, keyword)
                         .orderByDesc(Conversation::getPinned)
                         .orderByDesc(Conversation::getLastActiveAt));
-        Map<Long, String> agentNames = agentMapper.selectBatchIds(
-                        result.getRecords().stream().map(Conversation::getAgentId).distinct().toList())
-                .stream().collect(Collectors.toMap(AgentRegistry::getId, a -> a.getName() == null ? "" : a.getName()));
+        List<Long> agentIds = result.getRecords().stream()
+                .map(Conversation::getAgentId).filter(java.util.Objects::nonNull).distinct().toList();
+        Map<Long, String> agentNames = agentIds.isEmpty() ? Map.of()
+                : agentMapper.selectBatchIds(agentIds).stream()
+                .collect(Collectors.toMap(AgentRegistry::getId, a -> a.getName() == null ? "" : a.getName()));
         List<Map<String, Object>> list = result.getRecords().stream().map(c -> {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", c.getId());
