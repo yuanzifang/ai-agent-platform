@@ -117,6 +117,16 @@ public class TraceService {
                        String modelName, long inTokens, long outTokens, long latencyMs,
                        int citationCount, TraceExtra extra, List<ToolCallEvent> toolCalls,
                        List<TraceStep> steps) {
+        record(tenantId, traceId, conversationId, sessionId, agentId, userId, agentName, status,
+                modelName, inTokens, outTokens, latencyMs, citationCount, extra, toolCalls, steps, null);
+    }
+
+    /** 带 requestId 的落库版本；requestId 与业务 traceId 分离，便于从入口请求追到业务 Trace。 */
+    public void record(Long tenantId, String traceId, Long conversationId, String sessionId,
+                       Long agentId, Long userId, String agentName, String status,
+                       String modelName, long inTokens, long outTokens, long latencyMs,
+                       int citationCount, TraceExtra extra, List<ToolCallEvent> toolCalls,
+                       List<TraceStep> steps, String requestId) {
         if (!shouldSample(traceId, status, traceSampleRate, alwaysSampleErrors)) {
             log.debug("Trace 采样跳过 traceId={} rate={}", traceId, traceSampleRate);
             return;
@@ -129,6 +139,7 @@ public class TraceService {
 
             AgentTrace t = new AgentTrace();
             t.setTraceId(traceId);
+            t.setRequestId(requestId);
             t.setSessionId(sessionId);
             t.setConversationId(conversationId);
             t.setAgentId(agentId);
@@ -159,6 +170,7 @@ public class TraceService {
             // 注意：conversationId 在评测/集成链路为 null，Map.of 不允许 null 值（LinkedHashMap 可）
             Map<String, Object> rootAttrs = new LinkedHashMap<>();
             rootAttrs.put("conversationId", conversationId);
+            rootAttrs.put("requestId", requestId);
             rootAttrs.put("kind", kind);
             AgentSpan root = newSpan(tenantId, traceId, rootSpanId, null, agentId, "agent",
                     invokeName(agentId, agentName), status, start, end, latencyMs);

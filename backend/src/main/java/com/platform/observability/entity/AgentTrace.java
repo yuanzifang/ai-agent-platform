@@ -14,6 +14,7 @@ public class AgentTrace {
     @TableId(type = IdType.AUTO)
     private Long id;
     private String traceId;
+    private String requestId;       // 入口 HTTP 请求 ID（与 traceId 分开）
     private String sessionId;
     private Long conversationId;
     private Long agentId;

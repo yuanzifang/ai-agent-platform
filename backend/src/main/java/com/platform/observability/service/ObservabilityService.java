@@ -162,6 +162,7 @@ public class ObservabilityService {
         if (t == null) throw new BusinessException(404, "Trace 不存在");
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("traceId", t.getTraceId());
+        m.put("requestId", t.getRequestId());
         m.put("kind", t.getKind());
         m.put("name", TraceService.invokeName(t.getAgentId(), t.getAgentName()));
         m.put("agentId", t.getAgentId());

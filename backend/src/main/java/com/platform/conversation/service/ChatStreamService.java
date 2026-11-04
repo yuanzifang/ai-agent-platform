@@ -19,6 +19,7 @@ import com.platform.capability.runtime.ToolRuntimeService;
 import com.platform.billing.mapper.BillingUsageMapper;
 import com.platform.observability.service.TraceService;
 import com.platform.common.context.TenantContext;
+import com.platform.common.trace.TraceContext;
 import com.platform.common.ratelimit.ModelConcurrencyGuard;
 import com.platform.common.context.GrayTagContext;
 import com.platform.common.exception.BusinessException;
@@ -316,7 +317,8 @@ public class ChatStreamService {
                               String source, com.platform.capability.runtime.TraceStepCollector steps,
                               StreamSink sink) {
         Long tenantId = conv.getTenantId();
-        String traceId = UUID.randomUUID().toString().replace("-", "");
+        String traceId = TraceContext.currentOrNewTraceId();
+        String requestId = TraceContext.currentRequestId();
         long startedAt = System.currentTimeMillis();
         StreamSink out = sink == null ? new SseStreamSink(new SseEmitter(300_000L)) : sink;
         SseEmitter emitter = out.emitter();
@@ -529,7 +531,7 @@ public class ChatStreamService {
                     usedModel.get(), tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
                     citations.size(),
                     traceExtra(source, version, userMsg.getContent(), ai.getContent(), null),
-                    collector.events(), steps.steps());
+                    collector.events(), steps.steps(), requestId);
             out.event("done", Map.of("traceId", traceId, "messageId", ai.getId(),
                     "status", ai.getStatus(),
                     "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1]),
@@ -610,7 +612,7 @@ public class ChatStreamService {
                                         modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
                                         citations.size(),
                                         traceExtra(source, version, userMsg.getContent(), acc.toString(), null),
-                                        collector.events(), steps.steps());
+                                        collector.events(), steps.steps(), requestId);
                             });
                         }
                         try {
@@ -640,7 +642,7 @@ public class ChatStreamService {
                                 usedModel.get(), 0, tokens[1], System.currentTimeMillis() - startedAt,
                                 citations.size(),
                                 traceExtra(source, version, userMsg.getContent(), acc.toString(),
-                                        err.getMessage()), collector.events());
+                                        err.getMessage()), collector.events(), null, requestId);
                     });
                     out.event("error", Map.of("code", 500201, "message", "生成失败：" + err.getMessage()));
                     out.complete();
@@ -697,7 +699,7 @@ public class ChatStreamService {
                             modelName, tokens[0], tokens[1], System.currentTimeMillis() - startedAt,
                             citations.size(),
                             traceExtra(source, version, userMsg.getContent(), acc.toString(), null),
-                            collector.events(), steps.steps());
+                            collector.events(), steps.steps(), requestId);
                 });
                 out.event("done", Map.of("traceId", traceId, "status", "STOPPED",
                         "usage", Map.of("inputTokens", tokens[0], "outputTokens", tokens[1])));
@@ -731,7 +733,8 @@ public class ChatStreamService {
                                              JwtPrincipal principal, String source,
                                              com.platform.capability.runtime.TraceStepCollector steps) {
         Long tenantId = conv.getTenantId();
-        String traceId = UUID.randomUUID().toString().replace("-", "");
+        String traceId = TraceContext.currentOrNewTraceId();
+        String requestId = TraceContext.currentRequestId();
         long startedAt = System.currentTimeMillis();
         ToolCallCollector collector = new ToolCallCollector();
         boolean allowWriteTools = Boolean.TRUE.equals(config.get("_allowWriteTools"));
@@ -885,7 +888,7 @@ public class ChatStreamService {
                 conv.getAgentId(), conv.getUserId(), agent.getName(), ai.getStatus(),
                 usedModel, in, out, System.currentTimeMillis() - startedAt, citations.size(),
                 traceExtra(source, version, userMsg.getContent(), ai.getContent(), null), collector.events(),
-                steps.steps());
+                steps.steps(), requestId);
 
         return Map.of("answer", ai.getContent(), "traceId", traceId, "messageId", ai.getId(),
                 "usage", Map.of("inputTokens", in, "outputTokens", out), "citations", citations,
@@ -917,7 +920,7 @@ public class ChatStreamService {
     /** Agent 扩展护栏命中：不调用模型，直接持久化并返回确定的策略答复。 */
     private Object safetyGuardResponse(Conversation conv, Message userMsg, String answer,
                                        boolean nonStream, StreamSink sink) {
-        String traceId = UUID.randomUUID().toString().replace("-", "");
+        String traceId = TraceContext.currentOrNewTraceId();
         Message ai = newMessage(conv, traceId, null, false);
         ai.setContent(answer);
         ai.setStatus("SUCCESS");
@@ -1008,7 +1011,7 @@ public class ChatStreamService {
             in = usage.get("inputTokens") instanceof Number n ? n.longValue() : 0;
             out = usage.get("outputTokens") instanceof Number n ? n.longValue() : 0;
         }
-        String traceId = UUID.randomUUID().toString().replace("-", "");
+        String traceId = TraceContext.currentOrNewTraceId();
         Message ai = null;
         if (checkpoint.getMessageId() != null) {
             Message existing = messageMapper.selectById(checkpoint.getMessageId());
