@@ -1,11 +1,11 @@
 # AI Agent Platform
 
-企业级 AI Agent 平台（SaaS 多租户）：Spring Boot 3 + Spring AI（+ Spring AI Alibaba Graph）+ Vue3 + MySQL/Redis/PgVector/MinIO。
-设计文档：`~/Desktop/AI-Agent-平台需求文档-v1.0.md`、`~/Desktop/AI-Agent-平台架构设计-v1.0.md`（内容 v1.2）。
+企业级 AI Agent 平台（SaaS 多租户）：Spring Boot 3 + Spring AI + Vue3 + MySQL/Redis/PgVector/MinIO，多 Agent 编排由自研工作流引擎提供。
+文档入口与目录规则见 [`docs/README.md`](docs/README.md)，关键技术决策见 [`docs/技术决策记录.md`](docs/技术决策记录.md)。
 
 ## 技术决策（v1.2 定稿）
 
-- 框架：Spring AI 1.0.x 基础框架 + Spring AI Alibaba（Graph 多 Agent 编排，M2+ 引入）
+- 框架：Spring AI 1.0.x（OpenAI 兼容模型接入、工具调用）；多 Agent 编排为自研工作流引擎（nodes/edges 有向图模型）
 - Chat 模型：DeepSeek（OpenAI 兼容协议），API Key 经 `DEEPSEEK_API_KEY` 注入（生产在 `.env.docker` 配置）
 - 嵌入模型：默认优先本地 Ollama `bge-m3`（1024 维，中文效果更好）；启动时探测 Ollama，未安装则自动回退 `nomic-embed-text`（768 维）。评测见 `docs/中文Embedding评测.md`
 - 语音转文字：本地 ASR 服务（Qwen3-ASR，OpenAI 兼容 `/v1/audio/transcriptions`，`start-asr.sh` 启动）；`ASR_ENABLED` 控制开关（Compose 默认 false）
@@ -43,6 +43,7 @@ ollama pull bge-m3
 | MYSQL_PASSWORD | MySQL 密码 | root |
 | JWT_SECRET | JWT 签名密钥（≥32 字节） | dev 占位（生产必换） |
 | PLATFORM_ADMIN_PASSWORD | 平台管理员初始密码（首次启动重置 seed 账号） | 无则保留占位 |
+| DEV_PASSWORD | dev 演示账号密码（首个种子启动生效） | Dev@123456（仅开发模式；生产未设置则不激活） |
 | DEEPSEEK_API_KEY | DeepSeek Key（生产在 `.env.docker` 配置） | 空（相关功能提示未配置） |
 
 > 完整变量见 `.env.docker.example` 与 `backend/src/main/resources/application.yml`（ASR/OCR/灰度/告警/国际化等开关均带默认值注释）。
@@ -118,6 +119,7 @@ scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 
 生产建议：
 
+- 公网部署在 `.env.docker` 设 `APP_ENV=production`（启用 ProductionGuard：弱默认值/默认密码拒绝启动）；`DEV_PASSWORD` 未设置时 dev 演示账号不会激活
 - Compose 中的 `PG_USERNAME` 是 Postgres 初始化/bootstrap 账号（目前默认 `aiagent`，会拥有较高权限），只适合单机验证；生产请使用 Helm + `scripts/vector-role.sh` 创建 `aap_vector_app`，或自行用管理员创建专用角色并切换应用连接账号。
 - 只开放 80/443；MinIO 控制台 9001 仅内网访问
 - 前面再加 HTTPS/负载均衡；SSE 需关闭代理缓冲（Nginx 配置已设置）
@@ -127,9 +129,9 @@ scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 
 ## 测试与 CI
 
-- 后端单元测试：`cd backend && mvn test`（当前 370+，截至 2026-10-27）
+- 后端单元测试：`cd backend && mvn test`（当前 668，截至 2026-11-03）
 - E2E：Playwright 双浏览器（chromium + msedge），`cd frontend && npm run test:e2e`
-- CI（GitHub Actions，push/PR 常驻门禁）：gitleaks 秘密扫描 → trivy 依赖漏洞门禁（HIGH/CRITICAL）→ npm audit → 后端构建+前端类型检查+单测 → Alert-relay Node 单测/镜像冒烟 → 双浏览器 E2E
+- CI（GitHub Actions，push/PR 常驻门禁）：gitleaks 秘密扫描 → trivy 依赖漏洞门禁（HIGH/CRITICAL）→ npm audit → 后端构建+前端类型检查+单测 → Alert-relay Node 单测/镜像冒烟 → 双浏览器 E2E；镜像供应链门禁（backend/frontend/alert-relay 三镜像 trivy 镜像级漏洞阻断 HIGH/CRITICAL，例外记录于 `.trivyignore`，并产出镜像 CycloneDX SBOM）
 - 安全与供应链：`security.yml`（gitleaks/trivy 观察/npm audit）、CodeQL、CycloneDX SBOM（backend/frontend/alert-relay）、Apache-2.0 许可证门禁
 - 架构边界守卫：ArchUnit（`ArchitectureTest`）钉住网关薄层与模块可摘除性
 
@@ -180,7 +182,7 @@ helm upgrade --install ai-agent deploy/helm/ai-agent-platform \
 ## 里程碑
 
 M1–M6 已全部完成（平台基座 / 模型与 Agent / 知识库 / 会话对话 / 可观测 / 安全合规验收）。
-Flyway 迁移 V1–V101 按里程碑递增（近期：灰度标记、评测灰度打标、国际化映射表、工具审批等）。
+Flyway 迁移 V1–V132 按里程碑递增（近期：全局搜索全文索引、GraphRAG 默认值冻结、Agent 运行时扩展、工具审批、灰度标记与评测打标等）。
 当前阶段：内测准备——全栈压测基线、灰度路由消费、渗透测试与用户文档。
 
 ## License
