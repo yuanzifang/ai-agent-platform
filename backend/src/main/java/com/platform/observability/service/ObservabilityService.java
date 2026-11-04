@@ -98,6 +98,7 @@ public class ObservabilityService {
 
     /** Traces 列表：高级筛选 + 分页（需求 7.3 /observability/traces）。 */
     public Map<String, Object> traces(AgentTraceQuery q) {
+        traceService.flush(2000);
         long size = clampPageSize(q.pageSize());
         long page = Math.max(q.page(), 1);
 
@@ -156,6 +157,7 @@ public class ObservabilityService {
 
     /** Trace 详情：字段全集 + Span 树（需求 7.3 /observability/traces/{traceId}）。 */
     public Map<String, Object> traceDetail(String traceId) {
+        traceService.flush(2000);
         // 分区后 trace_id 唯一键降为普通索引；由应用生成保证唯一，这里兜底取一条
         AgentTrace t = traceMapper.selectOne(new LambdaQueryWrapper<AgentTrace>()
                 .eq(AgentTrace::getTraceId, traceId).last("LIMIT 1"));

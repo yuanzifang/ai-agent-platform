@@ -147,6 +147,11 @@ public class TraceService {
         }
     }
 
+    /** 读接口前等待异步 Trace 落库，避免列表页/详情页读后写不一致。 */
+    public void flush(long timeoutMs) {
+        if (traceWriteQueue != null) traceWriteQueue.flush(timeoutMs);
+    }
+
     private void persist(Long tenantId, String traceId, Long conversationId, String sessionId,
                          Long agentId, Long userId, String agentName, String status,
                          String modelName, long inTokens, long outTokens, long latencyMs,

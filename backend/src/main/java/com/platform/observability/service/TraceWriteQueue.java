@@ -24,6 +24,7 @@ public class TraceWriteQueue {
     private final BlockingQueue<Runnable> normal;
     private final BlockingQueue<Runnable> priority;
     private final AtomicLong dropped = new AtomicLong();
+    private final AtomicLong pending = new AtomicLong();
     private volatile boolean running = true;
     private Thread worker;
 
@@ -54,6 +55,21 @@ public class TraceWriteQueue {
             if (n == 1 || n % 1000 == 0) {
                 log.warn("Trace 写入队列已满，丢弃任务累计={} priority={}", n, priority);
             }
+            return;
+        }
+        pending.incrementAndGet();
+    }
+
+    /** 读接口使用：等待已入队 Trace 落库，保证列表/详情具备读后写一致性。 */
+    public void flush(long timeoutMs) {
+        long deadline = System.currentTimeMillis() + Math.max(1, timeoutMs);
+        while (pending.get() > 0 && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(5);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
     }
 
@@ -63,13 +79,13 @@ public class TraceWriteQueue {
                 Runnable first = priority.poll();
                 if (first == null) first = normal.poll(1, TimeUnit.SECONDS);
                 if (first == null) continue;
-                first.run();
+                runTask(first);
                 // 合并同一批，减少线程唤醒；任务本身仍可安全独立执行。
                 for (int i = 1; i < batchSize; i++) {
                     Runnable next = priority.poll();
                     if (next == null) next = normal.poll();
                     if (next == null) break;
-                    next.run();
+                    runTask(next);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -77,6 +93,14 @@ public class TraceWriteQueue {
             } catch (Exception e) {
                 log.warn("Trace 写入任务异常：{}", e.getMessage());
             }
+        }
+    }
+
+    private void runTask(Runnable task) {
+        try {
+            task.run();
+        } finally {
+            pending.decrementAndGet();
         }
     }
 
