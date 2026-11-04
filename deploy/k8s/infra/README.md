@@ -91,9 +91,9 @@ PGUSER=aiagent PGDATABASE=vector scripts/vector-grants.sh --apply
 
 UTM 当前已切到 K8s 主入口：
 
-- 应用：`http://192.168.64.2:18080`
+- 应用：`http://<utm-host-ip>:18080`
 - Agent 运行时由平台网关 + 每 Agent nginx 入口提供，不再单独部署 Node Gateway
-- Ollama：独立原生服务，`http://192.168.64.1:11434`
+- Ollama：独立原生服务，`http://<mac-host-ip>:11434`
 - 旧 UTM Docker 栈已移除，旧数据卷已删除；迁移前备份仍保留在 Mac 的备份目录中。
 
 ## 6. 应用到集群内依赖
@@ -115,7 +115,7 @@ elasticsearch.aap-data.svc.cluster.local
 qdrant.aap-data.svc.cluster.local
 ```
 
-Ollama 仍使用独立地址，例如 `http://192.168.64.1:11434`。
+Ollama 仍使用独立地址，例如 `http://<mac-host-ip>:11434`。
 
 ## 8. 注意
 

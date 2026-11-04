@@ -161,6 +161,13 @@ retrieval:
     keyword-weight: ${RETRIEVAL_KEYWORD_WEIGHT:0.35}
 
 knowledge:
+  section-classifier:
+    # 入库时用本地模型识别 action/forecast/background/table/policy；失败自动回退规则分类
+    enabled: ${SECTION_CLASSIFIER_ENABLED:false}
+    endpoint: ${OLLAMA_ENDPOINT:http://127.0.0.1:11434}
+    model: ${SECTION_CLASSIFIER_MODEL:qwen2.5:1.5b}
+    batch-size: ${SECTION_CLASSIFIER_BATCH_SIZE:10}
+    timeout-seconds: ${SECTION_CLASSIFIER_TIMEOUT_SECONDS:30}
   feishu:
     # docx 图片除 OCR 外是否调用本地视觉模型生成照片/图表语义，默认关闭避免批量导入被模型拖慢
     image-vision-enabled: ${FEISHU_IMAGE_VISION_ENABLED:false}
@@ -269,7 +276,7 @@ search:
 
 pgvector:
   url: ${PG_URL:jdbc:postgresql://localhost:5432/vector}
-  username: ${PG_USERNAME:wangpan}
+  username: ${PG_USERNAME:postgres}
   password: ${PG_PASSWORD:}
   pool-size: ${PGVECTOR_POOL_SIZE:8}
   hnsw:
@@ -307,7 +314,7 @@ asr:
   type: local
   endpoint: ${ASR_ENDPOINT:http://127.0.0.1:8000}
   api-key: ${ASR_API_KEY:local}
-  model: ${ASR_MODEL:/Users/wangpan/models/Qwen3-ASR-1.7B-8bit}
+  model: ${ASR_MODEL:models/Qwen3-ASR-1.7B-8bit}
   timeout-ms: 60000
 
 spring.servlet.multipart:

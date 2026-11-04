@@ -45,7 +45,7 @@ mysql -h 127.0.0.1 -P 3306 -uroot -p"$MYSQL_ROOT_PASSWORD" \
   -e "ALTER USER 'exporter'@'%' IDENTIFIED BY '$MYSQL_EXPORTER_PASSWORD';" >/dev/null
 
 echo "→ 更新 PostgreSQL exporter 用户"
-psql -h 127.0.0.1 -p 5432 -U "${PG_ADMIN_USER:-wangpan}" -d vector -v ON_ERROR_STOP=1 \
+psql -h 127.0.0.1 -p 5432 -U "${PG_ADMIN_USER:-postgres}" -d vector -v ON_ERROR_STOP=1 \
   -c "ALTER ROLE exporter WITH LOGIN PASSWORD '$PG_EXPORTER_PASSWORD';" >/dev/null
 
 echo "→ 更新 Redis exporter ACL"

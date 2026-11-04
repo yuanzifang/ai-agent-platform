@@ -27,7 +27,7 @@ K8s 只新增以下 NodePort，k3d 只把宿主机端口绑定到 `127.0.0.1`：
 
 ## 启动
 
-在 UTM 监控目录（例如 `/home/fangyuan/aap-monitoring`）：
+在 UTM 监控目录（例如 `/home/<user>/aap-monitoring`）：
 
 ```bash
 cp .env.example .env
@@ -92,9 +92,9 @@ Alertmanager 指标 `alertmanager_notifications_failed_total{integration="webhoo
 
 ```bash
 kubectl -n aap-monitoring create token aap-prometheus --duration=8760h \
-  | sudo tee /home/fangyuan/aap-monitoring/kubelet-token >/dev/null
-sudo chown 65534:65534 /home/fangyuan/aap-monitoring/kubelet-token
-sudo chmod 600 /home/fangyuan/aap-monitoring/kubelet-token
+  | sudo tee /home/<user>/aap-monitoring/kubelet-token >/dev/null
+sudo chown 65534:65534 /home/<user>/aap-monitoring/kubelet-token
+sudo chmod 600 /home/<user>/aap-monitoring/kubelet-token
 docker compose restart prometheus
 ```
 

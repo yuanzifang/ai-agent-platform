@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用与部署文档
+    url: https://github.com/yuanzifang/ai-agent-platform/tree/main/docs
+    about: 提问前先查看 docs/ 目录（用户手册、部署、备份恢复、交付现状等）
+  - name: 安全漏洞
+    url: https://github.com/yuanzifang/ai-agent-platform/security
+    about: 请勿公开披露安全漏洞，使用私密漏洞报告（见 SECURITY.md）

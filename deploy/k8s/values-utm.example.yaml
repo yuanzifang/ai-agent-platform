@@ -1,3 +1,4 @@
+# 示例模板：将 <utm-host-ip>（UTM/虚拟机宿主）与 <mac-host-ip>（Mac 本机）替换为实际地址。
 imagePullSecrets: []
 backend:
   image:
@@ -23,25 +24,25 @@ frontend:
     minAvailable: 1
 config:
   timezone: Asia/Shanghai
-  mysqlHost: 192.168.64.2
+  mysqlHost: <utm-host-ip>
   mysqlPort: "3306"
   mysqlDatabase: ai_agent_platform
   mysqlUsername: root
-  redisHost: 192.168.64.2
+  redisHost: <utm-host-ip>
   redisPort: "6379"
-  pgUrl: jdbc:postgresql://192.168.64.2:5432/vector
+  pgUrl: jdbc:postgresql://<utm-host-ip>:5432/vector
   pgUsername: aap_vector_app
-  minioEndpoint: http://192.168.64.2:9000
-  ollamaEndpoint: http://192.168.64.1:11434
+  minioEndpoint: http://<utm-host-ip>:9000
+  ollamaEndpoint: http://<mac-host-ip>:11434
   embeddingProvider: ollama
-  embeddingEndpoint: http://192.168.64.1:11434
+  embeddingEndpoint: http://<mac-host-ip>:11434
   appEnv: development
   authCookieSecure: "false"
-  publicBase: http://192.168.64.2:18080
-  frontendBase: http://192.168.64.2:18080
+  publicBase: http://<utm-host-ip>:18080
+  frontendBase: http://<utm-host-ip>:18080
   extraEnv:
-    ELASTICSEARCH_URL: http://192.168.64.2:9200
-    QDRANT_URL: http://192.168.64.2:6333
+    ELASTICSEARCH_URL: http://<utm-host-ip>:9200
+    QDRANT_URL: http://<utm-host-ip>:6333
 secrets:
   existingSecret: aap-secrets
 ingress:

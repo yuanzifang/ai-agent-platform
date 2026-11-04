@@ -4,6 +4,8 @@
 MySQL / Redis / PgVector / MinIO / Elasticsearch / Qdrant 建议使用外部服务，
 通过 Helm values 注入地址；Chart 目前只负责应用层。
 
+> 文中的 `<utm-host-ip>` / `<mac-host-ip>` / `<user>` 为占位符，使用时替换为你的实际地址。
+
 ## 1. 构建标准镜像
 
 镜像标签建议使用发布版本，例如 `0.1.0`：
@@ -87,7 +89,7 @@ Chart 默认关闭 Ingress，适合单机 K3s/k3d 或内网验证。
 UTM 当前使用 NodePort：
 
 ```text
-http://192.168.64.2:18080
+http://<utm-host-ip>:18080
 ```
 
 对应关系：K8s NodePort `30080` → k3d 主机端口 `18080`。
@@ -109,7 +111,7 @@ SSH 本地转发使用：
 ```bash
 ssh -fN -i ~/.ssh/aap-utm \
   -L 127.0.0.1:16443:127.0.0.1:6443 \
-  fangyuan@192.168.64.2
+  <user>@<utm-host-ip>
 
 kubectl config set-cluster k3d-aap-k8s \
   --server=https://127.0.0.1:16443
@@ -141,18 +143,18 @@ local-path-provisioner、metrics-server 预载到 k3s containerd。
 
 | 服务 | 地址 |
 |---|---|
-| MySQL | `192.168.64.2:3306` |
-| Redis | `192.168.64.2:6379` |
-| PostgreSQL + pgvector | `192.168.64.2:5432` |
-| MinIO | `http://192.168.64.2:9000` |
-| Elasticsearch | `http://192.168.64.2:9200` |
-| Ollama（独立原生） | `http://192.168.64.1:11434` |
-| Qdrant | `http://192.168.64.2:6333` |
-| Agent Gateway | `http://192.168.64.2:19001` |
+| MySQL | `<utm-host-ip>:3306` |
+| Redis | `<utm-host-ip>:6379` |
+| PostgreSQL + pgvector | `<utm-host-ip>:5432` |
+| MinIO | `http://<utm-host-ip>:9000` |
+| Elasticsearch | `http://<utm-host-ip>:9200` |
+| Ollama（独立原生） | `http://<mac-host-ip>:11434` |
+| Qdrant | `http://<utm-host-ip>:6333` |
+| Agent Gateway | `http://<utm-host-ip>:19001` |
 
 如果迁移到云托管，替换 values 中的地址即可，不需要重打应用镜像。
 
-Ollama 不放在 Docker/Compose/K8s 中，作为独立原生服务运行。当前 Mac 上的 Ollama 默认只监听 `127.0.0.1:11434`，因此使用一个仅绑定 `192.168.64.1:11434` 的本地 TCP 代理供 K8s 访问；不要把 Ollama 镜像加入集群。
+Ollama 不放在 Docker/Compose/K8s 中，作为独立原生服务运行。当前 Mac 上的 Ollama 默认只监听 `127.0.0.1:11434`，因此使用一个仅绑定 `<mac-host-ip>:11434` 的本地 TCP 代理供 K8s 访问；不要把 Ollama 镜像加入集群。
 
 ## 8. 升级和回滚
 
