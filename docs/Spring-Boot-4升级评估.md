@@ -112,6 +112,6 @@ void org.springframework.http.HttpHeaders.addAll(org.springframework.util.MultiV
 
 ## 证据
 
-- Boot 4 编译失败工作树：`/Users/wangpan/.zcode/workspace/default/ai-agent-platform-boot4`
-- Spring 7 覆盖测试失败工作树：`/Users/wangpan/.zcode/workspace/default/ai-agent-platform-spring7`
+- Boot 4 编译失败工作树：`/Users/<user>/.zcode/workspace/default/ai-agent-platform-boot4`
+- Spring 7 覆盖测试失败工作树：`/Users/<user>/.zcode/workspace/default/ai-agent-platform-spring7`
 - 当前镜像扫描与 VEX：`docs/镜像供应链.md`、`.trivyignore`
