@@ -93,8 +93,31 @@ final class ChunkMetadataExtractor {
 
     private static String sectionType(List<String> path, String content, String parent) {
         String haystack = (path.isEmpty() ? "" : String.join(" ", path)) + "\n"
-                + prefix(content, 300) + "\n" + prefix(parent, 300);
+                + prefix(content, 600) + "\n" + prefix(parent, 600);
         String lower = haystack.toLowerCase(Locale.ROOT);
+        // 农业内容优先用业务 section 语义；先限定农业上下文，避免把药品“剂量/症状”误分类。
+        if (content != null && (content.stripLeading().startsWith("<table")
+                || content.stripLeading().startsWith("|"))) {
+            return "table";
+        }
+        boolean agriculture = containsAny(lower, "水稻", "小麦", "玉米", "大豆", "油菜",
+                "花生", "马铃薯", "番茄", "黄瓜", "豇豆", "芹菜", "韭菜", "苹果",
+                "柑橘", "葡萄", "茶树", "茶园", "蔬菜", "病虫害", "作物", "农田", "田间");
+        if (agriculture && containsAny(lower, "防治", "防控", "用药", "施药", "喷施", "喷雾", "灌根",
+                "田间管理", "栽培", "选用", "剂量", "每亩", "综合防治", "农业防治",
+                "化学防治", "生物防治", "补救", "恢复")) {
+            return "action";
+        }
+        if (agriculture && containsAny(lower, "预测", "趋势", "发生动态", "总体中等", "偏重发生",
+                "发生面积", "发生程度", "预警", "预报")) {
+            return "forecast";
+        }
+        if (agriculture && containsAny(lower, "症状", "危害", "病斑", "发生规律", "病原", "识别", "为害")) {
+            return "background";
+        }
+        if (agriculture && containsAny(lower, "方案", "意见", "通知", "政策", "目标", "原则", "工作措施")) {
+            return "policy";
+        }
         String[][] rules = {
                 {"abstract", "abstract|summary|摘要|概要"},
                 {"introduction", "introduction|background|引言|背景"},

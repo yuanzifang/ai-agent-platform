@@ -51,6 +51,38 @@ class AgriRetrievalPolicyTest {
         assertEquals(1, result.size());
     }
 
+
+    @Test
+    void sectionAwareFiltersForecastForActionQuestion() {
+        Map<String, Object> action = Map.of(
+                "content", "水稻稻瘟病防治：破口前选用三环唑喷雾。", "score", 0.7);
+        Map<String, Object> forecast = Map.of(
+                "content", "水稻稻瘟病发生趋势预测：总体中等发生。", "score", 0.9);
+        var result = policy.filter("水稻稻瘟病怎么防治？",
+                Map.of(AgriRetrievalPolicy.SECTION_AWARE, true),
+                List.of(forecast, action));
+        assertEquals(1, result.size());
+        assertEquals(action.get("content"), result.get(0).get("content"));
+    }
+
+    @Test
+    void sectionAwareKeepsForecastForTrendQuestion() {
+        Map<String, Object> forecast = Map.of(
+                "content", "水稻稻瘟病发生趋势预测：总体中等发生。", "score", 0.9);
+        var result = policy.filter("水稻稻瘟病发生趋势",
+                Map.of(AgriRetrievalPolicy.SECTION_AWARE, true),
+                List.of(forecast));
+        assertEquals(1, result.size());
+    }
+
+    @Test
+    void classifiesAgricultureSections() {
+        assertEquals("action", AgriRetrievalPolicy.classifySection("番茄灰霉病防治：控制棚内湿度并喷施药剂。"));
+        assertEquals("forecast", AgriRetrievalPolicy.classifySection("玉米病虫害发生趋势预测：总体偏重发生。"));
+        assertEquals("background", AgriRetrievalPolicy.classifySection("水稻稻瘟病症状：叶片出现病斑。"));
+        assertEquals("table", AgriRetrievalPolicy.classifySection("| 病害 | 药剂 |\n| --- | --- |"));
+    }
+
     @Test
     void cleanGenericOffKeepsOriginalHits() {
         Map<String, Object> hit = Map.of(

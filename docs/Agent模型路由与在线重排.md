@@ -130,7 +130,7 @@ retrieval:
 
 - Agent 级模型路由：已接入主对话/流式对话/调试对话，前端配置已上线。
 - Agent 5422：当前未启用 routing，保持 V15 的 7B 单模型配置（已发布 V17 清理测试配置）。
-- 在线重排：代码和 UI 已接入；本地 BGE reranker 已部署，平台 `RERANK_ENABLED=true`，但 Agent 5422 为 `rerank=false`（15 题复测未看到稳定提升，见 `docs/本地Reranker部署与验证.md`）。
+- 在线重排：代码和 UI 已接入；本地 BGE reranker 已部署，平台 `RERANK_ENABLED=true`，但 Agent 5422 为 `rerank=false`（15 题复测未看到稳定提升，见 `docs/agri/本地Reranker部署与验证.md`）。
 - `RERANK` 作为评测步骤仍保留在评测流程中。
 
 ## 5. 验证记录
@@ -157,11 +157,11 @@ retrieval:
 - `HybridRetrievalServiceTest#rerankTopNComesFromRetrievalConfig`：验证 `rerankTopN` 传入 RerankService。
 - `HybridRetrievalServiceTest#rerankCanBeDisabledPerRequest`：验证 `rerank=false` 不调用 RerankService。
 - `RerankServiceTest#reordersByServerIndex`：真实启动本地 HTTP stub，验证按 reranker 返回的 index 重排。
-- 本地 BGE reranker 已部署到 `http://192.168.64.1:8010/rerank`，平台链路已验证会实际发出 `POST /rerank` 并按返回顺序调整引用。
-- 重排候选池扩大后，15 道失败题复测为 8/15；但完整 60 题为 33/60，对比无重排 34/60 没有提升；因此 Agent 5422 暂不开启 rerank，服务保留供后续 A/B。
+- 本地 BGE reranker 已部署到 `http://<mac-host-ip>:8010/rerank`，平台链路已验证会实际发出 `POST /rerank` 并按返回顺序调整引用。
+- 重排候选池扩大后，15 道失败题复测为 8/15；但完整 60 题为 33/60，对比无重排 34/60 没有提升；叠加泛化片段清洗仍为 34/60；因此 Agent 5422 暂不开启 rerank，服务保留供后续 A/B。
 
 ### 部署
 
 - 前端构建通过，部署镜像 `aap/frontend:agri-rerank2-ui-11031026`。
-- 后端镜像：`aap/backend:agri-rerank2-11031025`。
-- 当前 Agent 5422：V24，未启用 routing；知识库显式 `rerank=false`；测试配置已清理。
+- 后端镜像：`aap/backend:agri-sectionmodel2-11040955`。
+- 当前 Agent 5422：V33，未启用 routing；知识库显式 `rerank=false`、`cleanGeneric=false`；测试配置已清理。

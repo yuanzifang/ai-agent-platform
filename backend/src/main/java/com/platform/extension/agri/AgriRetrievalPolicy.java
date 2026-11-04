@@ -22,13 +22,24 @@ public class AgriRetrievalPolicy implements RetrievalPolicy {
     public static final String NORMALIZE_QUERY = "normalizeQuery";
     public static final String CROP_SCOPE = "cropScope";
     public static final String CLEAN_GENERIC = "cleanGeneric";
+    public static final String SECTION_AWARE = "sectionAware";
 
     private static final Pattern SITE_PREFIX = Pattern.compile(
             "^中国农业农村信息网_.*?视频\\s*(?:首页>[^\\s]*\\s*)?", Pattern.DOTALL);
     private static final Pattern FORECAST = Pattern.compile(
             "预测|趋势|发生动态|总体中等|偏重发生|发生面积|发生程度");
     private static final Pattern ACTION = Pattern.compile(
-            "防治|防控|用药|施药|喷施|喷雾|田间管理|栽培|选用|品种|剂量");
+            "防治|防控|用药|施药|喷施|喷雾|灌根|田间管理|栽培|选用|品种|剂量|每亩");
+    private static final Pattern ACTION_QUERY = Pattern.compile(
+            "怎么防治|如何防治|怎样防治|怎么治|如何治|用什么药|打什么药|怎么办|"
+                    + "补救|恢复|防治方法|防治措施|防控措施");
+    private static final Pattern FORECAST_QUERY = Pattern.compile(
+            "趋势|预测|会不会|风险|发生情况|发生动态|发生程度");
+    private static final Pattern SYMPTOM_QUERY = Pattern.compile(
+            "症状|怎么识别|如何识别|是什么病|什么虫|诊断");
+    private static final Pattern AGRI_CONTEXT = Pattern.compile(
+            "水稻|小麦|玉米|大豆|油菜|花生|马铃薯|番茄|黄瓜|豇豆|芹菜|韭菜|苹果|"
+                    + "柑橘|葡萄|茶树|茶园|蔬菜|病虫害|作物|农田|田间");
 
     private static final Map<String, Pattern> CROP_PATTERNS = cropPatterns();
 
@@ -51,6 +62,9 @@ public class AgriRetrievalPolicy implements RetrievalPolicy {
         if (enabled(config, CLEAN_GENERIC)) {
             working = cleanGenericHits(query, hits);
         }
+        if (enabled(config, SECTION_AWARE)) {
+            working = sectionAwareHits(query, working);
+        }
         if (!enabled(config, CROP_SCOPE)) return working;
         String crop = detectCrop(query);
         if (crop == null) return working;
@@ -62,6 +76,46 @@ public class AgriRetrievalPolicy implements RetrievalPolicy {
         }
         // 没有作物命中的召回时保留原结果，避免过滤后空上下文。
         return scoped.isEmpty() ? working : scoped;
+    }
+
+    private List<Map<String, Object>> sectionAwareHits(String query, List<Map<String, Object>> hits) {
+        String intent = queryIntent(query);
+        if (intent == null) return hits;
+        List<Map<String, Object>> matched = new ArrayList<>();
+        for (Map<String, Object> hit : hits) {
+            String section = str(hit.get("section_type"));
+            if (section.isBlank() || "body".equalsIgnoreCase(section)) {
+                section = classifySection(str(hit.get("content")));
+            }
+            boolean keep = switch (intent) {
+                case "action" -> "action".equals(section) || "table".equals(section);
+                case "forecast" -> "forecast".equals(section) || "action".equals(section);
+                case "symptom" -> "background".equals(section) || "action".equals(section);
+                default -> true;
+            };
+            if (keep) matched.add(hit);
+        }
+        return matched.isEmpty() ? hits : matched;
+    }
+
+    private static String queryIntent(String query) {
+        if (query == null || query.isBlank()) return null;
+        if (ACTION_QUERY.matcher(query).find()) return "action";
+        if (FORECAST_QUERY.matcher(query).find()) return "forecast";
+        if (SYMPTOM_QUERY.matcher(query).find()) return "symptom";
+        return null;
+    }
+
+    static String classifySection(String content) {
+        String text = content == null ? "" : content;
+        if (text.stripLeading().startsWith("<table") || text.stripLeading().startsWith("|")) return "table";
+        if (!AGRI_CONTEXT.matcher(text).find()) return "body";
+        if (ACTION.matcher(text).find()) return "action";
+        if (FORECAST.matcher(text).find()) return "forecast";
+        if (Pattern.compile("症状|危害|病斑|发生规律|病原|识别|为害").matcher(text).find()) {
+            return "background";
+        }
+        return "body";
     }
 
     private List<Map<String, Object>> cleanGenericHits(String query, List<Map<String, Object>> hits) {
