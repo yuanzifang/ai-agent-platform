@@ -47,6 +47,20 @@ Spring AI 2 不再提供 `OpenAiApi` / `AnthropicApi` 这层兼容封装，改�
 
 这不是小修；生产模型路由是核心链路，必须做完整回归。
 
+### 补充 PoC：抽象层 + Boot 4
+
+在 `ChatModelFactory` 抽象分支上继续尝试 Boot 4 / Spring AI 2 后，除模型路由外还发现：
+
+- Spring AI 2 的 `ChatClient.ChatClientRequestSpec.options(...)` 从接受 `ChatOptions` 改为接受
+  `ChatOptions.Builder`；
+- 影响至少 15 处调用点，包括 `ChatService`、`ChatStreamService`、`ContextWindowService`、
+  `KnowledgeGraphService`、`ToolRuntimeService`、`ModelRoutingService`、`QueryRewriteService`、
+  `SelfCorrectionService`、`MemoryExtractionService`、`CaseService`、`WorkflowService`、
+  `PromptOptimizeService` 等。
+
+因此即使保留 `ChatModelFactory`，仍需逐个适配 ChatClient options 构造链；不能只改
+`ChatModelRouter`。
+
 ### 路径 B：Boot 3.5.16 + Spring Framework 7.0.10 强制覆盖
 
 修改 `spring-framework.version=7.0.10` 后：
