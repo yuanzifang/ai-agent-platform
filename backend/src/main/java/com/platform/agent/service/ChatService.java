@@ -62,6 +62,13 @@ public class ChatService {
     public Map<String, Object> debugChat(Map<String, Object> config, String message,
                                          KnowledgePermissionService.Viewer viewer,
                                          JwtPrincipal principal) {
+        return debugChat(config, message, viewer, principal, true);
+    }
+
+    /** recordUsage=false 供工作流内部调用使用，避免工作流汇总与 debug 明细重复计费。 */
+    public Map<String, Object> debugChat(Map<String, Object> config, String message,
+                                         KnowledgePermissionService.Viewer viewer,
+                                         JwtPrincipal principal, boolean recordUsage) {
         quotaService.checkTokensToday(Math.max(50, message == null ? 50 : message.length() / 2 + 200));
         String systemPrompt = config == null || config.get("systemPrompt") == null
                 ? null : String.valueOf(config.get("systemPrompt"));
@@ -140,8 +147,10 @@ public class ChatService {
         long inputTokens = metrics.inputTokens();
         long outputTokens = metrics.outputTokens();
 
-        recordUsage(null, "debug", usedModel, inputTokens, outputTokens,
-                metrics.cachedInputTokens(), metrics.cacheWriteTokens(), metrics.reasoningTokens());
+        if (recordUsage) {
+            recordUsage(principal.userId(), null, "debug", usedModel, inputTokens, outputTokens,
+                    metrics.cachedInputTokens(), metrics.cacheWriteTokens(), metrics.reasoningTokens());
+        }
         log.info("debug chat: model={} in={} out={} latency={}ms citations={}",
                 modelName, inputTokens, outputTokens, System.currentTimeMillis() - start, citations.size());
 
@@ -408,7 +417,7 @@ public class ChatService {
         return Map.of();
     }
 
-    private void recordUsage(Long agentId, String source, String modelName,
+    private void recordUsage(Long userId, Long agentId, String source, String modelName,
                              long inputTokens, long outputTokens,
                              long cachedInputTokens, long cacheWriteTokens, long reasoningTokens) {
         Long tenantId = TenantContext.getTenantId();
@@ -418,6 +427,7 @@ public class ChatService {
         }
         BillingUsage u = new BillingUsage();
         u.setTenantId(tenantId);
+        u.setUserId(userId);
         u.setAgentId(agentId);
         u.setSource(source);
         u.setModelName(modelName);
@@ -431,6 +441,7 @@ public class ChatService {
         u.setStatDate(LocalDate.now());
         u.setCreatedAt(LocalDateTime.now());
         billingMapper.insert(u);
+        quotaService.addTokens(tenantId, Math.max(0, inputTokens) + Math.max(0, outputTokens));
     }
 
     @SuppressWarnings("unchecked")

@@ -1,7 +1,7 @@
 export default {
     app: { name: 'AI Agent Platform' },
     menu: {
-      agents: 'Agents', memories: 'Long-term Memory', cases: 'Case Library', square: 'Agent Square',
+      agents: 'Agents', myUsage: 'My usage', memories: 'Long-term Memory', cases: 'Case Library', square: 'Agent Square',
       templates: 'Templates', knowledge: 'Knowledge Base', skills: 'Skills', tools: 'Tools',
       mcp: 'MCP Server', approvals: 'Approvals', prompts: 'Prompt Templates', provider: 'Model Providers',
       usage: 'Usage', billing: 'Billing', users: 'Members', tenant: 'Tenant Settings',
@@ -179,8 +179,8 @@ export default {
       relayDown: 'Alert relay unavailable; check ALERT_RELAY_BASE_URL'
     },
     usage: {
-      last7: 'Last 7 days', last30: 'Last 30 days', last90: 'Last 90 days', requests: 'Requests',
-      inputTokens: 'Input tokens', outputTokens: 'Output tokens', cost: 'Cost (CNY)',
+      myTitle: 'My usage', last7: 'Last 7 days', last30: 'Last 30 days', last90: 'Last 90 days', requests: 'Requests',
+      inputTokens: 'Input tokens', outputTokens: 'Output tokens', cachedInputTokens: 'Cached input tokens', cacheWriteTokens: 'Cache write tokens', reasoningTokens: 'Reasoning tokens', cost: 'Cost (CNY)',
       dailyTrend: 'Daily trend (input/output tokens)', input: 'Input', output: 'Output', noData: 'No data',
       byModel: 'By model', model: 'Model', count: 'Calls', details: 'Call details', time: 'Time', source: 'Source',
       chat: 'Chat', debug: 'Debug', embedding: 'Embedding', costShort: 'Cost'
@@ -230,7 +230,7 @@ export default {
     },
     providerPage: {
       admin: 'Providers', market: 'Model Marketplace', newModel: 'New model', newProvider: 'Add Provider',
-      modelId: 'Model ID: ', inputPrice: 'Input price: ', outputPrice: 'Output price: ', notSet: 'Not set',
+      modelId: 'Model ID: ', inputPrice: 'Input price: ', outputPrice: 'Output price: ', cacheReadPrice: 'Cache read price: ', cacheWritePrice: 'Cache write price: ', notSet: 'Not set',
       perKToken: ' CNY / 1K tokens', context: 'Context: ', enabledUse: 'Available', disabledUse: 'Disabled',
       noModels: 'No models', providerHeader: 'Providers (platform presets + tenant)', name: 'Name',
       keyConfigured: 'Key configured', type: 'Type', ownership: 'Ownership', preset: 'Platform preset', custom: 'Tenant',
@@ -243,7 +243,7 @@ export default {
       credentialTitle: 'Provider API Key', clearKeyPh: 'Leave blank and save to clear the key', save: 'Save',
       modelCreateTitle: 'New model', modelNamePh: 'e.g. deepseek-chat', displayName: 'Display name',
       chat: 'Chat (CHAT)', embedding: 'Embedding (EMBEDDING)', contextWindow: 'Context window',
-      priceTitle: 'Model config', inputPriceLabel: 'Input CNY/1K tokens', outputPriceLabel: 'Output CNY/1K tokens',
+      priceTitle: 'Model config', inputPriceLabel: 'Input CNY/1K tokens', outputPriceLabel: 'Output CNY/1K tokens', cacheReadPriceLabel: 'Cache read CNY/1K tokens', cacheWritePriceLabel: 'Cache write CNY/1K tokens',
       defaultOption: 'Not set (default)', nameUrlRequired: 'Name and Base URL are required',
       providerCreated: 'Provider created; test connectivity and sync models', keySaved: 'Key saved (encrypted)',
       keyCleared: 'Key cleared', connectivityOk: 'Connected in ', syncDone: 'Synced: ',

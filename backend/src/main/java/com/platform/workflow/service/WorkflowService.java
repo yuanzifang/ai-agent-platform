@@ -652,7 +652,7 @@ public class WorkflowService {
         var viewer = KnowledgePermissionService.Viewer.of(principal.userId(), principal.roles());
         Map<String, Object> result;
         try {
-            result = chatService.debugChat(config, message, viewer, principal);
+            result = chatService.debugChat(config, message, viewer, principal, false);
         } catch (Exception e) {
             throw new BusinessException(502, "HANDOFF 调用失败：" + WorkflowJsonSupport.rootMessage(e));
         }
@@ -679,7 +679,7 @@ public class WorkflowService {
                         : applyStateTemplate(returnTemplate, run, stateOf(run), answer);
                 Map<String, Object> returned;
                 try {
-                    returned = chatService.debugChat(returnConfig, returnMessage, viewer, principal);
+                    returned = chatService.debugChat(returnConfig, returnMessage, viewer, principal, false);
                 } catch (Exception e) {
                     throw new BusinessException(502, "HANDOFF 回传失败：" + WorkflowJsonSupport.rootMessage(e));
                 }
@@ -695,7 +695,7 @@ public class WorkflowService {
                             : applyStateTemplate(targetTemplate, run, stateOf(run), answer);
                     Map<String, Object> nextTarget;
                     try {
-                        nextTarget = chatService.debugChat(config, targetMessage, viewer, principal);
+                        nextTarget = chatService.debugChat(config, targetMessage, viewer, principal, false);
                     } catch (Exception e) {
                         throw new BusinessException(502, "HANDOFF 第 " + (round + 2) + " 轮目标调用失败："
                                 + WorkflowJsonSupport.rootMessage(e));
@@ -1281,6 +1281,7 @@ public class WorkflowService {
         try {
             BillingUsage u = new BillingUsage();
             u.setTenantId(run.getTenantId());
+            u.setUserId(run.getUserId());
             u.setAgentId(run.getAgentId());
             u.setSource("workflow");
             u.setModelName(modelName);

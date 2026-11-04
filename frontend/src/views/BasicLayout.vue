@@ -81,6 +81,7 @@
           <el-sub-menu index="g-work">
             <template #title><el-icon><ChatDotRound /></el-icon>{{ t('layout.workbench') }}</template>
             <el-menu-item index="/agents">{{ t('menu.agents') }}</el-menu-item>
+            <el-menu-item index="/my-usage">{{ t('menu.myUsage') }}</el-menu-item>
             <el-menu-item index="/square">{{ t('menu.square') }}</el-menu-item>
             <el-menu-item index="/templates">{{ t('menu.templates') }}</el-menu-item>
             <el-menu-item v-if="can('agent:edit')" index="/approvals">{{ t('menu.approvals') }}</el-menu-item>
