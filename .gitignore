@@ -43,3 +43,9 @@ deploy/monitoring/kubelet-token
 deploy/monitoring/backups/
 deploy/monitoring/alert-relay/node_modules/
 deploy/monitoring/alert.env
+
+# 评测原始运行结果：只保留 benchmark 和 latest-summary
+eval-data/**/runs/
+eval-data/**/raw/
+eval-data/agri/*.json
+!eval-data/agri/latest-summary.json

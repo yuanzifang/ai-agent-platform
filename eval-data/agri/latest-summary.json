@@ -1,0 +1,19 @@
+{
+  "source": "农业回答质量基线-V31-60题.json",
+  "agentId": 5422,
+  "total": 60,
+  "completed": 60,
+  "passRate": 0.7333,
+  "passThreshold": 0.75,
+  "avgScore": 0.7733,
+  "model": "qwen2.5:7b-chat",
+  "judgeModel": "qwen2.5:7b-chat",
+  "failureRetest": {
+    "source": "农业回答质量失败复测-V32b-17题.json",
+    "total": 17,
+    "completed": 17,
+    "passRate": 0.5882,
+    "avgScore": 0.7441
+  },
+  "note": "Only the benchmark inputs and this summary stay in the public repo. Raw run outputs are archived outside the repo; see eval-data/README.md."
+}
