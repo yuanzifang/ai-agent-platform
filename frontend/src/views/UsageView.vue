@@ -83,7 +83,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import http from '../api/http'
 
@@ -127,6 +127,7 @@ function sourceText(s: string) {
 }
 
 onMounted(load)
+watch(mine, () => { page.value = 1; load() })
 </script>
 
 <style scoped>

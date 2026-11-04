@@ -335,15 +335,19 @@ public class BillingService {
                 .le(BillingUsage::getStatDate, range[1])
                 .orderByAsc(BillingUsage::getId));
         StringBuilder sb = new StringBuilder("\uFEFF");
-        sb.append("时间,来源,Agent,知识库,模型,输入Token,输出Token,成本(元)\n");
+        sb.append("时间,用户ID,来源,Agent,知识库,模型,输入Token,输出Token,缓存命中Token,缓存写入Token,推理Token,成本(元)\n");
         for (BillingUsage u : rows) {
             sb.append(csv(u.getCreatedAt() == null ? "" : u.getCreatedAt().toString())).append(',')
+                    .append(u.getUserId() == null ? "" : u.getUserId()).append(',')
                     .append(csv(u.getSource())).append(',')
                     .append(u.getAgentId() == null ? "" : u.getAgentId()).append(',')
                     .append(u.getKnowledgeBaseId() == null ? "" : u.getKnowledgeBaseId()).append(',')
                     .append(csv(u.getModelName())).append(',')
                     .append(u.getInputTokens() == null ? 0 : u.getInputTokens()).append(',')
                     .append(u.getOutputTokens() == null ? 0 : u.getOutputTokens()).append(',')
+                    .append(u.getCachedInputTokens() == null ? 0 : u.getCachedInputTokens()).append(',')
+                    .append(u.getCacheWriteTokens() == null ? 0 : u.getCacheWriteTokens()).append(',')
+                    .append(u.getReasoningTokens() == null ? 0 : u.getReasoningTokens()).append(',')
                     .append(u.getCost() == null ? "0" : u.getCost().toPlainString()).append('\n');
         }
         return new CsvFile("bill-" + bill.getPeriod() + ".csv",
