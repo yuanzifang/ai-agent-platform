@@ -10,7 +10,8 @@ AI Agent Platform 已部署。
   kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "ai-agent-platform.backend.fullname" . }}
 
 平台管理员：admin / <secrets.platformAdminPassword>
-首次启动会执行 Flyway 迁移并初始化 dev 账号（DEV_PASSWORD 未设置时默认 Dev@123456，生产请覆盖）。
+首次启动会执行 Flyway 迁移并初始化 dev 账号（DEV_PASSWORD 经 secrets.devPassword 注入，
+existingSecret 方式需包含同名 key；生产模式未设置则不激活 dev 账号，且禁止默认值 Dev@123456）。
 
 重要：
 - 本 Chart 只部署后端/前端；MySQL、Redis、PgVector、MinIO、Ollama 需外部或集群内独立部署，

@@ -200,6 +200,8 @@ secrets:
   aesKey: ""
   deepseekApiKey: "sk-not-configured"
   platformAdminPassword: ""
+  # dev 演示账号密码（DEV_PASSWORD）；生产模式留空则不激活 dev 账号
+  devPassword: ""
   smtpUsername: ""
   smtpPassword: ""
   alertSmsAccessKeyId: ""
