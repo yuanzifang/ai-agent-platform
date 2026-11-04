@@ -43,14 +43,32 @@ public class BillingController {
     public ApiResponse<Map<String, Object>> usage(@RequestParam(defaultValue = "30") int days,
                                                   @RequestParam(required = false) Long agentId,
                                                   @RequestParam(defaultValue = "1") long page,
-                                                  @RequestParam(defaultValue = "20") long pageSize) {
+                                                  @RequestParam(defaultValue = "20") long pageSize,
+                                                  @AuthenticationPrincipal JwtPrincipal principal) {
+        return usage(days, agentId, page, pageSize, principal.tenantId(), null);
+    }
+
+    /** 成员查看自己的 Token/成本；不需要 billing:read 管理员权限。 */
+    @GetMapping("/usage/me")
+    public ApiResponse<Map<String, Object>> myUsage(@RequestParam(defaultValue = "30") int days,
+                                                    @RequestParam(required = false) Long agentId,
+                                                    @RequestParam(defaultValue = "1") long page,
+                                                    @RequestParam(defaultValue = "20") long pageSize,
+                                                    @AuthenticationPrincipal JwtPrincipal principal) {
+        return usage(days, agentId, page, pageSize, principal.tenantId(), principal.userId());
+    }
+
+    private ApiResponse<Map<String, Object>> usage(int days, Long agentId, long page, long pageSize,
+                                                   Long tenantId, Long userId) {
         LocalDate since = LocalDate.now().minusDays(Math.min(Math.max(days, 1), 365));
         List<BillingUsage> rows = usageMapper.selectList(new LambdaQueryWrapper<BillingUsage>()
                 .ge(BillingUsage::getStatDate, since)
+                .eq(tenantId != null, BillingUsage::getTenantId, tenantId)
+                .eq(userId != null, BillingUsage::getUserId, userId)
                 .eq(agentId != null, BillingUsage::getAgentId, agentId)
                 .orderByDesc(BillingUsage::getId));
 
-        long totalIn = 0, totalOut = 0;
+        long totalIn = 0, totalOut = 0, totalCached = 0, totalCacheWrite = 0, totalReasoning = 0;
         BigDecimal totalCost = BigDecimal.ZERO;
         Map<String, Object[]> byModel = new LinkedHashMap<>();
         Map<String, Object[]> byDay = new TreeMap<>();
@@ -61,6 +79,9 @@ public class BillingController {
             BigDecimal cost = u.getCost() == null ? BigDecimal.ZERO : u.getCost();
             totalIn += in;
             totalOut += out;
+            totalCached += u.getCachedInputTokens() == null ? 0 : u.getCachedInputTokens();
+            totalCacheWrite += u.getCacheWriteTokens() == null ? 0 : u.getCacheWriteTokens();
+            totalReasoning += u.getReasoningTokens() == null ? 0 : u.getReasoningTokens();
             totalCost = totalCost.add(cost);
             String model = u.getModelName() == null ? "-" : u.getModelName();
             accumulate(byModel, model, in, out, cost);
@@ -72,6 +93,10 @@ public class BillingController {
         summary.put("totalRequests", rows.size());
         summary.put("totalInputTokens", totalIn);
         summary.put("totalOutputTokens", totalOut);
+        summary.put("totalCachedInputTokens", totalCached);
+        summary.put("totalCacheWriteTokens", totalCacheWrite);
+        summary.put("totalReasoningTokens", totalReasoning);
+        summary.put("totalTokens", totalIn + totalOut + totalCached + totalCacheWrite + totalReasoning);
         summary.put("totalCost", totalCost);
         summary.put("byModel", toList(byModel, "modelName"));
         summary.put("byDay", toList(byDay, "date"));
@@ -80,17 +105,23 @@ public class BillingController {
         Page<BillingUsage> detail = usageMapper.selectPage(new Page<>(page, pageSize),
                 new LambdaQueryWrapper<BillingUsage>()
                         .ge(BillingUsage::getStatDate, since)
+                        .eq(tenantId != null, BillingUsage::getTenantId, tenantId)
+                        .eq(userId != null, BillingUsage::getUserId, userId)
                         .eq(agentId != null, BillingUsage::getAgentId, agentId)
                         .orderByDesc(BillingUsage::getId));
         List<Map<String, Object>> list = detail.getRecords().stream().map(u -> {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", u.getId());
+            m.put("userId", u.getUserId());
             m.put("agentId", u.getAgentId());
             m.put("knowledgeBaseId", u.getKnowledgeBaseId());
             m.put("source", u.getSource());
             m.put("modelName", u.getModelName());
             m.put("inputTokens", u.getInputTokens());
             m.put("outputTokens", u.getOutputTokens());
+            m.put("cachedInputTokens", u.getCachedInputTokens());
+            m.put("cacheWriteTokens", u.getCacheWriteTokens());
+            m.put("reasoningTokens", u.getReasoningTokens());
             m.put("cost", u.getCost());
             m.put("statDate", String.valueOf(u.getStatDate()));
             m.put("createdAt", String.valueOf(u.getCreatedAt()));

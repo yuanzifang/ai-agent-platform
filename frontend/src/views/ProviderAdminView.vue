@@ -28,6 +28,8 @@
           <div class="m-row">{{ t('providerPage.modelId') }}{{ m.modelName }}</div>
           <div class="m-row">{{ t('providerPage.inputPrice') }}{{ m.inputPrice ?? t('providerPage.notSet') }}{{ t('providerPage.perKToken') }}</div>
           <div class="m-row">{{ t('providerPage.outputPrice') }}{{ m.outputPrice ?? t('providerPage.notSet') }}{{ t('providerPage.perKToken') }}</div>
+          <div class="m-row">{{ t('providerPage.cacheReadPrice') }}{{ m.cacheReadPrice ?? t('providerPage.notSet') }}{{ t('providerPage.perKToken') }}</div>
+          <div class="m-row">{{ t('providerPage.cacheWritePrice') }}{{ m.cacheWritePrice ?? t('providerPage.notSet') }}{{ t('providerPage.perKToken') }}</div>
           <div class="m-row">{{ t('providerPage.context') }}{{ contextLabel(m.contextWindow) }}</div>
           <div class="m-foot">
             <el-tag :type="m.status === 'ENABLED' ? 'success' : 'info'" size="small">
@@ -167,6 +169,18 @@
             <el-option v-for="c in contextOptions" :key="c.value" :value="c.value" :label="c.label" />
           </el-select>
         </el-form-item>
+        <el-form-item :label="t('providerPage.inputPriceLabel')">
+          <el-input-number v-model="modelForm.inputPrice" :min="0" :step="0.001" :precision="4" />
+        </el-form-item>
+        <el-form-item :label="t('providerPage.outputPriceLabel')">
+          <el-input-number v-model="modelForm.outputPrice" :min="0" :step="0.001" :precision="4" />
+        </el-form-item>
+        <el-form-item :label="t('providerPage.cacheReadPriceLabel')">
+          <el-input-number v-model="modelForm.cacheReadPrice" :min="0" :step="0.001" :precision="4" />
+        </el-form-item>
+        <el-form-item :label="t('providerPage.cacheWritePriceLabel')">
+          <el-input-number v-model="modelForm.cacheWritePrice" :min="0" :step="0.001" :precision="4" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="modelCreateVisible = false">{{ t('providerPage.cancel') }}</el-button>
@@ -181,6 +195,12 @@
         </el-form-item>
         <el-form-item :label="t('providerPage.outputPriceLabel')">
           <el-input-number v-model="price.output" :min="0" :step="0.001" :precision="4" />
+        </el-form-item>
+        <el-form-item :label="t('providerPage.cacheReadPriceLabel')">
+          <el-input-number v-model="price.cacheRead" :min="0" :step="0.001" :precision="4" />
+        </el-form-item>
+        <el-form-item :label="t('providerPage.cacheWritePriceLabel')">
+          <el-input-number v-model="price.cacheWrite" :min="0" :step="0.001" :precision="4" />
         </el-form-item>
         <el-form-item :label="t('providerPage.contextWindow')">
           <el-select v-model="price.contextWindow" filterable allow-create style="width: 220px">
@@ -236,13 +256,13 @@ const createVisible = ref(false)
 const creating = ref(false)
 const priceVisible = ref(false)
 const price = reactive({
-  id: 0, input: 0, output: 0, contextWindow: 0,
+  id: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, contextWindow: 0,
   reasoning: false, reasoningParam: 'effort',
   reasoningLevels: ['low', 'medium', 'high'] as string[], defaultReasoningEffort: 'medium'
 })
 const modelCreateVisible = ref(false)
 const modelCreating = ref(false)
-const modelForm = reactive({ providerId: null as number | null, modelName: '', displayName: '', purpose: 'CHAT', contextWindow: 0 })
+const modelForm = reactive({ providerId: null as number | null, modelName: '', displayName: '', purpose: 'CHAT', contextWindow: 0, inputPrice: 0, outputPrice: 0, cacheReadPrice: 0, cacheWritePrice: 0 })
 const contextOptions = [
   { value: 0, label: t('providerPage.defaultOption') },
   { value: 32768, label: '32K' },
@@ -362,12 +382,20 @@ async function createModel() {
       modelName: modelForm.modelName.trim(),
       displayName: modelForm.displayName,
       purpose: modelForm.purpose,
-      contextWindow: modelForm.contextWindow
+      contextWindow: modelForm.contextWindow,
+      inputPrice: modelForm.inputPrice,
+      outputPrice: modelForm.outputPrice,
+      cacheReadPrice: modelForm.cacheReadPrice,
+      cacheWritePrice: modelForm.cacheWritePrice
     })
     ElMessage.success(t('providerPage.modelCreated'))
     modelCreateVisible.value = false
     modelForm.modelName = ''
     modelForm.displayName = ''
+    modelForm.inputPrice = 0
+    modelForm.outputPrice = 0
+    modelForm.cacheReadPrice = 0
+    modelForm.cacheWritePrice = 0
     await load()
   } finally {
     modelCreating.value = false
@@ -387,6 +415,8 @@ function editPrice(row: any) {
   price.id = row.modelId
   price.input = Number(row.inputPrice ?? 0)
   price.output = Number(row.outputPrice ?? 0)
+  price.cacheRead = Number(row.cacheReadPrice ?? 0)
+  price.cacheWrite = Number(row.cacheWritePrice ?? 0)
   price.contextWindow = Number(row.contextWindow ?? 0)
   const caps = parseJson(row.capabilities)
   price.reasoning = caps.reasoning === true
@@ -422,6 +452,8 @@ async function savePrice() {
   await http.put(`/models/${price.id}`, {
     inputPrice: price.input,
     outputPrice: price.output,
+    cacheReadPrice: price.cacheRead,
+    cacheWritePrice: price.cacheWrite,
     contextWindow: price.contextWindow,
     reasoning: price.reasoning,
     reasoningParam: price.reasoningParam,

@@ -1,7 +1,7 @@
 export default {
     app: { name: 'AI Agent 平台' },
     menu: {
-      agents: 'Agent 列表', memories: '长期记忆', cases: '用例库', square: 'Agent 广场',
+      agents: 'Agent 列表', myUsage: '我的用量', memories: '长期记忆', cases: '用例库', square: 'Agent 广场',
       templates: '模板库', knowledge: '知识库', skills: '技能管理', tools: '工具管理',
       mcp: 'MCP Server', approvals: '审批箱', prompts: 'Prompt 模板', provider: '模型接入',
       usage: '用量看板', billing: '计费管理', users: '成员管理', tenant: '租户设置',
@@ -178,8 +178,8 @@ export default {
       relayDown: '告警 relay 不可用，请检查 ALERT_RELAY_BASE_URL'
     },
     usage: {
-      last7: '近 7 天', last30: '近 30 天', last90: '近 90 天', requests: '请求次数',
-      inputTokens: '输入 Tokens', outputTokens: '输出 Tokens', cost: '成本（元）',
+      myTitle: '我的用量', last7: '近 7 天', last30: '近 30 天', last90: '近 90 天', requests: '请求次数',
+      inputTokens: '输入 Tokens', outputTokens: '输出 Tokens', cachedInputTokens: '缓存命中 Tokens', cacheWriteTokens: '缓存写入 Tokens', reasoningTokens: '推理 Tokens', cost: '成本（元）',
       dailyTrend: '按日趋势（输入/输出 Tokens）', input: '输入', output: '输出', noData: '暂无数据',
       byModel: '按模型', model: '模型', count: '次数', details: '调用明细', time: '时间', source: '来源',
       chat: '对话', debug: '调试', embedding: '嵌入', costShort: '成本'
@@ -229,7 +229,7 @@ export default {
     },
     providerPage: {
       admin: '接入管理', market: '模型广场', newModel: '新增模型', newProvider: '接入新 Provider',
-      modelId: '模型 ID：', inputPrice: '输入价：', outputPrice: '输出价：', notSet: '未设置',
+      modelId: '模型 ID：', inputPrice: '输入价：', outputPrice: '输出价：', cacheReadPrice: '缓存命中价：', cacheWritePrice: '缓存写入价：', notSet: '未设置',
       perKToken: ' 元/千Token', context: '上下文：', enabledUse: '可使用', disabledUse: '已停用',
       noModels: '暂无模型', providerHeader: 'Provider（平台预置 + 租户自建）', name: '名称',
       keyConfigured: '密钥已配置', type: '类型', ownership: '归属', preset: '平台预置', custom: '租户自建',
@@ -242,7 +242,7 @@ export default {
       credentialTitle: '配置 Provider API Key', clearKeyPh: '留空并保存表示清除密钥', save: '保存',
       modelCreateTitle: '新增模型', modelNamePh: '如 deepseek-chat', displayName: '显示名称',
       chat: '对话 CHAT', embedding: '嵌入 EMBEDDING', contextWindow: '上下文窗口',
-      priceTitle: '模型配置', inputPriceLabel: '输入 元/千Token', outputPriceLabel: '输出 元/千Token',
+      priceTitle: '模型配置', inputPriceLabel: '输入 元/千Token', outputPriceLabel: '输出 元/千Token', cacheReadPriceLabel: '缓存命中 元/千Token', cacheWritePriceLabel: '缓存写入 元/千Token',
       defaultOption: '未设置（默认）', nameUrlRequired: '名称和 Base URL 必填',
       providerCreated: 'Provider 已创建；可测试连通性并同步模型', keySaved: '密钥已加密保存',
       keyCleared: '已清除密钥', connectivityOk: '连通正常，耗时 ', syncDone: '同步完成：模型 ',

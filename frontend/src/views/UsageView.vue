@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="toolbar">
-      <span class="page-title">{{ t('page.usage') }}</span>
+      <span class="page-title">{{ mine ? t('usage.myTitle') : t('page.usage') }}</span>
       <el-select v-model="days" style="width: 140px" @change="load">
         <el-option :value="7" :label="t('usage.last7')" />
         <el-option :value="30" :label="t('usage.last30')" />
@@ -13,6 +13,9 @@
       <el-card shadow="never"><div class="k">{{ t('usage.requests') }}</div><div class="v">{{ summary.totalRequests }}</div></el-card>
       <el-card shadow="never"><div class="k">{{ t('usage.inputTokens') }}</div><div class="v">{{ fmt(summary.totalInputTokens) }}</div></el-card>
       <el-card shadow="never"><div class="k">{{ t('usage.outputTokens') }}</div><div class="v">{{ fmt(summary.totalOutputTokens) }}</div></el-card>
+      <el-card shadow="never"><div class="k">{{ t('usage.cachedInputTokens') }}</div><div class="v">{{ fmt(summary.totalCachedInputTokens) }}</div></el-card>
+      <el-card shadow="never"><div class="k">{{ t('usage.cacheWriteTokens') }}</div><div class="v">{{ fmt(summary.totalCacheWriteTokens) }}</div></el-card>
+      <el-card shadow="never"><div class="k">{{ t('usage.reasoningTokens') }}</div><div class="v">{{ fmt(summary.totalReasoningTokens) }}</div></el-card>
       <el-card shadow="never"><div class="k">{{ t('usage.cost') }}</div><div class="v">¥{{ money(summary.totalCost) }}</div></el-card>
     </div>
 
@@ -65,6 +68,9 @@
         <el-table-column prop="modelName" :label="t('usage.model')" />
         <el-table-column prop="inputTokens" :label="t('usage.input')" width="90" />
         <el-table-column prop="outputTokens" :label="t('usage.output')" width="90" />
+        <el-table-column prop="cachedInputTokens" :label="t('usage.cachedInputTokens')" width="110" />
+        <el-table-column prop="cacheWriteTokens" :label="t('usage.cacheWriteTokens')" width="110" />
+        <el-table-column prop="reasoningTokens" :label="t('usage.reasoningTokens')" width="110" />
         <el-table-column :label="t('usage.costShort')" width="100">
           <template #default="{ row }">¥{{ money(row.cost) }}</template>
         </el-table-column>
@@ -77,10 +83,13 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import http from '../api/http'
 
 const { t } = useI18n()
+const route = useRoute()
+const mine = computed(() => route.meta.myUsage === true)
 
 const days = ref(30)
 const page = ref(1)
@@ -88,11 +97,12 @@ const pageSize = 20
 const total = ref(0)
 const rows = ref<any[]>([])
 const summary = reactive<any>({ totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0,
-  totalCost: 0, byModel: [], byDay: [] })
+  totalCachedInputTokens: 0, totalCacheWriteTokens: 0, totalReasoningTokens: 0,
+  totalTokens: 0, totalCost: 0, byModel: [], byDay: [] })
 const maxDay = ref(1)
 
 async function load() {
-  const data = await http.get('/billing/usage', {
+  const data = await http.get(mine.value ? '/billing/usage/me' : '/billing/usage', {
     params: { days: days.value, page: page.value, pageSize }
   }) as any
   Object.assign(summary, data.summary)
