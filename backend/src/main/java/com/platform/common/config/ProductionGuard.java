@@ -22,7 +22,8 @@ public class ProductionGuard {
                            @Value("${spring.datasource.password:}") String dbPassword,
                            @Value("${storage.minio.access-key:}") String minioAccessKey,
                            @Value("${storage.minio.secret-key:}") String minioSecretKey,
-                           @Value("${spring.ai.openai.api-key:}") String modelApiKey) {
+                           @Value("${spring.ai.openai.api-key:}") String modelApiKey,
+                           @Value("${PLATFORM_ADMIN_PASSWORD:}") String platformAdminPassword) {
         if (!isProduction(environment)) return;
         List<String> problems = new ArrayList<>();
         if (blank(jwtSecret) || jwtSecret.startsWith("dev-only-secret") || jwtSecret.length() < 32) {
@@ -33,6 +34,9 @@ public class ProductionGuard {
         }
         if (blank(dbPassword) || "root".equals(dbPassword)) {
             problems.add("MYSQL_PASSWORD 未配置或仍为 root");
+        }
+        if ("change-me".equals(platformAdminPassword)) {
+            problems.add("PLATFORM_ADMIN_PASSWORD 仍为占位值 change-me（.env.docker.example 默认值）");
         }
         if (blank(minioAccessKey) || blank(minioSecretKey)
                 || "minioadmin".equals(minioAccessKey) || "minioadmin".equals(minioSecretKey)) {
