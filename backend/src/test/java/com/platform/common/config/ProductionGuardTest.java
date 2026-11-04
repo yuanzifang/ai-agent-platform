@@ -16,7 +16,7 @@ class ProductionGuardTest {
     void developmentAllowsWeakDefaults() {
         MockEnvironment env = new MockEnvironment();
         assertDoesNotThrow(() -> new ProductionGuard(env, "dev-only-secret-change-me-0123456789abcdef",
-                "", "root", "minioadmin", "minioadmin", "sk-not-configured"));
+                "", "root", "minioadmin", "minioadmin", "sk-not-configured", "change-me"));
     }
 
     @Test
@@ -24,7 +24,7 @@ class ProductionGuardTest {
         MockEnvironment env = new MockEnvironment().withProperty("APP_ENV", "production");
         IllegalStateException e = assertThrows(IllegalStateException.class,
                 () -> new ProductionGuard(env, "dev-only-secret-change-me-0123456789abcdef",
-                        "", "root", "minioadmin", "minioadmin", "sk-not-configured"));
+                        "", "root", "minioadmin", "minioadmin", "sk-not-configured", "change-me"));
         assertTrue(e.getMessage().contains("JWT_SECRET"), e.getMessage());
         assertTrue(e.getMessage().contains("MYSQL_PASSWORD"), e.getMessage());
         assertTrue(e.getMessage().contains("DEEPSEEK_API_KEY"), e.getMessage());
@@ -34,6 +34,17 @@ class ProductionGuardTest {
     void productionAcceptsStrongConfig() {
         MockEnvironment env = new MockEnvironment().withProperty("APP_ENV", "prod");
         assertDoesNotThrow(() -> new ProductionGuard(env, GOOD_JWT, GOOD_AES,
-                "strong-db-password", "minio-user", "minio-strong-secret", "sk-real-configured"));
+                "strong-db-password", "minio-user", "minio-strong-secret", "sk-real-configured",
+                "strong-admin-password"));
+    }
+
+    @Test
+    void productionRejectsPlaceholderAdminPassword() {
+        MockEnvironment env = new MockEnvironment().withProperty("APP_ENV", "production");
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> new ProductionGuard(env, GOOD_JWT, GOOD_AES,
+                        "strong-db-password", "minio-user", "minio-strong-secret", "sk-real-configured",
+                        "change-me"));
+        assertTrue(e.getMessage().contains("PLATFORM_ADMIN_PASSWORD"), e.getMessage());
     }
 }
