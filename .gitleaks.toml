@@ -6,6 +6,13 @@ useDefault = true
 [allowlist]
 description = "Local development fixtures and documented demo credentials"
 regexTarget = "match"
+# 历史 ci.yml 中的测试值（ollama 模型 tag、ci-token/smoke-token 冒烟凭据）误报加白
+commits = [
+  '''efd52524276a906095adbb1e7891866d3c38a33d''',
+  '''1279292d3fb0b9d593b6667041d8396d4ecb4023''',
+  '''6745b2ab738033a81e49b59937a0143ce7c1888b''',
+  '''e60a934c79a99ec79b12578604dd0f9e3b536f35''',
+]
 paths = [
   '''frontend/e2e/''',
   '''docs/''',
