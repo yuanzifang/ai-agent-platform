@@ -2,6 +2,12 @@
 
 日期：2026-11-04
 
+## 已落地的基础工作（2026-11-04）
+
+- 第 1 步已完成并合并：`ChatModelFactory` / `ChatModelSpec` 抽象层（PR #42，merge commit `4106e93`）。
+- `ChatModelRouter` 不再直接依赖 `OpenAiApi`/`AnthropicApi`/Provider ChatModel 构造；Spring AI 1.x 实现集中到 `SpringAiChatModelFactory`。
+- 第 3 步仍属于 Boot 4 迁移分支：Spring AI 2 的 ChatClient `options(...)` API 变化影响 15+ 调用点，需统一适配。
+
 ## 结论
 
 **当前不建议直接升级。** 保留 Spring Boot 3.5.16 + Spring Framework 6.2.19，继续用已记录的 VEX 例外控制 backend 镜像扫描；把 Boot 4 / Spring AI 2 作为独立迁移项目排期。
