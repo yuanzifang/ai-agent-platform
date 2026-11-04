@@ -15,7 +15,7 @@ OUT = os.environ.get(
     "AAP_OUT",
     str(Path(__file__).resolve().parent.parent / "eval-data/agri/农业回答质量交叉验证-Qwen38-15题.json"))
 MODEL = os.environ.get("AAP_JUDGE_MODEL", "qwen3.8:27b")
-OLLAMA = os.environ.get("OLLAMA_BASE", "http://192.168.64.1:11434")
+OLLAMA = os.environ.get("OLLAMA_BASE", "http://127.0.0.1:11434")
 LIMIT = int(os.environ.get("AAP_LIMIT", "15"))
 ONLY_FAILED = os.environ.get("AAP_ONLY_FAILED", "1") == "1"
 

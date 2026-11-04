@@ -1,0 +1,44 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 问题描述
+      description: 发生了什么、期望是什么
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 进入 ……
+        2. 点击 ……
+        3. 出现 ……
+    validations:
+      required: true
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: 部署方式
+      options:
+        - 本机直跑（无 Docker）
+        - Docker Compose
+        - Helm / K8s
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境信息
+      description: 浏览器、OS、镜像 tag / commit、APP_ENV 等
+      render: markdown
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: 后端/前端日志片段（请先脱敏，勿粘贴密钥或密码）
+      render: shell

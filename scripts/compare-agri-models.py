@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 
 BASE = os.environ.get("AAP_BASE", "http://127.0.0.1:18085")
-OLLAMA = os.environ.get("OLLAMA_BASE", "http://192.168.64.1:11434")
+OLLAMA = os.environ.get("OLLAMA_BASE", "http://127.0.0.1:11434")
 TOKEN_FILE = "/private/var/folders/v9/_zcwpw5n5kn77p_850hd06br0000gn/T/opencode/agri_token.txt"
 CASES = os.environ.get(
     "AAP_CASES",

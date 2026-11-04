@@ -1,3 +1,4 @@
+# 示例模板：将 <mac-host-ip>（Mac 本机，Ollama 入口）与 <utm-host-ip> 替换为实际地址。
 imagePullSecrets: []
 backend:
   image:
@@ -32,13 +33,13 @@ config:
   pgUrl: jdbc:postgresql://pgvector.aap-data.svc.cluster.local:5432/vector
   pgUsername: aap_vector_app
   minioEndpoint: http://minio.aap-data.svc.cluster.local:9000
-  ollamaEndpoint: http://192.168.64.1:11434
+  ollamaEndpoint: http://<mac-host-ip>:11434
   embeddingProvider: ollama
-  embeddingEndpoint: http://192.168.64.1:11434
+  embeddingEndpoint: http://<mac-host-ip>:11434
   appEnv: development
   authCookieSecure: "false"
-  publicBase: http://192.168.64.2:18080
-  frontendBase: http://192.168.64.2:18080
+  publicBase: http://<utm-host-ip>:18080
+  frontendBase: http://<utm-host-ip>:18080
   extraEnv:
     ELASTICSEARCH_URL: http://elasticsearch.aap-data.svc.cluster.local:9200
     QDRANT_URL: http://qdrant.aap-data.svc.cluster.local:6333
