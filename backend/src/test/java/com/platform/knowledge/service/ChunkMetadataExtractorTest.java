@@ -59,6 +59,23 @@ class ChunkMetadataExtractorTest {
         assertTrue(meta.domainKeywords().contains("药代动力学"));
     }
 
+
+    @Test
+    void classifiesAgriculturalActionAndForecastSections() {
+        ChunkMetadataExtractor.Profile profile = ChunkMetadataExtractor.profile(
+                "rice.md", "水稻稻瘟病防治");
+        DocumentParser.ParsedChunk action = new DocumentParser.ParsedChunk(
+                "水稻稻瘟病防治：破口前选用三环唑喷雾。", 1, "", null, 1, 1, List.of());
+        DocumentParser.ParsedChunk forecast = new DocumentParser.ParsedChunk(
+                "水稻稻瘟病发生趋势预测：总体中等发生。", 1, "", null, 1, 1, List.of());
+        DocumentParser.ParsedChunk table = new DocumentParser.ParsedChunk(
+                "| 病害 | 药剂 |\n| --- | --- |\n| 稻瘟病 | 三环唑 |", 1, "", null, 1, 1, List.of());
+
+        assertEquals("action", ChunkMetadataExtractor.extract(1L, action, profile).sectionType());
+        assertEquals("forecast", ChunkMetadataExtractor.extract(1L, forecast, profile).sectionType());
+        assertEquals("table", ChunkMetadataExtractor.extract(1L, table, profile).sectionType());
+    }
+
     @Test
     void extractsClinicalTrialAndAbstractMetadata() {
         String text = "A randomized placebo-controlled clinical trial (NCT01234567).";

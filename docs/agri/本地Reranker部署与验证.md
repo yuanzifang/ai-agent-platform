@@ -6,8 +6,8 @@
 
 在 Mac 本机启动 `BAAI/bge-reranker-v2-m3`，通过 HTTP 提供平台标准 rerank 协议：
 
-- 地址：`http://192.168.64.1:8010/rerank`
-- 健康检查：`http://192.168.64.1:8010/health`
+- 地址：`http://<mac-host-ip>:8010/rerank`
+- 健康检查：`http://<mac-host-ip>:8010/health`
 - 模型：`BAAI/bge-reranker-v2-m3`
 - 设备：CPU
 - Python：3.11（uv venv）
@@ -37,7 +37,7 @@ bash scripts/smoke-reranker.sh
 
 ```yaml
 RERANK_ENABLED: "true"
-RERANK_ENDPOINT: "http://192.168.64.1:8010/rerank"
+RERANK_ENDPOINT: "http://<mac-host-ip>:8010/rerank"
 RERANK_MODEL: "bge-reranker-v2-m3"
 RERANK_TOP_N: "5"
 ```
@@ -46,7 +46,7 @@ RERANK_TOP_N: "5"
 
 ```text
 RERANK_ENABLED=true
-RERANK_ENDPOINT=http://192.168.64.1:8010/rerank
+RERANK_ENDPOINT=http://<mac-host-ip>:8010/rerank
 RERANK_MODEL=bge-reranker-v2-m3
 ```
 
@@ -100,8 +100,11 @@ RERANK_MODEL=bge-reranker-v2-m3
 随后改为“先召回更大候选池，再重排到 topK”：
 
 - 15 道历史失败题：8/15（V23）
-- 完整 60 题：33/60，平均分 0.7492（V23）
+- 完整 60 题：33/60，平均分 0.7492（V23，扩大候选池但未清洗）
 - 无重排完整 60 题：34/60（V13）
+- 叠加泛化片段清洗：34/60，平均分 0.7400（V25b），仍无净提升
+- 重新入库清洗后、无重排：**43/60 = 71.7%**，平均分 0.7817
+- 清洗后开启重排：15 题仍为 7/15，没有额外收益
 
 重排对 15 道失败题有小幅提升，但完整 60 题没有超过无重排基线，且会改变引用顺序和条数。为避免当前 7B 答案质量波动，**Agent 5422 暂未开启 rerank**，保持 V24 的关闭状态；平台服务保持运行，后续可针对具体 Agent 做 A/B 后再开启。
 
@@ -121,7 +124,7 @@ V23 原始结果：`eval-data/agri/农业回答质量基线-V23-60题.json`。
 - Agent 5422：V24，`rerank=false`
 - 其他 Agent：未显式开启
 - 这样不会影响 Agent 4878 等无关业务
-- 后端镜像：`aap/backend:agri-rerank2-11031025`
+- 后端镜像：`aap/backend:agri-sectionmodel2-11040955`
 - 前端镜像：`aap/frontend:agri-rerank2-ui-11031026`
 
 ## 6. 注意事项

@@ -77,6 +77,9 @@ public class KnowledgeService {
     private final HybridRetrievalService hybridRetrieval;
     @Autowired(required = false)
     private KnowledgeSearchIndexService searchIndexService;
+
+    @Autowired(required = false)
+    private SectionTypeClassifier sectionClassifier;
     @Value("${search.keyword.provider:mysql}")
     private String defaultSearchBackend = "mysql";
     @Value("${vector.store:pgvector}")
@@ -1022,6 +1025,12 @@ public class KnowledgeService {
         ChunkMetadataExtractor.Profile profile = ChunkMetadataExtractor.profile(
                 doc.getFileName(), profileText.length() > 100_000
                         ? profileText.substring(0, 100_000) : profileText);
+        // 入库时用本地模型识别 section；失败/超时自动回退规则分类。
+        long sectionStartedAt = System.currentTimeMillis();
+        Map<Integer, String> modelSections = sectionClassifier == null
+                ? Map.of() : sectionClassifier.classify(chunks);
+        log.info("文档解析阶段：doc={} phase=section chunks={} labeled={} ms={}",
+                doc.getId(), chunks.size(), modelSections.size(), System.currentTimeMillis() - sectionStartedAt);
         List<KnowledgeChunk> chunkRows = new ArrayList<>(chunks.size());
         for (int i = 0; i < chunks.size(); i++) {
             DocumentParser.ParsedChunk parsed = chunks.get(i);
@@ -1033,7 +1042,7 @@ public class KnowledgeService {
             chunk.setParentIndex(parsed.parentIndex());
             chunk.setParentContent(parsed.parentContent());
             chunk.setDocumentType(meta.documentType());
-            chunk.setSectionType(meta.sectionType());
+            chunk.setSectionType(modelSections.getOrDefault(i, meta.sectionType()));
             chunk.setChunkLevel(meta.chunkLevel());
             chunk.setParentKey(meta.parentKey());
             chunk.setDomainKeywords(objectMapper.writeValueAsString(meta.domainKeywords()));

@@ -104,7 +104,7 @@ import java.util.zip.ZipInputStream;
 public class DocumentParser {
 
     /** 解析器版本：解析行为/结构化输出变化时递增，用于存量升级和复用判断。 */
-    public static final String PARSER_VERSION = "2026-10-30.11";
+    public static final String PARSER_VERSION = "2026-11-03.1";
 
     private static final long MAX_BYTES = 20 * 1024 * 1024;
 
@@ -1584,7 +1584,8 @@ public class DocumentParser {
     }
 
     private List<ParsedChunk> splitWithParents(String text) {
-        List<MarkdownChunker.Chunk> chunks = MarkdownChunker.split(text);
+        // 先清理站点导航/时间/来源等模板，再切块；模板不进入正文、embedding 或引用。
+        List<MarkdownChunker.Chunk> chunks = MarkdownChunker.split(ContentCleaner.clean(text));
         List<ParsedChunk> result = new ArrayList<>(chunks.size());
         for (MarkdownChunker.Chunk chunk : chunks) {
             result.add(new ParsedChunk(chunk.content(), chunk.parentIndex(), chunk.parentContent(),

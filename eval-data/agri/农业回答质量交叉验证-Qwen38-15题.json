@@ -1,5 +1,5 @@
 {
-  "source": "/Users/<user>/.zcode/workspace/default/ai-agent-platform/docs/农业回答质量基线-V7-60题.json",
+  "source": "/Users/<user>/.zcode/workspace/default/ai-agent-platform/docs/agri/农业回答质量基线-V7-60题.json",
   "model": "qwen3.8:27b",
   "onlyFailed": true,
   "total": 15,

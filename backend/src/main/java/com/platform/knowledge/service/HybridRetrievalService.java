@@ -120,6 +120,7 @@ public class HybridRetrievalService {
         LocalDateTime validityBefore = effectiveBefore == null ? null
                 : LocalDateTime.ofInstant(effectiveBefore, ZoneId.systemDefault());
         String q = query == null ? "" : query.trim();
+        String policyQuery = q;
         // 可选检索策略（查询归一化、业务范围过滤等）由扩展实现，核心不感知行业规则。
         for (RetrievalPolicy policy : retrievalPolicies) {
             if (policy == null) continue;
@@ -263,7 +264,8 @@ public class HybridRetrievalService {
         // 排序后、截断前执行可选策略，保持策略可以基于完整候选集做兜底。
         for (RetrievalPolicy policy : retrievalPolicies) {
             if (policy == null) continue;
-            ranked = policy.filter(q, config, ranked);
+            // 过滤策略使用原始问句：normalizeQuery 会去掉“怎么防治”，但意图过滤需要它。
+            ranked = policy.filter(policyQuery, config, ranked);
         }
         // 策略过滤后再按 rerank 需要保留候选池；普通检索仍只返回 topK。
         int resultLimit = rerankRequested ? candidateLimit : limit;
