@@ -55,7 +55,11 @@ public class ProductionGuard {
         }
     }
 
-    private boolean isProduction(Environment environment) {
+    /**
+     * 生产环境判定（APP_ENV=production/prod 或激活 prod profile）；
+     * AdminPasswordInitializer 等处复用，保证判定口径唯一。
+     */
+    public static boolean isProduction(Environment environment) {
         String appEnv = environment.getProperty("APP_ENV", "development").toLowerCase(Locale.ROOT);
         if (List.of("prod", "production").contains(appEnv)) return true;
         return Arrays.stream(environment.getActiveProfiles())

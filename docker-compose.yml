@@ -166,6 +166,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       AES_KEY: ${AES_KEY:?AES_KEY is required}
       PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:?PLATFORM_ADMIN_PASSWORD is required}
+      DEV_PASSWORD: ${DEV_PASSWORD:?DEV_PASSWORD is required}
       TOOL_ALLOW_PRIVATE: ${TOOL_ALLOW_PRIVATE:-false}
       TOOL_ALLOWED_HOSTS: ${TOOL_ALLOWED_HOSTS:-}
       APP_PUBLIC_BASE: ${APP_PUBLIC_BASE:-http://localhost:8080}
@@ -192,6 +193,7 @@ services:
       ALERT_RELAY_BASE_URL: ${ALERT_RELAY_BASE_URL:-http://alert-relay:8080}
       ALERT_RELAY_ACK_TOKEN: ${ALERT_RELAY_ACK_TOKEN:-}
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
+      # 公网部署请在 .env.docker 设 APP_ENV=production（启用 ProductionGuard 弱默认值熔断）
       APP_ENV: ${APP_ENV:-development}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
