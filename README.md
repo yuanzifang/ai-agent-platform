@@ -129,7 +129,7 @@ scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 
 ## 测试与 CI
 
-- 后端单元测试：`cd backend && mvn test`（当前 668，截至 2026-11-03）
+- 后端单元测试：`cd backend && mvn test`（当前 682，截至 2026-11-04）
 - E2E：Playwright 双浏览器（chromium + msedge），`cd frontend && npm run test:e2e`
 - CI（GitHub Actions，push/PR 常驻门禁）：gitleaks 秘密扫描 → trivy 依赖漏洞门禁（HIGH/CRITICAL）→ npm audit → 后端构建+前端类型检查+单测 → Alert-relay Node 单测/镜像冒烟 → 双浏览器 E2E；镜像供应链门禁（backend/frontend/alert-relay 三镜像 trivy 镜像级漏洞阻断 HIGH/CRITICAL，例外记录于 `.trivyignore`，并产出镜像 CycloneDX SBOM）
 - 安全与供应链：`security.yml`（gitleaks/trivy 观察/npm audit）、CodeQL、CycloneDX SBOM（backend/frontend/alert-relay）、Apache-2.0 许可证门禁
