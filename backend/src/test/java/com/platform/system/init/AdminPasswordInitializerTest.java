@@ -34,6 +34,14 @@ class AdminPasswordInitializerTest {
     }
 
     @Test
+    void shippedPlaceholderPasswordInProductionRefusesToStart() {
+        AdminPasswordInitializer initializer = new AdminPasswordInitializer(
+                mock(SysUserMapper.class), encoder(), environment("production", "change-me"));
+
+        assertThrows(IllegalStateException.class, () -> initializer.run(null));
+    }
+
+    @Test
     void devPasswordMissingOutsideProductionFallsBackToDefault() {
         SysUserMapper userMapper = mock(SysUserMapper.class);
         PasswordEncoder encoder = encoder();

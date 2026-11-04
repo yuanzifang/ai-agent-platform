@@ -193,8 +193,8 @@ services:
       ALERT_RELAY_BASE_URL: ${ALERT_RELAY_BASE_URL:-http://alert-relay:8080}
       ALERT_RELAY_ACK_TOKEN: ${ALERT_RELAY_ACK_TOKEN:-}
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
-      # 公网部署请在 .env.docker 设 APP_ENV=production（启用 ProductionGuard 弱默认值熔断）
-      APP_ENV: ${APP_ENV:-development}
+      # 与 Helm 默认一致取 production（ProductionGuard 弱默认值熔断）；本机/内网演示可显式设 development
+      APP_ENV: ${APP_ENV:-production}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
