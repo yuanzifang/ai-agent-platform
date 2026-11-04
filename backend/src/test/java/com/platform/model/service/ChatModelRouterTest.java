@@ -1,5 +1,7 @@
 package com.platform.model.service;
 
+import com.platform.model.client.springai.SpringAiChatModelFactory;
+
 import com.platform.model.entity.ModelEntity;
 import com.platform.model.entity.Provider;
 import com.platform.model.mapper.ModelMapper;
@@ -34,7 +36,7 @@ class ChatModelRouterTest {
         providerMapper = mock(ProviderMapper.class);
         providerService = mock(ProviderService.class);
         router = new ChatModelRouter(modelMapper, providerMapper, providerService,
-                mock(StringRedisTemplate.class));
+                java.util.List.of(new SpringAiChatModelFactory()), mock(StringRedisTemplate.class));
 
         model = new ModelEntity();
         model.setId(1L);
