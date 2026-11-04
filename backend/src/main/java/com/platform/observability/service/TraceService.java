@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.platform.agent.entity.AgentVersion;
 import com.platform.agent.mapper.AgentVersionMapper;
+import com.platform.common.context.TenantContext;
 import com.platform.capability.runtime.ToolCallEvent;
 import com.platform.capability.runtime.TraceStep;
 import com.platform.model.entity.ModelEntity;
@@ -15,6 +16,7 @@ import com.platform.observability.mapper.AgentSpanMapper;
 import com.platform.observability.mapper.AgentTraceMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -54,6 +56,10 @@ public class TraceService {
     private final PricingService pricingService;
     private final ObjectMapper objectMapper;
     private final OtelTraceExporter otelTraceExporter;
+
+    /** Spring 注入；单元测试直接构造时为空，回退同步写入。 */
+    @Autowired(required = false)
+    private TraceWriteQueue traceWriteQueue;
 
     /** 0..1；1=全量落库，ERROR/BLOCKED 默认始终保留。 */
     @Value("${observability.trace.sample-rate:1.0}")
@@ -131,6 +137,21 @@ public class TraceService {
             log.debug("Trace 采样跳过 traceId={} rate={}", traceId, traceSampleRate);
             return;
         }
+        Runnable task = () -> TenantContext.run(tenantId, () -> persist(tenantId, traceId,
+                conversationId, sessionId, agentId, userId, agentName, status, modelName,
+                inTokens, outTokens, latencyMs, citationCount, extra, toolCalls, steps, requestId));
+        if (traceWriteQueue == null) {
+            task.run();
+        } else {
+            traceWriteQueue.submit("ERROR".equalsIgnoreCase(status) || "BLOCKED".equalsIgnoreCase(status), task);
+        }
+    }
+
+    private void persist(Long tenantId, String traceId, Long conversationId, String sessionId,
+                         Long agentId, Long userId, String agentName, String status,
+                         String modelName, long inTokens, long outTokens, long latencyMs,
+                         int citationCount, TraceExtra extra, List<ToolCallEvent> toolCalls,
+                         List<TraceStep> steps, String requestId) {
         try {
             String kind = extra != null && extra.kind() != null ? extra.kind() : KIND_INTERNAL;
             String version = extra != null && extra.version() != null ? extra.version()
