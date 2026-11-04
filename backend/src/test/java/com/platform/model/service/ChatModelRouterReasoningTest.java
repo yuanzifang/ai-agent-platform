@@ -1,5 +1,7 @@
 package com.platform.model.service;
 
+import com.platform.model.client.springai.SpringAiChatModelFactory;
+
 import com.platform.model.entity.ModelEntity;
 import com.platform.model.entity.Provider;
 import com.platform.model.mapper.ModelMapper;
@@ -40,7 +42,8 @@ class ChatModelRouterReasoningTest {
 
         when(modelMapper.findForPricing(eq("m1"), nullable(Long.class))).thenReturn(model);
         when(providerMapper.findByIdIgnore(9L)).thenReturn(provider);
-        return new ChatModelRouter(modelMapper, providerMapper, providerService, redis);
+        return new ChatModelRouter(modelMapper, providerMapper, providerService,
+                java.util.List.of(new SpringAiChatModelFactory()), redis);
     }
 
     @Test
