@@ -10,6 +10,8 @@ import org.springframework.core.env.Environment;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 /**
  * 平台管理员 + 开发账号密码初始化（架构 10.8）：仅当 seed 占位 __RESET__ 存在时生效。
  */
@@ -20,6 +22,9 @@ public class AdminPasswordInitializer implements ApplicationRunner {
 
     /** 本地开发便利默认值；生产模式禁止使用，未设置时 dev 账号直接不激活。 */
     static final String DEV_DEFAULT_PASSWORD = "Dev@123456";
+
+    /** 发布物中随示例文件一起暴露的占位密码，生产模式同样拒绝。 */
+    private static final List<String> KNOWN_PLACEHOLDER_PASSWORDS = List.of(DEV_DEFAULT_PASSWORD, "change-me");
 
     private final SysUserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
@@ -40,9 +45,9 @@ public class AdminPasswordInitializer implements ApplicationRunner {
                 log.warn("生产环境未配置 DEV_PASSWORD：开发账号 dev 不激活");
                 return;
             }
-            if (DEV_DEFAULT_PASSWORD.equals(devPassword)) {
+            if (KNOWN_PLACEHOLDER_PASSWORDS.contains(devPassword)) {
                 throw new IllegalStateException(
-                        "生产环境 DEV_PASSWORD 不能使用默认开发密码 " + DEV_DEFAULT_PASSWORD + "，拒绝启动");
+                        "生产环境 DEV_PASSWORD 不能使用已知默认/占位值（Dev@123456、change-me），拒绝启动");
             }
         } else if (devPassword == null || devPassword.isBlank()) {
             devPassword = DEV_DEFAULT_PASSWORD;

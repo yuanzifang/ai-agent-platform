@@ -119,7 +119,7 @@ scripts/docker-down.sh --volumes   # 停止并删除数据（需输入 DELETE）
 
 生产建议：
 
-- 公网部署在 `.env.docker` 设 `APP_ENV=production`（启用 ProductionGuard：弱默认值/默认密码拒绝启动）；`DEV_PASSWORD` 未设置时 dev 演示账号不会激活
+- Compose 默认 `APP_ENV=production`（与 Helm 一致，启用 ProductionGuard 弱默认值/默认密码熔断）；本机/内网演示可显式设 `development`。`DEV_PASSWORD` 未设置时 dev 演示账号不会激活
 - Compose 中的 `PG_USERNAME` 是 Postgres 初始化/bootstrap 账号（目前默认 `aiagent`，会拥有较高权限），只适合单机验证；生产请使用 Helm + `scripts/vector-role.sh` 创建 `aap_vector_app`，或自行用管理员创建专用角色并切换应用连接账号。
 - 只开放 80/443；MinIO 控制台 9001 仅内网访问
 - 前面再加 HTTPS/负载均衡；SSE 需关闭代理缓冲（Nginx 配置已设置）
