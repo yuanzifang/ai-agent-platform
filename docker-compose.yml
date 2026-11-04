@@ -166,7 +166,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       AES_KEY: ${AES_KEY:?AES_KEY is required}
       PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:?PLATFORM_ADMIN_PASSWORD is required}
-      DEV_PASSWORD: ${DEV_PASSWORD:?DEV_PASSWORD is required}
+      # 留空 = 生产模式不激活 dev 账号（与 Helm secrets.devPassword 语义一致）；开发模式留空用默认值
+      DEV_PASSWORD: ${DEV_PASSWORD:-}
       TOOL_ALLOW_PRIVATE: ${TOOL_ALLOW_PRIVATE:-false}
       TOOL_ALLOWED_HOSTS: ${TOOL_ALLOWED_HOSTS:-}
       APP_PUBLIC_BASE: ${APP_PUBLIC_BASE:-http://localhost:8080}
