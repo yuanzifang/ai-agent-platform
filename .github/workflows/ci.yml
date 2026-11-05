@@ -195,7 +195,12 @@ jobs:
           exit-code: ${{ matrix.fail_on_vuln }}
           trivyignores: .trivyignore
 
+      - name: 输出镜像扫描结果（${{ matrix.image }}）
+        if: always()
+        run: cat ${{ matrix.image }}-image-vuln.txt || true
+
       - name: Trivy 镜像 SBOM（${{ matrix.image }}）
+        if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
@@ -205,6 +210,7 @@ jobs:
           exit-code: '0'
 
       - name: 上传镜像扫描结果（${{ matrix.image }}）
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: image-scan-${{ matrix.image }}
