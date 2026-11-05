@@ -88,6 +88,15 @@ docker compose --env-file .env.docker exec ollama ollama pull bge-m3
 > ```
 >
 > 该模式使用宿主机 `host.docker.internal:9000` 的对象存储，其余服务仍由 Compose 启动。首次实跑记录见 `docs/archive/Compose实跑验收.md`。
+>
+> 宿主机已有 Ollama 且已 `ollama pull bge-m3` 时，可再叠加：
+>
+> ```bash
+> docker compose -f docker-compose.yml -f docker-compose.external-minio.yml \
+>   -f docker-compose.external-ollama.yml up -d
+> ```
+>
+> 该模式让后端 embedding 使用宿主机 `host.docker.internal:11434` 的 `bge-m3`，Compose 内的 Ollama 只保留占位健康检查。
 
 启动后：
 
