@@ -25,7 +25,11 @@ regexes = [
   '''columns:\{userId\}:\{agentId\}''',
   '''Dev@123456''',
   '''Admin@123456''',
-  '''Acl@123456'''
+  '''Acl@123456''',
+  '''sk-ci-mock-key''',
+  '''ci-only-(jwt|aes)-key-[0-9a-f]+''',
+  '''(ci-token|smoke-token)''',
+  '''ci-only-jwt-secret-0123456789abcdef0123456789abcdef'''
 ]
 
 # frontend-ui-object-keys: ObservabilityView 的列/卡片 key 字面量，非密钥
