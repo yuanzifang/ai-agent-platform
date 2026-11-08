@@ -307,7 +307,7 @@ export default {
     },
     platformPage: {
       createTenant: 'Create tenant', tenantKey: 'Tenant key', name: 'Name', status: 'Status', members: 'Members',
-      createdAt: 'Created', actions: 'Actions', enable: 'Enable', disable: 'Disable', createTitle: 'Create tenant',
+      createdAt: 'Created', actions: 'Actions', enable: 'Enable', disable: 'Disable', enterTenant: 'Enter tenant', createTitle: 'Create tenant',
       keyPh: 'e.g. acme (used at login)', owner: 'Owner account', ownerPh: 'e.g. acme-owner',
       password: 'Initial password', passwordPh: 'At least 8 characters', cancel: 'Cancel', create: 'Create',
       fillAll: 'Please fill in all fields', created: 'Tenant created (OWNER account and default quota included)',

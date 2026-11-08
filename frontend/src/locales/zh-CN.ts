@@ -304,7 +304,7 @@ export default {
     },
     platformPage: {
       createTenant: '开通租户', tenantKey: '租户标识', name: '名称', status: '状态', members: '成员数',
-      createdAt: '创建时间', actions: '操作', enable: '启用', disable: '停用', createTitle: '开通租户',
+      createdAt: '创建时间', actions: '操作', enable: '启用', disable: '停用', enterTenant: '进入租户', createTitle: '开通租户',
       keyPh: '如 acme（登录时填写）', owner: '所有者账号', ownerPh: '如 acme-owner',
       password: '初始密码', passwordPh: '至少 8 位', cancel: '取消', create: '开通',
       fillAll: '请完整填写', created: '租户已开通（含 OWNER 账号与默认配额）',

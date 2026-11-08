@@ -21,8 +21,9 @@
         <el-table-column :label="t('platformPage.createdAt')" width="150">
           <template #default="{ row }">{{ fmt(row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column :label="t('platformPage.actions')" min-width="160">
+        <el-table-column :label="t('platformPage.actions')" min-width="220">
           <template #default="{ row }">
+            <el-button size="small" type="primary" plain @click="enterTenant(row)">{{ t('platformPage.enterTenant') }}</el-button>
             <el-button size="small" @click="editQuota(row)">{{ t('platformPage.quota') }}</el-button>
             <el-button v-if="row.status !== 'ACTIVE'" size="small" type="success" plain @click="setStatus(row, 'ACTIVE')">{{ t('platformPage.enable') }}</el-button>
             <el-button v-if="row.status === 'ACTIVE'" size="small" type="danger" plain @click="setStatus(row, 'SUSPENDED')">{{ t('platformPage.disable') }}</el-button>
@@ -71,10 +72,12 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 
 const { t } = useI18n()
+const router = useRouter()
 
 const tenants = ref<any[]>([])
 const createVisible = ref(false)
@@ -85,6 +88,12 @@ onMounted(load)
 
 async function load() {
   tenants.value = await http.get('/platform/tenants') as any
+}
+
+function enterTenant(row: any) {
+  localStorage.setItem('platformTenantId', String(row.id))
+  // 整页重载，确保所有组件在首个请求前就带上新的 X-Tenant-Id。
+  window.location.assign('/agents')
 }
 
 async function create() {

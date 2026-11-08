@@ -66,6 +66,23 @@ router.beforeEach(async (to) => {
   if (!user.accessToken) {
     return '/login'
   }
+
+  // 平台管理员没有租户归属：未显式选择租户前，不进入租户工作区。
+  // 这里保留平台级页面；租户页面统一回平台控制台，避免组件先发请求再报“缺少租户上下文”。
+  const platformPaths = [
+    '/admin/platform',
+    '/admin/settings',
+    '/admin/infrastructure',
+    '/admin/i18n',
+    '/provider',
+    '/gateway'
+  ]
+  const platformAdmin = Boolean(user.userInfo?.isPlatformAdmin)
+  const tenantId = localStorage.getItem('platformTenantId')
+  const isPlatformPath = platformPaths.some((p) => to.path === p || to.path.startsWith(`${p}/`))
+  if (platformAdmin && !tenantId && !isPlatformPath) {
+    return { path: '/admin/platform', query: { needTenant: '1' } }
+  }
 })
 
 export default router

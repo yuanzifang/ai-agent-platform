@@ -234,7 +234,11 @@ onMounted(async () => {
 })
 function onTenantSwitch(id: string) {
   localStorage.setItem('platformTenantId', id)
-  router.go(0)
+  if (route.path === '/agents') {
+    router.go(0)
+  } else {
+    router.push('/agents')
+  }
 }
 const openedGroups = ref<string[]>([groupOf(route.path)])
 function groupOf(path: string): string {
