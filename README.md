@@ -1,5 +1,7 @@
 # AI Agent Platform
 
+[English README](README.en.md)
+
 企业级 AI Agent 平台（SaaS 多租户）：Spring Boot 3 + Spring AI + Vue3 + MySQL/Redis/PgVector/MinIO，多 Agent 编排由自研工作流引擎提供。
 文档入口与目录规则见 [`docs/README.md`](docs/README.md)，关键技术决策见 [`docs/技术决策记录.md`](docs/技术决策记录.md)。
 
